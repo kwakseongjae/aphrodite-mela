@@ -100,3 +100,7 @@ Method: quit the dev build, moved `~/Library/Application Support/studio.aphrodit
 | Data restore | User data and WebKit store restored intact (8 projects visible again). |
 
 Next-release checklist derived from this run: collapse the assembly bar by default; Get Vibe empty-page guidance; Korean new-project modal (worker); consider a starter template choice in the new-project modal (blank / brief / sample landing) so the first canvas is never empty.
+
+## 6. Intel build smoke test (2026-09-10 15:42)
+
+`npx tauri build --target x86_64-apple-darwin --bundles app` on the Apple Silicon Mac produced an x86_64 app and an x86_64 OCR sidecar (`scripts/build-vision.mjs` honours `TAURI_ENV_TARGET_TRIPLE`). Under Rosetta 2: the sidecar returned 25 OCR lines on the demo reference, and the app launched, read the shared workspace and rendered the home with all eight projects (`scratchpad/fresh/x64-home.png`). macOS 26 shows its "Intel-based app support is ending" advisory on launch — expected, not a defect. The release workflow now builds both targets in a matrix; the landing page shows an Intel link whenever an `*_x64.dmg` asset exists on the latest release.
