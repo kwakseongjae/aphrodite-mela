@@ -84,3 +84,19 @@ Harness caveats for any computer-use agent on this app: a Korean input source tu
 - Feedback after actions 3 — toasts are informative but short and can overlap.
 - Catalog breadth as observed 2 — five buttons, everything else single.
 - Palette/theme editing 3 — presets and per-token colours work; drafts are hard to judge without accent-bearing components (notice added).
+
+## 5. Clean-install first run with the released v0.1.0 DMG (2026-09-10 15:35)
+
+Method: quit the dev build, moved `~/Library/Application Support/studio.aphrodite.mela` and `~/Library/WebKit/studio.aphrodite.mela` aside, copied `Aphrodite.app` out of the notarized DMG with a Safari quarantine attribute, launched it, then restored both stores and relaunched the dev build. Screenshots `scratchpad/fresh/f01–f09`.
+
+| Step | Result |
+| --- | --- |
+| Gatekeeper | Opened without any dialog (`spctl` accepted, notarized). |
+| First home | Korean (OS locale), empty state with the apple-hand illustration, "첫 프로젝트 만들기" CTA, sidebar counts 0/0/0. Good. |
+| Legacy migration caveat | On a Mac that previously ran the *browser* build, WKWebView localStorage still held the legacy single-project key, so the "fresh" app showed one migrated project ("모아 Image First"). Harmless for real new users (no WebKit store), but the migration path should be documented. |
+| New project | Modal is still English ("Room for something new." / "Project name" / "Create project" / default name "Untitled project") — in scope of the running localisation worker. |
+| First editor view | Empty page with a clear "Start with a component from the library" drop zone. The AGENT ASSEMBLY bar ("Ready", Assembly console / Pin selected frame / Insert at page root) is the first thing a human sees — it should collapse until an assembly run exists. Status bar still says "Local-first workspace / No generation credits used" in this release (the live status line shipped after v0.1.0). |
+| Get Vibe on the empty page | Dead end: "0개 필드 변경 · 미지원 컴포넌트 0개". Get Vibe only fills existing blocks. On an empty page it must offer the next step instead ("브리프로 시작" to assemble a draft, "레퍼런스로 3안", or "카탈로그에서 추가"). To implement after the localisation merge (same file). |
+| Data restore | User data and WebKit store restored intact (8 projects visible again). |
+
+Next-release checklist derived from this run: collapse the assembly bar by default; Get Vibe empty-page guidance; Korean new-project modal (worker); consider a starter template choice in the new-project modal (blank / brief / sample landing) so the first canvas is never empty.
