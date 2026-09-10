@@ -167,9 +167,51 @@ test('agent panel lists scope, timeline and the take-control button',()=>{
   assert.match(html,/Agent console/);
   assert.match(html,/Codex computer use/);
   assert.match(html,/data-action="delegation-return"/);
+  assert.match(html,/Frame<span>Whole space/);
   assert.match(html,/Approve direction<span>locked/);
   assert.match(html,/Change design system<span>locked/);
   assert.match(html,/Export · save<span>allowed/);
   assert.ok(html.indexOf('#2')<html.indexOf('#1'),'newest receipt first');
-  assert.match(agentPanelHtml(d,[],'ko'),/아직 기록이 없습니다/);
+  const ko=agentPanelHtml(d,[],'ko');
+  assert.match(ko,/아직 기록이 없습니다/);
+  assert.match(ko,/프레임<span>전체 공간/);
+});
+
+test('frame-scoped delegation validates frameId, blocks other frames, and names the frame in the panel',()=>{
+  const project=initialProject();
+  const frameId=project.pages[0].id;
+  project.pages.push({id:'other-page',name:'About',blocks:[]});
+  const scoped=startDelegation(project,{operator:'Codex',intent:'Stay on home',scope:{frameId,deletePages:true}});
+  assert.equal(scoped.scope.frameId,frameId);
+  assert.throws(()=>startDelegation(project,{operator:'Codex',intent:'n',scope:{frameId:'missing-page'}}),{message:'frameId must be a page of this project'});
+
+  assert.equal(isBlockedWhileDelegated(scoped,'page',{id:frameId}),false);
+  assert.equal(isBlockedWhileDelegated(scoped,'page',{id:'other-page'}),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'frame-move',{id:frameId}),false);
+  assert.equal(isBlockedWhileDelegated(scoped,'frame-preset',{id:frameId}),false);
+  assert.equal(isBlockedWhileDelegated(scoped,'frame-move',{id:'other-page'}),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'frame-preset',{id:'other-page'}),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'page-delete'),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'delete-page'),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'add-page'),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'new-frame'),true);
+  assert.equal(isBlockedWhileDelegated(scoped,'edit'),false);
+  assert.equal(isBlockedWhileDelegated(scoped,'approve'),true);
+
+  const unscoped=startDelegation(project,{operator:'Astra',intent:'whole space'});
+  assert.equal(unscoped.scope.frameId,undefined);
+  assert.equal(isBlockedWhileDelegated(unscoped,'add-page'),false);
+  assert.equal(isBlockedWhileDelegated(unscoped,'page',{id:'other-page'}),false);
+  assert.equal(isBlockedWhileDelegated(unscoped,'frame-move',{id:'other-page'}),false);
+
+  const en=agentPanelHtml(scoped,[],'en',{frameName:'Home & <x>'});
+  assert.match(en,/Frame<span>Home &amp; &lt;x&gt;/);
+  assert.doesNotMatch(en,/<x>/);
+  const ko=agentPanelHtml(scoped,[],'ko',{frameName:'홈'});
+  assert.match(ko,/프레임<span>홈/);
+  assert.doesNotMatch(ko,/전체 공간/);
+
+  const storage=memory();
+  writeDelegation(storage,scoped);
+  assert.deepEqual(readDelegation(storage,project.id),scoped);
 });
