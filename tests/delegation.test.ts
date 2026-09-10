@@ -9,7 +9,7 @@ import {
   delegationSummary,
   readDelegation,
   writeDelegation,
-} from '../src/agent/delegation';
+agentPanelHtml} from '../src/agent/delegation';
 import {fingerprint,initialProject} from '../src/model';
 
 function memory():Pick<Storage,'getItem'|'setItem'|'removeItem'>&{data:Map<string,string>}{
@@ -159,4 +159,17 @@ test('summary names operator, intent, window, receipts, fingerprint change and o
   const changed=endDelegation(open,project,'returned',2,'2026-09-10T12:05:00.000Z');
   assert.match(delegationSummary(changed),/fingerprint changed: yes/);
   assert.match(delegationSummary(changed),/outcome: returned/);
+});
+
+test('agent panel lists scope, timeline and the take-control button',()=>{
+  const d=startDelegation(initialProject(),{operator:'Codex computer use',intent:'Rebuild the hero',scope:{deletePages:false,changeSystem:false,export:true}},'2026-09-10T08:00:00.000Z');
+  const html=agentPanelHtml(d,[{seq:1,kind:'run:started',at:'2026-09-10T08:00:01.000Z'},{seq:2,kind:'catalog:added',at:'2026-09-10T08:00:09.000Z'}],'en');
+  assert.match(html,/Agent console/);
+  assert.match(html,/Codex computer use/);
+  assert.match(html,/data-action="delegation-return"/);
+  assert.match(html,/Approve direction<span>locked/);
+  assert.match(html,/Change design system<span>locked/);
+  assert.match(html,/Export · save<span>allowed/);
+  assert.ok(html.indexOf('#2')<html.indexOf('#1'),'newest receipt first');
+  assert.match(agentPanelHtml(d,[],'ko'),/아직 기록이 없습니다/);
 });
