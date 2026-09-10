@@ -25,7 +25,7 @@ security find-identity -v -p codesigning | grep -q "$IDENTITY" || { echo "identi
 
 TMP="$(mktemp -d)"
 TMP_KC="$TMP/filter.keychain-db"
-cleanup() { security delete-keychain "$TMP_KC" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+cleanup() { security delete-keychain "$TMP_KC" >/dev/null 2>&1 || true; security delete-keychain "$TMP/check.keychain-db" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 FULL="$TMP/all-identities.p12"
 P12="$TMP/developer-id.p12"
@@ -42,15 +42,27 @@ security create-keychain -p "$TMP_KC_PASS" "$TMP_KC"
 security set-keychain-settings "$TMP_KC"
 security unlock-keychain -p "$TMP_KC_PASS" "$TMP_KC"
 security import "$FULL" -k "$TMP_KC" -P "$P12_PASS" -A >/dev/null
-# Remove every identity that is not the Developer ID Application one.
-security find-identity -v -p codesigning "$TMP_KC" | sed -n 's/.*"\(.*\)".*/\1/p' | sort -u | while read -r name; do
-  if [ "$name" != "$IDENTITY" ]; then security delete-identity -c "$name" "$TMP_KC" >/dev/null 2>&1 || true; fi
+# Remove every identity that is not the Developer ID Application one, by SHA-1 so that
+# two identities with the same name (e.g. a revoked duplicate) are both removed.
+for _ in 1 2 3 4 5; do
+  security find-identity -v -p codesigning "$TMP_KC" | sed -n 's/^ *[0-9]*) \([0-9A-F]*\) "\(.*\)"$/\1 \2/p' | while read -r sha name; do
+    if [ "$name" != "$IDENTITY" ]; then security delete-identity -Z "$sha" "$TMP_KC" >/dev/null 2>&1 || true; fi
+  done
 done
 security export -k "$TMP_KC" -t identities -f pkcs12 -P "$P12_PASS" -o "$P12"
-COUNT="$(openssl pkcs12 -in "$P12" -nokeys -passin "pass:$P12_PASS" 2>/dev/null | grep -c 'BEGIN CERTIFICATE' || true)"
-SUBJECT="$(openssl pkcs12 -in "$P12" -nokeys -clcerts -passin "pass:$P12_PASS" 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || true)"
-echo "     .p12 now holds $COUNT certificate(s); leaf subject: ${SUBJECT#subject=}"
-case "$SUBJECT" in *"Developer ID Application"*) ;; *) echo "     the filtered .p12 does not contain the Developer ID identity — aborting"; exit 1;; esac
+# Verify with Apple tooling (openssl on macOS often cannot parse `security export` output):
+# import the filtered .p12 into a second scratch keychain and list what is inside.
+CHECK_KC="$TMP/check.keychain-db"
+security create-keychain -p "$TMP_KC_PASS" "$CHECK_KC"
+security unlock-keychain -p "$TMP_KC_PASS" "$CHECK_KC"
+security import "$P12" -k "$CHECK_KC" -P "$P12_PASS" -A >/dev/null
+KEPT="$(security find-identity -v -p codesigning "$CHECK_KC" | sed -n 's/.*"\(.*\)".*/\1/p' | sort -u)"
+security delete-keychain "$CHECK_KC" >/dev/null 2>&1 || true
+echo "     identities in the filtered .p12:"; printf '%s\n' "$KEPT" | sed '/^$/d;s/^/       - /'
+COUNT="$(printf '%s\n' "$KEPT" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [ "$COUNT" != "1" ] || [ "$KEPT" != "$IDENTITY" ]; then
+  echo "     expected exactly one identity (\"$IDENTITY\"), got $COUNT — aborting"; exit 1
+fi
 
 echo "3/4  Apple ID for notarization"
 read -r -p "     Apple ID e-mail: " APPLE_ID
