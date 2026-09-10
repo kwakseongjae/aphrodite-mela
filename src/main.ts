@@ -49,6 +49,7 @@ import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
+import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine} from './editor/command-palette';
@@ -85,6 +86,7 @@ let lastSaved = true;
 let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
+let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
 let toastTimer = 0;
 let referenceAnalysis: ReferenceAnalysis | null = null;
 let referenceDraft: { copy: ReturnType<typeof suggestCopy>; useCrop: boolean } | null = null;
@@ -143,7 +145,7 @@ function syncStateAttributes(){
   const block=page?.blocks.find(b=>b.id===selected);
   const state:Record<string,string>={
     screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
-    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),
+    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
@@ -184,6 +186,8 @@ function render() {
   document.documentElement.lang=uiLanguage;
   if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved);hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
+  ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
+  const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
   app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}
   <header class="topbar">
@@ -195,29 +199,26 @@ function render() {
     <aside class="library" aria-label="Component library">
       <div class="workspace-title"><span class="workspace-icon">F</span><div><strong>${esc(project.name)}</strong><small>${ui("Design workspace","디자인 작업 공간")}</small></div>${iconButton('project', 'chevrons-up-down', 'Manage project')}</div>
       <div class="section-label">${ui("PAGES","페이지")} <button class="tiny-button" data-action="add-page" aria-label="${ui("Add page","페이지 추가")}">${icon('plus')}</button></div>
-      <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
+      <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-nav="fit" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
       <div class="library-tabs" role="tablist" aria-label="Library view">${(['components', 'layers', 'assets'] as const).map(t => `<button role="tab" aria-selected="${t === tab}" class="${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
       <div class="library-content">${libraryHtml()}</div>
       <button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>
       <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>${ui('Made for you. And your agent.','당신과 에이전트를 위해.')}</strong><span>${ui('Same canvas. Shared direction.','같은 캔버스. 공유된 방향.')}</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
     </aside>
     <main class="workbench">
-      <div class="canvas-toolbar"><div class="canvas-location">${icon('layout-template')}<strong>${esc(page.name)}</strong><span class="draft-badge ${approved ? 'approved' : ''}">${control(approved ? 'Approved' : 'Draft')}</span></div><div class="viewport-controls">${iconButton('desktop', 'monitor', 'Desktop viewport', `aria-pressed="${device === 'desktop'}"`)}${iconButton('mobile', 'smartphone', 'Mobile viewport', `aria-pressed="${device === 'mobile'}"`)}</div><div class="canvas-actions"></div></div>
-      <div class="canvas-scroll" id="canvas-scroll"><div class="canvas-frame ${device}" style="--zoom:${zoom / 100}"><div class="frame-label"><span>${icon(device === 'desktop' ? 'monitor' : 'smartphone')}${esc(page.name)} / ${device === 'desktop' ? ui('Desktop','데스크톱') : ui('Mobile','모바일')}</span><span>${device === 'desktop' ? ui('Fluid','유동') : '375'} × Auto</span></div><div class="design-page" id="design-canvas" style="${esc(themeVars(project))}">${page.blocks.map((b, index) => `<div class="block-wrap ${selected === b.id ? 'selected' : ''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${catalog.find(c => c.kind === b.kind)!.name} block ${index + 1}"><div class="block-selection-label">${icon('grip-vertical')}${catalog.find(c => c.kind === b.kind)!.name}<span>${index + 1}</span></div>${blockHtml(b)}</div>`).join('')}<button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div></div></div>
-      <div class="canvas-bottom"><span>${icon('mouse-pointer-2')} ${ui('Click to edit · Drag to compose','클릭해 편집 · 드래그해 배치')}</span><span>${page.blocks.length} ${ui('components','컴포넌트')} <span>·</span> ${project.system.name === 'Atelier' ? ui('Original','기본') : ui('Project','프로젝트')} ${ui('tokens','토큰')}</span></div>
+
+      <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span></header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom})}
     </main>
     <aside class="inspector" aria-label="Design inspector">${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
   </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>${ui('Built with intention','의도 있게')} <span class="footer-flower">✳</span> Aphrodite 0.1.1</span></footer>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
-  if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell')){
-    (canvas as HTMLElement).style.width='1440px';(canvas as HTMLElement).style.zoom=String(zoom/100);canvas.classList.add('moa-desktop');
-    const frame=app.querySelector<HTMLElement>('.canvas-frame')!;frame.style.width=`${1440*zoom/100}px`;frame.style.maxWidth='none';
-    app.querySelector('.frame-label span:last-child')!.textContent='1440 × Auto';
-  }
+  if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell'))canvas.classList.add('moa-desktop');
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
+  mountSpace();
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -474,10 +475,17 @@ async function action(el: HTMLElement) {
     case 'undo': history('undo'); break;
     case 'redo': history('redo'); break;
     case 'tab': tab = el.dataset.tab as typeof tab; render(); break;
-    case 'page': commit(() => { project.activePageId = el.dataset.id!; selected = currentPage(project).blocks[0]?.id ?? ''; }); break;
+    case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
-    case 'desktop': case 'mobile': device = act; render(); break;
-    case 'zoom': zoom = zoom === 100 ? 85 : zoom === 85 ? 70 : zoom===70 ? 125 : 100; render(); break;
+    case 'dock-hand': dockTool='hand';render();break;
+    case 'zoom-fit': fitAll();break;
+    case 'zoom-frame': fitFrame(project.activePageId);break;
+    case 'zoom-100': zoomCenter(1);break;
+    case 'zoom-in': zoomCenter(stepZoom(camera.zoom,1));break;
+    case 'zoom-out': zoomCenter(stepZoom(camera.zoom,-1));break;
+    case 'tidy-frames': commit(()=>{project.space=tidyFrames(project.space!,project.pages.map(p=>p.id));});recordRun('frame:tidied',{frames:project.pages.length});fitAll();toast(ui('Frames tidied into a row','프레임을 한 줄로 정렬했습니다'));break;
+    case 'new-frame': showModal(ui('A new frame on the space.','공간 위에 새 프레임.'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
+
     case 'systems': designBridgeModal(); break;
     case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
     case 'brief': briefModal(); break;
@@ -606,6 +614,7 @@ async function action(el: HTMLElement) {
   }
 }
 document.addEventListener('click', e => {
+  if(performance.now()<suppressClickUntil){e.stopPropagation();e.preventDefault();suppressClickUntil=0;return;}
   const target = e.target as HTMLElement;
   document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
@@ -679,6 +688,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('submit', async e => {
   e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
+  if(form.id==='frame-form'){if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(project.space!,preset,width);project.activePageId=created.id;selected='';});recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
   if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on'});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
@@ -723,7 +733,81 @@ let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
 function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
-document.addEventListener('keyup',e=>{if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
+document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
+
+/* ---- The Space: camera + frames (see src/editor/space.ts for the math) ---- */
+function spaceEl(){return document.getElementById('canvas-scroll');}
+function spaceLocal(e:{clientX:number;clientY:number}){const r=spaceEl()!.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+function scheduleCameraWrite(){clearTimeout(cameraWriteTimer);cameraWriteTimer=window.setTimeout(()=>writeCamera(localStorage,project.id,camera),300);}
+function applyCamera(){
+  const space=spaceEl(),world=document.getElementById('space-world');if(!space||!world)return;
+  world.style.transform=`translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;
+  space.style.backgroundPosition=`${camera.x}px ${camera.y}px`;space.style.backgroundSize=`${16*camera.zoom}px ${16*camera.zoom}px`;space.style.setProperty('--inv',String(1/camera.zoom));
+  const label=document.querySelector('.dock-zoom');if(label)label.textContent=cameraLabel(camera);
+  zoom=Math.round(camera.zoom*100);app.dataset.camera=`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`;
+  space.dispatchEvent(new Event('scroll',{bubbles:true}));scheduleCameraWrite();
+}
+function frameBoxes(){return [...document.querySelectorAll<HTMLElement>('.space-frame')].map(el=>{const f=project.space?.frames[el.dataset.pageId!];return {x:f?.x??0,y:f?.y??0,width:el.offsetWidth,height:Math.max(200,el.offsetHeight),id:el.dataset.pageId!};});}
+function fitAll(){const space=spaceEl();if(!space)return;const box=unionBox(frameBoxes());if(!box)return;camera=fitCamera(box,{width:space.clientWidth,height:space.clientHeight},60);applyCamera();recordRun('camera:fit',{scope:'all',zoom:camera.zoom});}
+function fitFrame(pageId:string){const space=spaceEl();if(!space)return;const box=frameBoxes().find(b=>b.id===pageId);if(!box)return;camera=fitCamera(box,{width:space.clientWidth,height:space.clientHeight},48);applyCamera();recordRun('camera:fit',{scope:'frame',pageId,zoom:camera.zoom});}
+function zoomCenter(next:number){const space=spaceEl();if(!space)return;camera=zoomAt(camera,{x:space.clientWidth/2,y:space.clientHeight/2},next);applyCamera();}
+function mountSpace(){
+  spaceAbort?.abort();const space=spaceEl();if(!space)return;
+  spaceAbort=new AbortController();const signal=spaceAbort.signal;
+  if(cameraProjectId!==project.id){cameraProjectId=project.id;const stored=readCamera(localStorage,project.id);if(stored)camera=stored;else cameraFitPending=true;}
+  if(spaceHeld)space.classList.add('pan-ready');
+  applyCamera();
+  if(cameraFitPending){cameraFitPending=false;fitAll();}
+  space.addEventListener('wheel',e=>{
+    e.preventDefault();
+    if(e.ctrlKey||e.metaKey){camera=zoomAt(camera,spaceLocal(e),camera.zoom*Math.exp(-e.deltaY*0.01));}
+    else camera=panBy(camera,-e.deltaX,-e.deltaY);
+    applyCamera();
+  },{passive:false,signal});
+  let gestureZoom=1;
+  space.addEventListener('gesturestart',e=>{e.preventDefault();gestureZoom=camera.zoom;},{signal} as AddEventListenerOptions);
+  space.addEventListener('gesturechange',e=>{e.preventDefault();const g=e as unknown as {scale:number;clientX:number;clientY:number};camera=zoomAt(camera,spaceLocal(g),gestureZoom*g.scale);applyCamera();},{signal} as AddEventListenerOptions);
+  const swallowNextClick=()=>{suppressClickUntil=performance.now()+400;};
+  space.addEventListener('pointerdown',e=>{
+    const handle=(e.target as HTMLElement).closest<HTMLElement>('[data-frame-handle]');
+    const panning=spaceHeld||dockTool==='hand'||e.button===1;
+    if(!panning&&!handle)return;
+    if(!panning&&e.button!==0)return;
+    e.preventDefault();e.stopPropagation();
+    const start={x:e.clientX,y:e.clientY};let moved=false;
+    const frameId=handle?.dataset.frameHandle;const frameEl=handle?.closest<HTMLElement>('.space-frame');
+    const origin=frameId?{...project.space!.frames[frameId]}:undefined;
+    const startCamera={...camera};
+    space.setPointerCapture(e.pointerId);
+    const onMove=(ev:PointerEvent)=>{
+      const dx=ev.clientX-start.x,dy=ev.clientY-start.y;
+      if(!moved&&Math.hypot(dx,dy)<4)return;
+      moved=true;
+      if(panning){space.classList.add('panning');camera=panBy(startCamera,dx,dy);applyCamera();}
+      else if(frameEl&&origin){frameEl.classList.add('dragging');frameEl.style.left=`${origin.x+dx/camera.zoom}px`;frameEl.style.top=`${origin.y+dy/camera.zoom}px`;}
+    };
+    const onUp=(ev:PointerEvent)=>{
+      space.removeEventListener('pointermove',onMove);space.removeEventListener('pointerup',onUp);space.removeEventListener('pointercancel',onUp);
+      space.classList.remove('panning');
+      if(!moved)return;
+      swallowNextClick();
+      if(panning){scheduleCameraWrite();return;}
+      if(frameId&&origin&&frameEl){
+        const x=origin.x+(ev.clientX-start.x)/camera.zoom,y=origin.y+(ev.clientY-start.y)/camera.zoom;
+        frameEl.classList.remove('dragging');
+        commit(()=>{project.space=moveFrame(project.space!,frameId,x,y);},true,'frame:move');
+        recordRun('frame:moved',{pageId:frameId,x:Math.round(x),y:Math.round(y)});
+      }
+    };
+    space.addEventListener('pointermove',onMove,{signal});space.addEventListener('pointerup',onUp,{signal});space.addEventListener('pointercancel',onUp,{signal});
+  },{capture:true,signal});
+  space.addEventListener('change',e=>{
+    const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
+    const id=sel.dataset.framePreset!;const preset=(isFramePreset(sel.value)?sel.value:'desktop') as FramePreset;
+    commit(()=>{const f=project.space!.frames[id];f.preset=preset;if(preset==='custom')f.width=clampWidth(f.width??1200);else delete f.width;});
+    recordRun('frame:preset',{pageId:id,preset});
+  },{signal});
+}
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
@@ -733,6 +817,11 @@ document.addEventListener('keydown', e => {
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
+  if(screen==='editor'&&!modalRoot.children.length){
+    if(e.code==='Space'){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
+    if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
+    if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
+  }
   if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }

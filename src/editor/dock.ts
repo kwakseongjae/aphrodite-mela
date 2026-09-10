@@ -12,8 +12,9 @@ export type DockTool={id:string;action:string;data?:Record<string,string>;icon:s
 /** Tools on the floating dock. `key` is the single-letter shortcut (Figma-style) outside text inputs. */
 export const dockTools:readonly DockTool[]=[
   {id:'select',action:'dock-select',icon:'mouse-pointer-2',en:'Select',ko:'선택',key:'V'},
+  {id:'hand',action:'dock-hand',icon:'hand',en:'Hand · drag to pan (or hold Space)',ko:'손 · 드래그로 이동 (Space 누른 채도 가능)',key:'H'},
   {id:'add',action:'component-explorer',icon:'plus',en:'Add component',ko:'컴포넌트 추가',key:'A'},
-  {id:'frame',action:'add',data:{kind:'frame'},icon:'frame',en:'Layout frame',ko:'레이아웃 프레임',key:'F'},
+  {id:'frame',action:'new-frame',icon:'frame',en:'New frame · a page on the space',ko:'새 프레임 · 공간 위의 페이지',key:'F'},
   {id:'reference',action:'reference',icon:'image-plus',en:'Reference · 3 directions',ko:'레퍼런스 · 3안',key:'R'},
   {id:'vibe',action:'autofill',icon:'sparkles',en:'Get Vibe',ko:'Get Vibe',key:'G'},
   {id:'preview',action:'preview',icon:'play',en:'Preview',ko:'미리보기',key:'P'},
@@ -29,7 +30,7 @@ export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:st
   const ko=state.language==='ko';
   const tools=dockTools.map(t=>`<button type="button" class="dock-tool" data-action="${esc(t.action)}"${Object.entries(t.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')} data-tool="${t.id}" aria-pressed="${state.activeTool===t.id}" aria-label="${esc(ko?t.ko:t.en)}" title="${esc(ko?t.ko:t.en)} · ${t.key}">${icon(t.icon)}</button>`).join('');
   const modes=editorModes.map(m=>`<button type="button" class="dock-mode" data-action="editor-mode" data-mode="${m}" aria-pressed="${state.mode===m}" title="${esc(ko?modeCopy[m].hintKo:modeCopy[m].hintEn)} · ${modeCopy[m].key}">${m==='agent'&&state.delegated?icon('bot'):''}<span>${esc(ko?modeCopy[m].ko:modeCopy[m].en)}</span></button>`).join('');
-  const zoom=state.zoom?`<span class="dock-divider"></span><button type="button" class="dock-zoom" data-action="zoom" title="${ko?'확대/축소 순환 (70·85·100·125%)':'Cycle zoom (70·85·100·125%)'}">${state.zoom}%</button>`:'';
+  const zoom=state.zoom?`<span class="dock-divider"></span><button type="button" class="dock-zoom" data-action="zoom-fit" title="${ko?'전체 보기 ⇧1 · 프레임 맞춤 ⇧2 · 100% ⌘0 · ⌘휠 줌':'Fit all ⇧1 · Fit frame ⇧2 · 100% ⌘0 · ⌘wheel zoom'}">${state.zoom}%</button>`:'';
   return `<div class="dock" role="toolbar" aria-label="${ko?'도구':'Tools'}" data-mode="${state.mode}"><div class="dock-tools">${tools}</div><span class="dock-divider"></span><div class="dock-modes" role="group" aria-label="${ko?'모드':'Mode'}">${modes}</div>${zoom}</div>`;
 }
 

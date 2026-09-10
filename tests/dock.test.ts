@@ -5,7 +5,8 @@ import {dockHtml,dockShortcut,dockTools,editorModes,isEditorMode} from '../src/e
 test('the dock lists every tool with its data-action and a mode segment with the active mode pressed',()=>{
   const html=dockHtml({mode:'dev',language:'ko',activeTool:'select'});
   for(const t of dockTools)assert.match(html,new RegExp(`data-action="${t.action}"[^>]*data-tool="${t.id}"`));
-  assert.match(html,/data-kind="frame"/);
+  assert.match(html,/data-action="new-frame"/);
+  assert.match(html,/data-action="dock-hand"[^>]*data-tool="hand"/);
   assert.match(html,/data-action="editor-mode" data-mode="dev" aria-pressed="true"/);
   assert.match(html,/data-action="editor-mode" data-mode="design" aria-pressed="false"/);
   assert.match(html,/data-tool="select" aria-pressed="true"/);
@@ -20,4 +21,4 @@ test('single-letter shortcuts map to tools and digits to modes; unknown keys map
   assert.deepEqual([...editorModes],['design','dev','agent']);assert.ok(isEditorMode('agent'));assert.ok(!isEditorMode('edit'));
 });
 
-test('the dock shows the zoom control when a zoom value is given',()=>{assert.match(dockHtml({mode:'design',language:'en',zoom:85}),/data-action="zoom"[^>]*>85%</);assert.doesNotMatch(dockHtml({mode:'design',language:'en'}),/dock-zoom/);});
+test('the dock shows the zoom control when a zoom value is given',()=>{assert.match(dockHtml({mode:'design',language:'en',zoom:85}),/data-action="zoom-fit"[^>]*>85%</);assert.doesNotMatch(dockHtml({mode:'design',language:'en'}),/dock-zoom/);});
