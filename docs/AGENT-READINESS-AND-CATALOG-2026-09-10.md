@@ -45,7 +45,7 @@ Libraries already installed and licensed: MUI 9 (MIT), Astryx 0.5.4 (Apache-2.0)
 
 **Merged 2026-09-10 13:55 (A + B):** 35 kinds, **298 options** (implementations × variations). Per kind: button 5×4=20; input, tabs, notice 4×4=16; cards, stats, table 3×4=12; select, checkbox, switch, textarea, badge, avatar, progress, skeleton, accordion, chips, slider, toggle 4×3=12; breadcrumb, pagination, stepper 3×3=9; calendar 1×3 (date-picker packages judged too heavy); layout sections (hero 4, frame 5, products 2, others 1) stay own-only for now. Runtime bundle for official components grew 690 kB → 1.32 MB (shared across iframes on native). 114 tests pass. Part C (shadcn: input, textarea, card, badge, table, skeleton, alert, breadcrumb, pagination) is running on `grok/shadcn-vendor` and will raise the 3× kinds to 4× and button-adjacent kinds toward 16–20.
 
-Next for breadth: variants for the layout kinds (navigation 3, features 3, products 4, testimonial 3, cta 3, footer 3) so every kind reaches ≥3 options, and a SEED/Astryx table+cards mapping.
+**Layout kinds done 13:57:** navigation 3, features 3 (cards, numbered), products 4 (list, masonry), testimonial 3 (card, wall), CTA 3 (banner, split), footer 3 (columns, minimal) → **310 options**; only the four Moa app-recipe blocks remain single-option by design. Also fixed: palette ↑↓/Enter never reached the list in the native app (the generic modal key guard returned early) — verified after the fix. Next for breadth: shadcn Part C, then SEED/Astryx table+cards mapping and a second pass on variant fidelity per library.
 
 ## 3. Agent readiness — code-side findings
 
