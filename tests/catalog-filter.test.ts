@@ -7,7 +7,7 @@ test('catalog filters intersect supported provider, category and bilingual words
  const muiKinds=filteredKinds('All',{query:'',provider:'mui'}).map(c=>c.kind);
  assert.ok(muiKinds.includes('button')&&muiKinds.includes('input')&&muiKinds.includes('cards'));
  assert.ok(!muiKinds.includes('hero'));
- assert.deepEqual(filteredKinds('All',{query:'입력',provider:'mui'}).map(c=>c.kind),['input']);
+ assert.deepEqual(filteredKinds('All',{query:'입력',provider:'mui'}).map(c=>c.kind),['input','textarea']);
  assert.deepEqual(filteredKinds('Layout',{query:'',provider:'mui'}),[]);
  assert.deepEqual(filteredKinds('All',{query:'button mui',provider:'mui'}).map(c=>c.kind),['button']);
  assert.equal(normalizeCatalogFilter('x'.repeat(110),'bad').query.length,100);

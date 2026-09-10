@@ -1,6 +1,7 @@
 import { coverage } from './vendor/coverage';
+import { patternSpecs } from './patterns';
 export const providers = {
-  own: { name: 'Aphrodite · own patterns', source: 'Project-owned HTML/CSS', kinds: ['button','input','cards','tabs','table','calendar','stats','notice'] },
+  own: { name: 'Aphrodite · own patterns', source: 'Project-owned HTML/CSS', kinds: Object.keys(patternSpecs).filter(k=>!k.startsWith('moa')) as readonly string[] },
   mui: { name: 'MUI · official React', source: '@mui/material 9.4.0 · MIT', kinds: coverage.mui },
   astryx: { name: 'Astryx · official React', source: '@astryxdesign/core 0.5.4 · MIT · beta', kinds: coverage.astryx },
   seed: { name: 'SEED · official React', source: '@seed-design/react 2.4.1 · Apache-2.0', kinds: coverage.seed },
