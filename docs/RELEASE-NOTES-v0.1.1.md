@@ -1,7 +1,5 @@
 # Aphrodite v0.1.1 — draft release notes
 
-_Draft. Finalised when the tag is cut; items marked (pending) are merged only if the corresponding branch lands._
-
 ## Download
 
 - Apple Silicon: `Aphrodite_0.1.1_aarch64.dmg`
@@ -20,7 +18,7 @@ _Draft. Finalised when the tag is cut; items marked (pending) are merged only if
 - Official design-system adapters: MUI 22 kinds, Astryx 22, SEED 16, shadcn 10 (input, textarea, card, badge, table, skeleton, alert, breadcrumb, pagination vendored under MIT).
 - Variations for layout sections: navigation, features, collection grid, testimonial, CTA, footer.
 - Variant chips on every catalog card and "implementations · options" counts in the index.
-- (pending) Readable own-pattern previews, aligned cards, Astryx calendar adapter, grouped index.
+- Readable own-pattern previews, aligned cards, an Astryx calendar adapter and a grouped index.
 
 **Get Vibe and theme drafts**
 - When nothing would change, Get Vibe now says why (authored copy is protected), names the components the pack has no sample for, and offers "Preview again, replacing existing content".
@@ -33,7 +31,9 @@ _Draft. Finalised when the tag is cut; items marked (pending) are merged only if
 - Window minimum 900×620; below 1100px the inspector stacks and can be collapsed.
 - Disk-save failures show a banner with "Save a backup file" and "Reload from disk".
 - First run follows the OS language (Korean or English).
-- (pending) Korean localisation of the editor chrome and modals.
+- Korean localisation of the editor chrome and modals (230 strings); English stays available from the language button.
+- The agent assembly bar stays collapsed until an assembly run starts.
+- Get Vibe on an empty page now points to Start from a brief, Reference → 3 directions, or the catalog instead of a zero-change preview.
 
 **Under the hood**
 - OCR helper runs as a signed Tauri sidecar (hardened runtime); DMG notarized and stapled by CI.
@@ -44,4 +44,3 @@ _Draft. Finalised when the tag is cut; items marked (pending) are merged only if
 
 - Calendar has no MUI/SEED adapter (date-picker packages judged too heavy).
 - The four Moa app-recipe blocks remain single-option by design.
-- Get Vibe on an empty page still needs a "start from a brief" nudge (planned).
