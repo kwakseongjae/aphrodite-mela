@@ -36,7 +36,7 @@ function decode(value: string) {
 function rootFrom(html: string): ParentNode {
   return {
     querySelector(sel: string) {
-      const key = /textarea\[data-copy="([a-z]+)"\]/.exec(sel)?.[1];
+      const key = /textarea\[data-copy="([a-z]+(?:-[a-z]+)*)"\]/.exec(sel)?.[1];
       if (!key) return null;
       const hit = html.match(new RegExp(`<textarea[^>]*data-copy="${key}"[^>]*>([\\s\\S]*?)</textarea>`));
       return hit ? {value: decode(hit[1])} : null;
@@ -52,7 +52,7 @@ test('selected hero inspects identity, tokens, markup and copy payloads', () => 
   assert.match(html, /--brand:/);
   assert.match(html, /#344e41/);
   assert.match(html, /&lt;section/);
-  for (const key of ['identity', 'tokens', 'markup', 'design']) {
+  for (const key of ['identity', 'tokens', 'markup', 'design', 'node']) {
     assert.match(html, new RegExp(`data-copy="${key}"`));
     assert.match(html, new RegExp(`data-action="dev-copy" data-copy-target="${key}"`));
   }
@@ -90,7 +90,7 @@ test('no selection shows tokens, page summary and handoff', () => {
   assert.match(html, /data-copy="design"/);
   assert.doesNotMatch(html, /data-copy="identity"/);
   assert.doesNotMatch(html, /data-copy="markup"/);
-  assert.doesNotMatch(html, /aphrodite\.hero/);
+  assert.doesNotMatch(html, /data-copy="node"/);
 });
 
 test('Korean labels appear for ko', () => {
@@ -106,10 +106,16 @@ test('Korean labels appear for ko', () => {
   assert.match(selected, /HTML 복사/);
   assert.match(selected, /DESIGN\.md 복사/);
   assert.match(selected, /내보내기는 이 구성의/);
+  assert.match(selected, /노드 JSON 복사/);
   const none = devPanelHtml(project, undefined, 'ko');
   assert.match(none, /페이지/);
   assert.match(none, /종류/);
   assert.match(none, /토큰/);
+  assert.match(none, /페이지 HTML 복사/);
+  assert.match(none, /SCENE\.json 복사/);
+  assert.match(none, /프롬프트 복사/);
+  assert.match(none, /tokens\.json 복사/);
+  assert.match(none, /코딩 에이전트용 프롬프트/);
 });
 
 test('options.html overrides rendered markup', () => {
@@ -117,4 +123,49 @@ test('options.html overrides rendered markup', () => {
   const html = devPanelHtml(project, heroOf(project), 'en', {html: '<div class="given">ok</div>'});
   assert.match(html, /&lt;div class=&quot;given&quot;&gt;/);
   assert.doesNotMatch(html, /&lt;section/);
+});
+
+test('no selection offers page HTML, SCENE, prompt and tokens.json copy keys', () => {
+  const project = initialProject();
+  const html = devPanelHtml(project, undefined, 'en');
+  for (const key of ['page-html', 'scene', 'prompt', 'tokens-json']) {
+    assert.match(html, new RegExp(`data-copy="${key}"`));
+    assert.match(html, new RegExp(`data-action="dev-copy" data-copy-target="${key}"`));
+  }
+  assert.match(html, /Showing the first 6,000 characters/);
+  assert.match(html, /Copy page HTML for the full document/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<style>/);
+  assert.match(html, /&lt;style&gt;/);
+  const pageSource = devPanelCopyPayload(rootFrom(html), 'page-html')!;
+  assert.match(pageSource, /<!doctype html>/i);
+  assert.ok(pageSource.length > 6000);
+  assert.ok(!html.includes(pageSource));
+  const scene = JSON.parse(devPanelCopyPayload(rootFrom(html), 'scene')!);
+  const ids = new Set((scene.pages as {nodes: {instanceId: string}[]}[]).flatMap(page => page.nodes.map(node => node.instanceId)));
+  for (const block of project.pages[0].blocks) assert.ok(ids.has(block.id), block.id);
+  assert.match(devPanelCopyPayload(rootFrom(html), 'prompt')!, /Build Form & Field/);
+  const tokens = JSON.parse(devPanelCopyPayload(rootFrom(html), 'tokens-json')!);
+  assert.equal(tokens.color.primary.$value, '#344e41');
+  assert.equal(tokens.radius.$value, '2px');
+});
+
+test('XSS in page HTML display is escaped', () => {
+  const project = initialProject();
+  project.name = '<script>alert(1)</script>';
+  const html = devPanelHtml(project, undefined, 'en');
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<style>/);
+  assert.match(html, /&amp;lt;script&amp;gt;/);
+  assert.match(devPanelCopyPayload(rootFrom(html), 'page-html')!, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('selected block exposes node JSON from the scene manifest', () => {
+  const project = initialProject();
+  const hero = heroOf(project);
+  const html = devPanelHtml(project, hero, 'en');
+  const node = JSON.parse(devPanelCopyPayload(rootFrom(html), 'node')!);
+  assert.equal(node.instanceId, hero.id);
+  assert.equal(node.componentId, 'aphrodite.hero');
+  assert.equal(devPanelCopyPayload(rootFrom(html), 'page-html'), null);
 });

@@ -1,8 +1,8 @@
 import type {Block, Project} from '../model';
 import {currentPage} from '../model';
-import {componentIdentity, componentRegistry} from '../components';
-import {blockHtml} from '../render';
-import {designMarkdown} from '../export';
+import {componentIdentity, componentRegistry, sceneManifest} from '../components';
+import {blockHtml, pageHtml} from '../render';
+import {buildPrompt, designMarkdown} from '../export';
 import {isPattern, patternSpecs} from '../patterns';
 import {esc} from '../html';
 import {onColor} from '../design/contrast';
@@ -10,6 +10,19 @@ import {onColor} from '../design/contrast';
 export type DevPanelLanguage = 'en' | 'ko';
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const PAGE_HTML_DISPLAY_CAP = 6000;
+const COPY_KEY = /^[a-z]+(?:-[a-z]+)*$/;
+
+type SceneWalkNode = {
+  instanceId: string;
+  componentId: string;
+  variant?: string;
+  provider?: string;
+  parentId?: string;
+  layout?: Record<string, unknown>;
+  children?: SceneWalkNode[];
+  slots?: Record<string, unknown>;
+};
 
 function ui(language: DevPanelLanguage, en: string, ko: string) {
   return language === 'ko' ? ko : en;
@@ -123,6 +136,52 @@ function copyArea(key: string, value: string) {
   return `<textarea hidden readonly data-copy="${esc(key)}" aria-hidden="true">${esc(value)}</textarea>`;
 }
 
+function tokensJson(project: Project): string {
+  const s = project.system;
+  return JSON.stringify({
+    color: {
+      primary: {$type: 'color', $value: s.accent},
+      background: {$type: 'color', $value: s.background},
+      foreground: {$type: 'color', $value: s.foreground},
+    },
+    radius: {$type: 'dimension', $value: `${s.radius}px`},
+  }, null, 2);
+}
+
+function exportPageHtml(project: Project): string {
+  return pageHtml(project, currentPage(project)).replaceAll('src="/assets/', 'src="assets/');
+}
+
+function currentScenePage(project: Project) {
+  const scene = sceneManifest(project);
+  const id = currentPage(project).id;
+  return scene.pages.find(entry => entry.id === id) ?? scene.pages[0];
+}
+
+function presentSlotNames(slots: Record<string, unknown> | undefined): string {
+  if (!slots) return '—';
+  const names = Object.entries(slots).filter(([, value]) => {
+    if (value === undefined || value === '') return false;
+    if (Array.isArray(value) && value.length === 0) return false;
+    return true;
+  }).map(([name]) => name);
+  return names.length ? names.join(', ') : '—';
+}
+
+function shortId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+function walkSceneNodes(nodes: SceneWalkNode[], depth = 0, inheritedParent?: string): {node: SceneWalkNode; depth: number; parent: string}[] {
+  const rows: {node: SceneWalkNode; depth: number; parent: string}[] = [];
+  for (const node of nodes) {
+    const parent = inheritedParent ?? node.parentId ?? '';
+    rows.push({node, depth, parent});
+    if (node.children?.length) rows.push(...walkSceneNodes(node.children, depth + 1, node.instanceId));
+  }
+  return rows;
+}
+
 function section(kicker: string, button: string, body: string) {
   return `<section class="dev-panel-section"><div class="dev-panel-heading"><span class="dev-panel-kicker">${esc(kicker)}</span>${button}</div>${body}</section>`;
 }
@@ -176,15 +235,78 @@ function handoffHtml(project: Project, language: DevPanelLanguage): string {
   return section(ui(language, 'Handoff', '핸드오프'), copyButton('design', ui(language, 'Copy DESIGN.md', 'DESIGN.md 복사')), `<p class="dev-panel-handoff">${esc(note)}</p>${copyArea('design', markdown)}`);
 }
 
+function pageMarkupHtml(project: Project, language: DevPanelLanguage): string {
+  const raw = exportPageHtml(project);
+  const truncated = raw.length > PAGE_HTML_DISPLAY_CAP;
+  const display = truncated ? `${raw.slice(0, PAGE_HTML_DISPLAY_CAP)}…` : raw;
+  const note = truncated
+    ? ui(language, 'Showing the first 6,000 characters. Copy page HTML for the full document.', '처음 6,000자를 표시합니다. 전체 문서는 페이지 HTML을 복사하세요.')
+    : '';
+  return section(
+    ui(language, 'Page HTML', '페이지 HTML'),
+    copyButton('page-html', ui(language, 'Copy page HTML', '페이지 HTML 복사')),
+    `${note ? `<p class="dev-panel-note">${esc(note)}</p>` : ''}<pre><code>${esc(display)}</code></pre>${copyArea('page-html', raw)}`,
+  );
+}
+
+function sceneNodesHtml(project: Project, language: DevPanelLanguage): string {
+  const scene = sceneManifest(project);
+  const rows = walkSceneNodes(currentScenePage(project).nodes as SceneWalkNode[]);
+  const head = `<tr><th>${esc(ui(language, 'Instance', '인스턴스'))}</th><th>${esc(ui(language, 'Component', '컴포넌트'))}</th><th>${esc(ui(language, 'Variant', '변형'))}</th><th>${esc(ui(language, 'Provider', '제공자'))}</th><th>${esc(ui(language, 'Parent', '부모'))}</th><th>${esc(ui(language, 'Slots', '슬롯'))}</th></tr>`;
+  const body = rows.map(({node, depth, parent}) => `<tr><td class="dev-panel-id" style="--d:${depth}">${code(shortId(node.instanceId))}</td><td>${esc(node.componentId)}</td><td>${esc(node.variant ?? '—')}</td><td>${esc(node.provider ?? 'own')}</td><td>${parent ? code(shortId(parent)) : esc('—')}</td><td>${esc(presentSlotNames(node.slots))}</td></tr>`).join('');
+  return section(
+    ui(language, 'SCENE nodes', 'SCENE 노드'),
+    copyButton('scene', ui(language, 'Copy SCENE.json', 'SCENE.json 복사')),
+    `<table class="dev-panel-table dev-panel-tree"><thead>${head}</thead><tbody>${body}</tbody></table>${copyArea('scene', JSON.stringify(scene, null, 2))}`,
+  );
+}
+
+function promptHtml(project: Project, language: DevPanelLanguage): string {
+  const prompt = buildPrompt(project);
+  return section(
+    ui(language, 'Prompt for a coding agent', '코딩 에이전트용 프롬프트'),
+    copyButton('prompt', ui(language, 'Copy prompt', '프롬프트 복사')),
+    `<pre><code>${esc(prompt)}</code></pre>${copyArea('prompt', prompt)}`,
+  );
+}
+
+function tokensJsonHtml(project: Project, language: DevPanelLanguage): string {
+  const json = tokensJson(project);
+  return section(
+    ui(language, 'tokens.json', 'tokens.json'),
+    copyButton('tokens-json', ui(language, 'Copy tokens.json', 'tokens.json 복사')),
+    `<pre><code>${esc(json)}</code></pre>${copyArea('tokens-json', json)}`,
+  );
+}
+
+function nodeHtml(project: Project, block: Block, language: DevPanelLanguage): string {
+  const page = currentScenePage(project);
+  const node = page.nodes.find(entry => entry.instanceId === block.id);
+  const nested = node?.children?.length ?? 0;
+  const framed = page.nodes.filter(entry => entry.parentId === block.id).length;
+  const layout = node?.layout && Object.keys(node.layout).length ? JSON.stringify(node.layout) : '';
+  const rows: [string, string][] = [
+    [ui(language, 'Parent', '부모'), node?.parentId ? code(node.parentId) : esc('—')],
+    [ui(language, 'Children', '자식'), code(nested + framed)],
+    [ui(language, 'Layout', '레이아웃'), layout ? `<code class="dev-panel-json">${esc(layout)}</code>` : esc('—')],
+  ];
+  const payload = node ?? {instanceId: block.id, parentId: block.parentId ?? null, children: [], layout: block.layout ?? {}};
+  return section(
+    ui(language, 'Node', '노드'),
+    copyButton('node', ui(language, 'Copy node JSON', '노드 JSON 복사')),
+    `<dl class="dev-panel-dl">${rows.map(([dt, dd]) => `<dt>${esc(dt)}</dt><dd>${dd}</dd>`).join('')}</dl>${copyArea('node', JSON.stringify(payload, null, 2))}`,
+  );
+}
+
 export function devPanelHtml(project: Project, block: Block | undefined, language: DevPanelLanguage, options?: {html?: string}): string {
   const parts = block
-    ? [identityHtml(block, language), tokensHtml(project, language), markupHtml(project, block, language, options?.html), contractHtml(block, language), handoffHtml(project, language)]
-    : [tokensHtml(project, language), pageHtmlSummary(project, language), handoffHtml(project, language)];
+    ? [identityHtml(block, language), tokensHtml(project, language), markupHtml(project, block, language, options?.html), contractHtml(block, language), nodeHtml(project, block, language), handoffHtml(project, language)]
+    : [tokensHtml(project, language), pageHtmlSummary(project, language), pageMarkupHtml(project, language), sceneNodesHtml(project, language), promptHtml(project, language), tokensJsonHtml(project, language), handoffHtml(project, language)];
   return `<div class="dev-panel">${parts.join('')}</div>`;
 }
 
 export function devPanelCopyPayload(root: ParentNode, key: string): string | null {
-  if (!/^[a-z]+$/.test(key)) return null;
+  if (!COPY_KEY.test(key)) return null;
   const node = root.querySelector(`textarea[data-copy="${key}"]`) as {value?: string} | null;
   return typeof node?.value === 'string' ? node.value : null;
 }
