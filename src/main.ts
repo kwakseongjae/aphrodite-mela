@@ -41,7 +41,8 @@ import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLang
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
 import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter} from './workspace/library';
-import {workspaceHome,projectCards} from './workspace/home';
+import {workspaceHome,projectCards,type HubView} from './workspace/home';
+import {homeCopy} from './workspace/home-copy';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -62,7 +63,8 @@ let vibeFormDraft:FormData|null=null;
 let night=false;try{night=localStorage.getItem('aphrodite-paper-theme')==='night';}catch{}
 let startupError = '';
 let library:Library={version:1,entries:[]};
-let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';
+let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=localStorage.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
+const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
 try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
@@ -125,7 +127,7 @@ function cloneBlocks(blocks:Page['blocks']):Page['blocks'] {
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();return;}
+  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();return;}
   const page = currentPage(project), approved = isApproved(project);
   if(!insertionTarget())insertParent=undefined;
   app.innerHTML = `${storageIssue?diskWarningHtml():''}
@@ -383,9 +385,11 @@ async function action(el: HTMLElement) {
     case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
     case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
+    case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
-    case 'hub-pin': case 'hub-archive': {const key=act==='hub-pin'?'pinned':'archived';saveLibrary({...library,entries:library.entries.map(e=>e.project.id===el.dataset.id?{...e,[key]:!e[key]}:e)});render();break;}
-    case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){saveLibrary(upsertProject(library,cloneProject(entry.project)));render();}break;}
+    case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});render();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
+    case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});render();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
+    case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy));render();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal('Give it a name.','프로젝트 내용은 그대로 보존됩니다.',`<form id="hub-rename-form"><input type="hidden" name="projectId" value="${esc(entry.project.id)}"><label class="form-label">Project name<input name="name" required maxlength="100" value="${esc(entry.project.name)}"></label><button class="primary-button" type="submit">Rename project</button></form>`);break;}
     case 'storage-info': showModal('Your work stays with you.','앱 전용 폴더에 프로젝트 보관함을 파일로 저장합니다.',`<p><code>${esc(storagePath)}</code></p><p>library.json: 현재 보관함<br>library.previous.json: 직전 저장본</p><p>라이브러리는 편집 원본입니다. 프로젝트 카드의 Files에서 이미지 추출·DESIGN.md 스냅샷·사용자 문서를 별도 파일로 관리합니다. 모델 실행 설정은 아직 포함하지 않습니다.</p><div class="vibe-actions">${button('hub-backup','download','Export current workspace','secondary-button')}${button('hub-recovery','download','Export disk recovery files','secondary-button')}</div><p>다른 창의 변경이 감지되면 덮어쓰지 않습니다. 저장 실패 시 현재 작업을 내보낸 뒤 앱을 다시 여세요.</p>`);break;
     case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
@@ -533,6 +537,7 @@ async function action(el: HTMLElement) {
 }
 document.addEventListener('click', e => {
   const target = e.target as HTMLElement;
+  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
   const control = target.closest<HTMLElement>('[data-action]');
   if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
@@ -543,7 +548,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const target = e.target as HTMLInputElement;
   if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
-  if(target.id==='project-search'){hubQuery=target.value;document.querySelector('#project-grid')!.innerHTML=projectCards(library,hubFilter,hubQuery,uiLanguage);return;}
+  if(target.id==='project-search'){hubQuery=target.value;document.querySelector('#project-grid')!.innerHTML=projectCards(library,hubFilter,hubQuery,uiLanguage,hubView);return;}
   if (target.id === 'component-search') { query = target.value; document.querySelector('.component-list')!.innerHTML = componentCards(); hydrateIcons(); bindDragAndDrop(); }
 });
 document.addEventListener('change', e => {
@@ -640,7 +645,7 @@ document.addEventListener('submit', async e => {
   else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); return; }
+  if (e.key === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if (modalRoot.children.length) {
     if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
