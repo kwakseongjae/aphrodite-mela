@@ -4,8 +4,11 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 use tauri::Manager;
+
+const KEEP_SNAPSHOTS: usize = 5;
 
 fn segment(s: &str) -> Result<(), String> {
     if s.is_empty()
@@ -117,7 +120,87 @@ fn snapshot(root: &Path, project: &Value, design: &str) -> Result<Value, String>
         "current.json",
         &serde_json::to_vec(&manifest).unwrap(),
     )?;
+    prune_snapshots(root);
     Ok(manifest)
+}
+fn prune_snapshots(root: &Path) {
+    let keep_name = match current(root) {
+        Ok(manifest) => match manifest["snapshot"].as_str() {
+            Some(name) if !name.is_empty() => name.to_string(),
+            _ => return,
+        },
+        Err(e) => {
+            eprintln!("vault: snapshot prune skipped: {e}");
+            return;
+        }
+    };
+    let snapshots = match safe_child(root, "snapshots") {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("vault: snapshot prune skipped: {e}");
+            return;
+        }
+    };
+    let entries = match fs::read_dir(&snapshots) {
+        Ok(entries) => entries,
+        Err(e) => {
+            eprintln!("vault: snapshot prune skipped: {e}");
+            return;
+        }
+    };
+    let mut dirs: Vec<(SystemTime, String)> = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("vault: snapshot prune skipped entry: {e}");
+                continue;
+            }
+        };
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if segment(&name).is_err() {
+            continue;
+        }
+        let path = match safe_child(&snapshots, &name) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        let meta = match fs::symlink_metadata(&path) {
+            Ok(meta) => meta,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        dirs.push((mtime, name));
+    }
+    dirs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let excess = dirs.len().saturating_sub(KEEP_SNAPSHOTS);
+    if excess == 0 {
+        return;
+    }
+    let mut removed = 0;
+    for (_, name) in &dirs {
+        if removed >= excess {
+            break;
+        }
+        if name == &keep_name {
+            continue;
+        }
+        match safe_child(&snapshots, name) {
+            Ok(path) => {
+                if let Err(e) = fs::remove_dir_all(&path) {
+                    eprintln!("vault: failed to prune snapshot {name}: {e}");
+                    continue;
+                }
+                removed += 1;
+            }
+            Err(e) => eprintln!("vault: failed to prune snapshot {name}: {e}"),
+        }
+    }
 }
 fn current(root: &Path) -> Result<Value, String> {
     let raw = fs::read(safe_child(root, "current.json")?).map_err(|e| e.to_string())?;
@@ -293,5 +376,62 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/tmp", d.path().join("documents")).unwrap();
         assert!(write_document(d.path(), "a.md", "bad").is_err());
+    }
+    fn snapshot_dir_names(root: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(root.join("snapshots"))
+            .unwrap()
+            .map(|e| e.unwrap())
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+    #[test]
+    fn pruning_caps_snapshots_at_five() {
+        let d = tempfile::tempdir().unwrap();
+        let p = json!({"system": {}});
+        for _ in 0..7 {
+            snapshot(d.path(), &p, "# design").unwrap();
+        }
+        let names = snapshot_dir_names(d.path());
+        assert!(names.len() <= KEEP_SNAPSHOTS);
+        let id = current(d.path()).unwrap()["snapshot"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(d.path().join("snapshots").join(&id).is_dir());
+        assert!(names.contains(&id));
+    }
+    #[test]
+    fn pruning_removes_orphan_directory() {
+        let d = tempfile::tempdir().unwrap();
+        let snapshots = directory(d.path(), "snapshots").unwrap();
+        let orphan = snapshots.join("snapshot-orphan");
+        fs::create_dir(&orphan).unwrap();
+        for i in 0..5 {
+            fs::create_dir(snapshots.join(format!("snapshot-old-{i}"))).unwrap();
+        }
+        snapshot(d.path(), &json!({"system": {}}), "# design").unwrap();
+        assert!(!orphan.exists());
+        assert!(snapshot_dir_names(d.path()).len() <= KEEP_SNAPSHOTS);
+    }
+    #[test]
+    fn pruning_keeps_referenced_current_directory() {
+        let d = tempfile::tempdir().unwrap();
+        let m = snapshot(d.path(), &json!({"system": {}}), "# design").unwrap();
+        let keep = m["snapshot"].as_str().unwrap().to_string();
+        let snapshots = d.path().join("snapshots");
+        for i in 0..6 {
+            fs::create_dir(snapshots.join(format!("snapshot-newer-{i}"))).unwrap();
+        }
+        prune_snapshots(d.path());
+        assert!(snapshots.join(&keep).is_dir());
+        assert_eq!(
+            current(d.path()).unwrap()["snapshot"].as_str().unwrap(),
+            keep
+        );
+        assert!(snapshot_dir_names(d.path()).len() <= KEEP_SNAPSHOTS);
+        assert!(snapshot_dir_names(d.path()).contains(&keep));
     }
 }
