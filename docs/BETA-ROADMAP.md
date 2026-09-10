@@ -4,7 +4,9 @@ Updated 2026-09-09. Existing feature-specific validation documents are evidence,
 
 ## Status and sequence
 
-Latest checkpoint #11 (2026-09-10 22:05, chunk 9 — v0.1.2 shipped + onboarding): v0.1.2 published (arm64 + x64, notarized, verified from a quarantined download); landing rebuilt with v0.1.2 screenshots (Space hero, Home / Agent console / Dev handoff cards, per-language images). Onboarding implemented for owner review before v0.1.3: DMG background, welcome sheet with language + sample/blank start, sample project (desktop + mobile frames), five-step editor tour, palette replay, data-onboarding/data-tour. 162 tests.
+Latest checkpoint #12 (2026-09-10 22:02, v0.1.3 shipped): v0.1.3 published (arm64 + x64, notarized, stapled, verified from a quarantined download; DMG carries the paper background) with the onboarding flow; landing download resolves to it. Demo handoff prompt for a computer-use agent in docs/DEMO-ASTRA-5MIN.md. Owner has a list of fixes to come back to after the demo.
+
+Checkpoint #11 (2026-09-10 22:05, chunk 9 — v0.1.2 shipped + onboarding): v0.1.2 published (arm64 + x64, notarized, verified from a quarantined download); landing rebuilt with v0.1.2 screenshots (Space hero, Home / Agent console / Dev handoff cards, per-language images). Onboarding implemented for owner review before v0.1.3: DMG background, welcome sheet with language + sample/blank start, sample project (desktop + mobile frames), five-step editor tour, palette replay, data-onboarding/data-tour. 162 tests.
 
 Checkpoint #10 (2026-09-10 21:05, chunk 8 — polish round): light window appearance for the title bar, Brand Kit page (wordmark, app icon, colour, type, voice, cutouts, rules; Korean label 브랜드 리소스 after Toss/Meta usage), sticky modal heading, Files Preview/Export, home right-click menu + Delete… with confirmation, last-opened sort, handwritten line kept in English. 158 tests.
 
