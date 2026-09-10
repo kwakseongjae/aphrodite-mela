@@ -106,7 +106,7 @@ export function parseProject(raw: string): Project {
     if (!validateTree(page.blocks)) throw new Error('프레임 중첩이 올바르지 않습니다 (순환/누락/깊이 초과).');
   }
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) };
+  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{})};
 }
 export function importDesignMarkdown(markdown: string, name: string, base: DesignSystem): DesignSystem {
   if (markdown.length > 200000) throw new Error('DESIGN.md는 200KB 이하여야 합니다.');

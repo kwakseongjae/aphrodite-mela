@@ -75,3 +75,13 @@ test('camera persists per project and rejects garbage',()=>{
   store.set('aphrodite-camera-v1:p3','{bad');
   assert.equal(readCamera(storage,'p3'),undefined);
 });
+
+test('parseProject keeps a valid space layout and drops a broken one',async()=>{
+  const {parseProject,initialProject}=await import('../src/model');
+  const p=initialProject() as {pages:{id:string}[];space?:Space};
+  p.space={frames:{[p.pages[0].id]:{x:24,y:0,preset:'mobile'}}};
+  const parsed=parseProject(JSON.stringify(p));
+  assert.deepEqual(parsed.space,{frames:{[p.pages[0].id]:{x:24,y:0,preset:'mobile'}}});
+  p.space={frames:{[p.pages[0].id]:{x:Number.NaN,y:0,preset:'mobile'}}};
+  assert.deepEqual(parseProject(JSON.stringify(p)).space,{frames:{}});
+});
