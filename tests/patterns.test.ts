@@ -6,7 +6,7 @@ import { componentIdentity, sceneManifest } from '../src/components';
 import { patternHtml, planningHtml } from '../src/pattern-render';
 
 test('all registered kinds and every pattern variation/state survive project and scene round trips',()=>{
-  assert.equal(catalog.length,20);
+  assert.equal(catalog.length,35);
   for (const kind of Object.keys(patternSpecs) as PatternKind[]) for(const variant of patternSpecs[kind].variants) for(const state of patternSpecs[kind].states){
     const p=initialProject(), b=makeBlock(kind); b.variant=variant;b.options={state,density:'compact',columns:2};p.pages[0].blocks=[b];
     const restored=parseProject(JSON.stringify(p));assert.deepEqual(restored.pages[0].blocks[0],b);
