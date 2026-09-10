@@ -44,6 +44,7 @@ import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_K
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
+import {commandTable,commandPaletteHtml,stateLine} from './editor/command-palette';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -136,11 +137,18 @@ function syncStateAttributes(){
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
     viewport:document.querySelector('[data-action="mobile"][aria-pressed="true"]')?'mobile':'desktop',
-    modal:modalRoot.querySelector('[role="dialog"] h2, [role="dialog"] .modal-title')?.textContent?.trim()??'',
+    modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
     undo:String(undoStack.length),redo:String(redoStack.length),
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
 }
+function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop'};}
+function commandsModal(query=''){
+  if(screen!=='editor')return;
+  showModal(ui('Commands','명령'),ui('Everything you can do on this page, in one list. Type to filter.','이 화면에서 할 수 있는 모든 일. 입력해서 걸러내세요.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
+  const input=modalRoot.querySelector<HTMLInputElement>('#command-search');input?.focus();input?.setSelectionRange(input.value.length,input.value.length);
+}
+function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
@@ -151,7 +159,7 @@ function render() {
   <header class="topbar">
     <a class="wordmark" href="#" data-action="home" aria-label="All projects">${brandLockup}</a>
     <div class="project-breadcrumb"><span>${ui("Workspace","작업 공간")}</span>${icon('chevron-right')}<button data-action="project">${esc(project.name)}${icon('chevron-down')}</button><span class="save-indicator"><span class="status-dot ${lastSaved ? '' : 'warning'}"></span>${control(lastSaved ? (nativeDesktop?'Saved to disk':'Saved locally') : 'Unsaved')}</span></div>
-    <div class="top-actions">${iconButton('language-settings','languages','Language / 언어')}${iconButton('undo', 'undo-2', 'Undo', undoStack.length ? '' : 'disabled')}${iconButton('redo', 'redo-2', 'Redo', redoStack.length ? '' : 'disabled')}<span class="divider"></span>${button('preview', 'play', 'Preview', 'plain-button')}${button('export', 'arrow-up-right', 'Export', 'primary-button')}</div>
+    <div class="top-actions">${iconButton('commands','circle-help',ui('Commands & shortcuts (⌘K or ?)','명령·단축키 (⌘K 또는 ?)'))}${iconButton('language-settings','languages','Language / 언어')}${iconButton('undo', 'undo-2', 'Undo', undoStack.length ? '' : 'disabled')}${iconButton('redo', 'redo-2', 'Redo', redoStack.length ? '' : 'disabled')}<span class="divider"></span>${button('preview', 'play', 'Preview', 'plain-button')}${button('export', 'arrow-up-right', 'Export', 'primary-button')}</div>
   </header>
   <div class="studio">
     <aside class="library" aria-label="Component library">
@@ -172,7 +180,7 @@ function render() {
       <div class="direction-bar"><span class="direction-icon">${icon('sparkles')}</span><div><strong>A little structure. A lot of possibility.</strong><span>컴포넌트로 방향을 잡고, 마음에 들면 코드로 가져가세요.</span></div>${button('brief', 'arrow-right', 'Start from a brief', 'plain-button')}</div>
     </main>
     <aside class="inspector" aria-label="Design inspector">${inspectorHtml()}</aside>
-  </div><footer class="statusbar"><span><span class="status-dot"></span>Local-first workspace <span class="status-divider">/</span> No generation credits used</span><span>Built with intention <span class="footer-flower">✳</span> Aphrodite 0.1</span></footer>`;
+  </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>Built with intention <span class="footer-flower">✳</span> Aphrodite 0.1</span></footer>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
   if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell')){
@@ -404,6 +412,8 @@ async function action(el: HTMLElement) {
     case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
     case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
+    case 'commands': commandsModal(); break;
+    case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
@@ -560,12 +570,14 @@ document.addEventListener('click', e => {
   document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
   const control = target.closest<HTMLElement>('[data-action]');
+  if (control?.hasAttribute('data-palette')) closeModal();
   if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
 });
 document.addEventListener('input', e => {
+  if((e.target as HTMLElement).id==='command-search'){renderPaletteList((e.target as HTMLInputElement).value);return;}
   const target = e.target as HTMLInputElement;
   if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
   if(target.id==='project-search'){hubQuery=target.value;document.querySelector('#project-grid')!.innerHTML=projectCards(library,hubFilter,hubQuery,uiLanguage,hubView);return;}
@@ -669,7 +681,10 @@ document.addEventListener('keydown', e => {
   if (modalRoot.children.length) {
     if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
+  if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
+  if(modalRoot.querySelector('#command-list')&&['ArrowDown','ArrowUp','Enter'].includes(e.key)){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const current=items.indexOf(document.activeElement as HTMLButtonElement);if(e.key==='Enter'){if(current>=0){e.preventDefault();items[current].click();}return;}e.preventDefault();const next=e.key==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items[next].focus();return;}
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
+  if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
   else if (e.key === '/') { e.preventDefault(); tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); }
