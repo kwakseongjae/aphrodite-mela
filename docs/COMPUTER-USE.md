@@ -52,3 +52,18 @@ Do not infer that this app authenticates to Codex, invokes a generative model, o
 7. Ask for visual approval before approving. Export **SCENE.json** with HTML/PROJECT/DESIGN/PROMPT. Match `[data-component-id]`, `[data-component-version]`, `[data-variant]` to scene node identities.
 
 These are Aphrodite-owned components, not official SEED/TDS or a certified OmD graph. Avoid claiming a pixel match, fully autonomous scene understanding or production-code parity.
+
+## Agent mode (delegation)
+
+When `#app[data-mode="agent"]` is set, a human has handed this screen to an external computer-use agent (Codex/Astra). Detect that attribute before assuming you own the pointer. Delegation is a contract plus a record: the human mouse is not physically blocked.
+
+The banner is the live signal. It names the operator and elapsed time, shows the intent, keeps a live receipt count on `<span data-delegation-receipts>`, and notes that Approve is locked. The human can take control back at any time with **제어 회수** (`data-action="delegation-return"`). That click ends the assembly run and returns the app to Design mode. Stop driving the UI when it happens.
+
+While the delegation is active, these decisions stay human even if the control is still visible:
+
+- **Approve direction** (`approve`) is always locked. Request human review; do not click Approve.
+- **Delete page** (`page-delete`, `delete-page`) is locked unless the recorded scope has `deletePages: true` (default false).
+- **Choose design system** and **Import DESIGN.md** (`choose-system`, `systems`, `import-md`) are locked unless the scope has `changeSystem: true` (default true).
+- **Export**, **Download handoff**, and **Save project** (`export`, `download-bundle`, `save-project`) are locked unless the scope has `export: true` (default true).
+
+The record of the session is the assembly run receipts together with the delegation object (operator, intent, start/end fingerprints, receipt count, outcome: `returned` / `ended-by-agent` / `timeout`). A screenshot of this document is not proof of work.
