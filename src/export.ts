@@ -77,6 +77,37 @@ Preserve the design contract across all pages. Do not invent brand facts or make
 `;
 }
 export function fileName(p: Project, extension: string) { return `${p.name.toLowerCase().replace(/[^a-z0-9가-힣]+/g, '-').replace(/^-|-$/g, '') || 'aphrodite'}.${extension}`; }
+const DATA_IMAGE = /^data:image\/(png|jpeg|webp);base64,([a-zA-Z0-9+/=]+)$/;
+const UPLOAD_EXT = { png: 'png', jpeg: 'jpg', webp: 'webp' } as const;
+function fnv1a8(s: string) { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0).toString(16).padStart(8, '0'); }
+function decodeUpload(dataUrl: string) {
+  const m = dataUrl.match(DATA_IMAGE); if (!m) return;
+  try {
+    const bin = atob(m[2]), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { name: `assets/uploads/${fnv1a8(m[2])}.${UPLOAD_EXT[m[1] as keyof typeof UPLOAD_EXT]}`, dataUrl, bytes, mime: `image/${m[1]}` };
+  } catch { return; }
+}
+export function collectUploads(p: Project): { name: string; dataUrl: string; bytes: Uint8Array; mime: string }[] {
+  const seen = new Set<string>(), out: { name: string; dataUrl: string; bytes: Uint8Array; mime: string }[] = [];
+  const add = (value?: string) => { if (!value) return; const parsed = decodeUpload(value); if (!parsed || seen.has(parsed.name)) return; seen.add(parsed.name); out.push(parsed); };
+  for (const page of p.pages) for (const b of page.blocks) { add(b.image); for (const img of b.itemImages ?? []) add(img); }
+  add(p.reference);
+  return out;
+}
+function rewriteUploads(html: string, uploads: { name: string; dataUrl: string }[]) {
+  let out = html;
+  for (const u of uploads) { out = out.replaceAll(`src="${u.dataUrl}"`, `src="${u.name}"`).replaceAll(`url(${u.dataUrl})`, `url(${u.name})`); }
+  return out;
+}
+function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[]) {
+  return uploads.map(u => {
+    const used: string[] = [];
+    for (const page of p.pages) for (const b of page.blocks) if (b.image === u.dataUrl || b.itemImages?.includes(u.dataUrl)) used.push(`${page.name} · ${b.kind}`);
+    if (p.reference === u.dataUrl) used.push('reference');
+    return `${u.name} → ${used.join(', ')}`;
+  }).join('\n');
+}
 export async function exportBundle(p: Project): Promise<Uint8Array> {
   const files: Record<string, Uint8Array> = {
     'DESIGN.md': strToU8(designMarkdown(p)),
@@ -98,7 +129,10 @@ export async function exportBundle(p: Project): Promise<Uint8Array> {
   }
   const hasLibraries=p.pages.some(page=>page.blocks.some(b=>b.provider&&b.provider!=='own'));
   if(hasLibraries)for(const [name,value] of Object.entries(sourceFiles()))files[name]=strToU8(value);
-  p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/')); });
+  const uploads=collectUploads(p);
+  p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)); });
+  for(const u of uploads)files[u.name]=u.bytes;
+  if(uploads.length)files['UPLOADS.md']=strToU8(uploadsMarkdown(p,uploads));
   for (const asset of ['interior', 'chair', 'living']) {
     const used = Object.entries(files).some(([name,content]) => (name.endsWith('.html') || name === 'project.aphrodite.json') && new TextDecoder().decode(content).includes(`assets/${asset}.jpg`));
     if (!used) continue;

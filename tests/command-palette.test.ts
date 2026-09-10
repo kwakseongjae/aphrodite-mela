@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {commandTable,filterCommands,commandPaletteHtml,stateLine} from '../src/editor/command-palette';
+import {commandTable,filterCommands,commandPaletteHtml,stateLine,normalizeQuery,scoreCommand} from '../src/editor/command-palette';
 
 const ctx={hasSelection:true,canUndo:true,canRedo:false,approved:false,viewport:'desktop' as const};
 
@@ -17,7 +17,7 @@ test('the palette lists every addable kind plus navigation/design/review/file co
 
 test('filtering matches English, Korean and action ids',()=>{
   const cmds=commandTable(ctx);
-  assert.ok(filterCommands(cmds,'hero','en').every(c=>`${c.en}${c.ko}${c.action}${c.data?.kind}`.toLowerCase().includes('hero')));
+  assert.ok(filterCommands(cmds,'hero','en').some(c=>c.action==='add'&&c.data?.kind==='hero'));
   assert.ok(filterCommands(cmds,'디자인 시스템','ko').some(c=>c.action==='systems'));
   assert.ok(filterCommands(cmds,'theme-review','en').some(c=>c.action==='theme-review'));
   assert.equal(filterCommands(cmds,'zzzz-none','en').length,0);
@@ -44,6 +44,30 @@ test('groups are ordered so the long add-component list comes last',()=>{
   const html=commandPaletteHtml(commandTable(ctx),'','en');
   const idx=(label:string)=>html.indexOf(`<span>${label}</span>`);
   assert.ok(idx('Navigate')<idx('Design'));assert.ok(idx('Design')<idx('Review'));assert.ok(idx('Review')<idx('Edit'));assert.ok(idx('File')<idx('Add component'));
+});
+
+test('ranked search normalises spaces, ranks starts-with first, and appends related',()=>{
+  const cmds=commandTable(ctx);
+  assert.equal(normalizeQuery('디자인 시스템'),'디자인시스템');
+  assert.equal(normalizeQuery('Get Vibe'),'getvibe');
+  assert.equal(filterCommands(cmds,'디자인시스템','ko')[0].action,'systems');
+  const design=filterCommands(cmds,'디자인','ko');
+  assert.equal(design[0].action,'systems');
+  const explorer=design.findIndex(c=>c.action==='component-explorer');
+  assert.ok(explorer>0);
+  assert.ok(design.some(c=>c.related&&c.group==='design'));
+  assert.ok(scoreCommand(design[0],'디자인','ko')>scoreCommand(cmds.find(c=>c.action==='component-explorer')!,'디자인','ko'));
+  assert.equal(filterCommands(cmds,'getvibe','en')[0].action,'autofill');
+  assert.ok(!filterCommands(cmds,'xo','en').some(c=>c.action==='export'));
+  assert.equal(scoreCommand(cmds.find(c=>c.action==='export')!,'xo','en'),0);
+  assert.deepEqual(filterCommands(cmds,'','en'),cmds);
+  assert.deepEqual(filterCommands(cmds,'  ','ko'),cmds);
+  const html=commandPaletteHtml(cmds,'디자인','ko');
+  assert.equal((html.match(/class="palette-group palette-related"/g)??[]).length,1);
+  assert.match(html,/<li class="palette-group palette-related"><span>관련 항목<\/span><\/li>/);
+  assert.match(html,/data-related="true"/);
+  assert.ok(html.indexOf('data-action="systems"')<html.indexOf('palette-related'));
+  assert.ok(html.indexOf('palette-related')<html.indexOf('data-related="true"'));
 });
 
 test('the palette lists other frames as navigate entries and skips the active one',()=>{
