@@ -44,11 +44,21 @@ security unlock-keychain -p "$TMP_KC_PASS" "$TMP_KC"
 security import "$FULL" -k "$TMP_KC" -P "$P12_PASS" -A >/dev/null
 # Remove every identity that is not the Developer ID Application one, by SHA-1 so that
 # two identities with the same name (e.g. a revoked duplicate) are both removed.
-for _ in 1 2 3 4 5; do
+# Every certificate in the scratch keychain: "<sha1> <label>" per line.
+kc_certs() { security find-certificate -a -Z "$1" 2>/dev/null | awk '/^SHA-1 hash:/{sha=$3} /"labl"<blob>="/{l=$0; sub(/.*"labl"<blob>="/,"",l); sub(/"$/,"",l); if (sha!="") print sha" "l; sha=""}'; }
+for _ in 1 2 3 4 5 6; do
   security find-identity -v -p codesigning "$TMP_KC" | sed -n 's/^ *[0-9]*) \([0-9A-F]*\) "\(.*\)"$/\1 \2/p' | while read -r sha name; do
     if [ "$name" != "$IDENTITY" ]; then security delete-identity -Z "$sha" "$TMP_KC" >/dev/null 2>&1 || true; fi
   done
+  # Certificates that lost their identity pairing (or duplicates sharing a hash) still get
+  # exported next to the kept identity, so remove every non-target certificate as well.
+  kc_certs "$TMP_KC" | while read -r sha label; do
+    if [ "$label" != "$IDENTITY" ]; then security delete-certificate -Z "$sha" "$TMP_KC" >/dev/null 2>&1 || true; fi
+  done
+  REMAINING="$(kc_certs "$TMP_KC" | grep -v -F "$IDENTITY" | wc -l | tr -d ' ')"
+  [ "$REMAINING" = "0" ] && break
 done
+echo "     certificates left in the scratch keychain:"; kc_certs "$TMP_KC" | sed 's/^[0-9A-F]* /       - /'
 security export -k "$TMP_KC" -t identities -f pkcs12 -P "$P12_PASS" -o "$P12"
 # Verify with Apple tooling (openssl on macOS often cannot parse `security export` output):
 # import the filtered .p12 into a second scratch keychain and list what is inside.
