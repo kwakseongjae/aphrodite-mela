@@ -28,7 +28,7 @@ export const patternSpecs = {
 } as const;
 export type PatternKind = keyof typeof patternSpecs;
 export const isPattern = (kind: string): kind is PatternKind => Object.hasOwn(patternSpecs, kind);
-export const patternVariants = (kind: string): readonly string[] => isPattern(kind) ? patternSpecs[kind].variants : kind === 'hero' ? ['split', 'image-left', 'stacked','editorial-wide'] : kind==='products'?['default','editorial']:kind==='frame'?['default','app-shell','app-main','app-board','app-lane']:['default'];
+export const patternVariants = (kind: string): readonly string[] => isPattern(kind) ? patternSpecs[kind].variants : kind === 'hero' ? ['split', 'image-left', 'stacked','editorial-wide'] : kind==='products'?['default','editorial','list','masonry']:kind==='frame'?['default','app-shell','app-main','app-board','app-lane']:kind==='navigation'?['default','centered','minimal']:kind==='features'?['default','cards','numbered']:kind==='testimonial'?['default','card','wall']:kind==='cta'?['default','banner','split']:kind==='footer'?['default','columns','minimal']:['default'];
 export const patternStates = (kind: string): readonly string[] => isPattern(kind) ? patternSpecs[kind].states : ['default'];
 export type PatternOptions = { density?: 'comfortable' | 'compact'; columns?: 1 | 2 | 3 | 4; state?: string; media?: 'image' | 'calendar'; mediaText?: string; placeholder?: string };
 export function validOptions(value: unknown, kind: string): boolean {
