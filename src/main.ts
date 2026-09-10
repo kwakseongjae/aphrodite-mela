@@ -125,10 +125,26 @@ function cloneBlocks(blocks:Page['blocks']):Page['blocks'] {
  const ids=new Map(blocks.map(b=>[b.id,uid()]));
  return blocks.map(b=>({...structuredClone(b),id:ids.get(b.id)!,parentId:b.parentId?ids.get(b.parentId):undefined}));
 }
+/** Machine-readable state for external agents (DOM readers): mirrors what the screen shows. */
+function syncStateAttributes(){
+  const page=screen==='editor'?currentPage(project):undefined;
+  const block=page?.blocks.find(b=>b.id===selected);
+  const state:Record<string,string>={
+    screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
+    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),
+    blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
+    system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
+    approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
+    viewport:document.querySelector('[data-action="mobile"][aria-pressed="true"]')?'mobile':'desktop',
+    modal:modalRoot.querySelector('[role="dialog"] h2, [role="dialog"] .modal-title')?.textContent?.trim()??'',
+    undo:String(undoStack.length),redo:String(redoStack.length),
+  };
+  for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
+}
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();return;}
+  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   if(!insertionTarget())insertParent=undefined;
   app.innerHTML = `${storageIssue?diskWarningHtml():''}
@@ -192,7 +208,7 @@ function render() {
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<p class="panel-description" role="status">${ui('Primary affects: ','메인 색상 적용 영역: ')}${ui(effect,({'fill':'채움 배경','text-border':'글자·테두리 (ghost는 글자)','border':'테두리만','neutral':'중립형 — 현재 변형의 기본 글자·배경에는 미적용'} as Record<string,string>)[effect])}</p>${mode==='custom'?`<label class="edit-field">HEX<input id="component-theme-hex" aria-label="Component primary hex" value="${componentAccent(inspected,project.system.accent)}" maxlength="7" pattern="#[a-fA-F0-9]{6}"></label>`:''}`);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<label class="edit-field">${ui('Component primary color','컴포넌트 메인 색상')}<select id="component-theme-mode" aria-label="Component color policy"><option value="project" ${mode==='project'?'selected':''}>${ui('Follow project','프로젝트 색상 적용')}</option><option value="source" ${mode==='source'?'selected':''}>${ui('Adapter baseline','어댑터 기본색')}</option><option value="custom" ${mode==='custom'?'selected':''}>${ui('Custom color','개별 색상 지정')}</option></select></label>${mode==='custom'?`<label class="edit-field">${ui('Custom primary','개별 메인 색상')}<input type="color" id="component-theme-accent" aria-label="Component custom primary" value="${componentAccent(inspected,project.system.accent)}"></label>`:''}<p class="panel-description">${ui('Primary only. Fonts and surfaces still follow existing adapters. Baseline is not a full original DS.','메인 색상만 변경합니다. 폰트·표면색은 기존 어댑터를 따릅니다. 기본색은 원본 DS 전체 복원이 아닙니다.')}<br>${componentAccent(inspected,project.system.accent)}</p>`);
   }
-  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')});
+  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
   const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
   disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
 }
@@ -270,8 +286,10 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   modalRoot.innerHTML = `<div class="modal-backdrop"><section class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><div><span class="kicker">APHRODITE STUDIO</span><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div>${iconButton('close-modal', 'x', 'Close dialog')}</div><div class="modal-content">${body}</div></section></div>`;
   app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
   hydrateNativeLibraries(modalRoot);
+  syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus(); }
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+}
 function systemModal() {
   showModal('Start with a point of view.', '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import your DESIGN.md', 'secondary-button full-width')}<p class="fine-print">명시적인 primary / background / foreground 색상을 읽습니다. 전체 원문도 내보내기에 보존합니다.</p>`);
 }
