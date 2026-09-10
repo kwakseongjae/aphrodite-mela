@@ -3,7 +3,7 @@ import {fingerprint,type Project} from '../model';
 
 export const DELEGATION_KEY='aphrodite-delegation-v1';
 
-export type DelegationScope={approve:false; deletePages:boolean; changeSystem:boolean; export:boolean};
+export type DelegationScope={approve:false; deletePages:boolean; changeSystem:boolean; export:boolean; frameId?:string};
 export type Delegation={
   id:string;
   projectId:string;
@@ -26,6 +26,7 @@ function defaultScope(partial?:Partial<DelegationScope>):DelegationScope{
     deletePages:partial?.deletePages??false,
     changeSystem:partial?.changeSystem??true,
     export:partial?.export??true,
+    ...(typeof partial?.frameId==='string'?{frameId:partial.frameId}:{}),
   };
 }
 
@@ -40,6 +41,7 @@ function isDelegation(value:unknown):value is Delegation{
   if(typeof d.startedAt!=='string'||!d.startedAt)return false;
   if(d.endedAt!==undefined&&typeof d.endedAt!=='string')return false;
   if(!d.scope||d.scope.approve!==false||typeof d.scope.deletePages!=='boolean'||typeof d.scope.changeSystem!=='boolean'||typeof d.scope.export!=='boolean')return false;
+  if(d.scope.frameId!==undefined&&typeof d.scope.frameId!=='string')return false;
   if(typeof d.operator!=='string'||d.operator.length>100)return false;
   if(typeof d.intent!=='string'||d.intent.length>1200)return false;
   if(typeof d.startFingerprint!=='string')return false;
@@ -52,6 +54,7 @@ function isDelegation(value:unknown):value is Delegation{
 export function startDelegation(project:Project,input:{operator:string;intent:string;scope?:Partial<DelegationScope>},now?:string):Delegation{
   if(typeof input.operator!=='string'||input.operator.length>100)throw new Error('operator must be 100 characters or fewer');
   if(typeof input.intent!=='string'||input.intent.length>1200)throw new Error('intent must be 1200 characters or fewer');
+  if(input.scope?.frameId!==undefined&&!project.pages.some(p=>p.id===input.scope!.frameId))throw new Error('frameId must be a page of this project');
   return {
     id:crypto.randomUUID(),
     projectId:project.id,
@@ -74,9 +77,16 @@ export function endDelegation(d:Delegation,project:Project,outcome:Delegation['o
   };
 }
 
-export function isBlockedWhileDelegated(d:Delegation|undefined,action:string):boolean{
+export function isBlockedWhileDelegated(d:Delegation|undefined,action:string,data?:{id?:string;pageId?:string}):boolean{
   if(!isActive(d))return false;
   if(action==='approve')return true;
+  const frameId=d.scope.frameId;
+  if(frameId){
+    if(action==='page-delete'||action==='delete-page')return true;
+    if(action==='add-page'||action==='new-frame')return true;
+    if(action==='page'&&data?.id!==frameId)return true;
+    if((action==='frame-move'||action==='frame-preset')&&data?.id!==frameId)return true;
+  }
   if(action==='page-delete'||action==='delete-page')return !d.scope.deletePages;
   if(action==='choose-system'||action==='systems'||action==='import-md')return !d.scope.changeSystem;
   if(action==='export'||action==='download-bundle'||action==='save-project')return !d.scope.export;
@@ -142,15 +152,17 @@ export function writeDelegation(storage:Pick<Storage,'setItem'|'removeItem'>,d:D
 export type DelegationReceipt={seq:number;kind:string;at:string};
 function clock(iso:string):string{const d=new Date(iso);return Number.isNaN(d.getTime())?iso.slice(11,19):d.toLocaleTimeString([], {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});}
 /** Side panel shown in place of the inspector while an agent holds the screen: who, what, scope, timeline, how to take control back. */
-export function agentPanelHtml(d:Delegation,receipts:readonly DelegationReceipt[],language:'en'|'ko'):string{
+export function agentPanelHtml(d:Delegation,receipts:readonly DelegationReceipt[],language:'en'|'ko',options?:{frameName?:string}):string{
   const ko=language==='ko';
+  const frameValue=d.scope.frameId?(options?.frameName??d.scope.frameId):(ko?'전체 공간':'Whole space');
+  const frameRow=`<li data-scope-frame>${esc(ko?'프레임':'Frame')}<span>${esc(frameValue)}</span></li>`;
   const scopeRows:[string,boolean][]=[
     [ko?'방향 승인':'Approve direction',false],
     [ko?'페이지 삭제':'Delete pages',d.scope.deletePages],
     [ko?'디자인 시스템 변경':'Change design system',d.scope.changeSystem],
     [ko?'내보내기 · 저장':'Export · save',d.scope.export],
   ];
-  const scope=scopeRows.map(([label,allowed])=>`<li data-allowed="${allowed}">${esc(label)}<span>${allowed?(ko?'허용':'allowed'):(ko?'잠김':'locked')}</span></li>`).join('');
+  const scope=frameRow+scopeRows.map(([label,allowed])=>`<li data-allowed="${allowed}">${esc(label)}<span>${allowed?(ko?'허용':'allowed'):(ko?'잠김':'locked')}</span></li>`).join('');
   const last=receipts.slice(-12).reverse();
   const timeline=last.length?last.map(r=>`<li><b>#${r.seq}</b> ${esc(r.kind)}<time>${esc(clock(r.at))}</time></li>`).join(''):`<li class="agent-panel-empty">${ko?'아직 기록이 없습니다.':'No receipts yet.'}</li>`;
   return `<div class="agent-panel" data-delegation-id="${esc(d.id)}"><header><span class="agent-panel-eyebrow">${ko?'에이전트 콘솔':'Agent console'}</span><h3>${esc(d.operator)}</h3><p>${esc(d.intent)}</p><dl><div><dt>${ko?'시작':'Started'}</dt><dd>${esc(clock(d.startedAt))} · ${esc(elapsedLabel(d.startedAt))}</dd></div><div><dt>${ko?'기록':'Receipts'}</dt><dd data-delegation-receipts>${receipts.length}</dd></div></dl></header><section><h4>${ko?'권한 범위':'Scope'}</h4><ul class="agent-panel-scope">${scope}</ul></section><section><h4>${ko?'타임라인':'Timeline'}</h4><ol class="agent-panel-timeline">${timeline}</ol></section><footer><button type="button" class="primary-button full-width" data-action="delegation-return">${ko?'제어 회수':'Take control back'}</button><p class="fine-print">${ko?'회수하면 실행 기록이 남고 디자인 모드로 돌아갑니다.':'Returning control records the run and switches back to Design mode.'}</p></footer></div>`;
