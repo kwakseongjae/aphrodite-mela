@@ -4,7 +4,7 @@ Goal: a Mac user opens the landing page, downloads a DMG, and tries Aphrodite wi
 
 ## Verdict
 
-**NOT READY for public download; READY for a private tester build.** Blocking item is trust, not function: the DMG is ad-hoc signed and `spctl --assess` on a quarantined copy returns `rejected · no usable signature`. Everything else needed for "download → drag → open" is now in place.
+**NOT READY for public download; READY for a private tester build** (draft `v0.1.0-rc.4` DMG exists). Blocking item is trust, not function: the DMG is ad-hoc signed and `spctl --assess` on a quarantined copy returns `rejected · no usable signature`. Everything else needed for "download → drag → open" is now in place.
 
 ## What changed today
 
@@ -53,7 +53,8 @@ Goal: a Mac user opens the landing page, downloads a DMG, and tries Aphrodite wi
 
 - Tag `v0.1.0-rc.1`: **failed** in `Run tests` — the GLB fixture test read `lab/sculpture/...`, which is git-ignored. Fixed by skipping that test when the fixture is absent.
 - Tag `v0.1.0-rc.2`: **failed** in bundling — `security import: failed to import keychain certificate`, because `APPLE_SIGNING_IDENTITY`/`APPLE_TEAM_ID` were set without `APPLE_CERTIFICATE`. Fixed by gating every `APPLE_*` env on the certificate secret in `release.yml`.
-- Tag `v0.1.0-rc.3`: result recorded below once the run finishes (draft release, ad-hoc signed until the owner runs `scripts/apple-signing-secrets.sh`).
+- Tag `v0.1.0-rc.3`: **failed** the same way — GitHub Actions defines `APPLE_CERTIFICATE` as an empty string when the secret is missing, and Tauri's bundler imports any *defined* certificate variable. Fix: separate signed and unsigned `tauri-action` steps, gated by a `Detect signing secrets` step; the unsigned step defines no `APPLE_*` variables at all.
+- Tag `v0.1.0-rc.4`: **success** (https://github.com/kwakseongjae/aphrodite-mela/actions/runs/34429870622). Draft pre-release with `Aphrodite_0.1.0_aarch64.dmg` (24.3 MB). Downloaded and mounted locally: `LSMinimumSystemVersion 13.0`, OCR helper `minos 13.0`, ad-hoc signature as expected for the unsigned path, icon present. The signed path is exercised the first time the owner runs `scripts/apple-signing-secrets.sh` and tags `v0.1.0`.
 
 ## Hands-on results
 
