@@ -36,7 +36,7 @@
       'dl.h2': 'Aphrodite for macOS', 'dl.os': 'macOS 14 or later',
       'dl.cta': 'Download .dmg', 'dl.ctaSub': 'Free · open source · no sign-up',
       'dl.note': "First launch: if macOS says the app can't be checked for malicious software, right-click the app and choose Open once.",
-      'dl.all': 'All releases', 'dl.source': 'Build from source',
+      'dl.all': 'All releases', 'dl.source': 'Build from source', 'dl.intel': 'Intel Mac? Download the x64 build',
       'foot.mark': 'Shape before you build.', 'foot.notices': 'Third-party notices',
       'foot.credit': 'Made with intention. A little instinct, too.'
     },
@@ -72,7 +72,7 @@
       'dl.h2': 'macOS용 Aphrodite', 'dl.os': 'macOS 14 이상',
       'dl.cta': '.dmg 다운로드', 'dl.ctaSub': '무료 · 오픈소스 · 가입 없음',
       'dl.note': '처음 실행할 때 macOS가 "악성 소프트웨어 검사를 할 수 없다"고 하면, 앱을 우클릭한 뒤 열기를 한 번 눌러주세요.',
-      'dl.all': '모든 릴리스', 'dl.source': '소스에서 빌드',
+      'dl.all': '모든 릴리스', 'dl.source': '소스에서 빌드', 'dl.intel': 'Intel Mac이라면 x64 빌드 다운로드',
       'foot.mark': '만들기 전에, 방향부터.', 'foot.notices': '서드파티 고지',
       'foot.credit': '의도 있게. 약간의 직감도 함께.'
     }
@@ -119,17 +119,22 @@
       .then(function (rel) {
         if (!rel) return;
         var assets = rel.assets || [];
-        var dmg = null;
+        var arm = null, intel = null;
         for (var i = 0; i < assets.length; i++) {
           var n = assets[i].name || '';
-          if (/\.dmg$/i.test(n) && (/aarch64|arm64|universal/i.test(n) || !dmg)) dmg = assets[i];
+          if (!/\.dmg$/i.test(n)) continue;
+          if (/aarch64|arm64/i.test(n)) arm = assets[i];
+          else if (/x64|x86_64|intel/i.test(n)) intel = assets[i];
         }
         var v = document.querySelector('[data-version]');
         if (v && rel.tag_name) v.textContent = rel.tag_name.replace(/^v/, 'v');
-        if (dmg) {
+        var primary = arm || intel;
+        if (primary) {
           var links = document.querySelectorAll('[data-download]');
-          for (var j = 0; j < links.length; j++) links[j].href = dmg.browser_download_url;
+          for (var j = 0; j < links.length; j++) links[j].href = primary.browser_download_url;
         }
+        var intelLink = document.querySelector('[data-download-intel]');
+        if (intelLink) { if (intel) { intelLink.href = intel.browser_download_url; intelLink.hidden = false; } else intelLink.hidden = true; }
       })
       .catch(function () {});
   }

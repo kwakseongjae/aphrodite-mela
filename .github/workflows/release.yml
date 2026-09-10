@@ -30,8 +30,17 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            label: Apple Silicon
+          - target: x86_64-apple-darwin
+            label: Intel
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,11 +51,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.target }}
 
       - name: Install dependencies
         run: npm ci
@@ -91,10 +101,10 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS (Apple Silicon). Download the .dmg, drag Aphrodite to Applications, open it."
+          releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
           releaseDraft: true
           prerelease: false
-          args: --target aarch64-apple-darwin --bundles dmg
+          args: --target ${{ matrix.target }} --bundles dmg
 
       - name: Build and publish release (signed, notarized with Apple ID)
         if: steps.signing.outputs.mode == 'appleid'
@@ -110,10 +120,10 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS (Apple Silicon). Download the .dmg, drag Aphrodite to Applications, open it."
+          releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
           releaseDraft: true
           prerelease: false
-          args: --target aarch64-apple-darwin --bundles dmg
+          args: --target ${{ matrix.target }} --bundles dmg
 
       # tauri-action notarizes and staples the .app, but not the .dmg container. Gatekeeper
       # evaluates the DMG first when a user double-clicks the download, so notarize + staple it
@@ -126,7 +136,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+          DMG="$(ls src-tauri/target/$TARGET/release/bundle/dmg/*.dmg | head -1)"
           xcrun notarytool submit "$DMG" --wait --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
           xcrun stapler staple "$DMG" && xcrun stapler validate "$DMG"
           spctl --assess --type open --context context:primary-signature -v "$DMG"
@@ -141,7 +151,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+          DMG="$(ls src-tauri/target/$TARGET/release/bundle/dmg/*.dmg | head -1)"
           xcrun notarytool submit "$DMG" --wait --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
           xcrun stapler staple "$DMG" && xcrun stapler validate "$DMG"
           spctl --assess --type open --context context:primary-signature -v "$DMG"
@@ -155,7 +165,7 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS (Apple Silicon). Unsigned test build: right-click the app and choose Open on first launch."
+          releaseBody: "Aphrodite for macOS (Apple Silicon and Intel). Unsigned test build: right-click the app and choose Open on first launch."
           releaseDraft: true
           prerelease: true
-          args: --target aarch64-apple-darwin --bundles dmg
+          args: --target ${{ matrix.target }} --bundles dmg

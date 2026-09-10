@@ -94,7 +94,7 @@ h1,h2,h3{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;margin:0
 .btn-large strong{font-size:17px}
 .dl-note{max-width:520px;font-size:13px;line-height:1.6;color:var(--muted);margin:24px 0 0}
 .dl-note[hidden]{display:none}
-.dl-links{display:flex;gap:22px;font-size:13px;margin:22px 0 0}
+.dl-links{display:flex;gap:22px;font-size:13px;margin:22px 0 0}.dl-intel{margin-top:14px}.dl-intel a[hidden]{display:none}
 .dl-links a{color:var(--muted)}
 .dl-links a:hover{color:var(--ink)}
 
