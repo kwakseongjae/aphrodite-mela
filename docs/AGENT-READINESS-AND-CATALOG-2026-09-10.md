@@ -56,6 +56,27 @@ Gaps an agent hits (to be confirmed by the probe):
 - **Options are not enumerable from the canvas**: the inspector shows variant/state selects only after selecting a block; the catalog shows one variant at a time via a dropdown. Proposal: variant chips in the catalog card and an "all variants" strip in Full preview.
 - **Shortcuts are undocumented in-app.**
 
-## 4. Blind probe report
+## 4. Blind probe — what actually happened (2026-09-10 13:2x–13:4x, native app, orchestrator-driven)
 
-_(appended when the probe agent finishes)_
+A separate fresh subagent was asked to probe the app from screenshots only; it produced no output in ~18 minutes (a macOS "Claude Code: 승인 대기" notification appeared during the run, so it was probably held at a permission prompt) and was stopped. The probe below was driven from the main session with `cliclick` + `screencapture`, deliberately using only what is visible on screen. Screenshots: `lab/probe/p01…p21` (scratchpad).
+
+| Step | Result | Evidence / note |
+| --- | --- | --- |
+| Discover actions | **Works after today's change**: ⌘K opens the palette; groups Navigate/Design/Review/Edit/File/Add; ↑↓ + Enter run items | p02. Before today there was no such surface. |
+| Read state | **Works**: status line `페이지 Home / 2 컴포넌트 / 선택 없음 / Atelier / 초안 / 데스크톱 / 저장됨` updates after every action (turned to 저장 안 됨 → 저장됨 around a save) | p13, p14. Contrast was too low; raised. |
+| Get Vibe on an authored page | **Works, but read as broken**: preview reported `0개 필드 변경 · 미지원 컴포넌트 1개` with no explanation. With "작성된 콘텐츠도 교체" on: 3 field changes, apply OK, toast, Undo restored everything | p11, p12, p13, p14. Fixed today: empty plans now explain why, name unsupported kinds and offer a one-click "replace and preview again". |
+| Catalog | **Works**: 20 kinds, real renderers for button ×5 (own/MUI/Astryx/SEED/shadcn); every other kind shows `01`; one variant at a time via a dropdown | p15. Breadth is the problem, not the mechanism — see §2. |
+| Theme draft (색상·폰트 초안 비교) | **Works but invisible on this page**: "파란색 초안" changed the proposal to #2255cc, yet both previews looked identical because the page had no accent-bearing component; the colour input rendered as a blank white well | p18, p19. Fixed today: current-vs-proposed token strip with hex values, explicit notice when no component uses the primary colour, colour-well styling. |
+| Palette via design-system presets | Works (not re-tested today; verified in code and earlier sessions) | `choose-system` |
+| Feedback | Toasts stack: the persistent "Design mode · 핸들로 크기 조절…" hint occupies the toast slot and overlaps action toasts | p13. Todo: separate hint bar from action toasts; keep last receipts in the status bar. |
+| Approve | Correctly absent from the palette; stays a deliberate click | — |
+
+Harness caveats for any computer-use agent on this app: a Korean input source turns `cliclick t:` ASCII into Hangul jamo (type via the palette's Korean labels or switch the IME); `cliclick kp:esc` did not reach the webview while `osascript … key code 53` did; the window must be frontmost before every click.
+
+### Ratings (1–5)
+- Onboarding clarity 3 — the home is clear; the editor shows many controls at once and the assembly bar dominates the first view.
+- Control naming 3 — mostly good; "Get Vibe" vs "Auto fill" drift fixed in docs; Assembly console / Pin selected frame / Insert at page root need a hover explanation.
+- State visibility 4 (was 2) — status line + data-* attributes now cover page/selection/system/approval/viewport/save.
+- Feedback after actions 3 — toasts are informative but short and can overlap.
+- Catalog breadth as observed 2 — five buttons, everything else single.
+- Palette/theme editing 3 — presets and per-token colours work; drafts are hard to judge without accent-bearing components (notice added).
