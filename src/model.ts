@@ -1,4 +1,5 @@
 import { patternSpecs, isPattern, patternVariants, validOptions, type PatternKind, type PatternOptions } from './patterns';
+import {sanitizeSpace,type Space} from './editor/space';
 import { supportsProvider, type Provider } from './providers';
 import {validComponentTheme,type ComponentTheme} from './design/component-theme';
 import {validShelf,type ShelfChoice} from './design/shelf';
@@ -10,8 +11,9 @@ export type Block = { id: string; kind: BlockKind; title: string; text: string; 
 export type DesignSystem = { id: string; name: string; description: string; accent: string; background: string; foreground: string; radius: number; font: 'serif' | 'sans'; source: string; originalMarkdown?: string };
 export type ReferenceEvidence = { engine: 'Apple Vision + pixels' | 'Pixels only'; sourceFingerprint: string; textLines: number; palette: string[]; elapsedMs: number; direction: HeroVariant; mediaUsed: boolean };
 export type VibeReceipt = {packId:string;changedFields:number;source:'local-authored-demo';imageSource:'user-upload'|'bundled-generated'|'none';modelCalled:false};
-export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt };
-export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[] };
+export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
+export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal };
+export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space };
 export const uid = () => crypto.randomUUID();
 export const systems: DesignSystem[] = [
   ...ownSystems,
@@ -81,11 +83,13 @@ export function parseProject(raw: string): Project {
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
+  if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
   if (![s.accent, s.background, s.foreground].every(v => /^#[a-fA-F0-9]{6}$/.test(v)) || !Number.isFinite(s.radius) || s.radius < 0 || s.radius > 48 || !['serif', 'sans'].includes(s.font) || ![s.name, s.id, s.description, s.source].every(v => str(v)) || (s.originalMarkdown !== undefined && !str(s.originalMarkdown, 200000))) throw new Error('디자인 토큰 형식이 올바르지 않습니다.');
   const ids = new Set<string>();
   for (const page of p.pages) {
     if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, 100) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
     ids.add(page.id);
+    if(page.proposal!==undefined&&(!validId(page.proposal.fromPageId)||!str(page.proposal.label,100)||!['reference-direction','vibe','agent'].includes(page.proposal.kind)))throw new Error('페이지 제안 형식이 올바르지 않습니다.');
     const vibe=page.vibeReceipt;
     if(vibe&&(!str(vibe.packId,100)||!Number.isInteger(vibe.changedFields)||vibe.changedFields<0||vibe.changedFields>400||vibe.source!=='local-authored-demo'||!['user-upload','bundled-generated','none'].includes(vibe.imageSource)||vibe.modelCalled!==false))throw new Error('Get Vibe 기록이 올바르지 않습니다.');
     const evidence = page.referenceEvidence;
