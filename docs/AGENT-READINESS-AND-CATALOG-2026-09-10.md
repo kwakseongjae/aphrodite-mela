@@ -73,6 +73,8 @@ A separate fresh subagent was asked to probe the app from screenshots only; it p
 | Feedback | Toasts stack: the persistent "Design mode · 핸들로 크기 조절…" hint occupies the toast slot and overlaps action toasts | p13. Todo: separate hint bar from action toasts; keep last receipts in the status bar. |
 | Approve | Correctly absent from the palette; stays a deliberate click | — |
 
+Open item: in the native WKWebView, ↑↓/Enter sent by System Events while the palette's search input is focused did not reach the document keydown handler (the same code works in Chromium over CDP; ⌘K, Esc and mouse clicks on palette items do work natively). A keyup fallback with an explicit active-item index was added and is being verified after the next rebuild; until then agents should click palette items.
+
 Harness caveats for any computer-use agent on this app: a Korean input source turns `cliclick t:` ASCII into Hangul jamo (type via the palette's Korean labels or switch the IME); `cliclick kp:esc` did not reach the webview while `osascript … key code 53` did; the window must be frontmost before every click.
 
 ### Ratings (1–5)
