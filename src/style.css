@@ -33,3 +33,19 @@ input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:#
 .agent-banner{flex-shrink:0;display:flex;align-items:center;gap:12px;padding:9px 22px;background:#fbf1d9;color:#5a3f0b;border-bottom:1px solid #e3c98a;font-size:12px}.agent-banner svg{width:16px;height:16px;flex:none}.agent-banner>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.agent-banner>span:not(.agent-banner-meta){flex:1}.agent-banner-meta{color:#7a5c1a}.agent-banner-meta b{font-weight:600}.agent-banner button{border:1px solid #c9a75a;border-radius:6px;padding:6px 10px;background:#fff8e8;font-size:12px;gap:6px}.agent-banner button svg{width:14px;height:14px}
 #app[data-mode=agent] .approve-button{opacity:.45;pointer-events:none}
 #app[data-mode=dev] .inspector input,#app[data-mode=dev] .inspector select,#app[data-mode=dev] .inspector textarea{pointer-events:none;opacity:.55}
+.dev-panel{padding:17px 17px 15px;font-size:12px;color:#3a4531}
+.dev-panel-section{padding:14px 0;border-bottom:1px solid var(--border)}
+.dev-panel-section:last-child{border-bottom:0}
+.dev-panel-heading{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px;min-height:22px}
+.dev-panel-kicker{margin-right:auto;font-size:9px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.dev-panel-copy{margin-left:auto;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;color:#516044}
+.dev-panel-dl{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;margin:0;font-size:11px}
+.dev-panel-dl dt{color:var(--muted);font-weight:400}
+.dev-panel-dl dd{margin:0;min-width:0;word-break:break-word}
+.dev-panel-dl code,.dev-panel pre code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.dev-panel pre{margin:0;padding:10px 8px;background:#f5f7ef;border:1px solid var(--border);border-radius:5px;overflow-x:auto;font-size:11px;line-height:1.55;color:#516044}
+.dev-panel-note,.dev-panel-handoff{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 10px}
+.dev-panel-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+.dev-panel-table th,.dev-panel-table td{border:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top;word-break:break-word}
+.dev-panel-table th{color:var(--muted);font-weight:400;background:#f5f7ef}
+.dev-panel textarea[data-copy]{display:none}
