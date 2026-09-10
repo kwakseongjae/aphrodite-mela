@@ -1,0 +1,15 @@
+import {execFileSync} from 'node:child_process';
+import {readFileSync,copyFileSync,mkdirSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {dirname,resolve} from 'node:path';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+process.chdir(root);
+const publicDir='lab/brand/sculpture-v1', out='lab/artifacts/aphrodite-sculpture-v1';
+const manifest=JSON.parse(readFileSync(`${publicDir}/manifest.json`,'utf8'));
+const states=Object.keys(manifest.states);
+const layout=states.map((_,i)=>`${i%4*512}_${Math.floor(i/4)*512}`).join('|');
+execFileSync('ffmpeg',['-y','-v','error',...states.flatMap(s=>['-i',`${publicDir}/${s}.png`]),'-filter_complex',`xstack=inputs=8:layout=${layout}:fill=0x00000000,format=rgba`,'-frames:v','1','-update','1',`${publicDir}/atlas.png`],{stdio:'inherit'});
+execFileSync('ffmpeg',['-y','-v','error','-framerate','30','-i',`${out}/motion/%03d.png`,'-vf','format=yuv420p','-c:v','libx264','-crf','19','-movflags','+faststart',`${out}/motion-preview.mp4`],{stdio:'inherit'});
+mkdirSync('lab/sculpture/models',{recursive:true});
+for(const file of ['aphrodite-studio.blend','aphrodite-studio.glb'])copyFileSync(`${out}/${file}`,`lab/sculpture/models/${file}`);
+console.log('Packaged RGBA atlas, 2-second video and persistent Blender/GLB sources.');

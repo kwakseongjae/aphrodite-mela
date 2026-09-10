@@ -1,0 +1,12 @@
+import {execFileSync} from 'node:child_process';
+import {readFileSync,mkdirSync,copyFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {resolve,dirname} from 'node:path';
+process.chdir(resolve(dirname(fileURLToPath(import.meta.url)),'..'));
+const pub='public/brand/sculpture-v2',out='lab/artifacts/aphrodite-sculpture-v2',models='lab/sculpture/models-v2';
+const m=JSON.parse(readFileSync(`${pub}/manifest.json`,'utf8'));
+execFileSync('ffmpeg',['-y','-v','error',...Object.keys(m.states).flatMap(s=>['-i',`${pub}/${s}.png`]),'-filter_complex','xstack=inputs=8:layout=0_0|512_0|1024_0|1536_0|0_512|512_512|1024_512|1536_512:fill=0x00000000,format=rgba','-frames:v','1','-update','1',`${pub}/atlas.png`],{stdio:'inherit'});
+execFileSync('ffmpeg',['-y','-v','error','-i',`${out}/classic-detail.png`,'-i',`${out}/vibe-detail.png`,'-filter_complex','hstack=inputs=2,scale=1600:800,format=rgba','-frames:v','1','-update','1',`${out}/classic-vibe-comparison.png`],{stdio:'inherit'});
+mkdirSync(models,{recursive:true});
+for(const f of ['aphrodite-detail-v2.blend','aphrodite-classic-v2.glb','aphrodite-vibe-v2.glb'])copyFileSync(`${out}/${f}`,`${models}/${f}`);
+console.log('v2 atlas, comparison and model copies ready; v1 unchanged.');

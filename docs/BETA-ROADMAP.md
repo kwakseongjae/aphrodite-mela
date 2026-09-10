@@ -1,0 +1,67 @@
+# Beta roadmap — canonical execution order
+
+Updated 2026-09-09. Existing feature-specific validation documents are evidence, not alternative roadmaps.
+
+## Status and sequence
+
+Latest B5 launch checkpoint (2026-09-10, Fable/Claude Code): `docs/LAUNCH-READINESS-2026-09-10.md`. New golden-apple app icon applied to `src-tauri/icons` (source `public/brand/app-icon-1024.png`); OCR helper pinned to `-target arm64-apple-macos13.0` (was minos 26.0 from the build host — would have failed on every older Mac); `bundle.targets` now `app`+`dmg`, `minimumSystemVersion` 13.0; local `Aphrodite_0.1.0_aarch64.dmg` built and inspected (helper minos 13.0, LSMinimumSystemVersion 13.0). `spctl` on the quarantined DMG: rejected, "no usable signature" — Developer ID signing + notarization is the remaining P0, wired in `.github/workflows/release.yml` behind `APPLE_*` secrets. Static landing page in `site/` (EN/KO, char.com-style) with `.github/workflows/pages.yml`; reference-image limit aligned to 2MB across UI/Rust/README; Apache-2.0 NOTICE for SEED/Astryx added to `THIRD_PARTY_NOTICES.md`. 94 TS tests pass. Not done: repo creation/push, signing secrets, product-name decision, min-window inspector layout at 1000×700, universal build. Independent Grok 4.6 review recorded in the readiness doc.
+
+Latest C2 gate: `docs/C2-COMPACT-CATALOG.md`. Content-sized compact buttons (219px cards at1280, five implementations/two rows), bilingual search + DS/category filters, draft preservation, MUI input/card paper/ink/heading integration. Native two-node QA,600/300 height exports deep-equal except height; actual iframe grows300px. 94 tests, final desktop build73671 verified. Next: safe auto-height vs explicit-scroll modes and control-vs-section semantics; fixed-height mobile inner scroll remains. No approval or savings claim.
+
+Latest C1 goal: `docs/C1-CATALOG-REVIEW.md`. Refined real-renderer catalog, component index/category navigation, explicit provenance/theme badges, larger singleton layouts; official button authored copy moved into project typography/layout. Native pin→inspect→add→Undo→restart and real ZIP pages/tokens preservation checked. 91 tests pass. Next scope: broader input/card theme integration and richer supported catalog inventory, then repeated reference comparison. Original B2/B3 preserved, C1 copy remains Draft.
+
+Latest completed experiment: `docs/B3-ITERATION-VALIDATION.md`. Three native revisions on B2 copy; five exports preserve original nodes/other pages; 88 tests. Native long-preview compositing and anchor scroll fixed/retested. Per-step apply checkpoints ~41/86/40 seconds are NOT total completion time; debugging cost remains included in interpretation. Independent static HTML control is not a fair fresh-image A/B. Next large goal: project typography/spacing/surface integration for official controls, then repeat comparative validation and human burden assessment. No beta-ready or savings claim.
+
+Latest autonomous goal checkpoint: `docs/ASSEMBLY-REVIEW-GOAL.md`. Full-size inspection with insertion-context retention, paged twelve-item shelf, multi-pin comparison, native preview blank-screen fix (Shadow DOM), native nested drag→Undo/remove/Redo→draft export→restart verified. 86 TS tests passed; local exported React rebuild and actual shadcn computed colors match. QA copy now six nodes/eleven shelf choices; QA original and accepted B2 unchanged. Work in goal-sized chunks, not feature-by-feature handoffs. Next gate: matched reference/iteration experiment with below-fold visual evidence and human correction-burden review. No measured token/time savings or broad accessibility claim.
+
+Latest shelf checkpoint: project-scoped persisted shelf + real thumbnails shipped; native project switch/restart, click and thumbnail drag + Undo verified. Save-file shelf exact and canvas fingerprint unchanged. 85 TS tests; build 60337 complete. docs/PERSISTENT-SHELF-VALIDATION.md. Next full-size shelf inspection and full-shelf preview performance, then broader theme/state mapping. Large Layout thumbnails are clipped identification previews, not full review.
+
+Latest handoff checkpoint: native ZIP → offline HTML → exported React install/build → native JSON import/re-save verified with three MUI button policies. Actual before/after colors equal, cloned import preserves original and all non-ID block fields. Shadcn scoped CSS rebuild retention fixed, MUI solid on-color mapping and agent HEX input added. 82 tests; build 88157 complete. See docs/THEME-HANDOFF-ROUNDTRIP.md. Next project-scoped persistent visual shelf, then broader variant/state contrast and font/surface mapping. No full WCAG or efficiency claim.
+
+Latest theme-policy checkpoint: own/MUI/shadcn buttons now support project/baseline/custom primary, validated project persistence and scene/prompt handoff. Native MUI green→baseline blue→custom mode and Undo verified; 81 TS tests; build 47327 complete/relaunched. See docs/COMPONENT-THEME-VALIDATION.md. Scope is primary only, not full DS recoloring. Next: native export/import matrix, variant-aware mapping/contrast, broader component + font/surface policies, persistent visual shelf.
+
+Latest catalog-shelf checkpoint supersedes drag-shelf TODO below: category filtering and session-only nonmodal shelf implemented, native pointer drag → exact shadcn/outline → Undo verified, outside-page drop rejected. Outline contrast inheritance fixed and visually checked. Final build 16410 completed/relaunched, 78 TS tests. docs/CATALOG-SHELF-VALIDATION.md contains evidence and open matrices. Next: per-component source/project/override theme policy, persistent visual shelf, large single-item inspection; do not claim all-provider customization or comprehensive drag coverage.
+
+Latest B3 preview-first checkpoint: contrast fix and isolated color/font proposal → actual screen-only draft export → explicit apply/approval separation implemented and native-tested. 77 TS tests passing; build 23550 complete. See docs/PREVIEW-FIRST-WORKFLOW.md and artifacts/b2-bilingual/PREVIEW-FIRST-REVIEW.md. Next execution order: category-first large catalog + nonmodal drag shelf; provider/variant Add/Undo validation; per-node source/project/override themes; full semantic palette comparison; broader accessibility and screen-review evidence. These remaining features are not shipped. This ordering supports direction confirmation before expensive implementation and leaves B4 savings claims unproven.
+
+Latest B3: kind-first cross-DS component comparison implemented; see docs/COMPONENT-EXPLORER.md. Actual native official rendering verified after CSP-safe local runtime fix; final compact layout and Add/Undo/DS-selection end-to-end remain to verify because live app state changed during QA. No original reference composition intentionally changed.
+
+Upstream issue registration resolved: https://github.com/kwakseongjae/oh-my-design/issues/97 is open. Existing authenticated gh has repository ADMIN permission; no additional login required. Earlier connector 403 remains a connector-specific limitation, not a blocker to authorized issue work. Other local proposals have not been submitted.
+
+2026-09-09 owner feedback: B2 result is passing quality (“일단 합격수준”). Proceed to B3; this is acceptance of the tested baseline, not blanket approval of new sections, motion, asset rights or a full bilingual beta release. The prior in-app/ZIP approval state is preserved as Draft; conversation feedback is recorded here without rewriting archived evidence.
+
+- [x] B1 — Native desktop basic end-to-end smoke flow: import reference/document → analyze → editable composition → correction → save/restart → ZIP export. Fixed scene re-exported through native Save dialog and actual HTML verified in in-app browser at 1440×900 and 375×812: image loaded, no document horizontal overflow, mobile CTA anchor navigated. Before/after ZIP comparison preserves original page/tokens/reference/hero/IDs with exactly eight changed copy fields. This gate is functional smoke coverage, not finished design or full beta certification. Evidence: artifacts/native-flow-v1/README.md. Draft retained.
+- [x] B2 — Freeze one of the five high-quality references and acceptance criteria; assemble from a blank page with Computer Use, then apply 2–3 requested revisions. Recipe insertion alone does not satisfy this gate. Tested baseline accepted by owner 2026-09-09, with disclosed limitations retained.
+  - Reference ⑤, five independent additions, resize/Undo, reorder/Undo/Redo, copy refinement. Original trial preserved. Iterated DS variants/agent UX, separate EN/KO copies, actual native Draft ZIP and in-app 1440/375 checks. At B2: 69 TS + 6 Rust tests. Two product photos and reference details explicitly missing. Acceptance of this baseline is not efficiency evidence.
+- [ ] B3 — Close observed DS/agent-UX gaps, integrate OmD contracts, check approved scene against exported code. Local OmD issue drafts remain unsubmitted.
+  - Resumed: CAPABILITIES.json consumer inventory exported with adapter availability, theme mapping, per-item missing images, unassessed source conformance/rights and unsupported scroll timelines. Reuses current registry, not a new OmD standard. Upstream whole-page evidence issue create failed HTTP 403; operator-ready draft docs/issues/OMD-PAGE-EXPERIENCE.md. No issue was created.
+  - First placeholder fix shipped: shared authored reference defaults + lighting Feature copy; only matching unfilled reference scaffolding is eligible. Native preview/apply changed eight fields, preserved reviewed hero/project identity, Undo/Redo verified. Full per-field provenance, localization and brand-consistent demo labels remain.
+- [ ] B4 — Matched repeated baseline vs image-first experiment, including unwanted-direction correction and restart costs.
+  - REQUIRED later, not now: whole-page/scroll experience validation in docs/SCROLL-EXPERIENCE-VALIDATION.md. Full-page + section references; observed/proposed lower content; agent ask-vs-draft policy; scroll horizontal/pin/scale semantics, real sequence evidence, mobile/reduced-motion fallbacks and EN/KO. Static keyframes are not proof of motion. Owner explicitly deferred implementation.
+- [ ] B5 — Signed/notarized download, clean-install/permission/Codex onboarding, recovery/conflict/performance checks and beta delivery.
+
+## Evaluation: correction burden is part of the outcome
+
+Keep the original image-first experiment direction. Do not replace it with a speed-only benchmark.
+
+Record separately: first reviewable result, approved direction, accepted final code, total elapsed time, agent-active time, human review/editing time, waiting time. Include image generation, Computer Use, implementation, retries and corrections; unknown usage stays unknown. Report cached token throughput separately from billed cost.
+
+For every intervention, record stage, trigger, requested change, affected scope, duration if observed, retry count, outcome and evidence. Distinguish:
+
+1. Intended refinement after seeing a draft.
+2. Wrong-direction correction (layout, content, visual tone).
+3. Micro-management needed to preserve a previously specified decision.
+4. Tool failure/recovery, including stale controls and file dialogs.
+5. Major restart or discarded implementation: include sunk time/tokens rather than restarting the clock.
+
+Predefine equivalent correction scenarios for both conditions. Keep the original brief and revision requests identical where possible; counterbalance ordering and run multiple tasks. Track regressions and acceptance independently of duration. Report assembly-only time separately from setup/asset preparation; never omit that preparation from end-to-end totals.
+
+Human burden is NOT inferred from click counts. After each condition, ask the actual participant to rate mental effort, frustration and confidence in the result (1–7), plus whether they would use the flow again. Record instruction-writing and review time, intervention count and abandoned directions as observable proxies, not clinical or validated psychological scores. Simulated agent tests cannot supply real participant ratings.
+
+Success gate: accepted quality must not decrease; compare time-to-accepted-result, correction burden and total measured cost. It is acceptable for the first image-first pass to take longer if demonstrably reducing costly restarts, but that tradeoff must be measured rather than asserted.
+
+## Evidence and reporting contract
+
+Every work handoff reports: completed changes; actual verification surface/results; outstanding issues; next concrete task. For UI runs provide numbered actual screenshots with action/outcome captions. Record continuous video when available; sampled-frame walkthroughs must be labeled as such and are not timing evidence. Never fabricate user approval or call generated references implemented screenshots.
+
+Baseline evidence: validation/storyline-2026-09-08/REPORT.md. Current full-run evidence: artifacts/native-flow-v1/README.md. B1 is not complete until all gates have evidence; partial or failed steps remain explicit.

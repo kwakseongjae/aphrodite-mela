@@ -1,0 +1,6 @@
+{
+  "identifier": "main-capability",
+  "description": "User-selected file exports plus narrowly scoped Rust commands for the app-owned workspace directory.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-close", "dialog:allow-save", "fs:allow-write-file"]
+}

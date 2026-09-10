@@ -1,0 +1,670 @@
+import { createIcons, icons } from 'lucide';
+import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project } from './model';
+import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
+import {catalogView} from './design/catalog-view';
+import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
+import { providers, supportsProvider } from './providers';
+import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
+import './design/component-explorer.css';
+import {pinShelf,preserveShelf,shelfPage} from './design/shelf';
+import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
+import {hydrateNativeLibraries} from './design/native-library';
+import {mountNativePreview} from './design/native-preview';
+import {themeProposal,applyThemeProposal} from './design/theme-proposal';
+import { canParent, validLayout } from './layout';
+import {mountPointerEditor} from './editor/pointer-editor';
+import {applyEditorCommand} from './editor/commands';
+import {mountLayerReorder} from './editor/layer-reorder';
+import {rerenderPreservingScroll} from './editor/scroll-continuity';
+import {collectionRows} from './design/collection';
+import {pointerLabPage} from './editor/pointer-lab';
+import {moaPage} from './moa';
+import './moa.css';
+import { buildPrompt, designMarkdown, exportBundle, fileName, saveFile } from './export';
+import './style.css';
+import './page.css';
+import './reference.css';
+import { analyzeReference, composeDirections, directions, suggestCopy, type ReferenceAnalysis } from './reference';
+import { componentIdentity } from './components';
+import type { Page } from './model';
+import { isPattern, patternSpecs, patternVariants, patternStates, type PatternOptions } from './patterns';
+import { defaultPlanningText } from './pattern-render';
+import { installPatternRuntime } from './pattern-runtime';
+import './patterns.css';
+import {newRun,appendEvent,changeReceipt,readRun,type AssemblyRun} from './agent/run';
+import {assemblyBrief,nodePath} from './agent/context';
+import './agent/agent.css';
+import {planVibe,applyVibe,type VibePlan} from './design/vibe';
+import {bridgeHtml,brandHtml} from './design/studio';
+import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePreviewHtml} from './design/vibe-language-form';
+import {readUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
+import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
+import './design/studio.css';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter} from './workspace/library';
+import {workspaceHome,projectCards} from './workspace/home';
+import './workspace/home.css';
+import {invoke,isTauri} from '@tauri-apps/api/core';
+import {brandLockup} from './design/logo';
+import {vaultHtml,type Vault} from './workspace/vault';
+import './workspace/vault.css';
+let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
+import {DurableQueue} from './workspace/durable';
+let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
+const nativeDesktop=isTauri();
+document.documentElement.classList.toggle('native-desktop',nativeDesktop);
+function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
+let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage);}catch{}
+const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
+const control=(label:string)=>controlText(label,uiLanguage);
+let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
+let vibeFormDraft:FormData|null=null;
+
+let night=false;try{night=localStorage.getItem('aphrodite-paper-theme')==='night';}catch{}
+let startupError = '';
+let library:Library={version:1,entries:[]};
+let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';
+let project: Project = initialProject();
+try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
+let tab: 'components' | 'layers' | 'assets' = 'components';
+let device: 'desktop' | 'mobile' = 'desktop';
+let query = '';
+let undoStack: string[] = [], redoStack: string[] = [];
+let lastSaved = true;
+let modalReturnFocus: HTMLElement | null = null;
+let zoom = 100;
+let toastTimer = 0;
+let referenceAnalysis: ReferenceAnalysis | null = null;
+let referenceDraft: { copy: ReturnType<typeof suggestCopy>; useCrop: boolean } | null = null;
+let candidatePages: Page[] = [];
+let analysisGeneration = 0;
+let comparisonObserver: ResizeObserver | null = null;
+let disposePointerEditor:(()=>void)|undefined;
+let insertParent:string|undefined;
+let assemblyRun:AssemblyRun|null=null,runStorageWarning='';
+try{const raw=localStorage.getItem('aphrodite-assembly-latest');if(raw){assemblyRun=readRun(raw);if(!assemblyRun)runStorageWarning='기존 실행 기록 형식을 읽지 못했습니다. 원본은 보존됩니다.';}}catch{runStorageWarning='실행 기록 저장소를 읽지 못했습니다.';}
+const app = document.querySelector<HTMLDivElement>('#app')!;
+const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
+const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}" aria-hidden="true"></i>`;
+const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
+const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
+function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
+function toast(message: string) { const el = document.querySelector<HTMLDivElement>('#toast')!; el.textContent = message; el.classList.add('visible'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('visible'), 4200); }
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
+function persist() { try { saveLibrary(upsertProject(library,project)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+async function flushDisk(){if(diskQueue)await diskQueue.flush();}
+async function showVault(refresh=true){
+  if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
+  await guardSwitch();const entry=library.entries.find(e=>e.project.id===vaultProjectId);if(!entry)throw new Error('프로젝트를 찾지 못했습니다.');
+  if(refresh||!vaultState)vaultState=await invoke<Vault>('vault_sync',{projectId:vaultProjectId,expected:entry.project,design:designMarkdown(entry.project)});
+  showModal(`${esc(entry.project.name)} · Files`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState),true);
+}
+async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
+function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+function commit(change: () => void, updateUI = true,source='editor:change') {
+  const before = JSON.stringify(project),pageBefore=project.activePageId;
+  change();
+  if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
+  if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
+}
+function history(direction: 'undo' | 'redo') {
+  const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
+  const snapshot = from.pop(); if (!snapshot) return;
+  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+}
+function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
+function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,details);storeRun();refreshAssemblyBar();}
+function insertionTarget(){return currentPage(project).blocks.find(b=>b.id===insertParent&&b.kind==='frame')?.id;}
+function assemblyBar(){const page=currentPage(project),last=assemblyRun?.events.at(-1),foreign=assemblyRun&&assemblyRun.projectId!==project.id;return `<div class="assembly-bar-header"><strong>AGENT ASSEMBLY · ${assemblyRun?esc(foreign?'다른 프로젝트 · 기록 중지':assemblyRun.status):'Ready'}</strong><div><button data-action="agent">Assembly console</button> <button data-action="pin-frame" ${page.blocks.find(b=>b.id===selected)?.kind==='frame'?'':'disabled'}>Pin selected frame</button> <button data-action="insert-root">Insert at page root</button></div></div><div class="assembly-context"><span><strong>Selected</strong> ${esc(nodePath(page.blocks,selected))}</span><span><strong>Insert into</strong> ${esc(nodePath(page.blocks,insertionTarget()))}</span></div><p class="assembly-receipt ${runStorageWarning?'warning':''}" role="status">${runStorageWarning?esc(runStorageWarning):last?`Receipt #${last.seq} · ${esc(last.kind)} · ${esc(last.revision)}${assemblyRun!.dropped?` · ${assemblyRun!.dropped} events omitted`:''}`:'Codex가 조립하고, 사람은 방향을 검토합니다. 실행 기록은 Console에서 시작하세요.'}</p>`;}
+function refreshAssemblyBar(){const bar=app.querySelector('.assembly-bar');if(bar)bar.innerHTML=assemblyBar();}
+function agentModal(){const active=assemblyRun&&assemblyRun.status!=='ended';showModal('Agent assembly console','외부 Codex/Astra가 레고를 조립하고, 사용자는 검토·승인합니다.',`<p class="panel-description">${esc(nodePath(currentPage(project).blocks,selected))}<br>삽입 대상: ${esc(nodePath(currentPage(project).blocks,insertionTarget()))}</p>${!active?`<form id="assembly-run-form"><label class="form-label">조립 목표<textarea name="intent" maxlength="1200" required placeholder="레퍼런스의 영역, 반복 카드, 필요한 상태를 설명하세요"></textarea></label><label class="form-label">모델 / 설정 (사용자 기입)<input name="model" maxlength="100" placeholder="실제 사용 모델과 설정 · 앱이 자동 확인하지 않습니다"></label><p class="fine-print">이미지·화면·문구 본문은 자동 수집하지 않습니다. 목표와 편집 명령 메타데이터를 로컬에 보관합니다. 이전 기록은 실행 ID별로 유지됩니다.</p><button class="primary-button" type="submit">Start assembly run</button></form>`:`<p>Run ${esc(assemblyRun!.id)} · ${esc(assemblyRun!.status)} · ${assemblyRun!.events.length} receipts</p><p>${esc(assemblyRun!.intent)}</p>`}<div class="assembly-actions">${button('assembly-empty','plus','New assembly page','secondary-button')}${button('assembly-brief','download','Download assembly brief','secondary-button')}${active?button('assembly-review','eye','Request human review','secondary-button')+button('assembly-end','square','End run','secondary-button'):''}${assemblyRun?button('assembly-log','download','Download run log','secondary-button'):''}</div><div class="modal-note">Request review는 승인하지 않습니다. Preview 변경은 세션 한정입니다. 기록은 편집 명령과 체크포인트이며, Codex 도구 호출·녹화·토큰 사용량이 아닙니다.</div><details><summary>조립 플레이북 · 현재 컨텍스트</summary><pre class="assembly-brief">${esc(assemblyBrief(project,selected,insertionTarget()))}</pre></details><div class="assembly-ledger">${assemblyRun?.events.slice(-6).map(e=>`<p>#${e.seq} ${esc(e.kind)} · ${esc(e.at)}</p>`).join('')??''}</div>`,true);}
+function cloneBlocks(blocks:Page['blocks']):Page['blocks'] {
+ const ids=new Map(blocks.map(b=>[b.id,uid()]));
+ return blocks.map(b=>({...structuredClone(b),id:ids.get(b.id)!,parentId:b.parentId?ids.get(b.parentId):undefined}));
+}
+function render() {
+  disposePointerEditor?.();
+  document.documentElement.lang=uiLanguage;
+  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();return;}
+  const page = currentPage(project), approved = isApproved(project);
+  if(!insertionTarget())insertParent=undefined;
+  app.innerHTML = `
+  <header class="topbar">
+    <a class="wordmark" href="#" data-action="home" aria-label="All projects">${brandLockup}</a>
+    <div class="project-breadcrumb"><span>${ui("Workspace","작업 공간")}</span>${icon('chevron-right')}<button data-action="project">${esc(project.name)}${icon('chevron-down')}</button><span class="save-indicator"><span class="status-dot ${lastSaved ? '' : 'warning'}"></span>${control(lastSaved ? (nativeDesktop?'Saved to disk':'Saved locally') : 'Unsaved')}</span></div>
+    <div class="top-actions">${iconButton('language-settings','languages','Language / 언어')}${iconButton('undo', 'undo-2', 'Undo', undoStack.length ? '' : 'disabled')}${iconButton('redo', 'redo-2', 'Redo', redoStack.length ? '' : 'disabled')}<span class="divider"></span>${button('preview', 'play', 'Preview', 'plain-button')}${button('export', 'arrow-up-right', 'Export', 'primary-button')}</div>
+  </header>
+  <div class="studio">
+    <aside class="library" aria-label="Component library">
+      <div class="workspace-title"><span class="workspace-icon">F</span><div><strong>${esc(project.name)}</strong><small>${ui("Design workspace","디자인 작업 공간")}</small></div>${iconButton('project', 'chevrons-up-down', 'Manage project')}</div>
+      <div class="section-label">${ui("PAGES","페이지")} <button class="tiny-button" data-action="add-page" aria-label="${ui("Add page","페이지 추가")}">${icon('plus')}</button></div>
+      <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
+      <div class="library-tabs" role="tablist" aria-label="Library view">${(['components', 'layers', 'assets'] as const).map(t => `<button role="tab" aria-selected="${t === tab}" class="${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
+      <div class="library-content">${libraryHtml()}</div>
+      <button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>DESIGN SYSTEM</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>Powered by your design contract</span></div></button>
+      <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>Made for you. And your agent.</strong><span>Same canvas. Shared direction.</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
+    </aside>
+    <main class="workbench">
+      <div class="workbench-heading"><div><span class="kicker">THE DESIGN WORKBENCH</span><h1>Shape it. Then build it<span>.</span></h1></div><button class="help-button" data-action="about">${icon('circle-help')}<span>A little guidance</span></button></div>
+      <div class="workflow"><button class="workflow-step done" data-action="brief"><span>1</span><div>Set the direction<small>Brief & reference</small></div>${icon('check')}</button><span class="workflow-line"></span><button class="workflow-step ${approved ? 'done' : 'current'}" data-action="assemble-focus"><span>2</span><div>Make it tangible<small>Assemble & fill</small></div>${approved ? icon('check') : ''}</button><span class="workflow-line"></span><button class="workflow-step ${approved ? 'current' : ''}" data-action="export"><span>3</span><div>Make it real<small>Approve & export</small></div></button></div>
+      <div class="canvas-toolbar"><div class="canvas-location">${icon('layout-template')}<strong>${esc(page.name)}</strong><span class="draft-badge ${approved ? 'approved' : ''}">${control(approved ? 'Approved' : 'Draft')}</span></div><div class="viewport-controls">${iconButton('desktop', 'monitor', 'Desktop viewport', `aria-pressed="${device === 'desktop'}"`)}${iconButton('mobile', 'smartphone', 'Mobile viewport', `aria-pressed="${device === 'mobile'}"`)}<span class="divider"></span><button class="zoom-control" data-action="zoom" title="Cycle canvas zoom">${zoom}%${icon('chevron-down')}</button></div><div class="canvas-actions">${button('reference', 'image-plus', 'Reference', 'plain-button')}${button('autofill', 'sparkles', 'Get Vibe', 'fill-button')}</div></div>
+      <div class="canvas-scroll" id="canvas-scroll"><div class="canvas-frame ${device}" style="--zoom:${zoom / 100}"><div class="frame-label"><span>${icon(device === 'desktop' ? 'monitor' : 'smartphone')}${esc(page.name)} / ${device === 'desktop' ? 'Desktop' : 'Mobile'}</span><span>${device === 'desktop' ? 'Fluid' : '375'} × Auto</span></div><div class="design-page" id="design-canvas" style="${esc(themeVars(project))}">${page.blocks.map((b, index) => `<div class="block-wrap ${selected === b.id ? 'selected' : ''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${catalog.find(c => c.kind === b.kind)!.name} block ${index + 1}"><div class="block-selection-label">${icon('grip-vertical')}${catalog.find(c => c.kind === b.kind)!.name}<span>${index + 1}</span></div>${blockHtml(b)}</div>`).join('')}<button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? 'Add a section' : 'Start with a component from the library'}</span></button></div></div></div>
+      <div class="canvas-bottom"><span>${icon('mouse-pointer-2')} Click to edit · Drag to compose</span><span>${page.blocks.length} components <span>·</span> ${project.system.name === 'Atelier' ? 'Original' : 'Project'} tokens</span></div>
+      <div class="direction-bar"><span class="direction-icon">${icon('sparkles')}</span><div><strong>A little structure. A lot of possibility.</strong><span>컴포넌트로 방향을 잡고, 마음에 들면 코드로 가져가세요.</span></div>${button('brief', 'arrow-right', 'Start from a brief', 'plain-button')}</div>
+    </main>
+    <aside class="inspector" aria-label="Design inspector">${inspectorHtml()}</aside>
+  </div><footer class="statusbar"><span><span class="status-dot"></span>Local-first workspace <span class="status-divider">/</span> No generation credits used</span><span>Built with intention <span class="footer-flower">✳</span> Aphrodite 0.1</span></footer>`;
+  const canvas=app.querySelector('#design-canvas')!;
+  app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
+  if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell')){
+    (canvas as HTMLElement).style.width='1440px';(canvas as HTMLElement).style.zoom=String(zoom/100);canvas.classList.add('moa-desktop');
+    const frame=app.querySelector<HTMLElement>('.canvas-frame')!;frame.style.width=`${1440*zoom/100}px`;frame.style.maxWidth='none';
+    app.querySelector('.frame-label span:last-child')!.textContent='1440 × Auto';
+  }
+  const add=canvas.querySelector('.canvas-add')!.outerHTML;
+  canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
+  const inspected = page.blocks.find(b => b.id === selected);
+  if (inspected) {
+    const identity = componentIdentity(inspected);
+    app.querySelector('.selected-component-label')?.insertAdjacentHTML('afterend', `<code class="component-contract-id">${identity.componentId} · v${identity.componentVersion}</code>${inspected.kind === 'hero' ? `<label class="edit-field">Composition<select id="hero-variant" aria-label="Hero composition">${patternVariants("hero").map(v => `<option value="${v}" ${identity.variant===v?"selected":""}>${directions.find(d=>d.variant===v)?.name??"Editorial wide · 36:64"}</option>`).join("")}</select></label>` : ''}`);
+    const select = (key: string, label: string, values: readonly string[], value: string) => `<label class="edit-field">${label}<select data-kit-option="${key}" aria-label="${label}">${values.map(v=>`<option value="${v}" ${v===value?'selected':''}>${v}</option>`).join('')}</select></label>`;
+    const options = inspected.options ?? {};
+    const extra = isPattern(inspected.kind) ? `<p class="panel-description">${esc(patternSpecs[inspected.kind].help)}</p>${select('variant','Component variation',patternVariants(inspected.kind),identity.variant)}${select('state','Component state',patternStates(inspected.kind),options.state ?? 'default')}${select('density','Component density',['comfortable','compact'],options.density ?? 'comfortable')}${['cards','stats'].includes(inspected.kind)?select('columns','Grid columns',['1','2','3','4'],String(options.columns ?? 3)):''}` : inspected.kind==='hero' ? `<label class="edit-field">Eyebrow<input data-field="eyebrow" aria-label="Hero eyebrow" value="${esc(inspected.eyebrow ?? '')}" placeholder="설정하면 기본 영문 장식 문구가 제거됩니다"></label>${select('media','Hero media',['image','calendar'],options.media ?? 'image')}<label class="edit-field">Media label<input data-kit-option="placeholder" aria-label="Hero media label" value="${esc(options.placeholder ?? '')}"></label>${options.media==='calendar'?`<label class="edit-field">Planning items<textarea data-kit-option="mediaText" aria-label="Hero planning items" rows="6">${esc(options.mediaText ?? defaultPlanningText)}</textarea></label><p class="panel-description">요일|업무|상태 — 이미지가 아닌 편집 가능한 HTML 일정입니다.</p>`:''}` : '';
+    app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',extra);
+    if(inspected.kind==='products')app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',select('variant',ui('Collection layout','컬렉션 배치'),patternVariants('products'),identity.variant)+`<label class="edit-field">${ui('Collection introduction','컬렉션 소개')}<textarea data-field="description" aria-label="Collection introduction" maxlength="2000">${esc(inspected.description??'')}</textarea></label><p class="panel-description">${ui('Images follow row position. Changing row order does not reorder image slots automatically. Demo lamp reuses the same fictional photo as Hero.','이미지는 행 위치에 연결됩니다. 텍스트 행의 순서를 바꾸면 이미지도 확인하세요. 데모 조명은 Hero와 같은 가상 제품 사진입니다.')}</p>${collectionRows(inspected).slice(0,30).map(row=>`<div class="collection-image-slot"><strong>${row.index+1}. ${esc(row.title)}</strong>${row.image?`<img src="${esc(row.image)}" alt="${esc(row.title)}">`:`<small>${ui('Image missing','이미지 미확보')}</small>`}<button class="plain-button" data-action="collection-image" data-index="${row.index}">${ui('Choose image','이미지 선택')} ${row.index+1}</button><button class="plain-button" data-action="collection-image-demo" data-index="${row.index}">${ui('Use demo lamp','데모 조명 사용')} ${row.index+1}</button><button class="plain-button" data-action="collection-image-clear" data-index="${row.index}">${ui('Clear slot','슬롯 비우기')} ${row.index+1}</button></div>`).join('')}`);
+    const b=inspected;
+    const candidates=Object.entries(providers).filter(([key])=>supportsProvider(key,b.kind));
+    const library=`<label class="edit-field">Implementation<select id="component-provider" aria-label="Component implementation">${candidates.map(([key,v])=>`<option value="${key}" ${(b.provider??'own')===key?'selected':''}>${v.name}</option>`).join('')}</select></label><p class="panel-description">${esc(providers[b.provider??'own'].source)}<br>공식 연결: MUI 버튼·입력·카드 / Astryx·SEED·shadcn 버튼. HIG는 가이드 참조이며 라이브러리가 아닙니다. Astryx·SEED는 기본 테마를 보존합니다.</p>`;
+    const numeric=(key:string,label:string,value:number,min:number,max:number)=>`<label class="edit-field">${label}<input type="number" data-layout="${key}" aria-label="${label}" min="${min}" max="${max}" value="${value}"></label>`;
+    const l=b.layout??{};
+    const layout=`<h3>Layout & nesting</h3><label class="edit-field">Parent frame<select id="parent-frame" aria-label="Parent frame"><option value="">Page root</option>${page.blocks.filter(x=>x.kind==='frame'&&canParent(page.blocks,b.id,x.id)).map(x=>`<option value="${x.id}" ${b.parentId===x.id?'selected':''}>${esc(x.title)}</option>`).join('')}</select></label>${numeric('width','Width percent',l.width??100,10,100)}${numeric('widthPx','Fixed width px',l.widthPx??320,64,2000)}${numeric('height','Height px',l.height??240,100,2000)}${b.kind==='frame'?`${select('layout-mode','Frame layout',['flow','free'],l.mode??'flow')}${numeric('columns','Frame columns',l.columns??1,1,4)}${numeric('gap','Frame gap',l.gap??16,0,96)}${numeric('padding','Frame padding',l.padding??24,0,96)}`:b.parentId?`${numeric('x','Position X',l.x??0,0,1500)}${numeric('y','Position Y',l.y??0,0,1500)}`:''}<p class="panel-description">프레임으로 중첩하거나 레이어 핸들을 끌어 순서를 변경하세요. 자유 배치는 X/Y로 조정합니다. 좁은 화면에서는 읽기 순서로 쌓입니다.</p>`;
+    app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',library+layout);
+    if(b.kind==='frame')app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',select('variant','Frame recipe',patternVariants('frame'),b.variant??'default')+'<p class="panel-description">app-* 레시피는 열·간격 규칙을 고정합니다. 일반 레이아웃 편집은 default로 전환하세요.</p>');
+  }
+  app.querySelector('.canvas-actions')?.insertAdjacentHTML('afterbegin','<span class="editor-design-note">Design mode</span><button class="plain-button" data-action="moa-recipe">Moa app</button><button class="plain-button" data-action="pointer-lab">Pointer lab</button>');
+  if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend','<button class="plain-button" data-action="fit-app">Fit app</button>');
+  if(inspected&&supportsComponentTheme(inspected)){
+   const mode=inspected.theme?.mode??'project';
+   const effect=primaryEffect(inspected);
+   app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<p class="panel-description" role="status">${ui('Primary affects: ','메인 색상 적용 영역: ')}${ui(effect,({'fill':'채움 배경','text-border':'글자·테두리 (ghost는 글자)','border':'테두리만','neutral':'중립형 — 현재 변형의 기본 글자·배경에는 미적용'} as Record<string,string>)[effect])}</p>${mode==='custom'?`<label class="edit-field">HEX<input id="component-theme-hex" aria-label="Component primary hex" value="${componentAccent(inspected,project.system.accent)}" maxlength="7" pattern="#[a-fA-F0-9]{6}"></label>`:''}`);
+   app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<label class="edit-field">${ui('Component primary color','컴포넌트 메인 색상')}<select id="component-theme-mode" aria-label="Component color policy"><option value="project" ${mode==='project'?'selected':''}>${ui('Follow project','프로젝트 색상 적용')}</option><option value="source" ${mode==='source'?'selected':''}>${ui('Adapter baseline','어댑터 기본색')}</option><option value="custom" ${mode==='custom'?'selected':''}>${ui('Custom color','개별 색상 지정')}</option></select></label>${mode==='custom'?`<label class="edit-field">${ui('Custom primary','개별 메인 색상')}<input type="color" id="component-theme-accent" aria-label="Component custom primary" value="${componentAccent(inspected,project.system.accent)}"></label>`:''}<p class="panel-description">${ui('Primary only. Fonts and surfaces still follow existing adapters. Baseline is not a full original DS.','메인 색상만 변경합니다. 폰트·표면색은 기존 어댑터를 따릅니다. 기본색은 원본 DS 전체 복원이 아닙니다.')}<br>${componentAccent(inspected,project.system.accent)}</p>`);
+  }
+  hydrateIcons(); bindDragAndDrop();
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
+}
+function libraryHtml() {
+  if (tab === 'layers') return `<div class="panel-description">화면 순서대로 쌓이는 구성 요소입니다.</div><div class="layer-list">${currentPage(project).blocks.map(b => `<button class="layer ${b.id === selected ? 'selected' : ''}" data-action="select" data-id="${b.id}" data-layer-id="${b.id}" title="${ui('Drag grip to reorder · Alt + arrows','핸들을 드래그해 순서 변경 · Alt + 방향키')}"><span data-layer-grip aria-hidden="true">${icon('grip-vertical')}</span>${icon(catalog.find(c => c.kind === b.kind)!.icon)}<span>${catalog.find(c => c.kind === b.kind)!.name}</span></button>`).join('') || '<p class="empty-state">Add your first component.</p>'}</div>`;
+  if (tab === 'assets') return `<div class="section-label">REFERENCE & IMAGERY</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${project.reference}" alt="Uploaded reference">` : icon('image-plus')}<strong>${project.reference ? 'View your reference' : 'Bring your inspiration'}</strong><span>PNG, JPG, WebP · up to 2MB</span></button><p class="panel-description">내 이미지를 업로드하거나 로컬 샘플 이미지로 분위기를 확인하세요.</p><div class="asset-grid">${['interior', 'chair', 'living'].map(a => `<button data-action="apply-asset" data-asset="${a}" aria-label="Use ${a} image"><img src="/assets/${a}.jpg" alt="${a} reference photo"><span>${a}</span></button>`).join('')}</div><p class="panel-description">Unsplash reference photography.<br>샘플 이미지이며, AI 생성 이미지가 아닙니다.</p>`;
+  return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="Find a component..." value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>Drag onto the canvas.<br>Or click + to add instantly.</span></div>`;
+}
+let explorerKind:BlockKind='button',explorerVariant='solid';
+let explorerGroup='All';
+let explorerFilter={...emptyCatalogFilter};
+let shelfPageIndex=0;
+function shelfHtml(){
+ const slice=shelfPage(project.shelf??[],shelfPageIndex);shelfPageIndex=slice.page;
+ return `<section class="catalog-shelf" aria-label="Assembly shelf"><strong>${ui('Project assembly shelf','프로젝트 조립 선반')} · ${(project.shelf??[]).length}/12</strong><p>${ui('Saved with this project. Inspect at full size, then drag or Add. Canvas Undo does not change the shelf.','프로젝트와 함께 저장됩니다. 크게 확인한 뒤 드래그하거나 추가하세요. 캔버스 실행 취소와는 별개입니다.')}</p><nav class="shelf-pagination" aria-label="Shelf pages">${Array.from({length:slice.pages},(_,i)=>`<button data-action="shelf-page" data-index="${i}" aria-label="Shelf page ${i+1}" aria-current="${i===slice.page?'page':'false'}">${i+1}</button>`).join('')}<small>${ui('Up to 4 live previews','실시간 미리보기 최대 4개')}</small></nav>${slice.items.map(({choice:c,index:i})=>`<article data-catalog-choice="${esc(JSON.stringify(c))}" aria-label="Drag ${c.provider} ${c.kind} ${c.variant}"><strong>${esc(c.kind)}</strong><code>${esc(c.provider)} / ${esc(c.variant)}</code><div class="shelf-preview" inert aria-hidden="true"><div class="design-page" style="${esc(themeVars(project))}">${renderTree([explorerBlock(c.kind,c.provider,c.variant)],project)}</div></div><small>${c.provider==='seed'||c.provider==='astryx'?ui('Native DS theme','DS 고유 테마'):ui('Project tokens · variant mapping','프로젝트 토큰 · 변형별 매핑')}</small><button data-action="shelf-inspect" data-index="${i}" aria-label="Inspect ${c.provider} ${c.kind} ${c.variant}">${ui('Inspect','크게 보기')}</button><button data-action="shelf-add" data-index="${i}" aria-label="Add ${c.provider} ${c.kind} ${c.variant}">${ui('Add','추가')}</button><button data-action="shelf-remove" data-index="${i}" aria-label="Remove ${c.provider} ${c.kind} ${c.variant}">×</button></article>`).join('')||`<small>${ui('Choose “Pin to shelf” in the catalog.','카탈로그에서 선반에 담기를 선택하세요.')}</small>`}</section>`;
+}
+let inspection:{choice:CatalogChoice;projectId:string;pageId:string;parentId?:string;origin:'shelf'|'catalog';width:number}|null=null;
+function inspectChoice(choice:CatalogChoice,origin:'shelf'|'catalog'){
+ const form=modalRoot.querySelector<HTMLFormElement>('#catalog-filter-form');
+ if(origin==='catalog'&&form){const data=new FormData(form);explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));}
+ inspection={choice:{...choice},projectId:project.id,pageId:project.activePageId,parentId:insertionTarget(),origin,width:960};
+ inspectionModal();
+}
+function inspectionModal(){
+ if(!inspection)return;
+ const {choice:c,width,parentId}=inspection,b=explorerBlock(c.kind,c.provider,c.variant),native=c.provider==='seed'||c.provider==='astryx';
+ showModal(ui('Inspect before assembling','조립 전에 크게 확인하세요'),`${esc(c.provider)} / ${esc(c.kind)} / ${esc(c.variant)}`,`
+ <div class="inspection-toolbar"><label>${ui('Preview width','미리보기 너비')}<select id="inspection-width" aria-label="Preview width">${[375,768,960,1440].map(n=>`<option value="${n}" ${width===n?'selected':''}>${n} px</option>`).join('')}</select></label><span>${ui('Insert into','삽입 위치')}: <strong>${esc(nodePath(currentPage(project).blocks,parentId))}</strong></span><button class="secondary-button" data-action="inspection-back">${ui('Back · keep selection','돌아가기 · 선택 유지')}</button><button class="primary-button" data-action="inspection-add">${ui('Add this implementation','이 구현 추가')}</button></div>
+ <p class="inspection-note">${native?ui('Native DS colors. Project color mapping is not supported.','DS 고유 색상입니다. 프로젝트 색상 매핑은 지원하지 않습니다.'):ui('Project tokens with adapter-specific variant mapping. Not a full vendor theme import.','프로젝트 토큰을 어댑터 변형별로 매핑합니다. 공식 테마 전체 이식이 아닙니다.')} ${c.kind==='frame'?ui('Empty layout container: children are assembled after insertion.','빈 레이아웃 컨테이너입니다. 삽입 후 자식 컴포넌트를 조립합니다.'):''} ${ui('Visual preview only. Scroll horizontally or vertically to see the whole component.','형태 확인용 미리보기입니다. 가로·세로 스크롤로 전체 컴포넌트를 확인하세요.')}</p>
+ <div class="inspection-viewport" role="region" aria-label="Full component preview" tabindex="0"><div class="design-page" style="${esc(themeVars(project))};width:${width}px" inert>${renderTree([b],project)}</div></div>`,true);
+ modalRoot.querySelector('.modal')?.classList.add('inspection-modal');
+}
+let themeDraft:ReturnType<typeof themeProposal>|null=null;
+function themeReview(fresh=false){
+ if(fresh||!themeDraft||themeDraft.projectId!==project.id)themeDraft=themeProposal(project,project.system.accent,project.system.font);
+ const candidate=themeDraft.candidate;
+ showModal(ui('Render first. Decide next.','먼저 보고, 그다음 결정하세요.'),ui('A reversible theme draft. No implementation or approval runs here.','되돌릴 수 있는 테마 초안입니다. 구현 실행이나 디자인 승인은 하지 않습니다.'),`
+ <div class="explorer-controls"><label>${ui('Proposed primary','초안 메인 색상')}<input type="color" id="proposal-color" aria-label="Proposed primary" value="${candidate.system.accent}"></label><label>${ui('Heading font','제목 폰트')}<select id="proposal-font" aria-label="Proposed heading font"><option value="serif" ${candidate.system.font==='serif'?'selected':''}>Editorial serif</option><option value="sans" ${candidate.system.font==='sans'?'selected':''}>Modern sans</option></select></label><button class="secondary-button" data-action="proposal-blue">${ui('Try blue','파란색 초안')}</button><button class="secondary-button" data-action="proposal-green">${ui('Try green','초록색 초안')}</button></div>
+ <p>${ui('Primary text token contrast (not a full accessibility audit)','본문 기본 토큰 대비 (전체 접근성 감사 아님)')}: ${themeDraft.bodyContrast.toFixed(2)}:1 · ${ui('Astryx/SEED keep native themes; only mapped components change. Fonts are local serif/sans fallbacks, not licensed brand fonts.','Astryx/SEED는 고유 테마를 유지하며 매핑된 컴포넌트만 변경됩니다. 폰트는 로컬 serif/sans 대체 글꼴이며 브랜드 전용 폰트가 아닙니다.')}</p>
+ <div class="theme-comparison"><article><h3>${ui('Current','현재')}</h3><iframe title="Current theme draft" sandbox="allow-scripts"></iframe></article><article><h3>${ui('Proposed · not applied','제안 · 미적용')}</h3><iframe title="Proposed theme draft" sandbox="allow-scripts"></iframe></article></div>
+ <div class="vibe-actions"><button class="secondary-button" data-action="proposal-export">${ui("Export draft screen","초안 화면 내보내기")}</button><button class="secondary-button" data-action="proposal-full">${ui('Large preview','초안 크게 보기')}</button><button class="primary-button" data-action="proposal-apply">${ui('Apply draft · Undo available','이 초안 적용 · 실행 취소 가능')}</button></div>`,true);
+ modalRoot.querySelectorAll<HTMLIFrameElement>('.theme-comparison iframe').forEach((f,i)=>{const p=i?candidate:project;mountPagePreview(f,p,currentPage(p));});
+}
+function explorerModal(preserveDraft=true){
+ const draft=modalRoot.querySelector<HTMLFormElement>('#catalog-filter-form');
+ if(preserveDraft&&draft){const data=new FormData(draft);explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));}
+ const kinds=filteredKinds(explorerGroup,explorerFilter);
+ if(kinds.length&&!kinds.some(c=>c.kind===explorerKind))explorerKind=kinds[0].kind;
+ const variants=patternVariants(explorerKind);if(!variants.includes(explorerVariant))explorerVariant=variants[0];
+ showModal(ui('The component collection.','좋은 화면을 만드는 조각들.'),ui('Find your form. Make it your own.','형태를 발견하고, 당신의 브랜드로 조립하세요.'),catalogView(project,explorerKind,explorerVariant,explorerGroup,ui,c=>`<div class="design-page" style="${esc(themeVars(project))}">${blockHtml(explorerBlock(c.kind,c.provider,c.variant),project)}</div>`,explorerFilter),true);
+ modalRoot.querySelector('.modal')?.classList.add('catalog-modal');
+ refreshExplorerPins();
+}
+function refreshExplorerPins(){
+ const count=modalRoot.querySelector('[data-shelf-count]');if(count)count.textContent=ui(`Assemble from shelf · ${project.shelf?.length??0}/12`,`선반에서 조립 · ${project.shelf?.length??0}/12`);
+ modalRoot.querySelectorAll<HTMLButtonElement>('[data-action="explorer-pin"]').forEach(el=>{
+  const pinned=project.shelf?.some(c=>c.kind===el.dataset.kind&&c.provider===el.dataset.provider&&c.variant===el.dataset.variant);
+  el.disabled=!!pinned;el.textContent=pinned?ui('On project shelf','프로젝트 선반에 담김'):ui('Pin to shelf','선반에 담기');
+ });
+}
+function componentCards() {
+  const list = catalog.filter(c => `${c.name} ${c.description} ${c.category} ${patternVariants(c.kind).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  return list.map(c => `<div class="component-card" draggable="true" data-component="${c.kind}"><div class="component-thumbnail thumb-${c.kind}" aria-hidden="true"><div class="mini-nav"><b></b><span></span><span></span></div><div class="mini-body"><div class="mini-lines"><b></b><span></span><span></span><em></em></div><div class="mini-image">${icon(c.icon)}</div></div></div><div class="component-info"><div><strong>${c.name}</strong><span>${c.category}${isPattern(c.kind)?` · ${patternVariants(c.kind).length} variants`:''}</span></div><button data-action="add" data-kind="${c.kind}" aria-label="Add ${c.name}" title="Add ${c.name}">${icon('plus')}</button></div></div>`).join('') || '<p class="empty-state">No matching components.</p>';
+}
+function inspectorHtml() {
+  const b = currentPage(project).blocks.find(b => b.id === selected);
+  return `<div class="inspector-title"><span>Design</span><span class="inspector-kicker">PROJECT TOKENS</span></div>
+  <section class="inspector-section"><div class="section-heading"><h2>Look & feel</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">Color palette <span>Shared across pages</span></label><div class="color-swatches">${[project.system.accent, project.system.background, project.system.foreground, '#e5e1d8', '#c0c8b8'].map((color, i) => `<span style="background:${color}" title="${i < 3 ? ['Primary', 'Background', 'Foreground'][i] : 'Decorative editor swatch'}: ${color}"></span>`).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${['Primary', 'Canvas', 'Text'][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>Typeface<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>Editorial serif</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>Modern sans</option></select></label><label>Radius<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><button class="text-link" data-action="design-md">${icon('file-text')}View DESIGN.md${icon('arrow-up-right')}</button></section>
+  <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? 'Selected component' : 'Component properties'}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${b.filled ? 'Filled' : 'Draft'}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? 'Brand name' : 'Heading'}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">Content<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">Label / action<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}Replace image</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', currentPage(project).blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', currentPage(project).blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
+  <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? 'Direction, decided.' : 'Like where this is going?'}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button')}</div>`;
+}
+function showModal(title: string, subtitle: string, body: string, wide = false) {
+  comparisonObserver?.disconnect(); comparisonObserver = null;
+  if (!modalRoot.children.length) modalReturnFocus = document.activeElement as HTMLElement;
+  modalRoot.innerHTML = `<div class="modal-backdrop"><section class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><div><span class="kicker">APHRODITE STUDIO</span><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div>${iconButton('close-modal', 'x', 'Close dialog')}</div><div class="modal-content">${body}</div></section></div>`;
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
+  hydrateNativeLibraries(modalRoot);
+}
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus(); }
+function systemModal() {
+  showModal('Start with a point of view.', '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import your DESIGN.md', 'secondary-button full-width')}<p class="fine-print">명시적인 primary / background / foreground 색상을 읽습니다. 전체 원문도 내보내기에 보존합니다.</p>`);
+}
+function designBridgeModal() {
+  systemModal();
+  modalRoot.querySelector('.modal-content')!.insertAdjacentHTML('afterbegin',bridgeHtml());
+  hydrateIcons();
+}
+function briefModal() {
+  showModal('What are we shaping?', '초안의 목적을 정하고, 바로 편집할 수 있는 구조를 만드세요.', `<form id="brief-form"><label class="form-label">Project name<input name="name" required maxlength="100" value="${esc(project.name)}"></label><label class="form-label">The direction<textarea name="brief" rows="4" required maxlength="2000" placeholder="어떤 화면을 만들고 싶으세요?">${esc(project.brief)}</textarea></label><div class="brief-presets">${['가구 브랜드 쇼핑몰', '크리에이티브 스튜디오 포트폴리오', '새로운 SaaS 랜딩페이지'].map(t => `<button type="button" data-action="brief-preset" data-value="${t}">${t}</button>`).join('')}</div><div class="modal-note">${icon('blocks')}로컬 템플릿 규칙으로 새 페이지를 조립합니다. 이미지 분석이나 AI 추론은 호출하지 않습니다. 기존 페이지는 유지됩니다.</div><button class="primary-button full-width" type="submit">${icon('wand-sparkles')}Assemble a new draft ${icon('arrow-right')}</button></form>`);
+}
+function autofillModal() {
+  vibePending=null;
+  showModal('Get Vibe', ui('Review changes before filling. Existing content is protected by default.','채우기 전에 변경 내용을 확인하세요. 기존 콘텐츠는 기본적으로 보호됩니다.'), vibeFormHtml(!!vibeImage,project.contentLanguage,uiLanguage),true);
+  if(vibeFormDraft){const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form')!;for(const name of ['pack','language'])(form.elements.namedItem(name) as HTMLSelectElement).value=String(vibeFormDraft.get(name));for(const name of ['copy','images','replace'])(form.elements.namedItem(name) as HTMLInputElement).checked=vibeFormDraft.has(name);}
+}
+function exportModal(view = 'prompt') {
+  const approved = isApproved(project);
+  showModal('Good direction deserves a head start.', '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? 'Direction approved · Ready for handoff' : 'Draft export · 아직 디자인 방향을 승인하지 않았습니다.'}</span>${!approved ? '<button data-action="approve-export">Approve now</button>' : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : pageHtml(project, project.pages[0]))}</pre><div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML page${project.pages.length > 1 ? 's' : ''}</span><span>${icon('palette')} Design tokens</span><span>${icon('image')} Local assets</span><span>${icon('folder')} Editable project</span></div><div class="export-actions">${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
+  const activeIndex = project.pages.findIndex(page => page.id === project.activePageId);
+  const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
+  if (htmlTab) htmlTab.textContent = activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
+  if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
+}
+function addBlock(kind: BlockKind, before?: string, choice?:{provider:string;variant:string}) {
+  if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
+  const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
+  b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
+  if(!canParent([...blocks,b],b.id,b.parentId)){recordRun('catalog:rejected',{reason:'invalid-depth',parentId:b.parentId});toast('이 프레임에는 더 깊게 중첩할 수 없습니다. 삽입 대상을 바꾸세요.');return;}
+  if(!choice&&supportsProvider(project.system.id,kind))b.provider=project.system.id;
+  const parentName=nodePath(blocks,b.parentId);
+  commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},true,before?'catalog:drop':'catalog:add');
+  document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  toast(`${catalog.find(c => c.kind === kind)!.name} added → ${parentName}`);
+}
+function bindDragAndDrop() {
+ app.querySelector('.catalog-shelf')?.remove();
+ if(tab==='components')app.querySelector('.component-list')?.insertAdjacentHTML('beforebegin',shelfHtml());
+ hydrateNativeLibraries(app);
+ app.querySelectorAll<HTMLElement>('[data-catalog-choice]').forEach(el=>{
+  // Pointer transport also works when WebKit's native HTML drag does not start.
+  el.draggable=false;
+  el.addEventListener('pointerdown',e=>{
+   if(e.button!==0||(e.target as HTMLElement).closest('button'))return;
+   const choice=parseCatalogChoice(el.dataset.catalogChoice!);if(!choice)return;
+   const start={x:e.clientX,y:e.clientY};el.setPointerCapture(e.pointerId);
+   const move=(event:PointerEvent)=>{if(event.pointerId!==e.pointerId)return;el.classList.toggle('shelf-dragging',Math.hypot(event.clientX-start.x,event.clientY-start.y)>6);};
+   const cleanup=()=>{
+    el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',finish);el.removeEventListener('pointercancel',finish);el.removeEventListener('lostpointercapture',cleanup);document.removeEventListener('keydown',cancel);el.classList.remove('shelf-dragging');
+    if(el.hasPointerCapture(e.pointerId))el.releasePointerCapture(e.pointerId);
+   };
+   const cancel=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();cleanup();toast(ui('Drag cancelled','드래그 취소됨'));}};
+   const finish=(event:PointerEvent)=>{
+    if(event.pointerId!==e.pointerId)return;
+    cleanup();
+    if(event.type==='pointercancel'||Math.hypot(event.clientX-start.x,event.clientY-start.y)<=6)return;
+    const hit=document.elementFromPoint(event.clientX,event.clientY);
+    if(!hit?.closest('#design-canvas')){toast(ui('Drop inside the page canvas','페이지 캔버스 안에 놓아주세요'));return;}
+    addBlock(choice.kind,hit.closest<HTMLElement>('[data-block-id]')?.dataset.blockId,choice);
+   };
+   el.addEventListener('pointermove',move);el.addEventListener('pointerup',finish);el.addEventListener('pointercancel',finish);el.addEventListener('lostpointercapture',cleanup);document.addEventListener('keydown',cancel);
+  });
+ });
+  app.querySelectorAll<HTMLElement>('[data-move-id]').forEach(el=>el.addEventListener('dragstart',e=>{e.dataTransfer?.setData('application/aphrodite-move',el.dataset.moveId!);}));
+  app.querySelectorAll<HTMLElement>('[data-component]').forEach(el => el.addEventListener('dragstart', e => { e.dataTransfer?.setData('application/aphrodite-component', el.dataset.component!); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'; }));
+  const canvas = app.querySelector<HTMLElement>('#design-canvas')!;
+  if(canvas.dataset.nativeDropBound)return;canvas.dataset.nativeDropBound='true';
+  canvas.addEventListener('drop',e=>{const raw=e.dataTransfer?.getData(catalogMime);if(!raw)return;e.preventDefault();e.stopImmediatePropagation();canvas.classList.remove('drop-active');canvas.querySelectorAll('.drop-before').forEach(el=>el.classList.remove('drop-before'));const choice=parseCatalogChoice(raw);if(!choice){toast(ui('Invalid catalog selection','유효하지 않은 카탈로그 선택입니다'));return;}const before=(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId;addBlock(choice.kind,before,choice);});
+  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;});toast('Component moved · Undo available');});
+  canvas.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('drop-active'); const wrap = (e.target as HTMLElement).closest('.block-wrap'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); wrap?.classList.add('drop-before'); });
+  canvas.addEventListener('dragleave', e => { if (!canvas.contains(e.relatedTarget as Node)) { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
+  canvas.addEventListener('drop', e => { e.preventDefault(); const kind = e.dataTransfer?.getData('application/aphrodite-component') as BlockKind; const before = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId; if (catalog.some(c => c.kind === kind)) addBlock(kind, before); else { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
+}
+function pickFile(accept: string, handler: (file: File) => Promise<void>) {
+  const input = document.createElement('input'); input.type = 'file'; input.accept = accept; input.hidden = true; input.dataset.upload = accept;
+  document.querySelector('[data-upload]')?.remove(); document.body.append(input);
+  input.addEventListener('change', async () => { try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
+}
+async function readImage(file: File): Promise<string> {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000) throw new Error('2MB 이하 PNG, JPG, WebP 이미지를 선택해주세요.');
+  const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
+  await new Promise<void>((resolve, reject) => { const img = new Image(); img.onload = () => resolve(); img.onerror = () => reject(new Error('유효한 이미지 파일이 아닙니다.')); img.src = data; });
+  return data;
+}
+function referenceModal() {
+  showModal('One reference. Three possibilities.', '이미지에서 단서를 읽고, 실제 컴포넌트로 방향을 비교하세요.', `${project.reference ? `<img class="reference-large" src="${project.reference}" alt="Your visual reference">` : '<div class="reference-empty">↗<strong>Every direction starts somewhere.</strong><span>이미지 한 장부터 시작하세요.</span></div>'}<div class="export-actions">${button('upload-reference', 'upload', project.reference ? 'Replace reference' : 'Upload reference', 'secondary-button')}${project.reference ? button('analyze-reference', 'scan-text', 'Analyze reference', 'primary-button') : button('demo-reference', 'image', 'Try a sample reference', 'primary-button')}</div>${project.reference ? button('remove-reference', 'trash-2', 'Remove reference', 'text-link') : ''}<p class="fine-print">PNG / JPG / WebP, 2MB 이하. macOS: Apple Vision OCR + 로컬 픽셀 분석. 브라우저: 색상·텍스처 분석만. 외부 API 전송이나 생성 비용은 없습니다.</p>`);
+}
+function analysisModal() {
+  if (!referenceAnalysis) return;
+  const a = referenceAnalysis, copy = referenceDraft?.copy ?? suggestCopy(a.lines, project);
+  showModal('Read the clues. Keep the intent.', '레퍼런스는 단서입니다. 문구와 이미지 후보를 검토한 뒤 비교하세요.', `<div class="analysis-grid"><div><div class="reference-evidence-image"><img src="${project.reference}" alt="Analyzed reference">${a.cropBox ? `<span class="crop-overlay" style="left:${a.cropBox.x * 100}%;top:${a.cropBox.y * 100}%;width:${a.cropBox.width * 100}%;height:${a.cropBox.height * 100}%"><b>MEDIA CANDIDATE</b></span>` : ''}</div><div class="analysis-metrics"><span>${esc(a.engine)}</span><span>${a.lines.length} text lines</span><span>${(a.elapsedMs / 1000).toFixed(2)}s</span></div><div class="evidence-palette">${a.palette.map(c => `<span style="background:${c}" title="${c}"></span>`).join('')}<small>Observed colors · project tokens unchanged</small></div><details class="ocr-details"><summary>Inspect OCR evidence (${a.lines.length})</summary>${a.lines.map(l => `<p>${esc(l.text)} <small>${Math.round(l.confidence * 100)}%</small></p>`).join('') || '<p>No OCR evidence available.</p>'}</details></div><div><div class="modal-note">${esc(a.warning)}</div><label class="form-label">Proposed heading<textarea id="reference-title" rows="2" maxlength="2000">${esc(copy.title)}</textarea></label><label class="form-label">Supporting copy<textarea id="reference-copy" rows="3" maxlength="4000">${esc(copy.text)}</textarea></label><label class="form-label">Action label<input id="reference-label" maxlength="200" value="${esc(copy.label)}"></label>${a.crop ? `<label class="check-option"><input id="reference-use-crop" type="checkbox"><span><strong>Use this media candidate</strong><small>텍스처 기반 추정입니다. 영역에 문구가 섞였는지 확인하세요. 기본값은 빈 이미지입니다.</small></span><img class="crop-thumb" src="${a.crop}" alt="Proposed media crop"></label>` : '<p class="fine-print">명확한 이미지 영역을 찾지 못했습니다. 이미지 슬롯을 비워둡니다.</p>'}${button('compare-directions', 'columns-3', 'Compare 3 directions', 'primary-button full-width')}<p class="fine-print">같은 문구·토큰·컴포넌트로 배치만 비교합니다. 아래 섹션 문구는 편집용 플레이스홀더입니다.</p></div></div>`, true);
+}
+function compareModal() {
+  showModal('Same intent. A different first impression.', `${esc(project.system.name)} · Same tokens, real components. 하나를 선택하면 편집 가능한 새 페이지가 됩니다.`, `<div class="direction-comparison">${candidatePages.map((p, i) => `<article class="direction-option"><div class="direction-option-heading"><span>0${i + 1}</span><div><h3>${esc(p.name)}</h3><p>${directions[i].description}</p></div></div><div class="direction-preview"><iframe title="${esc(p.name)} preview" sandbox="allow-same-origin" tabindex="-1"></iframe></div><div class="direction-option-footer"><code>aphrodite.hero / ${directions[i].variant}</code>${button('choose-direction', 'arrow-up-right', `Use direction ${i + 1}`, 'primary-button full-width', `data-index="${i}"`)}</div></article>`).join('')}</div><div class="comparison-note"><span>${icon('lock-keyhole')}Your brand stays intact. Only the composition changes.</span>${button('review-reference', 'arrow-left', 'Back to evidence', 'secondary-button')}</div>`, true);
+  modalRoot.querySelector('.modal')!.classList.add('comparison-modal');
+  modalRoot.querySelectorAll<HTMLIFrameElement>('.direction-preview>iframe').forEach((frame, i) => { mountPagePreview(frame,project,candidatePages[i]); });
+  comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
+  modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
+}
+async function action(el: HTMLElement) {
+  const act = el.dataset.action;
+  const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
+  switch (act) {
+    case 'language-settings':showModal('Language / 언어',ui('Interface and content are separate preferences.','앱 조작 언어와 콘텐츠 언어는 별개의 설정입니다.'),languageSettingsHtml(uiLanguage,screen==='editor'?(project.contentLanguage??'en'):undefined));break;
+    case 'vault-open': vaultProjectId=el.dataset.id||project.id;vaultState=undefined;await showVault();break;
+    case 'vault-refresh': await showVault();break;
+    case 'vault-back': await showVault(false);break;
+    case 'vault-note': showModal('A document for this project.','문서는 저장만 하며 AI 지시로 실행하지 않습니다.',`<form id="vault-note-form"><label class="form-label">Filename<input name="name" value="brief.md" required maxlength="100" pattern="[A-Za-z0-9_][A-Za-z0-9_.-]*" title="영문·숫자·점·밑줄·하이픈 파일명"></label><label class="form-label">Document<textarea name="text" rows="10" maxlength="1000000" required placeholder="레퍼런스, 디자인 결정, 작업 메모…"></textarea></label><button class="primary-button" type="submit">Save document</button></form>`);break;
+    case 'vault-import': {const id=vaultProjectId;pickFile('.md,.txt,.json,text/plain,text/markdown,application/json',async file=>{if(file.size>1_000_000)throw new Error('문서는 1MB 이하여야 합니다.');const state=await invoke<Vault>('vault_document',{projectId:id,name:file.name,text:await file.text()});if(id===vaultProjectId){vaultState=state;await showVault(false);}});break;}
+    case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),'파일 미리보기 · 원문은 지시가 아닌 데이터입니다.',`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
+    case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
+    case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
+    case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
+    case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
+    case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
+    case 'hub-pin': case 'hub-archive': {const key=act==='hub-pin'?'pinned':'archived';saveLibrary({...library,entries:library.entries.map(e=>e.project.id===el.dataset.id?{...e,[key]:!e[key]}:e)});render();break;}
+    case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){saveLibrary(upsertProject(library,cloneProject(entry.project)));render();}break;}
+    case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal('Give it a name.','프로젝트 내용은 그대로 보존됩니다.',`<form id="hub-rename-form"><input type="hidden" name="projectId" value="${esc(entry.project.id)}"><label class="form-label">Project name<input name="name" required maxlength="100" value="${esc(entry.project.name)}"></label><button class="primary-button" type="submit">Rename project</button></form>`);break;}
+    case 'storage-info': showModal('Your work stays with you.','앱 전용 폴더에 프로젝트 보관함을 파일로 저장합니다.',`<p><code>${esc(storagePath)}</code></p><p>library.json: 현재 보관함<br>library.previous.json: 직전 저장본</p><p>라이브러리는 편집 원본입니다. 프로젝트 카드의 Files에서 이미지 추출·DESIGN.md 스냅샷·사용자 문서를 별도 파일로 관리합니다. 모델 실행 설정은 아직 포함하지 않습니다.</p><div class="vibe-actions">${button('hub-backup','download','Export current workspace','secondary-button')}${button('hub-recovery','download','Export disk recovery files','secondary-button')}</div><p>다른 창의 변경이 감지되면 덮어쓰지 않습니다. 저장 실패 시 현재 작업을 내보낸 뒤 앱을 다시 여세요.</p>`);break;
+    case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
+    case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
+    case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id});refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
+    case 'insert-root': insertParent=undefined;recordRun('target:root');refreshAssemblyBar();break;
+    case 'assembly-empty': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},true,'assembly:new-page');closeModal();break;
+    case 'assembly-brief': await saveFile('ASSEMBLY-BRIEF.md',assemblyBrief(project,selected,insertionTarget()),'text/markdown');break;
+    case 'assembly-log': if(assemblyRun)await saveFile(`assembly-${assemblyRun.id}.json`,JSON.stringify({...assemblyRun,scope:'Editor receipts only; not a model trace, video, or usage report.'},null,2),'application/json');break;
+    case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 프로젝트로 돌아가세요.');break;}recordRun('review:requested',{approved:false});if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
+    case 'assembly-end': recordRun('run:ended');if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
+    case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
+    case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;});toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
+    case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
+    case 'undo': history('undo'); break;
+    case 'redo': history('redo'); break;
+    case 'tab': tab = el.dataset.tab as typeof tab; render(); break;
+    case 'page': commit(() => { project.activePageId = el.dataset.id!; selected = currentPage(project).blocks[0]?.id ?? ''; }); break;
+    case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
+    case 'desktop': case 'mobile': device = act; render(); break;
+    case 'zoom': zoom = zoom === 100 ? 85 : zoom === 85 ? 70 : zoom===70 ? 125 : 100; render(); break;
+    case 'systems': designBridgeModal(); break;
+    case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }); closeModal(); toast('Design system applied to every page'); break;
+    case 'brief': briefModal(); break;
+    case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
+    case 'autofill': vibeFormDraft=null;autofillModal(); break;
+    case 'vibe-back': autofillModal();break;
+    case 'brand-kit': showModal('Aphrodite brand kit','Paper Muse · Editorial collage',brandHtml(),true); break;
+    case 'apply-omd': {
+      const before=fingerprint(project),id=el.dataset.source!;
+      const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
+      const system=await verifyReference(id,await response.text());
+      if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
+      commit(()=>{project.system=system;},true,'design:apply-source');closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+    }
+    case 'omd-issue': {
+      const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
+      const proposal=referenceIssue(id,source?.unmapped.join(', ')??'Missing component coverage');
+      showModal('oh-my-design issue proposal','로컬 제안입니다. GitHub에는 아직 등록하지 않습니다.', '<pre class="export-code">'+esc(proposal)+'</pre>'+button('save-omd-issue','download','Download issue proposal','primary-button','data-source="'+id+'"'),true);break;
+    }
+    case 'save-omd-issue': {
+      const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
+      await saveFile('omd-'+id+'-coverage-issue.md',referenceIssue(id,source?.unmapped.join(', ')??'Coverage'),'text/markdown');break;
+    }
+    case 'vibe-image': pickFile('image/png,image/jpeg,image/webp',async file=>{
+      const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form'),values=form?new FormData(form):null;
+      vibeImage=await readImage(file);autofillModal();
+      if(values){const next=modalRoot.querySelector<HTMLFormElement>('#vibe-form')!;for(const name of ['pack','language'])(next.elements.namedItem(name) as HTMLSelectElement).value=String(values.get(name));for(const name of ['copy','images','replace'])(next.elements.namedItem(name) as HTMLInputElement).checked=values.has(name);}
+    });break;
+    case 'apply-vibe': {
+      if(!vibePending||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
+      const plan=vibePending.plan;
+      commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},true,'vibe:apply');
+      recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false});
+      vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();toast(plan.changes.length+'개 필드 적용 · Undo로 전체 복원');break;
+    }
+    case 'add': addBlock(el.dataset.kind as BlockKind); break;
+    case 'component-explorer': explorerModal();break;
+    case 'explorer-reset': explorerFilter={...emptyCatalogFilter};explorerGroup='All';explorerModal(false);break;
+    case 'explorer-group': explorerGroup=el.dataset.group!;explorerModal();break;
+    case 'explorer-kind-pick': if(catalog.some(c=>c.kind===el.dataset.kind)){explorerKind=el.dataset.kind as BlockKind;explorerModal();modalRoot.querySelector<HTMLElement>(`[data-action="explorer-kind-pick"][data-kind="${explorerKind}"]`)?.focus();}break;
+    case 'explorer-pin': {const c=parseCatalogChoice(JSON.stringify({kind:el.dataset.kind,provider:el.dataset.provider,variant:el.dataset.variant}));if(!c)break;const result=pinShelf(project,c);if(result==='added'){persist();await flushDisk();tab='components';shelfPageIndex=Math.floor(((project.shelf?.length??1)-1)/4);rerenderPreservingScroll(app,render);}refreshExplorerPins();toast(result==='full'?ui('Shelf full (12). Remove an item first.','선반이 가득 찼습니다(12개). 먼저 항목을 제거하세요.'):result==='duplicate'?ui('Already on this project shelf','이미 이 프로젝트 선반에 있습니다'):ui('Pinned. Keep comparing or assemble from shelf.','담았습니다. 계속 비교하거나 선반에서 조립하세요.'));break;}
+    case 'shelf-add': {const c=project.shelf?.[Number(el.dataset.index)];if(c)addBlock(c.kind,undefined,c);break;}
+    case 'shelf-page': shelfPageIndex=Number(el.dataset.index);rerenderPreservingScroll(app,render);app.querySelector<HTMLElement>(`.shelf-pagination [aria-current="page"]`)?.focus();break;
+    case 'shelf-inspect': {const c=project.shelf?.[Number(el.dataset.index)];if(c)inspectChoice(c,'shelf');break;}
+    case 'explorer-inspect': {const c=parseCatalogChoice(JSON.stringify({kind:el.dataset.kind,provider:el.dataset.provider,variant:el.dataset.variant}));if(c)inspectChoice(c,'catalog');break;}
+    case 'inspection-back': {const origin=inspection?.origin;inspection=null;if(origin==='catalog')explorerModal();else closeModal();break;}
+    case 'inspection-add': {
+      if(!inspection)break;const review=inspection;
+      if(review.projectId!==project.id||review.pageId!==project.activePageId||review.parentId!==insertionTarget())throw new Error(ui('Insertion context changed. Inspect again.','삽입 위치가 바뀌었습니다. 다시 확인해주세요.'));
+      closeModal();inspection=null;addBlock(review.choice.kind,undefined,review.choice);break;
+    }
+    case 'shelf-remove': if(project.shelf){project.shelf=project.shelf.filter((_,i)=>i!==Number(el.dataset.index));persist();await flushDisk();render();}break;
+    case 'theme-review': themeReview(true);break;
+    case 'proposal-blue': case 'proposal-green': themeDraft=themeProposal(project,act==='proposal-blue'?'#2255cc':'#176448',themeDraft?.candidate.system.font??project.system.font);themeReview();break;
+    case 'proposal-apply': if(themeDraft){const draft=themeDraft;commit(()=>applyThemeProposal(project,draft),true,'theme:draft-applied');closeModal();themeDraft=null;toast(ui('Theme draft applied. Direction approval still required.','테마 초안 적용. 디자인 방향 승인은 별도입니다.'));}break;
+    case 'proposal-full': if(themeDraft){showModal(ui('Proposed screen','제안 화면'),ui('Not applied · scroll to review the whole page','아직 미적용 · 스크롤하여 전체 페이지 확인'),`<iframe class="preview-frame" title="Proposed screen only" sandbox="allow-scripts"></iframe><button class="secondary-button" data-action="proposal-back">${ui('Back to comparison','비교로 돌아가기')}</button>`,true);mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,themeDraft.candidate,currentPage(themeDraft.candidate));}break;
+    case 'proposal-back': themeReview();break;
+    case 'proposal-export': if(themeDraft)await saveFile('aphrodite-theme-draft.zip',await exportBundle(themeDraft.candidate),'application/zip');break;
+    case 'explorer-add': closeModal();addBlock(el.dataset.kind as BlockKind,undefined,{provider:el.dataset.provider!,variant:el.dataset.variant!});break;
+    case 'add-section': case 'assemble-focus': tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
+    case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }); break;
+    case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }); break;
+    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }); toast('Component removed · Children preserved · Undo to restore'); } break;
+    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }); toast('Image applied'); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
+    case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
+      if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
+      const projectId=project.id,blockId=b.id;
+      const assign=(image:string)=>{const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},true,'collection:image');};
+      if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
+    }
+    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { b.image = image; }); toast('Image updated'); }); break;
+    case 'reference': referenceModal(); break;
+    case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); commit(() => { project.reference = data; }); referenceModal(); break; }
+    case 'analyze-reference': {
+      if (!project.reference) break;
+      const source = project.reference, generation = ++analysisGeneration;
+      referenceDraft = null;
+      showModal('Finding the useful details.', '이미지의 색상·영역과 macOS OCR 문구를 로컬에서 분석 중입니다.', '<div class="analysis-loading"><span class="analysis-spinner"></span><strong>Reading your reference…</strong><p>No upload. No generation credits.</p><small>닫으면 결과를 적용하지 않습니다.</small></div>');
+      try { const result = await analyzeReference(source); if (generation === analysisGeneration && project.reference === source) { referenceAnalysis = result; analysisModal(); } }
+      catch (error) { if (generation === analysisGeneration) { referenceModal(); throw error; } }
+      break;
+    }
+    case 'review-reference': analysisModal(); { const checkbox = modalRoot.querySelector<HTMLInputElement>('#reference-use-crop'); if (checkbox) checkbox.checked = referenceDraft?.useCrop ?? false; } break;
+    case 'compare-directions': {
+      if (!referenceAnalysis) break;
+      const title = modalRoot.querySelector<HTMLTextAreaElement>('#reference-title')!.value.trim();
+      if (!title) { toast('제목을 입력해주세요.'); break; }
+      const copy = { title, text: modalRoot.querySelector<HTMLTextAreaElement>('#reference-copy')!.value, label: modalRoot.querySelector<HTMLInputElement>('#reference-label')!.value, eyebrow: 'A NEW PERSPECTIVE' };
+      referenceDraft = { copy, useCrop: !!modalRoot.querySelector<HTMLInputElement>('#reference-use-crop')?.checked };
+      candidatePages = composeDirections(project, referenceAnalysis, copy, referenceDraft.useCrop); compareModal(); break;
+    }
+    case 'choose-direction': {
+      if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; }
+      const candidate = candidatePages[Number(el.dataset.index)]; if (!candidate) break;
+      commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; });
+      candidatePages = []; closeModal(); toast('Direction added · Edit any component · Undo available'); break;
+    }
+    case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { project.reference = image; }); referenceModal(); }); break;
+    case 'remove-reference': commit(() => { delete project.reference; }); referenceModal(); break;
+    case 'import-md': pickFile('.md,text/markdown,text/plain', async file => { const s = importDesignMarkdown(await file.text(), file.name, project.system); commit(() => { project.system = s; }); closeModal(); toast('색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'); }); break;
+    case 'design-md': showModal('Your design, in writing.', '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
+    case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast('DESIGN.md saved'); break;
+    case 'approve': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.'); } break;
+    case 'approve-export': commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
+    case 'export': exportModal(); break;
+    case 'export-tab': exportModal(el.dataset.view); break;
+    case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast('Prompt copied'); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
+    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast('Handoff exported · Your direction travels with it'); } finally { el.removeAttribute('disabled'); } break; }
+    case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal('A moment to see the whole picture.', `${esc(currentPage(project).name)} · ${device === 'mobile' ? '375px mobile' : 'Responsive desktop'} preview`, `<iframe class="preview-frame ${device}" title="Live design preview" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
+    case 'close-modal': closeModal(); break;
+    case 'project': showModal('A place for your next idea.', '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">Project name<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">Rename project</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
+    case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast('Project saved'); break;
+    case 'import-project': await guardSwitch();pickFile('.json,application/json', async file => { if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); await guardSwitch();let loaded = parseProject(await file.text());if(library.entries.some(e=>e.project.id===loaded.id))loaded=cloneProject(loaded);saveLibrary(upsertProject(library,loaded));await flushDisk();openProject(loaded);toast('Project imported · 기존 프로젝트는 보존됩니다.'); }); break;
+    case 'new-project': await guardSwitch();showModal('Room for something new.', '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">Project name<input name="name" required maxlength="100" placeholder="Your next idea" value="Untitled project"></label><button class="primary-button full-width" type="submit">Create project</button></form>`); break;
+    case 'add-page': showModal('A new page. The same point of view.', '프로젝트의 디자인 시스템을 그대로 이어받습니다.', `<form id="page-form"><label class="form-label">Page name<input name="name" required maxlength="60" placeholder="About, Collection, Contact..."></label><button class="primary-button full-width" type="submit">Create page</button></form>`); break;
+    case 'page-menu': showModal('Make this page your own.', '페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.', `<form id="page-rename-form"><label class="form-label">Page name<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">Rename page</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
+    case 'duplicate-page': if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); break;
+    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast('Page removed · Undo to restore'); } break;
+    case 'agent': agentModal();break;
+    case 'about': showModal('Shape before you build.', '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">Codex assembles. You choose the direction.</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
+  }
+}
+document.addEventListener('click', e => {
+  const target = e.target as HTMLElement;
+  if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
+  const control = target.closest<HTMLElement>('[data-action]');
+  if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  const block = target.closest<HTMLElement>('[data-block-id]');
+  if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
+  if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
+});
+document.addEventListener('input', e => {
+  const target = e.target as HTMLInputElement;
+  if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
+  if(target.id==='project-search'){hubQuery=target.value;document.querySelector('#project-grid')!.innerHTML=projectCards(library,hubFilter,hubQuery,uiLanguage);return;}
+  if (target.id === 'component-search') { query = target.value; document.querySelector('.component-list')!.innerHTML = componentCards(); hydrateIcons(); bindDragAndDrop(); }
+});
+document.addEventListener('change', e => {
+  if(screen==='home')return;
+  const target = e.target as HTMLInputElement;
+  if(target.id==='explorer-kind'){explorerKind=target.value as BlockKind;explorerModal();modalRoot.querySelector<HTMLElement>('#explorer-kind')?.focus();return;}
+  if(target.id==='inspection-width'&&inspection){const width=Number(target.value);if([375,768,960,1440].includes(width)){inspection.width=width;inspectionModal();modalRoot.querySelector<HTMLElement>('#inspection-width')?.focus();}return;}
+  if(target.id==='explorer-variant'){explorerVariant=target.value;explorerModal();modalRoot.querySelector<HTMLElement>('#explorer-variant')?.focus();return;}
+  const b = currentPage(project).blocks.find(b => b.id === selected);
+  const scroll = document.querySelector('#canvas-scroll')!.scrollTop;
+  if (target.dataset.field && b) {
+    const key = target.dataset.field as 'title' | 'text' | 'label' | 'eyebrow' | 'description';
+    if(!['title','text','label','eyebrow','description'].includes(key)||(key==='description'&&b.kind!=='products'))return;
+    const value=target.value.slice(0,key==='eyebrow'?200:key==='description'?2000:20000);
+    if (b[key] === value) return;
+    commit(() => { b[key] = value; b.filled = true; }, false);
+    // Keep the inspector's DOM stable on blur so the user's next click is not lost.
+    const wrap = document.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`)!;
+    if(b.kind==='frame'){
+      wrap.setAttribute('aria-label',`${b.title} frame block`);
+      const name=wrap.querySelector<HTMLElement>(':scope > .editor-frame-name');if(name)name.textContent=b.title;
+      const frame=wrap.querySelector<HTMLElement>(':scope > .layout-frame');frame?.setAttribute('aria-label',b.title);
+      const lane=frame?.querySelector<HTMLElement>(':scope > .moa-lane-title');if(lane)lane.textContent=b.title;
+    }else{
+      const label = wrap.querySelector('.block-selection-label')!.outerHTML;
+      wrap.innerHTML = label + blockHtml(b,project);
+    }
+    const move=document.querySelector<HTMLElement>('.editor-move');if(move){move.textContent=`↔ ${b.title.slice(0,30)}`;move.setAttribute('aria-label',`Move ${b.title}`);}
+    document.querySelectorAll<HTMLElement>('.editor-handle').forEach(h=>h.setAttribute('aria-label',`Resize ${b.title} ${h.dataset.handle}`));
+    document.querySelector('[data-action="undo"]')?.removeAttribute('disabled');
+    document.querySelector('[data-action="redo"]')?.setAttribute('disabled', '');
+    const badge = document.querySelector('.draft-badge')!; badge.textContent = control('Draft'); badge.classList.remove('approved');
+    const filled = document.querySelector('.selected-component-label>span'); if (filled) filled.textContent = 'Filled';
+    const review = document.querySelector('.review-card')!;
+    review.querySelector('strong')!.textContent = 'Like where this is going?';
+    review.querySelector('p')!.textContent = '화면을 확인하고 디자인 방향을 확정하세요.';
+    const approve = review.querySelector('button')!; approve.className = 'approve-button'; approve.innerHTML = icon('check') + '<span>Approve direction</span>';
+    hydrateIcons();
+  }
+  else if(target.id==='component-provider' && b && supportsProvider(target.value,b.kind)) commit(()=>{b.provider=target.value as keyof typeof providers;if(!supportsComponentTheme(b))delete b.theme;});
+  else if(target.id==='component-theme-mode'&&b&&supportsComponentTheme(b)&&['project','source','custom'].includes(target.value))commit(()=>{b.theme=target.value==='custom'?{mode:'custom',accent:componentAccent(b,project.system.accent)}:{mode:target.value as ComponentTheme['mode']};},true,'theme:component-policy');
+  else if(['component-theme-accent','component-theme-hex'].includes(target.id)&&b&&supportsComponentTheme(b)){if(!/^#[a-f0-9]{6}$/i.test(target.value)){target.value=componentAccent(b,project.system.accent);toast(ui('Use six-digit HEX, for example #2255cc','6자리 HEX를 입력하세요. 예: #2255cc'));return;}commit(()=>{b.theme={mode:'custom',accent:target.value};},true,'theme:component-color');}
+  else if(target.id==='parent-frame' && b && canParent(currentPage(project).blocks,b.id,target.value||undefined)) commit(()=>{b.parentId=target.value||undefined;});
+  else if(target.dataset.layout && b) {const layout={...b.layout,[target.dataset.layout]:Number(target.value)};if(target.dataset.layout==='width')delete layout.widthPx;if(validLayout(layout))commit(()=>{b.layout=layout;});else{toast('레이아웃 입력 범위를 확인해주세요.');render();}}
+  else if(target.dataset.kitOption==='layout-mode' && b?.kind==='frame' && ['flow','free'].includes(target.value)) commit(()=>{b.layout={...b.layout,mode:target.value as 'flow'|'free'};});
+  else if (target.id === 'hero-variant' && b?.kind === 'hero' && patternVariants('hero').includes(target.value)) commit(() => { b.variant = target.value; });
+  else if (target.dataset.kitOption && b) {
+    const key=target.dataset.kitOption;
+    if (key==='variant' && patternVariants(b.kind).includes(target.value)) commit(()=>{b.variant=target.value;});
+    else if (['state','density','columns','media','mediaText','placeholder'].includes(key)) commit(()=>{b.options={...b.options,[key]:key==='columns'?Number(target.value):target.value.slice(0,key==='placeholder'?200:20000)} as PatternOptions;});
+  }
+  else if (target.dataset.token) { const token = target.dataset.token as 'accent' | 'background' | 'foreground'; commit(() => { project.system[token] = target.value; }); }
+  else if (target.id === 'font-select') commit(() => { project.system.font = target.value as 'serif' | 'sans'; });
+  else if (target.id === 'radius-select') commit(() => { project.system.radius = Number(target.value); });
+  document.querySelector('#canvas-scroll')!.scrollTop = scroll;
+});
+document.addEventListener('submit', async e => {
+  e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
+  if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
+  if(form.id==='language-settings-form'){
+    const nextUi=data.get('uiLanguage'),nextContent=data.get('contentLanguage');
+    if(!isLanguage(nextUi)||(nextContent!==null&&!isLanguage(nextContent))){toast(ui('Unsupported language.','지원하지 않는 언어입니다.'));return;}
+    try{saveUiLanguage(localStorage,nextUi);}catch{toast(ui('Could not save interface preference. Nothing changed.','언어 설정을 저장하지 못했습니다. 변경하지 않았습니다.'));return;}
+    uiLanguage=nextUi;
+    vibeFormDraft=null;
+    if(screen==='editor'&&isLanguage(nextContent)&&nextContent!==(project.contentLanguage??'en'))commit(()=>setContentLanguage(project,nextContent),false,'project:content-language');
+    closeModal();render();toast(ui('Language preferences saved. Existing copy preserved.','언어 설정을 저장했습니다. 기존 문구는 유지됩니다.'));return;
+  }
+  if (['page-form', 'brief-form'].includes(form.id) && project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); return; }
+  if (!['fill-form','vibe-form','assembly-run-form'].includes(form.id) && !name) { toast('이름을 입력해주세요.'); return; }
+  if(form.id==='vault-note-form'){try{vaultState=await invoke<Vault>('vault_document',{projectId:vaultProjectId,name,text:String(data.get('text')??'')});await showVault(false);}catch(error){toast(String(error));}return;}
+  if(form.id==='vibe-form'){
+    vibeFormDraft=data;
+    if(!data.has('copy')&&!data.has('images')){toast('채울 항목을 선택하세요.');return;}
+    const language=data.get('language');if(language!=='en'&&language!=='ko')throw new Error('Unsupported content language');
+    const plan=planVibe(currentPage(project).blocks,String(data.get('pack')),{copy:data.has('copy'),images:data.has('images'),replace:data.has('replace'),image:vibeImage,language,brandName:project.name});
+    vibePending={plan,revision:fingerprint(project)};
+    showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage),true);return;
+  }
+  if(form.id==='assembly-run-form'){
+    if(assemblyRun&&assemblyRun.status!=='ended'){toast('현재 실행을 먼저 종료하세요.');return;}
+    assemblyRun=newRun(project,String(data.get('intent')??''),String(data.get('model')??''),innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference});closeModal();refreshAssemblyBar();toast('Assembly run 시작 · 로컬 편집 기록만 수집합니다.');return;
+  }
+  if (form.id === 'brief-form') {
+    const brief = String(data.get('brief')).trim(); if (!brief) return;
+    commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }); closeModal(); toast('Draft assembled · Auto fill로 분위기를 확인해보세요.');
+  } else if (form.id === 'fill-form') {
+    if (!data.has('copy') && !data.has('images')) { toast('채울 콘텐츠를 한 가지 이상 선택해주세요.'); return; }
+    let changed = 0;
+    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }); closeModal(); toast(changed ? 'Filled with local sample content · Undo available' : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
+  } else if (form.id === 'rename-form') { commit(() => { project.name = name; }); closeModal(); }
+  else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }); closeModal(); }
+  else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); }
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); return; }
+  if (modalRoot.children.length) {
+    if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+  }
+  if ((e.target as HTMLElement).matches('input,textarea,select')) return;
+  if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
+  else if (e.key === '/') { e.preventDefault(); tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); }
+  else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
+});
+installPatternRuntime(document);
+if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
+async function boot(){
+  if(nativeDesktop){
+    app.innerHTML='<p style="padding:48px">Opening your local workspace…</p>';
+    try{
+      const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
+      storagePath=stored.path;
+      // Disk is authoritative. Only migrate the legacy browser store on first launch.
+      if(stored.data!==null){library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});startupError='';}
+      diskQueue=new DurableQueue(stored.revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(error&&screen==='home')render();if(error)toast(`파일 저장 실패: ${String(error)} 현재 작업을 Save project로 내보내주세요.`);});
+      if(stored.data===null&&!startupError){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
+      if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
+      const {getCurrentWindow}=await import('@tauri-apps/api/window');
+      await getCurrentWindow().onCloseRequested(async event=>{if(!lastSaved){event.preventDefault();try{await flushDisk();if(lastSaved)await getCurrentWindow().close();}catch{toast('저장 실패로 종료를 중지했습니다. Save project로 백업하세요.');}}});
+    }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
+  }
+  render();if(startupError)toast(startupError);
+}
+void boot();

@@ -1,0 +1,27 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {unzipSync,strFromU8} from 'fflate';
+const zip=unzipSync(fs.readFileSync('lab/artifacts/native-flow-v1/native-flow-handoff.zip'));
+const read=name=>{assert.ok(zip[name],`Missing ${name}`);return strFromU8(zip[name]);};
+const p=JSON.parse(read('project.aphrodite.json'));
+const i=p.pages.findIndex(q=>q.id===p.activePageId),page=p.pages[i];
+assert.equal(p.pages.length,2);
+assert.equal(p.pages[0].blocks[0].title,'Your editorial hero');
+assert.equal(page.name,'Editorial balance');
+assert.equal(page.blocks.length,5);
+const hero=page.blocks.find(b=>b.kind==='hero');
+assert.equal(hero.title,'당신의 공간에 어울리는 빛');
+assert.equal(hero.image,'/assets/lighting-hero.png');
+const htmlName=`page-${i+1}.html`,html=read(htmlName);
+assert.ok(html.includes(hero.title));
+assert.ok(html.includes('src="assets/lighting-hero.png"'));
+assert.deepEqual(Buffer.from(zip['assets/lighting-hero.png']),fs.readFileSync('public/assets/lighting-hero.png'));
+const source=Buffer.from(p.reference.split(',')[1],'base64');
+assert.deepEqual(source,fs.readFileSync('lab/artifacts/reference-benchmark/05-editorial-landing-v1.png'));
+const scene=JSON.parse(read('SCENE.json')).pages.find(q=>q.id===page.id);
+for(const b of page.blocks){assert.ok(scene.nodes.some(n=>n.instanceId===b.id));assert.ok(html.includes(`data-node-id="${b.id}"`));}
+assert.ok(read('PROMPT.md').includes(htmlName));
+const receipt=JSON.parse(read('VIBE.json')).pages.find(q=>q.pageId===page.id).receipt;
+assert.equal(receipt.modelCalled,false);
+assert.equal(receipt.changedFields,1);
+console.log('PASS: actual native ZIP; preserved original page; revised heading; five scene/HTML identities; exact reference/image bytes; active-page prompt; local Get Vibe receipt. Static verification only, not browser rendering.');

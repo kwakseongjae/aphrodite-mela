@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'vite';
+import { unzipSync, strFromU8 } from 'fflate';
+const server=await createServer({server:{middlewareMode:true},appType:'custom'});
+try {
+  const {initialProject,makeBlock,parseProject}=await server.ssrLoadModule('/src/model.ts');
+  const {patternSpecs}=await server.ssrLoadModule('/src/patterns.ts');
+  const {exportBundle}=await server.ssrLoadModule('/src/export.ts');
+  const p=initialProject();p.name='Pattern verification';p.system={...p.system,accent:'#315efb',background:'#ffffff',foreground:'#191919',font:'sans'};
+  const hero=makeBlock('hero');hero.title='팀의 다음 한 주를, 한눈에.';hero.text='일정과 진행 상황을 함께 확인하세요.';hero.label='시작하기';hero.eyebrow='모아';hero.options={media:'calendar',placeholder:'제품 미리보기'};
+  p.pages[0].blocks=[hero,...Object.keys(patternSpecs).map(makeBlock)];
+  p.pages[0].blocks.find(b=>b.kind==='table').variant='striped';
+  const bytes=await exportBundle(p),files=unzipSync(bytes);
+  const html=strFromU8(files['index.html']);
+  assert.ok(!Object.keys(files).some(n=>n.startsWith('assets/')),'unused stock photos must not be bundled');
+  assert.match(html,/data-component-id="aphrodite.calendar"/);
+  assert.match(html,/data-variant="striped"/);
+  assert.match(html,/<html lang="ko">/);
+  assert.equal(parseProject(strFromU8(files['project.aphrodite.json'])).pages[0].blocks.length,9);
+  assert.equal(JSON.parse(strFromU8(files['SCENE.json'])).pages[0].nodes[0].children[0].componentId,'aphrodite.calendar');
+  const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  assert.ok(!script.includes('__vite_'),'export runtime must not depend on Vite');
+  assert.ok(!script.includes('__name'),'export runtime must not depend on bundler helpers');
+  const handlers={};new Function('document',script)({addEventListener:(name,fn)=>{handlers[name]=fn;}});
+  assert.deepEqual(Object.keys(handlers).sort(),['change','click','input']);
+  await mkdir('lab/artifacts/pattern-expansion',{recursive:true});
+  await writeFile('lab/artifacts/pattern-expansion/verification.zip',bytes);
+  await writeFile('lab/artifacts/pattern-expansion/verification.html',html);
+  await writeFile('lab/artifacts/pattern-expansion/verification.project.json',files['project.aphrodite.json']);
+  console.log(JSON.stringify({ok:true,files:Object.keys(files),bytes:bytes.length,patterns:Object.keys(patternSpecs).length,variations:Object.values(patternSpecs).reduce((n,s)=>n+s.variants.length,0),combinations:Object.values(patternSpecs).reduce((n,s)=>n+s.variants.length*s.states.length,0)},null,2));
+} finally {await server.close();}

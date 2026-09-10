@@ -1,0 +1,72 @@
+name: Release macOS build
+
+# Builds a signed (and, when secrets are present, notarized) .dmg for Apple Silicon
+# and attaches it to a GitHub Release. Trigger by pushing a tag like v0.1.0,
+# or run manually with a tag name.
+#
+# Secrets (Settings → Secrets → Actions). All optional: without them the build is
+# ad-hoc signed and users must right-click → Open on first launch.
+#   APPLE_CERTIFICATE            base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD   password of that .p12
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Kwak Seongjae (YWQQFQM38J)"
+#   APPLE_ID                     Apple ID e-mail used for notarization
+#   APPLE_PASSWORD               app-specific password for that Apple ID
+#   APPLE_TEAM_ID                e.g. YWQQFQM38J
+#   (alternatively APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH for App Store Connect API keys)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: "Aphrodite ${{ env.TAG }}"
+          releaseBody: "Aphrodite for macOS (Apple Silicon). Download the .dmg, drag Aphrodite to Applications, open it."
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-apple-darwin --bundles dmg

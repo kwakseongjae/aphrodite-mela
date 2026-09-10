@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "generator": "Blender 5.1.2",
+  "source": "SMK KAS434",
+  "sourceSha256": "b73198b1832985935fcf540a7b013adc446941fe0a4777a7e7ef3d827859ff5c",
+  "cell": {
+    "width": 512,
+    "height": 512
+  },
+  "atlas": {
+    "file": "atlas.png",
+    "columns": 4,
+    "rows": 2
+  },
+  "states": {
+    "idle": {
+      "file": "idle.png",
+      "x": 0,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "welcome": {
+      "file": "welcome.png",
+      "x": 512,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "assembling": {
+      "file": "assembling.png",
+      "x": 1024,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "get-vibe": {
+      "file": "get-vibe.png",
+      "x": 1536,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "awaiting-review": {
+      "file": "awaiting-review.png",
+      "x": 0,
+      "y": 512,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "success": {
+      "file": "success.png",
+      "x": 512,
+      "y": 512,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "recoverable-error": {
+      "file": "recoverable-error.png",
+      "x": 1024,
+      "y": 512,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    },
+    "export": {
+      "file": "export.png",
+      "x": 1536,
+      "y": 512,
+      "width": 512,
+      "height": 512,
+      "loop": false
+    }
+  },
+  "default": "idle",
+  "reducedMotion": "idle",
+  "agentControl": "Freeze decorative motion; state is never inferred from a sprite. Use text and accessible status.",
+  "reviewPolicy": "awaiting-review does not mean approved",
+  "modelNotes": "Original SMK scan anatomy retained; refined stone microtexture, studio lighting, leaf veins, plinth lettering and fitted 3D sunglasses. Static GLB variants; no face rig, no recovered scan details. Blender bump uses PBR fallback in GLB.",
+  "sunglassesStates": [
+    "get-vibe",
+    "success"
+  ]
+}

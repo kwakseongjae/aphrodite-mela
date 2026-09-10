@@ -1,0 +1,8 @@
+.assembly-bar{border:1px solid #d8e2da;background:#f4f8f4;border-radius:9px;padding:10px 12px;margin:0 0 12px;font:11px Arial;color:#344e41}
+.assembly-bar-header{display:flex;align-items:center;justify-content:space-between;gap:8px}.assembly-bar-header button{border:1px solid #cad8ce;background:white;border-radius:6px;padding:7px 10px;font-size:11px;color:#344e41;cursor:pointer}
+.assembly-context{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;color:#607165}.assembly-context span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.assembly-context strong{font-weight:600}.assembly-receipt{margin:7px 0 0;font-size:10px;color:#536758}.assembly-receipt.warning{color:#a04424}
+.assembly-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.assembly-actions button{min-height:34px}
+.workbench:has(.assembly-bar)>.workbench-heading,.workbench:has(.assembly-bar)>.workflow{display:none}
+.assembly-bar-header>div{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.assembly-ledger{padding:10px 0;max-height:180px;overflow:auto;font-size:11px}.assembly-ledger p{padding:7px 0;border-bottom:1px solid #e4e8e3;margin:0}.assembly-brief{max-height:240px;overflow:auto;white-space:pre-wrap;font:11px/1.6 monospace;background:#f3f5f0;padding:12px;border-radius:6px}

@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {unzipSync,strFromU8} from 'fflate';
+const input=process.argv[2];if(!input)throw new Error('Pass actual UI ZIP path');
+const bytes=fs.readFileSync(input),z=unzipSync(bytes),read=name=>strFromU8(z[name]);
+const p=JSON.parse(read('project.aphrodite.json')),i=p.pages.findIndex(p1=>p1.id===p.activePageId),page=p.pages[i];
+assert.equal(page.name,'Moa · Weekly workspace');assert.equal(page.blocks.length,21);
+assert.equal(page.blocks.filter(b=>b.kind==='moacard').length,10);
+const scene=JSON.parse(read('SCENE.json'));assert.equal(scene.pages.find(s=>s.id===page.id).nodes.length,21);
+const html=read(i===0?'index.html':`page-${i+1}.html`);
+for(const b of page.blocks)assert.ok(html.includes(`data-node-id="${b.id}"`));
+assert.ok(html.includes('moaProperty'));assert.ok(html.includes('data-moa-search'));assert.ok(read('PROMPT.md').includes('session-only'));
+const dir='lab/artifacts/moa-app';fs.mkdirSync(dir,{recursive:true});
+fs.writeFileSync(`${dir}/actual-ui-handoff.zip`,bytes);fs.writeFileSync(`${dir}/index.html`,html);
+fs.writeFileSync(`${dir}/project.aphrodite.json`,read('project.aphrodite.json'));fs.writeFileSync(`${dir}/SCENE.json`,read('SCENE.json'));
+console.log('PASS: actual UI export: 21 identities, 10 cards, shared runtime, prompt limitations. Extracted HTML unchanged.');
