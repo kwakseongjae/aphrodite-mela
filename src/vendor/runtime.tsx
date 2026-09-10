@@ -75,6 +75,16 @@ import {
   Accordion as SeedAccordion, Chip as SeedChip, Slider as SeedSlider, ProgressCircle, ToggleButton as SeedToggle,
 } from '@seed-design/react';
 import { Button as ShadcnButton } from './shadcn-button';
+import { Input as ShadcnInput } from './shadcn/input';
+import { Textarea as ShadcnTextarea } from './shadcn/textarea';
+import { Card as ShadcnCard, CardHeader as ShadcnCardHeader, CardTitle as ShadcnCardTitle, CardDescription as ShadcnCardDescription, CardContent as ShadcnCardContent } from './shadcn/card';
+import { Badge as ShadcnBadge } from './shadcn/badge';
+import { Table as ShadcnTable, TableHeader as ShadcnTableHeader, TableBody as ShadcnTableBody, TableRow as ShadcnTableRow, TableHead as ShadcnTableHead, TableCell as ShadcnTableCell } from './shadcn/table';
+import { Skeleton as ShadcnSkeleton } from './shadcn/skeleton';
+import { Alert as ShadcnAlert, AlertTitle as ShadcnAlertTitle, AlertDescription as ShadcnAlertDescription } from './shadcn/alert';
+import { Breadcrumb as ShadcnBreadcrumb, BreadcrumbList, BreadcrumbItem as ShadcnCrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from './shadcn/breadcrumb';
+import { Pagination as ShadcnPaginationNav, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from './shadcn/pagination';
+import { cn } from './shadcn/utils';
 import { type CoverageProvider, type OfficialKind } from './coverage';
 type Props={kind:string;provider:string;title:string;text:string;label:string;variant?:string;options?:{state?:string;density?:string;columns?:number};accent:string;onAccent?:string;foreground:string;background?:string;headingFont?:string;radius:number;onClick?:()=>void};
 declare global { interface Window { aphroditeProps: Props } }
@@ -185,6 +195,43 @@ function SeedSliderDemo({p}:{p:Props}){
   return <SeedSlider.Root defaultValues={range?[20,80]:[40]} min={0} max={100} step={p.variant==='stepped'?10:1} disabled={dis(p)}><SeedSlider.Control><SeedSlider.Track><SeedSlider.Range/></SeedSlider.Track><SeedSlider.Thumb thumbIndex={0}/><SeedSlider.HiddenInput thumbIndex={0}/>{range?<><SeedSlider.Thumb thumbIndex={1}/><SeedSlider.HiddenInput thumbIndex={1}/></>:null}</SeedSlider.Control></SeedSlider.Root>;
 }
 
+const noticeBar:Record<string,string>={info:'var(--brand)',success:'#16a34a',warning:'#d97706',error:'#dc2626'};
+function crumbItems(p:Props){
+  const raw=p.text.trim();
+  if(raw.includes('|')&&!raw.includes('\n'))return raw.split('|').map(s=>s.trim()).filter(Boolean);
+  const rows=lines(p).filter(Boolean);
+  return rows.length?rows.map(row=>cell(row,0)):['Home','Library',lab(p)];
+}
+function pageLabels(p:Props){
+  const raw=p.text.trim();
+  if(raw.includes('|'))return raw.split('|').map(s=>s.trim()).filter(Boolean).slice(0,20);
+  const n=parseInt(raw,10);
+  if(Number.isFinite(n)&&n>0)return Array.from({length:Math.min(20,n)},(_,i)=>String(i+1));
+  return ['1','2','3','4','5'];
+}
+function ShadcnTableDemo({p}:{p:Props}){
+  const msg=statusText(p);if(msg)return <>{msg}</>;
+  const rows=lines(p).filter(Boolean);
+  const compact=sm(p)||p.variant==='compact';
+  return <ShadcnTable className={p.variant==='bordered'?'border':undefined}><ShadcnTableHeader><ShadcnTableRow><ShadcnTableHead>항목</ShadcnTableHead><ShadcnTableHead>담당</ShadcnTableHead><ShadcnTableHead>상태</ShadcnTableHead></ShadcnTableRow></ShadcnTableHeader><ShadcnTableBody>{rows.map((row,i)=><ShadcnTableRow key={i} className={p.variant==='striped'&&i%2?'bg-muted/50':undefined}><ShadcnTableCell className={compact?'py-1':undefined}>{cell(row,0)}</ShadcnTableCell><ShadcnTableCell className={compact?'py-1':undefined}>{cell(row,1)}</ShadcnTableCell><ShadcnTableCell className={compact?'py-1':undefined}>{cell(row,2)}</ShadcnTableCell></ShadcnTableRow>)}</ShadcnTableBody></ShadcnTable>;
+}
+function ShadcnPaginationDemo({p}:{p:Props}){
+  const items=pageLabels(p);const n=Math.max(1,items.length);const [page,setPage]=useState(1);
+  const cur=Math.min(page,n);const compact=sm(p)||p.variant==='compact';const simple=p.variant==='simple';
+  return <ShadcnPaginationNav aria-busy={load(p)||undefined} className={dis(p)?'pointer-events-none opacity-50':undefined}><PaginationContent><PaginationItem><PaginationPrevious href="#" className={compact?'h-8 px-2 text-xs':undefined} onClick={e=>{e.preventDefault();setPage(c=>Math.max(1,c-1));}}/></PaginationItem>{simple?null:items.map((label,i)=><PaginationItem key={i}><PaginationLink href="#" isActive={cur===i+1} size="icon" className={compact?'h-8 w-8 text-xs':undefined} onClick={e=>{e.preventDefault();setPage(i+1);}}>{label}</PaginationLink></PaginationItem>)}<PaginationItem><PaginationNext href="#" className={compact?'h-8 px-2 text-xs':undefined} onClick={e=>{e.preventDefault();setPage(c=>Math.min(n,c+1));}}/></PaginationItem></PaginationContent></ShadcnPaginationNav>;
+}
+function ShadcnBreadcrumbDemo({p}:{p:Props}){
+  const items=crumbItems(p);const last=items.length-1;
+  const visible=st(p)==='truncated'&&items.length>2?[items[0],null,items[last]]:[...items];
+  const sep=p.variant==='slash'?'/':undefined;
+  const pill=p.variant==='pills'?'rounded-full bg-muted px-2.5 py-0.5 text-xs':'';
+  return <ShadcnBreadcrumb className={dis(p)?'pointer-events-none opacity-50':undefined}><BreadcrumbList className={sm(p)?'text-xs':undefined}>{visible.map((item,i,arr)=>{
+    const isLast=i===arr.length-1;
+    if(item===null)return <ShadcnCrumbItem key="ellipsis"><BreadcrumbEllipsis /><BreadcrumbSeparator>{sep}</BreadcrumbSeparator></ShadcnCrumbItem>;
+    return <ShadcnCrumbItem key={`${item}-${i}`}>{isLast?<BreadcrumbPage className={pill}>{item}</BreadcrumbPage>:<><BreadcrumbLink href="#" className={pill}>{item}</BreadcrumbLink><BreadcrumbSeparator>{sep}</BreadcrumbSeparator></>}</ShadcnCrumbItem>;
+  })}</BreadcrumbList></ShadcnBreadcrumb>;
+}
+
 const renderers: Record<CoverageProvider, Partial<Record<OfficialKind,(p:Props)=>ReactNode>>> = {
   mui: {
     button: p=>{const state=p.options?.state,disabled=state==='disabled',loading=state==='loading',onClick=p.onClick,label=p.label||'Continue';return <Button variant={p.variant==='outline'?'outlined':p.variant==='ghost'?'text':'contained'} disabled={disabled} loading={loading} onClick={onClick}>{label}</Button>;},
@@ -254,6 +301,15 @@ const renderers: Record<CoverageProvider, Partial<Record<OfficialKind,(p:Props)=
   },
   shadcn: {
     button: p=>{const state=p.options?.state,disabled=state==='disabled',loading=state==='loading',onClick=p.onClick,label=p.label||'Continue';return <ShadcnButton variant={p.variant==='ghost'?'ghost':p.variant==='outline'?'outline':'default'} disabled={disabled||loading} aria-busy={loading} size="lg" onClick={onClick}>{loading?'불러오는 중…':label}</ShadcnButton>;},
+    input: p=><label className="grid w-full gap-1.5 text-sm"><span className="text-foreground">{p.title||lab(p)}</span><ShadcnInput type={p.variant==='search'?'search':'text'} placeholder={p.label} disabled={dis(p)} aria-invalid={err(p)||undefined} className={cn(sm(p)&&'h-8 text-xs',p.variant==='filled'&&'bg-muted border-transparent',p.variant==='underlined'&&'rounded-none border-0 border-b shadow-none',err(p)&&'border-destructive')}/><span className={cn('text-xs',err(p)?'text-destructive':'text-muted-foreground')}>{err(p)?'입력 내용을 확인해주세요':p.text}</span></label>,
+    textarea: p=><label className="grid w-full gap-1.5 text-sm"><span className="text-foreground">{p.title||lab(p)}</span><ShadcnTextarea placeholder={p.label} disabled={dis(p)} aria-invalid={err(p)||undefined} className={cn(sm(p)&&'min-h-[48px] py-1 text-xs',p.variant==='filled'&&'bg-muted border-transparent',p.variant==='minimal'&&'border-0 shadow-none bg-transparent px-0',err(p)&&'border-destructive')}/><span className={cn('text-xs',err(p)?'text-destructive':'text-muted-foreground')}>{err(p)?'입력 내용을 확인해주세요':p.text}</span></label>,
+    cards: p=>{const msg=statusText(p);const rows=(['empty','loading','error'].includes(st(p)??'')?[]:p.text.split('\n').slice(0,50));return <div className="vendor-cards" style={{display:'grid',gridTemplateColumns:p.variant==='list'?'1fr':`repeat(${p.options?.columns??3},minmax(0,1fr))`,gap:sm(p)?8:16}}>{rows.map((row,i)=><ShadcnCard key={i} className={cn(p.variant==='outlined'&&'shadow-none',p.variant==='elevated'&&'shadow-lg')}>{p.variant==='media'?<div className="h-20 bg-muted" aria-hidden="true"/>:null}<ShadcnCardHeader className={sm(p)?'p-3':undefined}><ShadcnCardTitle style={{fontFamily:p.headingFont,fontWeight:400}}>{row.split('|')[0]}</ShadcnCardTitle><ShadcnCardDescription>{row.split('|')[1]}</ShadcnCardDescription></ShadcnCardHeader>{p.variant==='media'?<ShadcnCardContent className={sm(p)?'p-3 pt-0':undefined}/>:null}</ShadcnCard>)}{msg}</div>;},
+    badge: p=>{if(empty(p))return <span className="text-sm text-muted-foreground">아직 항목이 없습니다</span>;const items=lines(p).filter(Boolean);const tags=items.length?items.map(row=>({label:cell(row,0)||lab(p),tone:cell(row,1)})):[{label:lab(p),tone:''}];return <div className="flex flex-wrap gap-2">{tags.map((t,i)=><ShadcnBadge key={i} variant={t.tone==='error'&&p.variant!=='outline'?'destructive':p.variant==='outline'?'outline':p.variant==='soft'?'secondary':'default'} className={cn(dis(p)&&'opacity-50',sm(p)&&'px-1.5')} style={t.tone==='success'?{background:'#16a34a',color:'#fff',borderColor:'transparent'}:t.tone==='warning'?{background:'#d97706',color:'#fff',borderColor:'transparent'}:undefined}>{t.label}</ShadcnBadge>)}</div>;},
+    table: p=><ShadcnTableDemo p={p}/>,
+    skeleton: p=>{if(empty(p))return <span className="text-sm text-muted-foreground">아직 항목이 없습니다</span>;if(p.variant==='card')return <ShadcnCard><div className="h-20 bg-muted rounded-t-xl"/><ShadcnCardHeader className="space-y-2"><ShadcnSkeleton className="h-4 w-3/4"/><ShadcnSkeleton className="h-3 w-1/2"/></ShadcnCardHeader></ShadcnCard>;if(p.variant==='list')return <div className="grid gap-3">{[1,2,3].map(i=><div key={i} className="flex items-center gap-3"><ShadcnSkeleton className="h-10 w-10 rounded-full"/><div className="grid flex-1 gap-2"><ShadcnSkeleton className="h-3 w-full"/><ShadcnSkeleton className="h-3 w-2/3"/></div></div>)}</div>;const rows=lines(p).filter(Boolean);return <div className="grid gap-2">{(rows.length?rows:['a','b','c']).map((_,i)=><ShadcnSkeleton key={i} className="h-4" style={{width:`${80-i*12}%`}}/>)}</div>;},
+    notice: p=><ShadcnAlert variant={p.variant==='error'?'destructive':'default'} className="border-l-4" style={{borderLeftColor:noticeBar[p.variant??'']??noticeBar.info}}><ShadcnAlertTitle>{p.title||lab(p)}</ShadcnAlertTitle><ShadcnAlertDescription>{load(p)?'불러오는 중…':empty(p)?'아직 항목이 없습니다':p.text}</ShadcnAlertDescription></ShadcnAlert>,
+    breadcrumb: p=><ShadcnBreadcrumbDemo p={p}/>,
+    pagination: p=><ShadcnPaginationDemo p={p}/>,
   },
 };
 
