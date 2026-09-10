@@ -1,4 +1,4 @@
-# Aphrodite v0.1.5 — draft release notes
+# Aphrodite v0.1.5 — release notes
 
 ## Download
 
