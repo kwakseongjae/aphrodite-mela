@@ -44,6 +44,7 @@ import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_K
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
+import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {commandTable,commandPaletteHtml,stateLine} from './editor/command-palette';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
@@ -77,6 +78,7 @@ let undoStack: string[] = [], redoStack: string[] = [];
 let lastSaved = true;
 let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
+let editorMode:EditorMode='design';let dockTool='select';
 let toastTimer = 0;
 let referenceAnalysis: ReferenceAnalysis | null = null;
 let referenceDraft: { copy: ReturnType<typeof suggestCopy>; useCrop: boolean } | null = null;
@@ -141,7 +143,7 @@ function syncStateAttributes(){
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
     viewport:document.querySelector('[data-action="mobile"][aria-pressed="true"]')?'mobile':'desktop',
     modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
-    undo:String(undoStack.length),redo:String(redoStack.length),
+    undo:String(undoStack.length),redo:String(redoStack.length),mode:editorMode,
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
 }
@@ -152,13 +154,31 @@ function commandsModal(query=''){
   const input=modalRoot.querySelector<HTMLInputElement>('#command-search');input?.focus();input?.setSelectionRange(input.value.length,input.value.length);
 }
 function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
+let agentDelegatedAt='';
+function agentModeModal(){
+  showModal(ui('Hand the screen to an agent','에이전트에게 화면 맡기기'),ui('The agent drives the same UI. Approval and page deletion stay locked; you can take control back any time.','에이전트가 같은 UI를 조작합니다. 승인과 페이지 삭제는 잠기고, 언제든 제어를 되찾을 수 있습니다.'),`<form id="agent-mode-form"><label class="form-label">${ui('Operator (model / tool)','조작 주체 (모델 / 도구)')}<input name="operator" maxlength="100" required placeholder="${ui('e.g. Codex computer use, Astra','예: Codex 컴퓨터 유즈, Astra')}"></label><label class="form-label">${ui('What should it do?','무엇을 시킬까요?')}<textarea name="intent" rows="3" maxlength="1200" required placeholder="${ui('Describe the target screen, the reference and the constraints','목표 화면·레퍼런스·제약을 적어주세요')}"></textarea></label><p class="fine-print">${ui('Starts an assembly run so every edit is receipted. Nothing leaves this Mac.','조립 실행을 시작해 모든 편집이 영수증으로 남습니다. 어떤 것도 이 Mac을 떠나지 않습니다.')}</p><button class="primary-button full-width" type="submit">${icon('bot')}${ui('Start Agent mode','에이전트 모드 시작')}</button></form>`);
+}
+function startAgentMode(operator:string,intent:string){
+  editorMode='agent';agentDelegatedAt=new Date().toISOString();
+  if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id){assemblyRun=newRun(project,intent,operator,innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference,delegated:true});}
+  closeModal();render();toast(ui('Agent mode · you can take control back from the banner','에이전트 모드 · 배너에서 언제든 제어를 되찾을 수 있습니다'));
+}
+function endAgentMode(outcome:'returned'|'ended'){
+  if(editorMode!=='agent')return;
+  recordRun('delegation:'+outcome,{startedAt:agentDelegatedAt,endedAt:new Date().toISOString()});
+  agentDelegatedAt='';
+}
+function agentBannerHtml(){
+  if(editorMode!=='agent')return '';
+  return `<div class="agent-banner" role="status">${icon('bot')}<strong>${ui('Agent mode','에이전트 모드')}</strong><span>${esc(assemblyRun?.intent??'')}</span><span class="agent-banner-meta">${ui('Approval and page deletion are locked','승인·페이지 삭제 잠김')} · ${ui('receipts','영수증')} <b data-delegation-receipts>${assemblyRun?.events.length??0}</b></span><button data-action="delegation-return">${icon('hand')}${ui('Take control back','제어 회수')}</button></div>`;
+}
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
   if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved);hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `${storageIssue?diskWarningHtml():''}
+  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}
   <header class="topbar">
     <a class="wordmark" href="#" data-action="home" aria-label="All projects" title="${ui('All projects','전체 프로젝트')}">${brandLockup}</a>
     <div class="project-breadcrumb"><span>${ui("Workspace","작업 공간")}</span>${icon('chevron-right')}<button data-action="project">${esc(project.name)}${icon('chevron-down')}</button><span class="save-indicator"><span class="status-dot ${lastSaved ? '' : 'warning'}"></span>${control(lastSaved ? (nativeDesktop?'Saved to disk':'Saved locally') : 'Unsaved')}</span></div>
@@ -175,12 +195,10 @@ function render() {
       <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>${ui('Made for you. And your agent.','당신과 에이전트를 위해.')}</strong><span>${ui('Same canvas. Shared direction.','같은 캔버스. 공유된 방향.')}</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
     </aside>
     <main class="workbench">
-      <div class="workbench-heading"><div><span class="kicker">${ui('THE DESIGN WORKBENCH','디자인 작업대')}</span><h1>${ui('Shape it. Then build it','형태를 잡고, 그다음 만드세요')}<span>.</span></h1></div><button class="help-button" data-action="about">${icon('circle-help')}<span>${ui('A little guidance','간단한 안내')}</span></button></div>
-      <div class="workflow"><button class="workflow-step done" data-action="brief"><span>1</span><div>${ui('Set the direction','방향 정하기')}<small>${ui('Brief & reference','브리프·레퍼런스')}</small></div>${icon('check')}</button><span class="workflow-line"></span><button class="workflow-step ${approved ? 'done' : 'current'}" data-action="assemble-focus"><span>2</span><div>${ui('Make it tangible','눈에 보이게')}<small>${ui('Assemble & fill','조립·채우기')}</small></div>${approved ? icon('check') : ''}</button><span class="workflow-line"></span><button class="workflow-step ${approved ? 'current' : ''}" data-action="export"><span>3</span><div>${ui('Make it real','실제로 만들기')}<small>${ui('Approve & export','승인·내보내기')}</small></div></button></div>
-      <div class="canvas-toolbar"><div class="canvas-location">${icon('layout-template')}<strong>${esc(page.name)}</strong><span class="draft-badge ${approved ? 'approved' : ''}">${control(approved ? 'Approved' : 'Draft')}</span></div><div class="viewport-controls">${iconButton('desktop', 'monitor', 'Desktop viewport', `aria-pressed="${device === 'desktop'}"`)}${iconButton('mobile', 'smartphone', 'Mobile viewport', `aria-pressed="${device === 'mobile'}"`)}<span class="divider"></span><button class="zoom-control" data-action="zoom" title="${ui('Cycle canvas zoom','캔버스 확대/축소 순환')}">${zoom}%${icon('chevron-down')}</button></div><div class="canvas-actions">${button('reference', 'image-plus', 'Reference', 'plain-button')}${button('autofill', 'sparkles', 'Get Vibe', 'fill-button')}</div></div>
+      <div class="canvas-toolbar"><div class="canvas-location">${icon('layout-template')}<strong>${esc(page.name)}</strong><span class="draft-badge ${approved ? 'approved' : ''}">${control(approved ? 'Approved' : 'Draft')}</span></div><div class="viewport-controls">${iconButton('desktop', 'monitor', 'Desktop viewport', `aria-pressed="${device === 'desktop'}"`)}${iconButton('mobile', 'smartphone', 'Mobile viewport', `aria-pressed="${device === 'mobile'}"`)}<span class="divider"></span><button class="zoom-control" data-action="zoom" title="${ui('Cycle canvas zoom','캔버스 확대/축소 순환')}">${zoom}%${icon('chevron-down')}</button></div><div class="canvas-actions"></div></div>
       <div class="canvas-scroll" id="canvas-scroll"><div class="canvas-frame ${device}" style="--zoom:${zoom / 100}"><div class="frame-label"><span>${icon(device === 'desktop' ? 'monitor' : 'smartphone')}${esc(page.name)} / ${device === 'desktop' ? ui('Desktop','데스크톱') : ui('Mobile','모바일')}</span><span>${device === 'desktop' ? ui('Fluid','유동') : '375'} × Auto</span></div><div class="design-page" id="design-canvas" style="${esc(themeVars(project))}">${page.blocks.map((b, index) => `<div class="block-wrap ${selected === b.id ? 'selected' : ''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${catalog.find(c => c.kind === b.kind)!.name} block ${index + 1}"><div class="block-selection-label">${icon('grip-vertical')}${catalog.find(c => c.kind === b.kind)!.name}<span>${index + 1}</span></div>${blockHtml(b)}</div>`).join('')}<button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div></div></div>
       <div class="canvas-bottom"><span>${icon('mouse-pointer-2')} ${ui('Click to edit · Drag to compose','클릭해 편집 · 드래그해 배치')}</span><span>${page.blocks.length} ${ui('components','컴포넌트')} <span>·</span> ${project.system.name === 'Atelier' ? ui('Original','기본') : ui('Project','프로젝트')} ${ui('tokens','토큰')}</span></div>
-      <div class="direction-bar"><span class="direction-icon">${icon('sparkles')}</span><div><strong>${ui('A little structure. A lot of possibility.','가벼운 구조. 무한한 가능성.')}</strong><span>컴포넌트로 방향을 잡고, 마음에 들면 코드로 가져가세요.</span></div>${button('brief', 'arrow-right', 'Start from a brief', 'plain-button')}</div>
+      ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent'})}
     </main>
     <aside class="inspector" aria-label="Design inspector">${inspectorHtml()}</aside>
   </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>${ui('Built with intention','의도 있게')} <span class="footer-flower">✳</span> Aphrodite 0.1.1</span></footer>`;
@@ -211,7 +229,6 @@ function render() {
     app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',library+layout);
     if(b.kind==='frame')app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',select('variant',ui('Frame recipe','프레임 레시피'),patternVariants('frame'),b.variant??'default')+'<p class="panel-description">app-* 레시피는 열·간격 규칙을 고정합니다. 일반 레이아웃 편집은 default로 전환하세요.</p>');
   }
-  app.querySelector('.canvas-actions')?.insertAdjacentHTML('afterbegin',`<span class="editor-design-note">${ui('Design mode','디자인 모드')}</span><button class="plain-button" data-action="moa-recipe">${ui('Moa app','Moa 앱')}</button><button class="plain-button" data-action="pointer-lab">${ui('Pointer lab','포인터 랩')}</button>`);
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   if(inspected&&supportsComponentTheme(inspected)){
    const mode=inspected.theme?.mode??'project';
@@ -422,6 +439,9 @@ async function action(el: HTMLElement) {
     case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
     case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}render();}break;}
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
+    case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
+    case 'dock-select': dockTool='select';selected='';render();break;
+    case 'delegation-return': endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));break;
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
@@ -553,7 +573,8 @@ async function action(el: HTMLElement) {
     case 'import-md': pickFile('.md,text/markdown,text/plain', async file => { const s = importDesignMarkdown(await file.text(), file.name, project.system); commit(() => { project.system = s; }); closeModal(); toast('색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'); }); break;
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
-    case 'approve': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
+    case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
+    case 'approve-human-only': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
     case 'approve-export': commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
@@ -671,6 +692,7 @@ document.addEventListener('submit', async e => {
     const unsupportedNames=[...new Set(plan.unsupported.map(id=>catalog.find(c=>c.kind===currentPage(project).blocks.find(b=>b.id===id)?.kind)?.name).filter((n):n is string=>!!n))];
     showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage,unsupportedNames,data.has('replace')),true);return;
   }
+  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200));return;}
   if(form.id==='assembly-run-form'){
     if(assemblyRun&&assemblyRun.status!=='ended'){toast('현재 실행을 먼저 종료하세요.');return;}
     assemblyRun=newRun(project,String(data.get('intent')??''),String(data.get('model')??''),innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference});closeModal();refreshAssemblyBar();toast(ui('Assembly run 시작 · 로컬 편집 기록만 수집합니다.','조립 실행을 시작했습니다 · 로컬 편집 기록만 수집합니다.'));return;
@@ -702,6 +724,7 @@ document.addEventListener('keydown', e => {
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
+  if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
   else if (e.key === '/') { e.preventDefault(); tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); }
