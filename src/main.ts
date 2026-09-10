@@ -679,6 +679,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('submit', async e => {
   e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
+  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200));return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
     const nextUi=data.get('uiLanguage'),nextContent=data.get('contentLanguage');
@@ -701,7 +702,6 @@ document.addEventListener('submit', async e => {
     const unsupportedNames=[...new Set(plan.unsupported.map(id=>catalog.find(c=>c.kind===currentPage(project).blocks.find(b=>b.id===id)?.kind)?.name).filter((n):n is string=>!!n))];
     showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage,unsupportedNames,data.has('replace')),true);return;
   }
-  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200));return;}
   if(form.id==='assembly-run-form'){
     if(assemblyRun&&assemblyRun.status!=='ended'){toast('현재 실행을 먼저 종료하세요.');return;}
     assemblyRun=newRun(project,String(data.get('intent')??''),String(data.get('model')??''),innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference});closeModal();refreshAssemblyBar();toast(ui('Assembly run 시작 · 로컬 편집 기록만 수집합니다.','조립 실행을 시작했습니다 · 로컬 편집 기록만 수집합니다.'));return;
