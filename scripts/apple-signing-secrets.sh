@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Interactive helper: exports the Developer ID certificate from the login keychain and
-# stores the notarization secrets in the GitHub repository. Run it yourself — it asks
-# for a one-time .p12 password and your Apple ID app-specific password; nothing is
-# written to disk except a temporary .p12 that is deleted at the end.
+# Interactive helper: exports ONLY the "Developer ID Application" identity from the login
+# keychain as a .p12 and stores the signing + notarization secrets in the GitHub repository.
+# Run it yourself — it asks for a one-time .p12 password and your Apple ID app-specific
+# password; nothing is written to disk except temporary files that are deleted at the end.
 #
 #   bash scripts/apple-signing-secrets.sh
+#
+# Why the filtering: `security export -t identities` exports every identity in the keychain
+# (Apple Development, Apple Distribution, Developer ID…). Tauri reads the first certificate
+# in APPLE_CERTIFICATE and refuses to sign if it is not APPLE_SIGNING_IDENTITY, so the .p12
+# must contain exactly one identity.
 #
 # Prerequisites: `gh auth status` OK, the "Developer ID Application" identity in Keychain
 # Access, and an app-specific password from https://account.apple.com (Sign-In and Security →
@@ -18,21 +23,40 @@ command -v gh >/dev/null || { echo "gh CLI is required"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "run: gh auth login"; exit 1; }
 security find-identity -v -p codesigning | grep -q "$IDENTITY" || { echo "identity not found in keychain: $IDENTITY"; exit 1; }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"
+TMP_KC="$TMP/filter.keychain-db"
+cleanup() { security delete-keychain "$TMP_KC" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+trap cleanup EXIT
+FULL="$TMP/all-identities.p12"
 P12="$TMP/developer-id.p12"
 
-echo "1/3  Exporting the certificate + private key to a temporary .p12"
+echo "1/4  Exporting identities from the login keychain (macOS may ask you to Allow)"
 read -r -s -p "     Choose a password for the .p12 (used only as APPLE_CERTIFICATE_PASSWORD): " P12_PASS; echo
-# macOS may show a keychain prompt — click "Allow" (or "Always Allow").
-security export -k login.keychain-db -t identities -f pkcs12 -P "$P12_PASS" -o "$P12" 2>/dev/null \
-  || security export -t identities -f pkcs12 -P "$P12_PASS" -o "$P12"
-[ -s "$P12" ] || { echo "export failed (empty .p12). Try exporting from Keychain Access manually and re-run with P12_FILE=…"; exit 1; }
+security export -k login.keychain-db -t identities -f pkcs12 -P "$P12_PASS" -o "$FULL" 2>/dev/null \
+  || security export -t identities -f pkcs12 -P "$P12_PASS" -o "$FULL"
+[ -s "$FULL" ] || { echo "export failed (empty .p12). Export the Developer ID identity from Keychain Access manually instead."; exit 1; }
 
-echo "2/3  Apple ID for notarization"
+echo "2/4  Keeping only \"$IDENTITY\""
+TMP_KC_PASS="$(openssl rand -hex 12)"
+security create-keychain -p "$TMP_KC_PASS" "$TMP_KC"
+security set-keychain-settings "$TMP_KC"
+security unlock-keychain -p "$TMP_KC_PASS" "$TMP_KC"
+security import "$FULL" -k "$TMP_KC" -P "$P12_PASS" -A >/dev/null
+# Remove every identity that is not the Developer ID Application one.
+security find-identity -v -p codesigning "$TMP_KC" | sed -n 's/.*"\(.*\)".*/\1/p' | sort -u | while read -r name; do
+  if [ "$name" != "$IDENTITY" ]; then security delete-identity -c "$name" "$TMP_KC" >/dev/null 2>&1 || true; fi
+done
+security export -k "$TMP_KC" -t identities -f pkcs12 -P "$P12_PASS" -o "$P12"
+COUNT="$(openssl pkcs12 -in "$P12" -nokeys -passin "pass:$P12_PASS" 2>/dev/null | grep -c 'BEGIN CERTIFICATE' || true)"
+SUBJECT="$(openssl pkcs12 -in "$P12" -nokeys -clcerts -passin "pass:$P12_PASS" 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || true)"
+echo "     .p12 now holds $COUNT certificate(s); leaf subject: ${SUBJECT#subject=}"
+case "$SUBJECT" in *"Developer ID Application"*) ;; *) echo "     the filtered .p12 does not contain the Developer ID identity — aborting"; exit 1;; esac
+
+echo "3/4  Apple ID for notarization"
 read -r -p "     Apple ID e-mail: " APPLE_ID
 read -r -s -p "     App-specific password: " APPLE_PASSWORD; echo
 
-echo "3/3  Storing secrets in $REPO"
+echo "4/4  Storing secrets in $REPO"
 base64 -i "$P12" | gh secret set APPLE_CERTIFICATE --repo "$REPO"
 printf '%s' "$P12_PASS"      | gh secret set APPLE_CERTIFICATE_PASSWORD --repo "$REPO"
 printf '%s' "$IDENTITY"      | gh secret set APPLE_SIGNING_IDENTITY --repo "$REPO"
