@@ -480,6 +480,7 @@ async function action(el: HTMLElement) {
     }
     case 'add': addBlock(el.dataset.kind as BlockKind); break;
     case 'component-explorer': explorerModal();break;
+    case 'explorer-variant-pick': explorerVariant=el.dataset.variant||explorerVariant;explorerModal();break;
     case 'explorer-reset': explorerFilter={...emptyCatalogFilter};explorerGroup='All';explorerModal(false);break;
     case 'explorer-group': explorerGroup=el.dataset.group!;explorerModal();break;
     case 'explorer-kind-pick': if(catalog.some(c=>c.kind===el.dataset.kind)){explorerKind=el.dataset.kind as BlockKind;explorerModal();modalRoot.querySelector<HTMLElement>(`[data-action="explorer-kind-pick"][data-kind="${explorerKind}"]`)?.focus();}break;
