@@ -43,6 +43,7 @@ import './design/studio.css';
 import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter} from './workspace/library';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
+import {bindInspectorCollapse} from './editor/inspector-collapse';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -191,7 +192,7 @@ function render() {
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<p class="panel-description" role="status">${ui('Primary affects: ','메인 색상 적용 영역: ')}${ui(effect,({'fill':'채움 배경','text-border':'글자·테두리 (ghost는 글자)','border':'테두리만','neutral':'중립형 — 현재 변형의 기본 글자·배경에는 미적용'} as Record<string,string>)[effect])}</p>${mode==='custom'?`<label class="edit-field">HEX<input id="component-theme-hex" aria-label="Component primary hex" value="${componentAccent(inspected,project.system.accent)}" maxlength="7" pattern="#[a-fA-F0-9]{6}"></label>`:''}`);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<label class="edit-field">${ui('Component primary color','컴포넌트 메인 색상')}<select id="component-theme-mode" aria-label="Component color policy"><option value="project" ${mode==='project'?'selected':''}>${ui('Follow project','프로젝트 색상 적용')}</option><option value="source" ${mode==='source'?'selected':''}>${ui('Adapter baseline','어댑터 기본색')}</option><option value="custom" ${mode==='custom'?'selected':''}>${ui('Custom color','개별 색상 지정')}</option></select></label>${mode==='custom'?`<label class="edit-field">${ui('Custom primary','개별 메인 색상')}<input type="color" id="component-theme-accent" aria-label="Component custom primary" value="${componentAccent(inspected,project.system.accent)}"></label>`:''}<p class="panel-description">${ui('Primary only. Fonts and surfaces still follow existing adapters. Baseline is not a full original DS.','메인 색상만 변경합니다. 폰트·표면색은 기존 어댑터를 따릅니다. 기본색은 원본 DS 전체 복원이 아닙니다.')}<br>${componentAccent(inspected,project.system.accent)}</p>`);
   }
-  hydrateIcons(); bindDragAndDrop();
+  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')});
   const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
   disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
 }
@@ -384,6 +385,7 @@ async function action(el: HTMLElement) {
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
     case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
     case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
+    case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
