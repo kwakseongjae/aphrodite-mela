@@ -9,11 +9,19 @@ This is documentation for controlling the actual UI, not a claim that an agent i
 3. Choose **Choose design system** or click the named system card. Select a preset or **Import your DESIGN.md**. Imports parse only exact labeled color tokens and preserve the source Markdown.
 4. Add blocks through **Add Navigation**, **Add Editorial hero**, **Add Feature row**, **Add Collection grid**, **Add Testimonial**, **Add Call to action**, **Add Footer**. DnD is also available but not required. Selection has a visible outline and block label.
 5. In the inspector, use **Component heading**, **Component content**, **Component action label**, and **Replace image**. Edits apply on change/blur. For collection/feature content, each line is a card and `title|description` splits its fields. Use **Move component up/down**, **Duplicate component**, **Delete component**.
-6. **Auto fill** opens a reviewable dialog. Enable copy and/or imagery. Existing copy/images are preserved unless **Replace existing content** is checked. Submit **Fill this page**.
+6. **Get Vibe** (auto fill) opens a reviewable dialog. Enable copy and/or imagery. Existing copy/images are preserved unless **Replace existing content** is checked. Submit **Fill this page**.
 7. Choose **Mobile viewport**, then **Desktop viewport**. Use **Preview** for the standalone page. Preview has no scripts and uses the same HTML/CSS as export.
 8. Ask the user to review the visible direction before the agent marks it approved. Once that decision is given, **Approve direction**. A changed document returns to Draft; a viewport change does not.
 9. **Export** → **Download handoff .zip**. Native uses a Save dialog; browser uses a download. Only user-selected files are written. **Copy prompt** is also available.
 10. Use the exported HTML, DESIGN.md, and JSON together when implementing. Distinguish visual composition from actual application behavior.
+
+## Discover what you can do (added 2026-09-10)
+
+- **Command palette**: press **⌘K** (Ctrl-K) or **?** in the editor, or click the **Commands & shortcuts** button in the top bar. It lists every action available on the page (add each component kind, edit, design, review, file) with its shortcut, filterable in English or Korean. Items are ordinary buttons with the same `data-action` hooks as the visible UI. **Approve direction is intentionally not listed** — it must be a direct click after a human decision.
+- **Status line** (bottom bar, `#editor-state`, `role=status`): `Page · N components · Selected <kind> · <design system> · Draft/Approved · Desktop/Mobile · Saved/Unsaved`. Read it after every action instead of guessing.
+- **Machine-readable state** on `#app` (updated after every render and modal change): `data-screen`, `data-language`, `data-saved`, `data-storage`, `data-project`, `data-page`, `data-page-count`, `data-block-count`, `data-selected-id`, `data-selected-kind`, `data-selected-provider`, `data-system`, `data-accent`, `data-approval`, `data-viewport`, `data-modal` (title of the open dialog or empty), `data-undo`, `data-redo`.
+- **Naming**: the auto-fill feature is labelled **Get Vibe** in the UI (this document previously said "Auto fill"). Design system presets live under **Choose design system** (`data-action="systems"`); per-token colours are the three colour inputs in the inspector's **Look & feel** card and apply to every page.
+- **Keyboard**: `/` find a component, Enter select the focused block, ⌘Z / ⇧⌘Z undo/redo, ⌥↑ / ⌥↓ move the selected component, Esc closes any dialog, Tab/Shift-Tab wrap inside dialogs.
 
 ## Stable state and error signals
 
