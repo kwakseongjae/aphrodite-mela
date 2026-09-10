@@ -1,4 +1,4 @@
-import { createIcons, icons } from 'lucide';
+import { createIcons } from 'lucide'; import { icons } from './icons';
 import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project } from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
