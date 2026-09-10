@@ -1,4 +1,8 @@
-import { createIcons } from 'lucide'; import { icons } from './icons';
+import { createIcons } from 'lucide';
+/** Last-resort crash surface: a blank webview hides everything, so uncaught errors are painted into the page. */
+window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
+window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
+ import { icons } from './icons';
 import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project } from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
@@ -45,6 +49,8 @@ import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
+import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
+import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine} from './editor/command-palette';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
@@ -119,7 +125,7 @@ function history(direction: 'undo' | 'redo') {
   const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
-function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,details);storeRun();refreshAssemblyBar();}
+function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
 function insertionTarget(){return currentPage(project).blocks.find(b=>b.id===insertParent&&b.kind==='frame')?.id;}
 let assemblyExpanded=false;try{assemblyExpanded=localStorage.getItem('aphrodite-assembly-expanded')==='true';}catch{}
 function assemblyBar(){const page=currentPage(project),last=assemblyRun?.events.at(-1),foreign=assemblyRun&&assemblyRun.projectId!==project.id;
@@ -154,23 +160,24 @@ function commandsModal(query=''){
   const input=modalRoot.querySelector<HTMLInputElement>('#command-search');input?.focus();input?.setSelectionRange(input.value.length,input.value.length);
 }
 function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
-let agentDelegatedAt='';
+let delegation:Delegation|undefined;
 function agentModeModal(){
   showModal(ui('Hand the screen to an agent','에이전트에게 화면 맡기기'),ui('The agent drives the same UI. Approval and page deletion stay locked; you can take control back any time.','에이전트가 같은 UI를 조작합니다. 승인과 페이지 삭제는 잠기고, 언제든 제어를 되찾을 수 있습니다.'),`<form id="agent-mode-form"><label class="form-label">${ui('Operator (model / tool)','조작 주체 (모델 / 도구)')}<input name="operator" maxlength="100" required placeholder="${ui('e.g. Codex computer use, Astra','예: Codex 컴퓨터 유즈, Astra')}"></label><label class="form-label">${ui('What should it do?','무엇을 시킬까요?')}<textarea name="intent" rows="3" maxlength="1200" required placeholder="${ui('Describe the target screen, the reference and the constraints','목표 화면·레퍼런스·제약을 적어주세요')}"></textarea></label><p class="fine-print">${ui('Starts an assembly run so every edit is receipted. Nothing leaves this Mac.','조립 실행을 시작해 모든 편집이 영수증으로 남습니다. 어떤 것도 이 Mac을 떠나지 않습니다.')}</p><button class="primary-button full-width" type="submit">${icon('bot')}${ui('Start Agent mode','에이전트 모드 시작')}</button></form>`);
 }
 function startAgentMode(operator:string,intent:string){
-  editorMode='agent';agentDelegatedAt=new Date().toISOString();
+  editorMode='agent';delegation=startDelegation(project,{operator,intent});
   if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id){assemblyRun=newRun(project,intent,operator,innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference,delegated:true});}
   closeModal();render();toast(ui('Agent mode · you can take control back from the banner','에이전트 모드 · 배너에서 언제든 제어를 되찾을 수 있습니다'));
 }
 function endAgentMode(outcome:'returned'|'ended'){
-  if(editorMode!=='agent')return;
-  recordRun('delegation:'+outcome,{startedAt:agentDelegatedAt,endedAt:new Date().toISOString()});
-  agentDelegatedAt='';
+  if(editorMode!=='agent'||!delegation)return;
+  delegation=endDelegation(delegation,project,outcome==='returned'?'returned':'ended-by-agent',assemblyRun?.events.length??0);
+  recordRun('delegation:'+outcome,{summary:delegationSummary(delegation)});
+  delegation=undefined;
 }
 function agentBannerHtml(){
-  if(editorMode!=='agent')return '';
-  return `<div class="agent-banner" role="status">${icon('bot')}<strong>${ui('Agent mode','에이전트 모드')}</strong><span>${esc(assemblyRun?.intent??'')}</span><span class="agent-banner-meta">${ui('Approval and page deletion are locked','승인·페이지 삭제 잠김')} · ${ui('receipts','영수증')} <b data-delegation-receipts>${assemblyRun?.events.length??0}</b></span><button data-action="delegation-return">${icon('hand')}${ui('Take control back','제어 회수')}</button></div>`;
+  if(editorMode!=='agent'||!delegation)return '';
+  return `<div class="agent-banner" role="status">${icon('bot')}${delegationBannerHtml(delegation,uiLanguage)}</div>`;
 }
 function render() {
   disposePointerEditor?.();
@@ -200,7 +207,7 @@ function render() {
       <div class="canvas-bottom"><span>${icon('mouse-pointer-2')} ${ui('Click to edit · Drag to compose','클릭해 편집 · 드래그해 배치')}</span><span>${page.blocks.length} ${ui('components','컴포넌트')} <span>·</span> ${project.system.name === 'Atelier' ? ui('Original','기본') : ui('Project','프로젝트')} ${ui('tokens','토큰')}</span></div>
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent'})}
     </main>
-    <aside class="inspector" aria-label="Design inspector">${inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector">${editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
   </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>${ui('Built with intention','의도 있게')} <span class="footer-flower">✳</span> Aphrodite 0.1.1</span></footer>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -420,6 +427,7 @@ function compareModal() {
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 async function action(el: HTMLElement) {
+  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'')&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   switch (act) {
@@ -441,6 +449,7 @@ async function action(el: HTMLElement) {
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
     case 'dock-select': dockTool='select';selected='';render();break;
+    case 'dev-copy': {const payload=devPanelCopyPayload(app,el.dataset.copyTarget??'');if(payload===null)break;try{await navigator.clipboard.writeText(payload);toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 텍스트를 선택해 복사하세요.'));}break;}
     case 'delegation-return': endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));break;
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;

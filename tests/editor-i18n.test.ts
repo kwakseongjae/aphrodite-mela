@@ -27,7 +27,7 @@ test('controlText maps representative editor chrome labels to Korean and leaves 
   assert.equal(controlText('Preview','ko'),'미리보기');
   assert.equal(controlText('Export','ko'),'내보내기');
   assert.equal(controlText('Approve direction','ko'),'방향 승인');
-  assert.equal(controlText('ko'),'브리프로 시작');
+  assert.equal(controlText('Start from a brief','ko'),'브리프로 시작');
   assert.equal(controlText('Choose design system','ko'),'디자인 시스템 선택');
   assert.equal(controlText('Get Vibe','ko'),'Get Vibe');
   assert.equal(controlText('Draft','ko'),'초안');
