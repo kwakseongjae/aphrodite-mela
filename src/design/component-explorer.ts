@@ -18,7 +18,8 @@ export function parseCatalogChoice(raw:string):CatalogChoice|null{
 }
 export function catalogGroup(kind:BlockKind){
  if(['frame','hero','features','products'].includes(kind))return 'Layout';
- if(['navigation','footer','tabs','breadcrumb','sidebar'].includes(kind))return 'Navigation';
- if(['button','input','select','checkbox','switch','textarea'].includes(kind))return 'Input';
+ if(['navigation','footer','tabs','breadcrumb','pagination','stepper','sidebar'].includes(kind))return 'Navigation';
+ if(['button','input','select','checkbox','switch','textarea','slider','toggle'].includes(kind))return 'Input';
+ if(['notice','progress'].includes(kind))return 'Feedback';
  return 'Content & data';
 }
