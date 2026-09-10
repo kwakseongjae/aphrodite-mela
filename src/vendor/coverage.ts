@@ -17,7 +17,10 @@ export const coverage = {
     'tabs','notice','badge','avatar','skeleton','accordion',
     'chips','slider','progress','toggle',
   ],
-  shadcn: ['button'],
+  shadcn: [
+    'button','input','textarea','cards','badge','table','skeleton',
+    'notice','breadcrumb','pagination',
+  ],
 } as const;
 
 export type CoverageProvider = keyof typeof coverage;
