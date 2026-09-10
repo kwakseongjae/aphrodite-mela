@@ -53,22 +53,43 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build and publish release
+      # Tauri treats a *defined but empty* APPLE_CERTIFICATE as a certificate to import,
+      # so the signed and unsigned paths are separate steps: the APPLE_* variables only
+      # exist in the signed one.
+      - name: Detect signing secrets
+        id: signing
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+        run: echo "enabled=$([ -n "$CERT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish release (signed + notarized)
+        if: steps.signing.outputs.enabled == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing/notarization only when the certificate secret exists; otherwise the
-          # bundle is ad-hoc signed and the other APPLE_* values must stay empty.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_CERTIFICATE && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ secrets.APPLE_CERTIFICATE && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_CERTIFICATE && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: "Aphrodite for macOS (Apple Silicon). Download the .dmg, drag Aphrodite to Applications, open it."
           releaseDraft: true
           prerelease: false
+          args: --target aarch64-apple-darwin --bundles dmg
+
+      - name: Build and publish release (unsigned, ad-hoc)
+        if: steps.signing.outputs.enabled != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: "Aphrodite ${{ env.TAG }}"
+          releaseBody: "Aphrodite for macOS (Apple Silicon). Unsigned test build: right-click the app and choose Open on first launch."
+          releaseDraft: true
+          prerelease: true
           args: --target aarch64-apple-darwin --bundles dmg
