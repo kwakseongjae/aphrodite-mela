@@ -108,4 +108,4 @@
 .modal.catalog-modal .modal-heading .kicker{display:none}
 .modal.catalog-modal .catalog-categories button{padding:12px 0}
 
-.catalog-variants{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px}.catalog-chip{border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--muted);background:#fff;cursor:pointer}.catalog-chip:hover{color:var(--ink);border-color:#b9bfae}.catalog-chip[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#f7faef}.catalog-index small i{font-style:normal;color:#a5a89a;margin-left:2px}
+.catalog-variants{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px}.catalog-chip{width:auto;flex:0 0 auto;border:1px solid #d7dccd;border-radius:999px;padding:4px 10px;font-size:11px;line-height:1.2;color:#6b7164;background:#fff;cursor:pointer}.catalog-chip:hover{color:var(--ink);border-color:#b9bfae}.catalog-chip[aria-pressed=true]{background:#344e41;border-color:#344e41;color:#f7faef}.catalog-index small i{font-style:normal;color:#a5a89a;margin-left:2px}
