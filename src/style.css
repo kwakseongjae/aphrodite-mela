@@ -50,3 +50,5 @@ input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:#
 .dev-panel-table th{color:var(--muted);font-weight:400;background:#f5f7ef}
 .dev-panel textarea[data-copy]{display:none}
 .fatal-error{position:fixed;top:0;left:0;right:0;z-index:1000;margin:0;padding:14px 18px;background:#5b1f1f;color:#fff;font:12px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;user-select:text}
+.dock-zoom{height:32px;padding:0 10px;border-radius:9px;font:12px ui-monospace,Menlo,monospace;color:#5a604f}.dock-zoom:hover{background:#eef1e8}
+.canvas-frame .block-wrap:not(.selected):hover{outline:1px solid #7fa3ff;outline-offset:-1px}

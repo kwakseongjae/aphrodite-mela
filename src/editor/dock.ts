@@ -25,11 +25,12 @@ export const modeCopy:Record<EditorMode,{en:string;ko:string;hintEn:string;hintK
   agent:{en:'Agent',ko:'에이전트',hintEn:'Hand the screen to a computer-use agent; approval stays yours',hintKo:'컴퓨터 유즈 에이전트에게 화면을 맡깁니다. 승인은 사람의 몫입니다',key:'3'},
 };
 
-export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean}):string{
+export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number}):string{
   const ko=state.language==='ko';
   const tools=dockTools.map(t=>`<button type="button" class="dock-tool" data-action="${esc(t.action)}"${Object.entries(t.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')} data-tool="${t.id}" aria-pressed="${state.activeTool===t.id}" aria-label="${esc(ko?t.ko:t.en)}" title="${esc(ko?t.ko:t.en)} · ${t.key}">${icon(t.icon)}</button>`).join('');
   const modes=editorModes.map(m=>`<button type="button" class="dock-mode" data-action="editor-mode" data-mode="${m}" aria-pressed="${state.mode===m}" title="${esc(ko?modeCopy[m].hintKo:modeCopy[m].hintEn)} · ${modeCopy[m].key}">${m==='agent'&&state.delegated?icon('bot'):''}<span>${esc(ko?modeCopy[m].ko:modeCopy[m].en)}</span></button>`).join('');
-  return `<div class="dock" role="toolbar" aria-label="${ko?'도구':'Tools'}" data-mode="${state.mode}"><div class="dock-tools">${tools}</div><span class="dock-divider"></span><div class="dock-modes" role="group" aria-label="${ko?'모드':'Mode'}">${modes}</div></div>`;
+  const zoom=state.zoom?`<span class="dock-divider"></span><button type="button" class="dock-zoom" data-action="zoom" title="${ko?'확대/축소 순환 (70·85·100·125%)':'Cycle zoom (70·85·100·125%)'}">${state.zoom}%</button>`:'';
+  return `<div class="dock" role="toolbar" aria-label="${ko?'도구':'Tools'}" data-mode="${state.mode}"><div class="dock-tools">${tools}</div><span class="dock-divider"></span><div class="dock-modes" role="group" aria-label="${ko?'모드':'Mode'}">${modes}</div>${zoom}</div>`;
 }
 
 /** Maps a bare key press (no modifiers, outside inputs) to a dock tool or mode. Returns null when unmapped. */

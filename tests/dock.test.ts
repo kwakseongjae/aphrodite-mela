@@ -19,3 +19,5 @@ test('single-letter shortcuts map to tools and digits to modes; unknown keys map
   assert.equal(dockShortcut('z'),null);
   assert.deepEqual([...editorModes],['design','dev','agent']);assert.ok(isEditorMode('agent'));assert.ok(!isEditorMode('edit'));
 });
+
+test('the dock shows the zoom control when a zoom value is given',()=>{assert.match(dockHtml({mode:'design',language:'en',zoom:85}),/data-action="zoom"[^>]*>85%</);assert.doesNotMatch(dockHtml({mode:'design',language:'en'}),/dock-zoom/);});
