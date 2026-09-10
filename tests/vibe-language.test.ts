@@ -32,3 +32,5 @@ test('brand labels use project name and locale persists without changing old doc
  assert.throws(()=>parseProject(JSON.stringify({...p,contentLanguage:'fr'})),/language/);
  assert.match(vibeLanguageFormHtml(false,'ko'),/value="ko" selected/);
 });
+
+test('Get Vibe on an empty page points to brief, reference and catalog instead of a zero-change preview',async()=>{const {emptyPageVibeHtml}=await import('../src/design/vibe-language-form');for(const lang of ['en','ko'] as const){const html=emptyPageVibeHtml(lang);assert.match(html,/data-action="brief"/);assert.match(html,/data-action="reference"/);assert.match(html,/data-action="component-explorer"/);assert.match(html,/data-palette/);assert.match(html,lang==='ko'?/컴포넌트가 없습니다/:/no components yet/);}});
