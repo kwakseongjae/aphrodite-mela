@@ -25,7 +25,7 @@ input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:#
 .dock-tools,.dock-modes{display:flex;align-items:center;gap:2px}
 .dock-tool{width:36px;height:36px;border-radius:9px;color:#4d5346;transition:background .12s,color .12s}.dock-tool svg{width:17px;height:17px}.dock-tool:hover{background:#eef1e8;color:#243e2f}.dock-tool[aria-pressed=true]{background:#2c3d31;color:#f7faef}
 .dock-divider{width:1px;height:22px;background:#dfe4d7;margin:0 4px}
-.dock-mode{height:32px;padding:0 12px;border-radius:9px;font-size:12px;color:#5a604f;gap:6px;transition:background .12s,color .12s}.dock-mode svg{width:14px;height:14px}.dock-mode:hover{background:#eef1e8}.dock-mode[aria-pressed=true]{background:#e6ebdd;color:#243e2f;font-weight:500}
+.dock-mode{height:32px;padding:0 12px;white-space:nowrap;border-radius:9px;font-size:12px;color:#5a604f;gap:6px;transition:background .12s,color .12s}.dock-mode svg{width:14px;height:14px}.dock-mode:hover{background:#eef1e8}.dock-mode[aria-pressed=true]{background:#e6ebdd;color:#243e2f;font-weight:500}
 .dock[data-mode=dev] .dock-mode[aria-pressed=true]{background:#e3e7f5;color:#2b3a78}.dock[data-mode=agent] .dock-mode[aria-pressed=true]{background:#f3e4c4;color:#6a4a0e}
 .canvas-scroll{padding-bottom:84px}
 .canvas-bottom{padding-right:8px}
