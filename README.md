@@ -51,7 +51,7 @@ Reference → Upload reference 또는 Try a sample reference → Analyze referen
 ## 다운로드와 배포
 
 - 랜딩 페이지: `site/` (정적 HTML, EN/한국어 자동 전환). `main`에 푸시하면 `.github/workflows/pages.yml`이 GitHub Pages로 배포한다. 공개 주소는 `https://kwakseongjae.github.io/aphrodite-mela/`를 가정한다(저장소 이름이 바뀌면 `site/script.js`의 `REPO`와 `site/index.html`의 `og:*` 메타를 함께 바꾼다).
-- 릴리스: `v0.1.0` 같은 태그를 푸시하면 `.github/workflows/release.yml`이 macOS 러너에서 Apple Silicon `.dmg`를 만들어 GitHub Release 초안에 첨부한다. `APPLE_*` 시크릿이 있으면 Developer ID 서명과 공증까지 수행하고, 없으면 ad-hoc 서명 상태로 남아 첫 실행 시 우클릭 → 열기가 필요하다.
+- 릴리스: `v0.1.0` 같은 태그를 푸시하면 `.github/workflows/release.yml`이 macOS 러너에서 Apple Silicon `.dmg`를 만들어 GitHub Release 초안에 첨부한다. `APPLE_*` 시크릿이 있으면 Developer ID 서명과 앱·DMG 공증(스테이플 포함)까지 수행하고(`v0.1.0`부터 적용), 없으면 ad-hoc 서명 프리릴리스로 남아 첫 실행 시 우클릭 → 열기가 필요하다. 시크릿은 `scripts/apple-signing-secrets.sh`(전체), `--notary-only`(Apple ID/앱 암호만), `--api-key`(App Store Connect API 키)로 넣는다.
 - 로컬 DMG: `npx tauri build --bundles dmg` → `src-tauri/target/release/bundle/dmg/Aphrodite_<ver>_aarch64.dmg`.
 - 최소 macOS 13.0(Ventura). OCR 헬퍼는 Tauri 사이드카(`bundle.externalBin`, 파일명 `src-tauri/bin/aphrodite-vision-<target-triple>`)로 번들되어 `Contents/MacOS/aphrodite-vision`에 놓이고 hardened runtime으로 함께 서명된다(공증 필수). `scripts/build-vision.mjs`가 `-target <arch>-apple-macos13.0`으로 컴파일하므로 빌드 머신의 OS 버전에 묶이지 않는다.
 - 앱 아이콘 원본: `public/brand/app-icon-1024.png`. `npx tauri icon public/brand/app-icon-1024.png`로 `src-tauri/icons/`를 재생성한다.

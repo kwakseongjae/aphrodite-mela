@@ -1,7 +1,7 @@
 /* Aphrodite landing — language toggle + latest-release download link. No build step. */
 (function () {
   var REPO = 'kwakseongjae/aphrodite-mela';
-  var GATEKEEPER_NOTE = true; // set false once releases are notarized
+  var GATEKEEPER_NOTE = false; // releases are Developer ID signed + notarized (v0.1.0+); set true for unsigned test builds
 
   var copy = {
     en: {
