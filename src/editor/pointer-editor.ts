@@ -9,7 +9,7 @@ export function mountPointerEditor(o:Options):()=>void {
   const abort=new AbortController(),signal=abort.signal,canvas=o.canvas;
   canvas.classList.add('editor-design');
   const overlay=document.createElement('div');overlay.className='editor-selection';overlay.hidden=true;
-  const hud=document.createElement('div');hud.className='editor-hud';hud.setAttribute('role','status');hud.setAttribute('aria-live','polite');hud.textContent='Design mode · 핸들로 크기 조절 · Preview에서 실제 동작';
+  const hud=document.createElement('div');hud.className='editor-hud';hud.setAttribute('role','status');hud.setAttribute('aria-live','polite');hud.hidden=true;let hudTimer=0;const say=(text:string,transient=false)=>{hud.textContent=text;hud.hidden=false;clearTimeout(hudTimer);if(transient)hudTimer=window.setTimeout(()=>{hud.hidden=true;},1600);};
   document.body.append(overlay,hud);
   const guides=document.createElement('div');guides.className='editor-guides';document.body.append(guides);
   const wrap=()=>canvas.querySelector<HTMLElement>(`[data-block-id="${o.selected}"]`);
@@ -19,7 +19,7 @@ export function mountPointerEditor(o:Options):()=>void {
   let active=false,frame=0,restore:(()=>void)|undefined;
   function position(){
     if(active)return;
-    const el=item();hud.hidden=!!document.querySelector('#app')?.hasAttribute('inert');if(!el||hud.hidden){overlay.hidden=true;return;}
+    const el=item();const inert=!!document.querySelector('#app')?.hasAttribute('inert');if(inert)hud.hidden=true;if(!el||inert){overlay.hidden=true;return;}
     const r=el.getBoundingClientRect(),clip=scroll.getBoundingClientRect();
     overlay.hidden=r.bottom<clip.top+8||r.top>clip.bottom-8;
     Object.assign(overlay.style,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:`${r.height}px`,clipPath:`inset(${Math.max(-34,clip.top-r.top)}px ${Math.max(-14,r.right-clip.right)}px ${Math.max(-14,r.bottom-clip.bottom)}px ${Math.max(-14,clip.left-r.left)}px)`});
@@ -38,7 +38,7 @@ export function mountPointerEditor(o:Options):()=>void {
     const handle=(e.target as HTMLElement).closest<HTMLElement>('[data-handle]')?.dataset.handle;
     const selectedItem=item();if(!handle||!block||!selectedItem||e.button!==0)return;
     const el:HTMLElement=selectedItem;
-    if(canvas.clientWidth<=650){hud.textContent='반응형 미리보기에서는 크기를 고정하지 않습니다 · 넓은 Desktop 캔버스에서 편집하세요';return;}
+    if(canvas.clientWidth<=650){return;}
     e.preventDefault();e.stopPropagation();active=true;
     const startPoint={x:e.clientX,y:e.clientY},rect=el.getBoundingClientRect();
     const scale=rect.width/el.offsetWidth;
@@ -84,7 +84,7 @@ export function mountPointerEditor(o:Options):()=>void {
         const t=o.blocks.find(b=>b.id===target?.dataset.blockId),pid=t?.kind==='frame'?t.id:t?.parentId;
         if(o.blocks.find(b=>b.id===pid)?.layout?.mode==='free'){const s=snap(moveLeft,moveTop,rect.width,rect.height,'move',pid);moveLeft+=s.x;moveTop+=s.y;}else guides.replaceChildren();
         Object.assign(overlay.style,{left:`${moveLeft}px`,top:`${moveTop}px`,clipPath:'none'});
-        hud.textContent=`이동 · ${target?.dataset.kind==='frame'?'프레임 안으로':'앞에 삽입'} · ${target?.getAttribute('aria-label')??'Page root'} · Alt 스냅 해제 · Escape 취소`;
+        say(`이동 · ${target?.dataset.kind==='frame'?'프레임 안으로':'앞에 삽입'} · ${target?.getAttribute('aria-label')??'Page root'} · Alt 스냅 해제 · Esc 취소`);
       }else if(moved){
         next=resizeBox(start,delta,handle as Handle,free);
         const origin={x:rect.left-scrollDelta.x,y:rect.top-scrollDelta.y};
@@ -93,7 +93,7 @@ export function mountPointerEditor(o:Options):()=>void {
         el.style.width=`${next.width}px`;el.style.height=`${next.height}px`;el.style.overflow='auto';
         if(free){el.style.left=`${next.x}px`;el.style.top=`${next.y}px`;}
         const r=el.getBoundingClientRect();Object.assign(overlay.style,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:`${r.height}px`});
-        hud.textContent=`${next.width} × ${next.height} px · ${guides.childElementCount?'Snap · ':''}Alt 스냅 해제 · Escape 취소`;
+        say(`${next.width} × ${next.height} px${guides.childElementCount?' · 스냅':''}`);
       }
       if(schedule)frame=requestAnimationFrame(()=>paint());
     }
@@ -109,13 +109,13 @@ export function mountPointerEditor(o:Options):()=>void {
     function finish(cancel:boolean){
       if(!active)return;active=false;cancelAnimationFrame(frame);gesture.abort();shield.remove();restoreStyle();restore=undefined;
       if(overlay.hasPointerCapture(e.pointerId))overlay.releasePointerCapture(e.pointerId);
-      if(cancel||!moved){o.report?.({outcome:cancel?'cancelled':'no-op',gesture:handle!});position();hud.textContent=cancel?'취소됨 · 변경 사항 없음':'핸들을 끌어 크기 또는 위치를 변경하세요';return;}
+      if(cancel||!moved){o.report?.({outcome:cancel?'cancelled':'no-op',gesture:handle!});position();if(cancel)say('취소됨 · 변경 사항 없음',true);else hud.hidden=true;return;}
       if(handle!=='move'){
         const layout={...block!.layout,widthPx:next.width,height:next.height};if(free){layout.x=next.x;layout.y=next.y;}
         if(commitKeepingViewport({type:'resize',id:block!.id,layout}))o.announce(`크기 저장됨 · ${next.width} × ${next.height}px`);else o.announce('변경 사항 없음 · 기존 크기 유지');
       }else{
         const r=canvas.getBoundingClientRect();
-        if(last.x<r.left||last.x>r.right||last.y<r.top||last.y>r.bottom){o.report?.({outcome:'rejected',gesture:'move'});position();hud.textContent='캔버스 밖입니다 · 이동 취소';return;}
+        if(last.x<r.left||last.x>r.right||last.y<r.top||last.y>r.bottom){o.report?.({outcome:'rejected',gesture:'move'});position();say('캔버스 밖입니다 · 이동 취소',true);return;}
         const t=o.blocks.find(b=>b.id===target?.dataset.blockId),parentId=t?.kind==='frame'?t.id:t?.parentId;
         const parent=o.blocks.find(b=>b.id===parentId);
         let x:number|undefined,y:number|undefined;
