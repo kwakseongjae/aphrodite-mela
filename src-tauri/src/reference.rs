@@ -27,16 +27,7 @@ pub async fn recognize_reference(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload)
         .map_err(|_| "Invalid base64")?;
-    let helper = app
-        .path()
-        .resolve("bin/aphrodite-vision", tauri::path::BaseDirectory::Resource)
-        .map_err(|e| e.to_string())?;
-    #[cfg(debug_assertions)]
-    let helper = if helper.exists() {
-        helper
-    } else {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin/aphrodite-vision")
-    };
+    let helper = helper_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let input = dir.path().join("reference.raster");
@@ -76,4 +67,41 @@ pub async fn recognize_reference(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The OCR helper is a Tauri sidecar (`bundle.externalBin`): Tauri places it next to the app
+/// binary as plain `aphrodite-vision` in both dev (target/<profile>/) and release
+/// (Aphrodite.app/Contents/MacOS/) builds and signs it with the hardened runtime.
+fn helper_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("aphrodite-vision"));
+        }
+    }
+    if let Ok(res) = app
+        .path()
+        .resolve("bin/aphrodite-vision", tauri::path::BaseDirectory::Resource)
+    {
+        candidates.push(res);
+    }
+    #[cfg(debug_assertions)]
+    {
+        let bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin");
+        if let Ok(entries) = std::fs::read_dir(&bin) {
+            for entry in entries.flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("aphrodite-vision")
+                {
+                    candidates.push(entry.path());
+                }
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| "OCR helper (aphrodite-vision sidecar) is missing from this build".to_string())
 }

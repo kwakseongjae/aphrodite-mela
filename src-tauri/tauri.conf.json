@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Aphrodite — Shape before you build.",
+        "title": "Aphrodite \u2014 Shape before you build.",
         "width": 1500,
         "height": 960,
         "minWidth": 900,
@@ -31,9 +31,6 @@
       "app",
       "dmg"
     ],
-    "resources": [
-      "bin/aphrodite-vision"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,6 +40,9 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
-    }
+    },
+    "externalBin": [
+      "bin/aphrodite-vision"
+    ]
   }
 }
