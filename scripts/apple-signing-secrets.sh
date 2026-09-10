@@ -15,6 +15,8 @@
 # Access, and an app-specific password from https://account.apple.com (Sign-In and Security →
 # App-Specific Passwords). The repository must already exist (kwakseongjae/aphrodite-mela).
 set -euo pipefail
+#   bash scripts/apple-signing-secrets.sh --notary-only   # only re-enter Apple ID + app password
+NOTARY_ONLY=0; [ "${1:-}" = "--notary-only" ] && NOTARY_ONLY=1
 REPO="${REPO:-kwakseongjae/aphrodite-mela}"
 IDENTITY="${IDENTITY:-Developer ID Application: Kwak Seongjae (YWQQFQM38J)}"
 TEAM_ID="${TEAM_ID:-YWQQFQM38J}"
@@ -31,6 +33,9 @@ trap 'echo "     failed at line $LINENO (exit $?)" >&2' ERR
 FULL="$TMP/all-identities.p12"
 P12="$TMP/developer-id.p12"
 
+if [ "$NOTARY_ONLY" = "1" ]; then
+  echo "Notarization credentials only (certificate secrets are left as they are)."
+else
 echo "1/4  Exporting identities from the login keychain (macOS may ask you to Allow)"
 read -r -s -p "     Choose a password for the .p12 (used only as APPLE_CERTIFICATE_PASSWORD): " P12_PASS; echo
 security export -k login.keychain-db -t identities -f pkcs12 -P "$P12_PASS" -o "$FULL" 2>/dev/null \
@@ -75,14 +80,24 @@ if [ "$COUNT" != "1" ] || [ "$KEPT" != "$IDENTITY" ]; then
   echo "     expected exactly one identity (\"$IDENTITY\"), got $COUNT — aborting"; exit 1
 fi
 
-echo "3/4  Apple ID for notarization"
+fi
+
+echo "3/4  Apple ID for notarization (must be a member of team $TEAM_ID)"
 read -r -p "     Apple ID e-mail: " APPLE_ID
-read -r -s -p "     App-specific password: " APPLE_PASSWORD; echo
+read -r -s -p "     App-specific password (from account.apple.com → App-Specific Passwords): " APPLE_PASSWORD; echo
+echo "     checking the credentials with Apple (notarytool history)…"
+if ! xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null 2>"$TMP/notary.err"; then
+  echo "     Apple rejected these credentials:"; sed 's/^/       /' "$TMP/notary.err" | head -5
+  echo "     Use the Apple ID that owns/joins team $TEAM_ID and a fresh app-specific password. Nothing was stored."; exit 1
+fi
+echo "     credentials accepted."
 
 echo "4/4  Storing secrets in $REPO"
+if [ "$NOTARY_ONLY" != "1" ]; then
 base64 -i "$P12" | gh secret set APPLE_CERTIFICATE --repo "$REPO"
 printf '%s' "$P12_PASS"      | gh secret set APPLE_CERTIFICATE_PASSWORD --repo "$REPO"
 printf '%s' "$IDENTITY"      | gh secret set APPLE_SIGNING_IDENTITY --repo "$REPO"
+fi
 printf '%s' "$APPLE_ID"      | gh secret set APPLE_ID --repo "$REPO"
 printf '%s' "$APPLE_PASSWORD"| gh secret set APPLE_PASSWORD --repo "$REPO"
 printf '%s' "$TEAM_ID"       | gh secret set APPLE_TEAM_ID --repo "$REPO"
