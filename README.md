@@ -1,168 +1,207 @@
-<a name="aphrodite"></a>
+<h1 align="center">Aphrodite: shape before you build</h1>
 
 <p align="center">
-  <img src="public/brand/cutouts/aphrodite.png" width="240" alt="Aphrodite — a newspaper-collage muse in sunglasses beside a golden apple">
+  <img src="docs/assets/readme/hero.png" alt="Aphrodite hero banner — the headline “Shape before you build.” beside a newspaper-collage muse in sunglasses and a golden apple" width="100%">
 </p>
 
-<h1 align="center">Aphrodite</h1>
-
-<p align="center"><strong>Shape before you build.</strong><br>
-A local-first macOS design workbench where you settle the direction of a screen — with real components, real tokens, and an agent that can drive the same canvas you do.</p>
-
 <p align="center">
-  <a href="https://kwakseongjae.github.io/aphrodite-mela/"><b>Website</b></a> ·
-  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest"><b>Download</b></a> ·
+  <a href="https://kwakseongjae.github.io/aphrodite-mela/">Website</a> ·
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest">Download</a> ·
+  <a href="docs/QUICKSTART.md">Quick start</a> ·
   <a href="docs/AGENT-CHANNEL.md">Agent channel</a> ·
   <a href="docs/COMPUTER-USE.md">Computer-use contract</a> ·
-  <a href="#한국어">한국어</a>
+  <a href="docs/RELEASE-NOTES-v0.1.5.md">Release notes</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS%2013%2B-1d1d1f" alt="macOS 13+">
-  <img src="https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-signed%20%2B%20notarized-3a4531" alt="Signed and notarized">
-  <img src="https://img.shields.io/badge/license-MIT-8f6a1c" alt="MIT">
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases"><img alt="release" src="https://img.shields.io/github/v/release/kwakseongjae/aphrodite-mela?style=flat&color=8f6a1c&label=release"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-3a4531?style=flat"></a>
+  <img alt="platform" src="https://img.shields.io/badge/macOS-13%2B%20·%20Apple%20Silicon%20%26%20Intel-292820?style=flat">
+  <img alt="notarized" src="https://img.shields.io/badge/Developer%20ID-signed%20%2B%20notarized-d7b449?style=flat">
+  <a href="docs/QUICKSTART.md"><img alt="quickstart" src="https://img.shields.io/badge/quickstart-5%20minutes-5a604f?style=flat"></a>
 </p>
 
-<p align="center">
-  <img src="site/assets/shots/space-en.webp" width="820" alt="The Space: three frames — a desktop landing page, a mobile page and a variant — on one open canvas with a floating dock">
-</p>
+<p align="center"><b>English</b> · <a href="docs/i18n/README.ko.md">한국어</a></p>
 
 ---
 
-## What it is
+## What is Aphrodite
 
-A coding agent can ship a page in half an hour. It can also ship the *wrong* page in half an hour. Aphrodite is where you decide the direction first, in something real enough to judge, and hand a clean contract to whoever — or whatever — builds it.
+🖥️ **Local-first native macOS app.** &nbsp;🧱 **Real components and design tokens on an open canvas.** &nbsp;🤖 **An Agent mode that hands the screen to a computer-use agent — with receipts, scope, and a human approval lock.** &nbsp;📦 **Exports a build contract: `PROMPT.md`, `DESIGN.md`, `tokens.json`, rendered HTML.**
 
-- **Local-first.** Projects live on your Mac. No account, no cloud, no generation credits. Your work never leaves the machine.
-- **An open canvas.** Every page is a frame — desktop, tablet, mobile, or a custom width — laid out on one pannable, zoomable space, built from real components and design tokens. Not a mockup, not a screenshot.
-- **Built for agents, too.** Real DOM, named actions, a command palette, and an **Agent mode** that hands the whole screen to a computer-use agent through a receipted channel while a human keeps approval. Same canvas, shared direction.
+A coding agent can ship a page in half an hour. It can also ship the *wrong* page in half an hour — wrong layout, wrong tone, a hero nobody asked for — and you find out at the end. Aphrodite is the step before that: a workbench where you settle the **direction** of a screen in something real enough to judge, then hand a clean contract to whoever, or whatever, builds it.
 
-## Three ways to work on one canvas
+It is not a mockup tool and not a screenshot generator. Every page is a frame on one pannable, zoomable **Space**, built from real components (Aphrodite's own patterns plus MUI, Astryx, SEED and shadcn adapters) driven by one design contract. Nothing leaves your Mac: no account, no cloud, no generation credits.
+
+---
+
+## Product tour
 
 <table>
 <tr>
-<td width="33%"><img src="site/assets/shots/home-en.webp" alt="Home: project cards with live previews"></td>
-<td width="33%"><img src="site/assets/shots/agent-en.webp" alt="Agent mode: a banner and a receipt console while an agent drives"></td>
-<td width="33%"><img src="site/assets/shots/dev-en.webp" alt="Dev mode: read-only handoff with identity, tokens and markup"></td>
-</tr>
-<tr>
-<td><b>Home</b> — every project as a card with a live preview, favourites, archive, and a brand kit for the studio itself.</td>
-<td><b>Agent mode</b> — delegate the same UI to an agent with a scope you choose; every edit is receipted, approval stays yours.</td>
-<td><b>Dev mode</b> — a read-only handoff: component identity, tokens as CSS, rendered markup, a prompt for a coding agent.</td>
+<td valign="top">
+<img src="site/assets/shots/space-en.webp" alt="The Space: a desktop landing page, a mobile page and a variant as frames on one open canvas, with the floating dock and the inspector"><br>
+<sub><b>The Space</b> — pages are frames (desktop 1440 · tablet 834 · mobile 390 · custom) on one open canvas. Pan with Space+drag or the wheel, zoom with ⌘wheel, ⇧1 fits everything. The floating dock holds the tools and the Design · Dev · Agent modes.</sub>
+</td>
 </tr>
 </table>
 
-## Download
-
-Grab the latest signed, notarized build for macOS 13 or later — Apple Silicon and Intel:
-
-**→ [github.com/kwakseongjae/aphrodite-mela/releases/latest](https://github.com/kwakseongjae/aphrodite-mela/releases/latest)**
-
-Open the DMG, drag **Aphrodite** into Applications, and launch it. First run walks you through a language choice, a sample project, and a two-minute tour of the editor.
-
-## How it works
-
-1. **Set the direction.** Start from a brief, or drop in a reference. On macOS, Apple Vision reads the copy and layout on-device; local pixel analysis proposes colours and image regions.
-2. **Make it tangible.** Assemble real components on the open canvas. Spread three directions side by side as proposal frames, swap design systems, edit copy and images, keep desktop and mobile in view. Every step is undoable.
-3. **Make it real.** Approve the direction and export a contract — `PROMPT.md`, `DESIGN.md`, `tokens.json`, the rendered HTML, uploaded images, and a project file — everything Codex or Claude Code needs to build exactly what you approved.
-
-## Agent mode
-
-Start Agent mode and the app locks itself for people: a golden shield covers the window, a one-line banner names the operator, and clicks and keys stop responding. The agent drives through a channel instead of the mouse — a loopback HTTP endpoint in the desktop app, or `window.aphroditeAgent` in a browser build — so *the agent, and only the agent, is in control* until a human ends it with **⌘⇧A** or the banner button. Every command is receipted and the approval lock still holds. See **[docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md)**.
-
-## Build from source
-
-Requires Node 22.12+, the Rust/Tauri toolchain, and (for the on-device OCR helper) the macOS Swift compiler. OCR is macOS-only.
-
-```sh
-npm install
-npm run dev          # browser build at http://127.0.0.1:1420
-npm run desktop      # Tauri dev app (HMR)
-./script/build_and_run.sh   # release build + launch (Codex's Run button uses this too)
-```
-
-Checks and a release build:
-
-```sh
-npm test
-npm run build
-cargo check --manifest-path src-tauri/Cargo.toml
-npm run desktop:build   # → src-tauri/target/release/bundle/macos/Aphrodite.app
-```
-
-Distribution signing and notarization run in the GitHub Actions release workflow when the signing secrets are present; tagging `v*` produces the DMGs attached to a release.
-
-## Under the hood
-
-- **Tauri 2** (WKWebView) shell, a **Vite + TypeScript** frontend, and Rust commands for the local workspace, the project file vault, the Vision OCR sidecar, and the agent channel.
-- Components render in sandboxed iframes; official design-system adapters (MUI, Astryx, SEED, shadcn) sit next to Aphrodite's own patterns, all driven by one design contract.
-- The studio's own look — Paper Muse — is documented in the in-app **Brand Kit** and in [docs/APHRODITE-BRAND.md](docs/APHRODITE-BRAND.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE). Sculpture and collage assets and other third-party references are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-<br>
+<table>
+<tr>
+<td width="33%" valign="top">
+<img src="site/assets/shots/home-en.webp" alt="Home: project cards with live previews, filters and search"><br>
+<sub><b>Home</b> — every project as a card with a live preview. Favourites, archive, right-click menus, last-opened first, and a brand kit for the studio itself.</sub>
+</td>
+<td width="33%" valign="top">
+<img src="site/assets/shots/agent-en.webp" alt="Agent mode: a banner names the operator; the inspector shows scope, locked actions and a receipt timeline"><br>
+<sub><b>Agent mode</b> — the agent takes the screen through a receipted channel while people are locked out. Scope is yours, approval is yours, and ⌘⇧A gives it back.</sub>
+</td>
+<td width="33%" valign="top">
+<img src="site/assets/shots/dev-en.webp" alt="Dev mode: read-only inspect panel with component identity, tokens as CSS, rendered markup and copy buttons"><br>
+<sub><b>Dev mode</b> — a read-only handoff: component identity, tokens as CSS, rendered markup, page HTML, SCENE nodes and a prompt for a coding agent. Copy what you need.</sub>
+</td>
+</tr>
+</table>
 
 ---
 
-<a name="한국어"></a>
+## Works with your agent
 
-<p align="center">
-  <img src="public/brand/cutouts/aphrodite.png" width="200" alt="아프로디테 — 선글라스를 쓴 신문 콜라주 뮤즈와 황금사과">
-</p>
+Aphrodite does not ship a model. The agent already on your machine drives it — from the screen while a human is in charge, and through the **agent channel** once Agent mode hands the screen over.
 
-<h1 align="center">Aphrodite · 한국어</h1>
+| Agent | How it drives Aphrodite | Status |
+|---|---|:---:|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Shell → `curl` the loopback channel; reads the exported contract | ✅ |
+| [Codex CLI](https://github.com/openai/codex) | Shell → channel; Codex's **Run** uses `script/build_and_run.sh` | ✅ |
+| Astra / computer-use agents | Screen and pointer before Agent mode; channel (shell) during it | ✅ |
+| Cursor, Copilot CLI, any CLI with a shell | `curl` the channel, or open the export ZIP | ✅ |
+| Browser harnesses (CDP, Playwright) | `window.aphroditeAgent.run()` in the web build | ✅ |
 
-<p align="center"><strong>만들기 전에, 방향부터.</strong><br>
-실제 컴포넌트와 토큰으로 화면의 방향을 먼저 정하고, 당신과 같은 캔버스를 에이전트도 조작할 수 있는 로컬 우선 macOS 디자인 워크벤치.</p>
+The contract for agents — stable `data-action` names, `#app[data-*]` state, the command palette, and what is refused while delegated — lives in [docs/COMPUTER-USE.md](docs/COMPUTER-USE.md). The channel routes (`state / command / act / click / edit / type / key / end`) are in [docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md).
 
-<p align="center">
-  <a href="https://kwakseongjae.github.io/aphrodite-mela/"><b>웹사이트</b></a> ·
-  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest"><b>다운로드</b></a> ·
-  <a href="docs/AGENT-CHANNEL.md">에이전트 채널</a> ·
-  <a href="#aphrodite">English</a>
-</p>
+---
 
-### 무엇인가
+## How it works
 
-코딩 에이전트는 30분이면 페이지 하나를 만듭니다. 하지만 30분이면 *잘못된* 페이지도 만듭니다. Aphrodite는 판단할 수 있을 만큼 실제에 가까운 화면에서 방향을 먼저 정하고, 그것을 만드는 사람에게 — 혹은 에이전트에게 — 깔끔한 계약으로 넘기는 곳입니다.
+**1 · Set the direction.** Start from a brief, or drop in a reference. On macOS, Apple Vision reads the copy and layout on-device; local pixel analysis proposes colours and image regions. Nothing is uploaded.
 
-- **로컬 우선.** 프로젝트는 이 Mac에 저장됩니다. 계정도, 클라우드도, 생성 크레딧도 없습니다. 작업이 기기를 떠나지 않습니다.
-- **열린 캔버스.** 모든 페이지가 프레임입니다. 데스크톱·태블릿·모바일·사용자 지정 너비를, 이동하고 확대할 수 있는 하나의 공간 위에 실제 컴포넌트와 디자인 토큰으로 배치합니다. 목업도, 스크린샷도 아닙니다.
-- **에이전트를 위한 설계.** 실제 DOM, 이름 있는 동작, 명령 팔레트, 그리고 **에이전트 모드**. 화면 전체를 컴퓨터 유즈 에이전트에게 영수증이 남는 채널로 위임하되, 승인은 사람이 쥡니다. 같은 캔버스, 공유된 방향.
+**2 · Make it tangible.** Assemble real components on the Space. Spread three directions side by side as proposal frames and pick one from its label. Swap design systems, edit copy and images, let Get Vibe fill sample content, keep desktop and mobile in view. Every step is undoable and receipted.
 
-### 다운로드
+**3 · Make it real.** Approve the direction — a deliberate human click that no agent can press — and export the contract: `PROMPT.md`, `DESIGN.md`, `tokens.json`, `SCENE.json`, the rendered HTML with your uploaded images, and the project file. Hand it to Codex or Claude Code and get exactly what you approved.
 
-macOS 13 이상용 서명·공증된 최신 빌드(Apple Silicon·Intel):
+---
 
-**→ [github.com/kwakseongjae/aphrodite-mela/releases/latest](https://github.com/kwakseongjae/aphrodite-mela/releases/latest)**
+## Why Aphrodite
 
-DMG를 열고 **Aphrodite**를 Applications로 끌어다 놓은 뒤 실행하세요. 첫 실행에서 언어 선택, 샘플 프로젝트, 2분짜리 에디터 둘러보기를 안내합니다.
+| | Aphrodite | Figma | Claude Design · OpenDesign | Prompting the agent directly |
+|---|:---:|:---:|:---:|:---:|
+| Runs on your Mac, no account, no cloud | ✅ | ✗ | partly | — |
+| Real components and tokens, not pixels | ✅ | ✗ | ✅ | ✅ |
+| Direction decided *before* the build | ✅ | ✅ | ✅ | ✗ |
+| Three honest layout variants, side by side | ✅ | manual | ✗ | ✗ |
+| Agent drives the same UI you do | ✅ | ✗ | ✗ | — |
+| Human approval lock the agent cannot bypass | ✅ | — | ✗ | ✗ |
+| Every agent edit receipted | ✅ | ✗ | ✗ | ✗ |
+| Exports a build contract for coding agents | ✅ | ✗ | partly | — |
 
-### 작동 방식
+Aphrodite is deliberately narrow: one screen, one direction, one contract. It is the place to *decide*, not the place to generate ten options and hope.
 
-1. **방향 잡기.** 브리프로 시작하거나 레퍼런스를 넣습니다. macOS에서는 Apple Vision이 기기 안에서 문구와 배치를 읽고, 로컬 픽셀 분석이 색과 이미지 영역을 제안합니다.
-2. **손에 잡히게.** 열린 캔버스에서 실제 컴포넌트로 조립합니다. 세 방향을 제안 프레임으로 나란히 펼치고, 디자인 시스템을 바꾸고, 문구와 이미지를 고치고, 데스크톱과 모바일을 한눈에 보세요. 모든 단계는 되돌릴 수 있습니다.
-3. **실제로 만들기.** 방향을 승인하고 계약을 내보냅니다. `PROMPT.md`, `DESIGN.md`, `tokens.json`, 렌더된 HTML, 업로드한 이미지, 프로젝트 파일까지 — Codex나 Claude Code가 승인한 그대로 구현하는 데 필요한 모든 것.
+---
 
-### 에이전트 모드
+## Quick start
 
-에이전트 모드를 켜면 앱이 사람에게는 잠깁니다. 황금색 음영이 창을 덮고, 한 줄 배너가 조작 주체를 알리며, 클릭과 키가 반응하지 않습니다. 에이전트는 마우스가 아니라 채널로 조작합니다 — 데스크톱 앱의 로컬 HTTP 엔드포인트, 또는 브라우저 빌드의 `window.aphroditeAgent`. 그래서 사람이 **⌘⇧A** 또는 배너 버튼으로 끄기 전까지 *에이전트가, 에이전트만이* 제어합니다. 모든 명령은 영수증으로 남고 승인 잠금은 그대로입니다. **[docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md)** 참고.
+### 🖥️ Download the app (recommended)
 
-### 소스에서 빌드
+1. Download the DMG for your Mac from the [latest release](https://github.com/kwakseongjae/aphrodite-mela/releases/latest) — Apple Silicon (`_aarch64.dmg`) or Intel (`_x64.dmg`). Signed with a Developer ID and notarized; macOS 13 or later.
+2. Open the DMG and drag **Aphrodite** into **Applications**.
+3. Launch it. First run offers English or Korean, a **sample project** (a small lighting brand with a desktop and a mobile frame) or a blank one, and a two-minute tour of the editor.
 
-Node 22.12+, Rust/Tauri 툴체인, (기기 내 OCR 도우미용) macOS Swift 컴파일러가 필요합니다. OCR은 macOS 전용입니다.
+Five minutes from there — reference → three directions → pick → Get Vibe → edit → approve → export — is walked through in [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+### 🧑‍💻 Run from source
 
 ```sh
+git clone https://github.com/kwakseongjae/aphrodite-mela.git
+cd aphrodite-mela
 npm install
-npm run dev          # 브라우저 빌드 http://127.0.0.1:1420
-npm run desktop      # Tauri 개발 앱 (HMR)
-./script/build_and_run.sh   # 릴리스 빌드 + 실행
+npm run desktop           # Tauri dev app with HMR (vite on 127.0.0.1:1420)
 ```
 
-배포 서명·공증은 시크릿이 있을 때 GitHub Actions 릴리스 워크플로에서 수행되며, `v*` 태그를 밀면 릴리스에 DMG가 첨부됩니다.
+Node 22.12+, the Rust/Tauri toolchain, and the macOS Swift compiler (for the on-device OCR sidecar) are required. Everything else — tests, release builds, the headless verification harness, signing and the release process — is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### 라이선스
+---
 
-MIT — [LICENSE](LICENSE) 참고. 조각·콜라주 에셋과 기타 서드파티 참조는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 표기했습니다.
+## Use Aphrodite from your coding agent
+
+Start Agent mode in the app (dock → **Agent**, or key `3`). A golden shield locks the window for people; the app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` with a loopback port and a bearer token, and the agent console shows ready-made curl lines.
+
+```sh
+E=$(cat ~/Library/Application\ Support/studio.aphrodite.mela/agent-endpoint.json)
+BASE=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["base"])')
+TOKEN=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+
+curl -s "$BASE/agent/state" "${H[@]}"                                                   # what is on screen
+curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"features 추가"}'           # run a palette command
+curl -s -X POST "$BASE/agent/click"   "${H[@]}" -d '{"selector":".space-frame.active [data-kind=hero]"}'
+curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"title","text":"Light, made meaningful"}'
+curl -s -X POST "$BASE/agent/key"     "${H[@]}" -d '{"key":"1","shift":true}'            # fit all frames
+curl -s -X POST "$BASE/agent/end"     "${H[@]}"
+```
+
+Every command lands as a receipt in the run log. **Approve direction** is refused over the channel by design; scope (this frame only, delete pages, change design system, export) is what the human set when handing over. Details: [docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md).
+
+---
+
+## Architecture
+
+```
+aphrodite-mela/
+├── src/                      Vite + TypeScript frontend (single-page workbench)
+│   ├── main.ts               render loop, action dispatcher, the Space, modes, agent gate
+│   ├── editor/               dock, command palette, pointer editor, space (camera + frames), menus
+│   ├── agent/                delegation record, proposals, agent channel executor
+│   ├── design/               brand kit, catalog view, onboarding tour, custom menus
+│   ├── vendor/               MUI · Astryx · SEED · shadcn adapters in sandboxed iframes
+│   ├── workspace/            home, library, vault, onboarding
+│   └── export.ts             PROMPT.md · DESIGN.md · tokens.json · HTML · uploads → ZIP
+├── src-tauri/                Rust shell (Tauri 2)
+│   └── src/{workspace,vault,reference,agent}.rs   disk workspace · project vault · Vision OCR · agent bridge
+├── site/                     the landing page (GitHub Pages)
+├── docs/                     contracts, release notes, roadmap, validation evidence
+└── tests/                    node:test suites (169) — model, export, palette, space, delegation, onboarding, …
+```
+
+The frontend owns the model; Rust owns the disk. Projects are JSON in a versioned workspace file with a per-project vault of snapshots and documents. The Vision OCR helper is a signed sidecar so notarization holds.
+
+---
+
+## Roadmap & status
+
+Aphrodite is an early beta, built in the open by one person with a fleet of agents. The canonical execution order and every checkpoint since the first signed build are in [docs/BETA-ROADMAP.md](docs/BETA-ROADMAP.md). Next on the list: the catalog and shelf rework (drag from the panel straight onto a frame), viewport-only rendering for large spaces, a universal build, and auto-update.
+
+Contributions are not being taken yet — the shape is still moving too fast — but issues and questions are welcome.
+
+---
+
+## Documentation
+
+| Doc | What it is for |
+|---|---|
+| [QUICKSTART.md](docs/QUICKSTART.md) | Install, first run, a five-minute first project, shortcuts, troubleshooting |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Toolchain, scripts, tests, headless verification, signing, release process |
+| [COMPUTER-USE.md](docs/COMPUTER-USE.md) | The contract for agents driving the UI: actions, state, palette, delegation rules |
+| [AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md) | The loopback channel and `window.aphroditeAgent` |
+| [DEMO-ASTRA-5MIN.md](docs/DEMO-ASTRA-5MIN.md) | A scripted five-minute demo for a computer-use agent |
+| [APHRODITE-BRAND.md](docs/APHRODITE-BRAND.md) | Paper Muse — the studio's own identity (also in-app as the Brand Kit) |
+| [RELEASE-NOTES-v0.1.5.md](docs/RELEASE-NOTES-v0.1.5.md) | What changed, release by release |
+
+---
+
+## License, credits & lineage
+
+MIT — see [LICENSE](LICENSE).
+
+The muse is a newspaper-collage treatment of SMK's open plaster cast of the Venus de Milo; the sculpture edition and photography sources, the oh-my-design token observations, and the OpenDesign workflow reference are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). [OpenDesign](https://github.com/nexu-io/open-design) shaped the *agent-native, local-first* framing; Aphrodite takes the opposite bet on scope — decide one screen well, then hand it off.
+
+<p align="center"><sub>Made with intention. A little instinct, too.</sub></p>
