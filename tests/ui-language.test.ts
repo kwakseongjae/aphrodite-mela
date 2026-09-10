@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {UI_LANGUAGE_KEY,readUiLanguage,saveUiLanguage,setContentLanguage,languageSettingsHtml} from '../src/i18n';
+import {UI_LANGUAGE_KEY,readUiLanguage,detectUiLanguage,saveUiLanguage,setContentLanguage,languageSettingsHtml} from '../src/i18n';
 import {initialProject,fingerprint,isApproved,parseProject,makeBlock} from '../src/model';
 import {workspaceHome,projectCards} from '../src/workspace/home';
 import {upsertProject,type Library} from '../src/workspace/library';
@@ -38,3 +38,5 @@ test('Get Vibe uses independent UI and sample languages and escapes reviewed cha
  const plan=planVibe([b],'lighting',{copy:true,images:false,replace:true,language:'en'});
  assert.match(localizedVibePreviewHtml(plan,'ko'),/&lt;reviewed&gt;/);assert.match(localizedVibePreviewHtml(plan,'en'),/field changes/);
 });
+
+test('first-run UI language follows the OS locale only until a choice is saved',()=>{const data=new Map<string,string>();const storage={getItem:(k:string)=>data.get(k)??null,setItem:(k:string,v:string)=>{data.set(k,v);}};assert.equal(detectUiLanguage('ko-KR'),'ko');assert.equal(detectUiLanguage('ko'),'ko');assert.equal(detectUiLanguage('en-US'),'en');assert.equal(detectUiLanguage(undefined),'en');assert.equal(readUiLanguage(storage,'ko'),'ko');saveUiLanguage(storage,'en');assert.equal(readUiLanguage(storage,'ko'),'en');});

@@ -37,7 +37,7 @@ import './agent/agent.css';
 import {planVibe,applyVibe,type VibePlan} from './design/vibe';
 import {bridgeHtml,brandHtml} from './design/studio';
 import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePreviewHtml} from './design/vibe-language-form';
-import {readUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
+import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
 import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter} from './workspace/library';
@@ -53,7 +53,7 @@ let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storage
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
-let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage);}catch{}
+let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
@@ -128,7 +128,7 @@ function render() {
   if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();return;}
   const page = currentPage(project), approved = isApproved(project);
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `
+  app.innerHTML = `${storageIssue?diskWarningHtml():''}
   <header class="topbar">
     <a class="wordmark" href="#" data-action="home" aria-label="All projects">${brandLockup}</a>
     <div class="project-breadcrumb"><span>${ui("Workspace","작업 공간")}</span>${icon('chevron-right')}<button data-action="project">${esc(project.name)}${icon('chevron-down')}</button><span class="save-indicator"><span class="status-dot ${lastSaved ? '' : 'warning'}"></span>${control(lastSaved ? (nativeDesktop?'Saved to disk':'Saved locally') : 'Unsaved')}</span></div>
@@ -518,6 +518,8 @@ async function action(el: HTMLElement) {
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal('A moment to see the whole picture.', `${esc(currentPage(project).name)} · ${device === 'mobile' ? '375px mobile' : 'Responsive desktop'} preview`, `<iframe class="preview-frame ${device}" title="Live design preview" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
     case 'close-modal': closeModal(); break;
     case 'project': showModal('A place for your next idea.', '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">Project name<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">Rename project</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
+    case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
+    case 'disk-reload': await reloadFromDisk(); break;
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast('Project saved'); break;
     case 'import-project': await guardSwitch();pickFile('.json,application/json', async file => { if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); await guardSwitch();let loaded = parseProject(await file.text());if(library.entries.some(e=>e.project.id===loaded.id))loaded=cloneProject(loaded);saveLibrary(upsertProject(library,loaded));await flushDisk();openProject(loaded);toast('Project imported · 기존 프로젝트는 보존됩니다.'); }); break;
     case 'new-project': await guardSwitch();showModal('Room for something new.', '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">Project name<input name="name" required maxlength="100" placeholder="Your next idea" value="Untitled project"></label><button class="primary-button full-width" type="submit">Create project</button></form>`); break;
@@ -650,6 +652,19 @@ document.addEventListener('keydown', e => {
 });
 installPatternRuntime(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
+function diskWarningHtml(){return `<div class="disk-warning" role="alert">${icon('circle-alert')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
+function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+/** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
+async function reloadFromDisk(){
+  if(!nativeDesktop)return;
+  const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
+  storagePath=stored.path;
+  if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
+  diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;
+  const entry=library.entries.find(e=>e.project.id===project.id);
+  if(entry&&screen==='editor')openProject(entry.project);else{screen='home';undoStack=[];redoStack=[];}
+  render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
+}
 async function boot(){
   if(nativeDesktop){
     app.innerHTML='<p style="padding:48px">Opening your local workspace…</p>';
@@ -658,7 +673,7 @@ async function boot(){
       storagePath=stored.path;
       // Disk is authoritative. Only migrate the legacy browser store on first launch.
       if(stored.data!==null){library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});startupError='';}
-      diskQueue=new DurableQueue(stored.revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(error&&screen==='home')render();if(error)toast(`파일 저장 실패: ${String(error)} 현재 작업을 Save project로 내보내주세요.`);});
+      diskQueue=attachDiskQueue(stored.revision);
       if(stored.data===null&&!startupError){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       const {getCurrentWindow}=await import('@tauri-apps/api/window');

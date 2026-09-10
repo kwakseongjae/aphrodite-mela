@@ -2,9 +2,11 @@ import type {Project} from './model';
 export type Language='en'|'ko';
 export const UI_LANGUAGE_KEY='aphrodite-ui-language';
 export function isLanguage(value:unknown):value is Language{return value==='en'||value==='ko';}
-export function readUiLanguage(storage:Pick<Storage,'getItem'>):Language{
- try{const value=storage.getItem(UI_LANGUAGE_KEY);return isLanguage(value)?value:'en';}catch{return 'en';}
+export function readUiLanguage(storage:Pick<Storage,'getItem'>,fallback:Language='en'):Language{
+ try{const value=storage.getItem(UI_LANGUAGE_KEY);return isLanguage(value)?value:fallback;}catch{return fallback;}
 }
+/** First-run default from the OS locale; an explicit saved choice always wins. */
+export function detectUiLanguage(locale:string|undefined|null):Language{return (locale||'').toLowerCase().startsWith('ko')?'ko':'en';}
 export function saveUiLanguage(storage:Pick<Storage,'setItem'>,value:Language){
  if(!isLanguage(value))throw new Error('Unsupported UI language');
  storage.setItem(UI_LANGUAGE_KEY,value);
