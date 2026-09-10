@@ -51,11 +51,13 @@ import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
+import {parseAgentCommand,isHumanHatch,bridgeExamples,type AgentCommand} from './agent/bridge';
+import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
-import {commandTable,commandPaletteHtml,stateLine} from './editor/command-palette';
+import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -90,6 +92,7 @@ let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
+let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDebounce=0;
 let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
@@ -175,10 +178,11 @@ let delegation:Delegation|undefined;
 function agentModeModal(){
   showModal(ui('Hand the screen to an agent','에이전트에게 화면 맡기기'),ui('The agent drives the same UI. Approval and page deletion stay locked; you can take control back any time.','에이전트가 같은 UI를 조작합니다. 승인과 페이지 삭제는 잠기고, 언제든 제어를 되찾을 수 있습니다.'),`<form id="agent-mode-form"><label class="form-label">${ui('Operator (model / tool)','조작 주체 (모델 / 도구)')}<input name="operator" maxlength="100" required placeholder="${ui('e.g. Codex computer use, Astra','예: Codex 컴퓨터 유즈, Astra')}"></label><label class="form-label">${ui('What should it do?','무엇을 시킬까요?')}<textarea name="intent" rows="3" maxlength="1200" required placeholder="${ui('Describe the target screen, the reference and the constraints','목표 화면·레퍼런스·제약을 적어주세요')}"></textarea></label><label class="form-label">${ui('Scope','범위')}<select name="frame"><option value="">${ui('Whole space · every frame','전체 공간 · 모든 프레임')}</option><option value="${esc(currentPage(project).id)}">${ui('This frame only','이 프레임만')} · ${esc(currentPage(project).name)}</option></select></label><fieldset class="agent-scope"><legend>${ui('Allow the agent to','에이전트에게 허용')}</legend><label><input type="checkbox" name="changeSystem" checked>${ui('Change the design system','디자인 시스템 변경')}</label><label><input type="checkbox" name="export" checked>${ui('Export and save','내보내기 · 저장')}</label><label><input type="checkbox" name="deletePages">${ui('Delete pages','페이지 삭제')}</label><p class="fine-print">${ui('Approving a direction is always yours.','방향 승인은 언제나 사람의 몫입니다.')}</p></fieldset><p class="fine-print">${ui('Starts an assembly run so every edit is receipted. Nothing leaves this Mac.','조립 실행을 시작해 모든 편집이 영수증으로 남습니다. 어떤 것도 이 Mac을 떠나지 않습니다.')}</p><button class="primary-button full-width" type="submit">${icon('bot')}${ui('Start Agent mode','에이전트 모드 시작')}</button></form>`);
 }
-function startAgentMode(operator:string,intent:string,scope?:{deletePages:boolean;changeSystem:boolean;export:boolean;frameId?:string}){
+async function startAgentMode(operator:string,intent:string,scope?:{deletePages:boolean;changeSystem:boolean;export:boolean;frameId?:string}){
   editorMode='agent';delegation=startDelegation(project,{operator,intent,scope});
   if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id){assemblyRun=newRun(project,intent,operator,innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference,delegated:true});}
-  closeModal();render();toast(ui('Agent mode · you can take control back from the banner','에이전트 모드 · 배너에서 언제든 제어를 되찾을 수 있습니다'));
+  if(nativeDesktop){try{agentEndpoint=await invoke<{port:number;token:string;file:string}>('agent_bridge_start');}catch(error){agentEndpoint=undefined;toast(ui('Agent channel could not start: ','에이전트 채널을 열지 못했습니다: ')+String(error));}}
+  closeModal();render();toast(ui('Agent mode · the agent drives now · ⌘⇧A or the banner ends it','에이전트 모드 · 이제 에이전트가 조작합니다 · ⌘⇧A 또는 배너로 종료'));
 }
 function endAgentMode(outcome:'returned'|'ended'){
   if(editorMode!=='agent'||!delegation)return;
@@ -186,9 +190,18 @@ function endAgentMode(outcome:'returned'|'ended'){
   recordRun('delegation:'+outcome,{summary:delegationSummary(delegation)});
   delegation=undefined;
 }
+function agentLocked(){return editorMode==='agent'&&!!delegation;}
+/** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
 function agentBannerHtml(){
-  if(editorMode!=='agent'||!delegation)return '';
-  return `<div class="agent-banner" role="status">${icon('bot')}${delegationBannerHtml({...delegation,receipts:assemblyRun?.projectId===project.id?assemblyRun.events.length:delegation.receipts},uiLanguage)}</div>`;
+  if(!agentLocked()||!delegation)return '';
+  const frame=delegation.scope.frameId?project.pages.find(p=>p.id===delegation!.scope.frameId)?.name:undefined;
+  const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
+  const receipts=assemblyRun?.projectId===project.id?assemblyRun.events.length:delegation.receipts;
+  return `<div class="agent-banner" role="status"><span class="agent-banner-dot"></span><strong>${ui('Agent mode','에이전트 모드')}</strong><span class="agent-banner-sep">·</span><span>${esc(delegation.operator)}</span><span class="agent-banner-sep">·</span><span data-agent-elapsed>00:00</span><span class="agent-banner-sep">·</span><span>${ui('receipts','기록')} <b data-delegation-receipts>${receipts}</b></span><span class="agent-banner-sep">·</span><span>${frame?ui('frame','프레임')+' '+esc(frame):ui('whole space','전체 공간')}</span><span class="agent-banner-sep">·</span><code>${esc(channel)}</code><span class="agent-banner-fill"></span><span class="agent-banner-note">${ui('Humans are locked out until you end it','끌 때까지 사람은 조작할 수 없습니다')}</span><button type="button" data-action="delegation-return">${icon('bot')}${ui('End Agent mode','에이전트 모드 끄기')}<kbd>⌘⇧A</kbd></button></div><div class="agent-shield" aria-hidden="true"></div>`;
+}
+function agentChannelText(){
+  if(agentEndpoint)return `${ui('Endpoint file','엔드포인트 파일')}: ${agentEndpoint.file}\n${bridgeExamples(`http://127.0.0.1:${agentEndpoint.port}`,agentEndpoint.token)}`;
+  return nativeDesktop?ui('Channel not running.','채널이 꺼져 있습니다.'):"window.aphroditeAgent.run('command',{query:'hero 추가'})\nwindow.aphroditeAgent.run('act',{action:'add',data:{kind:'cta'}})\nwindow.aphroditeAgent.run('state')";
 }
 function render() {
   disposePointerEditor?.();
@@ -223,7 +236,7 @@ function render() {
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom})}
     </main>
-    <aside class="inspector" aria-label="Design inspector"><button type="button" class="panel-collapse panel-collapse-right" data-action="panel-collapse" data-side="right" aria-label="${ui('Collapse the inspector','인스펙터 접기')}" title="${ui('Collapse','접기')}">${icon('panel-right-close')}</button>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><button type="button" class="panel-collapse panel-collapse-right" data-action="panel-collapse" data-side="right" aria-label="${ui('Collapse the inspector','인스펙터 접기')}" title="${ui('Collapse','접기')}">${icon('panel-right-close')}</button>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
   </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>${ui('Built with intention','의도 있게')} <span class="footer-flower">✳</span> Aphrodite ${__APP_VERSION__}</span></footer>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -661,7 +674,7 @@ document.addEventListener('contextmenu',e=>{
   e.preventDefault();document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{d.open=false;});const menu=card.querySelector<HTMLDetailsElement>('details.folio-more');if(menu){menu.open=true;menu.querySelector<HTMLElement>('button')?.focus();}
 });
 document.addEventListener('input', e => {
-  if((e.target as HTMLElement).id==='command-search'){renderPaletteList((e.target as HTMLInputElement).value);return;}
+  if((e.target as HTMLElement).id==='command-search'){const value=(e.target as HTMLInputElement).value;clearTimeout(paletteDebounce);paletteDebounce=window.setTimeout(()=>{if(modalRoot.querySelector('#command-search'))renderPaletteList(value);},value?90:0);return;}
   const target = e.target as HTMLInputElement;
   if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
   if(target.id==='project-search'){hubQuery=target.value;document.querySelector('#project-grid')!.innerHTML=projectCards(library,hubFilter,hubQuery,uiLanguage,hubView);return;}
@@ -795,6 +808,43 @@ function positionTour(){
   Object.assign(card.style,{left:`${left}px`,top:`${top}px`});
 }
 window.addEventListener('resize',()=>positionTour());
+/* ---- Agent channel: commands arrive over the loopback bridge (desktop) or window.aphroditeAgent (browser) ---- */
+function agentState(){return {ok:true,state:{...app.dataset},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
+async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
+async function runAgentCommand(kind:unknown,payload:unknown):Promise<Record<string,unknown>>{
+  const parsed=parseAgentCommand(kind,payload);
+  if('error' in parsed)return {error:parsed.error};
+  const c:AgentCommand=parsed.command;
+  if(c.kind==='state')return agentState();
+  if(!agentLocked())return {error:'agent mode is off: a human must start Agent mode first'};
+  try{
+    switch(c.kind){
+      case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
+      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};el.click();recordRun('agent:click',{selector:c.selector});break;}
+      case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
+      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(new KeyboardEvent('keydown',init));document.body.dispatchEvent(new KeyboardEvent('keyup',init));recordRun('agent:key',{key:c.key});break;}
+      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{});recordRun('agent:command',{query:c.query,command:hit.id});break;}
+      case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
+      case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
+    }
+  }catch(error){return {error:error instanceof Error?error.message:String(error)};}
+  await new Promise(r=>setTimeout(r,60));
+  return agentState();
+}
+(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown)=>runAgentCommand(kind,payload)};
+if(nativeDesktop)void tauriListen<{id:number;kind:string;payload:unknown}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}});
+/* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
+for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
+  window.addEventListener(type,e=>{
+    if(!agentLocked()||!e.isTrusted)return;
+    const target=e.target as HTMLElement|null;
+    if(target?.closest?.('.agent-banner'))return;
+    if(e instanceof KeyboardEvent&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
+    e.stopImmediatePropagation();if(e.cancelable)e.preventDefault();
+  },{capture:true,passive:false});
+}
+setInterval(()=>{const el=document.querySelector('[data-agent-elapsed]');if(!el||!agentLocked()||!delegation)return;const s=Math.max(0,Math.floor((Date.now()-Date.parse(delegation.startedAt))/1000));el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;},1000);
 function mountPanels(){
   const studio=app.querySelector<HTMLElement>('.studio');if(!studio)return;
   for(const side of ['left','right'] as const){

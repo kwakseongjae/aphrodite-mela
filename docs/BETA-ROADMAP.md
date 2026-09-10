@@ -4,7 +4,9 @@ Updated 2026-09-09. Existing feature-specific validation documents are evidence,
 
 ## Status and sequence
 
-Latest checkpoint #13 (2026-09-10 22:26, v0.1.4 hotfix): text edits in the inspector crashed v0.1.2–v0.1.3 (stale .draft-badge/.review-card lookups after the Space rework) — guarded; every native <select> replaced by the custom menu (src/design/menu-select.ts, native element kept hidden for handlers/forms); data-viewport follows the frame preset. v0.1.4 published, notarized, verified. Demo must use v0.1.4.
+Latest checkpoint #14 (2026-09-10 23:58, post-demo feedback): Agent mode became the agent's — golden breathing shield, one-line banner, input gate that drops OS events while an agent holds the screen (⌘⇧A / banner button are the human hatch), and an agent channel: loopback HTTP bridge in Rust (src-tauri/src/agent.rs, tiny_http, bearer token in agent-endpoint.json) forwarding to the webview executor (state/command/act/click/edit/type/key/end), `window.aphroditeAgent` in browser builds. Export bundles uploaded images as files (assets/uploads, UPLOADS.md; Grok worker). Palette search ranked and tolerant with keywords, related items and a 90 ms debounce (Grok worker). Verified over CDP; the HTTP bridge compiled in tauri dev but is not yet exercised end-to-end natively. 169 tests. Docs: AGENT-CHANNEL.md, RELEASE-NOTES-v0.1.5.md.
+
+Checkpoint #13 (2026-09-10 22:26, v0.1.4 hotfix): text edits in the inspector crashed v0.1.2–v0.1.3 (stale .draft-badge/.review-card lookups after the Space rework) — guarded; every native <select> replaced by the custom menu (src/design/menu-select.ts, native element kept hidden for handlers/forms); data-viewport follows the frame preset. v0.1.4 published, notarized, verified. Demo must use v0.1.4.
 
 Checkpoint #12 (2026-09-10 22:02, v0.1.3 shipped): v0.1.3 published (arm64 + x64, notarized, stapled, verified from a quarantined download; DMG carries the paper background) with the onboarding flow; landing download resolves to it. Demo handoff prompt for a computer-use agent in docs/DEMO-ASTRA-5MIN.md. Owner has a list of fixes to come back to after the demo.
 

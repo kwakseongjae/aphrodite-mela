@@ -55,11 +55,21 @@
 
 **3:00 에이전트 위임 (60초)**
 - 3 키 → "에이전트에게 화면 맡기기" 폼. 조작 주체 `Astra · computer use`, 목표 `히어로 아래에 특징 섹션을 추가하고 문구를 다듬어 주세요`, 범위 드롭다운에서 "이 프레임만", 체크박스는 그대로 → "에이전트 모드 시작".
-- 확인: 상단에 노란 배너("에이전트가 조작 중 · Astra …"), 오른쪽 인스펙터가 에이전트 콘솔(범위, 승인 잠김, 타임라인)로 바뀐다.
-- 이제 에이전트로서 작업한다: ⌘K → `특징` 입력 → 목록의 "특징 추가" Enter. 이어서 ⌘K → `CTA` 입력 → "CTA 추가" Enter.
-- 확인: 프레임에 섹션이 붙고 콘솔 타임라인에 `catalog:add` 영수증이 최신순으로 쌓인다. 배너의 기록 수가 올라간다.
-- 일부러 한 번: 오른쪽 아래 "방향 승인"에 마우스를 올리고 **누르지 않은 채** 말한다. "승인은 잠겨 있습니다. 에이전트가 눌러도 거부됩니다."
-- 콘솔의 "제어 회수"를 누른다. 확인: 배너가 사라지고 디자인 모드로 돌아오며 실행 기록이 남았다는 토스트.
+- 확인: 창 가장자리에 황금색 음영이 숨 쉬듯 번지고, 맨 위에 한 줄 배너("에이전트 모드 · Astra · 00:00 · 기록 · 전체 공간 · 127.0.0.1:포트")가 뜬다. 오른쪽 인스펙터는 에이전트 콘솔(범위, 승인 잠김, 타임라인, 에이전트 채널 curl 예시)로 바뀐다.
+- 이제부터 **마우스와 키보드는 막혀 있다.** 사람도 에이전트도 화면을 클릭해서는 아무것도 못 한다. 에이전트는 채널로만 조작한다. 터미널에서 아래를 실행한다(엔드포인트 파일에서 포트와 토큰을 읽는다).
+  ```sh
+  E=$(cat ~/Library/Application\ Support/studio.aphrodite.mela/agent-endpoint.json)
+  BASE=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["base"])'); TOKEN=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+  H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+  curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"features 추가"}'
+  curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"call to action 추가"}'
+  curl -s -X POST "$BASE/agent/click"   "${H[@]}" -d '{"selector":".space-frame.active [data-kind=hero]"}'
+  curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"eyebrow","text":"A NEW PERSPECTIVE ON LIGHT"}'
+  curl -s -X POST "$BASE/agent/key"     "${H[@]}" -d '{"key":"1","shift":true}'
+  ```
+- 확인: 명령마다 프레임이 바뀌고 콘솔 타임라인에 `agent:command`, `agent:edit` 영수증이 최신순으로 쌓인다. 배너의 기록 수가 올라간다.
+- 말: "사람은 잠겨 있습니다. 화면을 클릭해 보세요. 아무 일도 없습니다. 에이전트는 채널로 움직이고, 모든 명령이 영수증으로 남습니다. 승인만은 채널로도 안 됩니다."
+- 배너 오른쪽 "에이전트 모드 끄기"(또는 ⌘⇧A)를 누른다. 확인: 음영과 배너가 사라지고 디자인 모드로 돌아오며 실행 기록이 남았다는 토스트.
 - 말: "위임은 계약이자 기록입니다. 범위를 정하고, 모든 편집이 영수증으로 남고, 언제든 되찾습니다."
 
 **4:00 개발 핸드오프 (30초)**

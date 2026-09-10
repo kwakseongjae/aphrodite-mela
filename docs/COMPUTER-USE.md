@@ -66,7 +66,7 @@ These are Aphrodite-owned components, not official SEED/TDS or a certified OmD g
 
 ## Agent mode (delegation)
 
-When `#app[data-mode="agent"]` is set, a human has handed this screen to an external computer-use agent (Codex/Astra). Detect that attribute before assuming you own the pointer. Delegation is a contract plus a record: the human mouse is not physically blocked.
+When `#app[data-mode="agent"]` is set, a human has handed this screen to an agent. Since v0.1.5 that is literal: a golden shield covers the window, every OS-originated pointer/keyboard event is dropped (people and physical-mouse agents alike), and the agent drives through the **agent channel** — the loopback HTTP endpoint described in `docs/AGENT-CHANNEL.md` (`state / command / act / click / edit / type / key / end`, bearer token in `agent-endpoint.json`) or `window.aphroditeAgent.run()` in a browser build. The banner's End Agent mode button and ⌘⇧A remain the human's. Delegation is still a contract plus a record: scope and the approval lock apply to channel commands too.
 
 The banner is the live signal. It names the operator and elapsed time, shows the intent, keeps a live receipt count on `<span data-delegation-receipts>`, and notes that Approve is locked. The human can take control back at any time with **제어 회수** (`data-action="delegation-return"`). That click ends the assembly run and returns the app to Design mode. Stop driving the UI when it happens.
 
