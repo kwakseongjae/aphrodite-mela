@@ -18,3 +18,19 @@ test('layout catalog does not claim unavailable official layout adapters; user l
  assert.ok(html.includes('Browse hero'));assert.ok(!html.includes('Browse button'));
  assert.ok(!html.includes('Add mui hero'));assert.ok(html.includes('크게 보기'));
 });
+test('catalog cards expose data-kind and the index is grouped by catalog headings',()=>{
+ const p=initialProject();
+ const html=catalogView(p,'button','outline','All',en=>en,()=>'<div>preview</div>');
+ assert.match(html,/<article class="explorer-card" data-kind="button"/);
+ assert.match(html,/data-preview-size="control"/);
+ for(const heading of ['Layout','Navigation','Input','Feedback','Content & data','App recipes']){
+  assert.ok(html.includes(`<h4 class="catalog-index-group">${heading}</h4>`),heading);
+ }
+ assert.ok(html.includes('title="Implementations · options (implementations × variations)"'));
+ const input=catalogView(p,'button','outline','Input',en=>en,()=>'x');
+ assert.ok(input.includes('<h4 class="catalog-index-group">Input</h4>'));
+ assert.ok(!input.includes('<h4 class="catalog-index-group">Layout</h4>'));
+ const calendar=catalogView(p,'calendar','week','All',en=>en,()=>'x');
+ assert.match(calendar,/<article class="explorer-card" data-kind="calendar"/);
+ assert.match(calendar,/data-preview-size="data"/);
+});

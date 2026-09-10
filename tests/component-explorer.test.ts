@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {implementations,explorerBlock,parseCatalogChoice,catalogGroup} from '../src/design/component-explorer';
+import {implementations,explorerBlock,parseCatalogChoice,catalogGroup,catalogPreviewSize,catalogGroups} from '../src/design/component-explorer';
 import {nativeLibraryDocument} from '../src/design/native-library';
 test('catalog drag payload validates exact supported implementation and strips unrelated fields',()=>{
  const c={kind:'button',provider:'seed',variant:'outline'};
@@ -8,6 +8,9 @@ test('catalog drag payload validates exact supported implementation and strips u
  for(const raw of ['null','{}','broken',JSON.stringify({...c,provider:'unknown'}),JSON.stringify({...c,kind:'hero'}),JSON.stringify({...c,variant:'bad'})])assert.equal(parseCatalogChoice(raw),null);
  const b=explorerBlock('button',c.provider,c.variant);assert.equal(b.provider,'seed');assert.equal(b.variant,'outline');
  assert.equal(catalogGroup('frame'),'Layout');assert.equal(catalogGroup('hero'),'Layout');assert.equal(catalogGroup('button'),'Input');
+ assert.equal(catalogGroup('moasidebar'),'App recipes');assert.equal(catalogGroup('calendar'),'Content & data');
+ assert.deepEqual([...catalogGroups],['Layout','Navigation','Input','Feedback','Content & data','App recipes']);
+ assert.equal(catalogPreviewSize('input'),'control');assert.equal(catalogPreviewSize('table'),'data');assert.equal(catalogPreviewSize('hero'),'layout');
 });
 test('native runtime replaces only marked executable script, retaining props and CSS',()=>{
  const doc='<style>x</style><div data-props="{}"></div><script>/*RUNTIME_START*/run();/*RUNTIME_END*/</script>';
@@ -17,6 +20,7 @@ test('kind-first inventory exposes only actual provider support',()=>{
  assert.deepEqual(implementations('button').map(x=>x.provider),['own','mui','astryx','seed','shadcn']);
  assert.deepEqual(implementations('input').map(x=>x.provider),['own','mui','astryx','seed','shadcn']);
  assert.deepEqual(implementations('hero').map(x=>x.provider),['own']);
+ assert.deepEqual(implementations('calendar').map(x=>x.provider),['own','astryx']);
  assert.equal(implementations('button').find(x=>x.provider==='seed')?.theme,'native');
 });
 test('explicit catalog choice retains provider/variant independent of project DS',()=>{
