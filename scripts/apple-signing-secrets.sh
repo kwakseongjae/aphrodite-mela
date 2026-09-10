@@ -16,7 +16,9 @@
 # App-Specific Passwords). The repository must already exist (kwakseongjae/aphrodite-mela).
 set -euo pipefail
 #   bash scripts/apple-signing-secrets.sh --notary-only   # only re-enter Apple ID + app password
+#   bash scripts/apple-signing-secrets.sh --api-key       # notarize with an App Store Connect API key instead
 NOTARY_ONLY=0; [ "${1:-}" = "--notary-only" ] && NOTARY_ONLY=1
+API_KEY_MODE=0; [ "${1:-}" = "--api-key" ] && { API_KEY_MODE=1; NOTARY_ONLY=1; }
 REPO="${REPO:-kwakseongjae/aphrodite-mela}"
 IDENTITY="${IDENTITY:-Developer ID Application: Kwak Seongjae (YWQQFQM38J)}"
 TEAM_ID="${TEAM_ID:-YWQQFQM38J}"
@@ -82,6 +84,30 @@ fi
 
 fi
 
+if [ "$API_KEY_MODE" = "1" ]; then
+  echo "3/4  App Store Connect API key (App Store Connect → Users and Access → Integrations → Team Keys)"
+  read -r -p "     Issuer ID (UUID shown above the key list): " API_ISSUER
+  read -r -p "     Key ID (10 characters): " API_KEY_ID
+  read -r -p "     Path to the downloaded AuthKey_${API_KEY_ID:-XXXX}.p8: " API_KEY_PATH
+  API_KEY_PATH="${API_KEY_PATH/#\~/$HOME}"
+  [ -s "$API_KEY_PATH" ] || { echo "     .p8 not found: $API_KEY_PATH"; exit 1; }
+  echo "     checking the key with Apple (notarytool history)…"
+  if ! xcrun notarytool history --key "$API_KEY_PATH" --key-id "$API_KEY_ID" --issuer "$API_ISSUER" >/dev/null 2>"$TMP/notary.err"; then
+    echo "     Apple rejected this key:"; sed 's/^/       /' "$TMP/notary.err" | head -5; exit 1
+  fi
+  echo "     key accepted."
+  echo "4/4  Storing API-key secrets in $REPO (Apple ID secrets are removed so CI uses the key)"
+  printf '%s' "$API_ISSUER"  | gh secret set APPLE_API_ISSUER --repo "$REPO"
+  printf '%s' "$API_KEY_ID"  | gh secret set APPLE_API_KEY --repo "$REPO"
+  base64 -i "$API_KEY_PATH"   | gh secret set APPLE_API_KEY_CONTENT --repo "$REPO"
+  printf '%s' "$TEAM_ID"     | gh secret set APPLE_TEAM_ID --repo "$REPO"
+  gh secret delete APPLE_ID --repo "$REPO" >/dev/null 2>&1 || true
+  gh secret delete APPLE_PASSWORD --repo "$REPO" >/dev/null 2>&1 || true
+  gh secret list --repo "$REPO" | cat
+  echo "Done. Push a tag (git tag v0.1.0 && git push origin v0.1.0) to build a signed, notarized DMG."
+  exit 0
+fi
+
 echo "3/4  Apple ID for notarization (must be a member of team $TEAM_ID)"
 read -r -p "     Apple ID e-mail: " APPLE_ID
 read -r -s -p "     App-specific password (from account.apple.com → App-Specific Passwords): " APPLE_PASSWORD; echo
@@ -101,5 +127,5 @@ fi
 printf '%s' "$APPLE_ID"      | gh secret set APPLE_ID --repo "$REPO"
 printf '%s' "$APPLE_PASSWORD"| gh secret set APPLE_PASSWORD --repo "$REPO"
 printf '%s' "$TEAM_ID"       | gh secret set APPLE_TEAM_ID --repo "$REPO"
-gh secret list --repo "$REPO"
+gh secret list --repo "$REPO" | cat
 echo "Done. Push a tag (git tag v0.1.0 && git push origin v0.1.0) to build a signed, notarized DMG."

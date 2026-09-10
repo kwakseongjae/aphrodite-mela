@@ -12,7 +12,8 @@ name: Release macOS build
 #   APPLE_ID                     Apple ID e-mail used for notarization
 #   APPLE_PASSWORD               app-specific password for that Apple ID
 #   APPLE_TEAM_ID                e.g. YWQQFQM38J
-#   (alternatively APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH for App Store Connect API keys)
+#   or, instead of APPLE_ID/APPLE_PASSWORD: APPLE_API_ISSUER, APPLE_API_KEY (key id) and
+#   APPLE_API_KEY_CONTENT (base64 of the AuthKey .p8) — set by `scripts/apple-signing-secrets.sh --api-key`
 
 on:
   push:
@@ -56,14 +57,47 @@ jobs:
       # Tauri treats a *defined but empty* APPLE_CERTIFICATE as a certificate to import,
       # so the signed and unsigned paths are separate steps: the APPLE_* variables only
       # exist in the signed one.
+      # Tauri treats a *defined but empty* APPLE_* variable as a real setting, so each
+      # signing path is its own step and only defines the variables it uses.
       - name: Detect signing secrets
         id: signing
         env:
           CERT: ${{ secrets.APPLE_CERTIFICATE }}
-        run: echo "enabled=$([ -n "$CERT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          API_KEY: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          if [ -z "$CERT" ]; then echo "mode=unsigned" >> "$GITHUB_OUTPUT";
+          elif [ -n "$API_KEY" ]; then echo "mode=apikey" >> "$GITHUB_OUTPUT";
+          else echo "mode=appleid" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Build and publish release (signed + notarized)
-        if: steps.signing.outputs.enabled == 'true'
+      - name: Write App Store Connect API key
+        if: steps.signing.outputs.mode == 'apikey'
+        env:
+          API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          echo "$API_KEY_CONTENT" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Build and publish release (signed, notarized with API key)
+        if: steps.signing.outputs.mode == 'apikey'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: "Aphrodite ${{ env.TAG }}"
+          releaseBody: "Aphrodite for macOS (Apple Silicon). Download the .dmg, drag Aphrodite to Applications, open it."
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-apple-darwin --bundles dmg
+
+      - name: Build and publish release (signed, notarized with Apple ID)
+        if: steps.signing.outputs.mode == 'appleid'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +116,7 @@ jobs:
           args: --target aarch64-apple-darwin --bundles dmg
 
       - name: Build and publish release (unsigned, ad-hoc)
-        if: steps.signing.outputs.enabled != 'true'
+        if: steps.signing.outputs.mode == 'unsigned'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
