@@ -49,6 +49,7 @@ import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
+import {placeProposals,resolveProposal} from './agent/proposals';
 import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
@@ -86,7 +87,10 @@ let lastSaved = true;
 let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
-let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
+let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
+type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
+function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
+function topLanguageMenu(){return `<details class="top-lang"><summary aria-label="${ui('Language','언어')}" title="${ui('Interface language','앱 조작 언어')}">${icon('languages')}<span>${uiLanguage==='ko'?'한국어':'English'}</span>${icon('chevron-down')}</summary><div class="top-lang-menu" role="menu">${(['en','ko'] as const).map(l=>`<button type="button" role="menuitemradio" aria-checked="${uiLanguage===l}" data-action="set-language" data-lang="${l}">${l==='ko'?'한국어':'English'}${uiLanguage===l?icon('check'):''}</button>`).join('')}<button type="button" role="menuitem" data-action="language-settings">${ui('Content language…','콘텐츠 언어…')}</button></div></details>`;}let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
 let toastTimer = 0;
 let referenceAnalysis: ReferenceAnalysis | null = null;
 let referenceDraft: { copy: ReturnType<typeof suggestCopy>; useCrop: boolean } | null = null;
@@ -145,7 +149,7 @@ function syncStateAttributes(){
   const block=page?.blocks.find(b=>b.id===selected);
   const state:Record<string,string>={
     screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
-    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
+    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),panelLeft:panels.left,panelRight:panels.right,frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
@@ -155,7 +159,7 @@ function syncStateAttributes(){
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
 }
-function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop'};}
+function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do on this page, in one list. Type to filter.','이 화면에서 할 수 있는 모든 일. 입력해서 걸러내세요.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
@@ -164,9 +168,9 @@ function commandsModal(query=''){
 function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
 let delegation:Delegation|undefined;
 function agentModeModal(){
-  showModal(ui('Hand the screen to an agent','에이전트에게 화면 맡기기'),ui('The agent drives the same UI. Approval and page deletion stay locked; you can take control back any time.','에이전트가 같은 UI를 조작합니다. 승인과 페이지 삭제는 잠기고, 언제든 제어를 되찾을 수 있습니다.'),`<form id="agent-mode-form"><label class="form-label">${ui('Operator (model / tool)','조작 주체 (모델 / 도구)')}<input name="operator" maxlength="100" required placeholder="${ui('e.g. Codex computer use, Astra','예: Codex 컴퓨터 유즈, Astra')}"></label><label class="form-label">${ui('What should it do?','무엇을 시킬까요?')}<textarea name="intent" rows="3" maxlength="1200" required placeholder="${ui('Describe the target screen, the reference and the constraints','목표 화면·레퍼런스·제약을 적어주세요')}"></textarea></label><fieldset class="agent-scope"><legend>${ui('Allow the agent to','에이전트에게 허용')}</legend><label><input type="checkbox" name="changeSystem" checked>${ui('Change the design system','디자인 시스템 변경')}</label><label><input type="checkbox" name="export" checked>${ui('Export and save','내보내기 · 저장')}</label><label><input type="checkbox" name="deletePages">${ui('Delete pages','페이지 삭제')}</label><p class="fine-print">${ui('Approving a direction is always yours.','방향 승인은 언제나 사람의 몫입니다.')}</p></fieldset><p class="fine-print">${ui('Starts an assembly run so every edit is receipted. Nothing leaves this Mac.','조립 실행을 시작해 모든 편집이 영수증으로 남습니다. 어떤 것도 이 Mac을 떠나지 않습니다.')}</p><button class="primary-button full-width" type="submit">${icon('bot')}${ui('Start Agent mode','에이전트 모드 시작')}</button></form>`);
+  showModal(ui('Hand the screen to an agent','에이전트에게 화면 맡기기'),ui('The agent drives the same UI. Approval and page deletion stay locked; you can take control back any time.','에이전트가 같은 UI를 조작합니다. 승인과 페이지 삭제는 잠기고, 언제든 제어를 되찾을 수 있습니다.'),`<form id="agent-mode-form"><label class="form-label">${ui('Operator (model / tool)','조작 주체 (모델 / 도구)')}<input name="operator" maxlength="100" required placeholder="${ui('e.g. Codex computer use, Astra','예: Codex 컴퓨터 유즈, Astra')}"></label><label class="form-label">${ui('What should it do?','무엇을 시킬까요?')}<textarea name="intent" rows="3" maxlength="1200" required placeholder="${ui('Describe the target screen, the reference and the constraints','목표 화면·레퍼런스·제약을 적어주세요')}"></textarea></label><label class="form-label">${ui('Scope','범위')}<select name="frame"><option value="">${ui('Whole space · every frame','전체 공간 · 모든 프레임')}</option><option value="${esc(currentPage(project).id)}">${ui('This frame only','이 프레임만')} · ${esc(currentPage(project).name)}</option></select></label><fieldset class="agent-scope"><legend>${ui('Allow the agent to','에이전트에게 허용')}</legend><label><input type="checkbox" name="changeSystem" checked>${ui('Change the design system','디자인 시스템 변경')}</label><label><input type="checkbox" name="export" checked>${ui('Export and save','내보내기 · 저장')}</label><label><input type="checkbox" name="deletePages">${ui('Delete pages','페이지 삭제')}</label><p class="fine-print">${ui('Approving a direction is always yours.','방향 승인은 언제나 사람의 몫입니다.')}</p></fieldset><p class="fine-print">${ui('Starts an assembly run so every edit is receipted. Nothing leaves this Mac.','조립 실행을 시작해 모든 편집이 영수증으로 남습니다. 어떤 것도 이 Mac을 떠나지 않습니다.')}</p><button class="primary-button full-width" type="submit">${icon('bot')}${ui('Start Agent mode','에이전트 모드 시작')}</button></form>`);
 }
-function startAgentMode(operator:string,intent:string,scope?:{deletePages:boolean;changeSystem:boolean;export:boolean}){
+function startAgentMode(operator:string,intent:string,scope?:{deletePages:boolean;changeSystem:boolean;export:boolean;frameId?:string}){
   editorMode='agent';delegation=startDelegation(project,{operator,intent,scope});
   if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id){assemblyRun=newRun(project,intent,operator,innerWidth,innerHeight);recordRun('run:started',{zoom,device,selectedId:selected,insertParentId:insertionTarget()??null,referencePresent:!!project.reference,delegated:true});}
   closeModal();render();toast(ui('Agent mode · you can take control back from the banner','에이전트 모드 · 배너에서 언제든 제어를 되찾을 수 있습니다'));
@@ -193,10 +197,13 @@ function render() {
   <header class="topbar">
     <a class="wordmark" href="#" data-action="home" aria-label="All projects" title="${ui('All projects','전체 프로젝트')}">${brandLockup}</a>
     <div class="project-breadcrumb"><span>${ui("Workspace","작업 공간")}</span>${icon('chevron-right')}<button data-action="project">${esc(project.name)}${icon('chevron-down')}</button><span class="save-indicator"><span class="status-dot ${lastSaved ? '' : 'warning'}"></span>${control(lastSaved ? (nativeDesktop?'Saved to disk':'Saved locally') : 'Unsaved')}</span></div>
-    <div class="top-actions">${iconButton('commands','circle-help',ui('Commands & shortcuts (⌘K or ?)','명령·단축키 (⌘K 또는 ?)'))}${iconButton('language-settings','languages','Language / 언어')}${iconButton('undo', 'undo-2', 'Undo', undoStack.length ? '' : 'disabled')}${iconButton('redo', 'redo-2', 'Redo', redoStack.length ? '' : 'disabled')}<span class="divider"></span>${button('preview', 'play', 'Preview', 'plain-button')}${button('export', 'arrow-up-right', 'Export', 'primary-button')}</div>
+    <button type="button" class="topbar-search" data-action="commands" aria-label="${ui('Search commands, components and frames (⌘K)','명령·컴포넌트·프레임 검색 (⌘K)')}">${icon('search')}<span>${ui('Search commands, components, frames…','명령·컴포넌트·프레임 검색…')}</span><kbd>⌘K</kbd></button>
+    <div class="top-actions">${topLanguageMenu()}${iconButton('undo', 'undo-2', 'Undo', undoStack.length ? '' : 'disabled')}${iconButton('redo', 'redo-2', 'Redo', redoStack.length ? '' : 'disabled')}<span class="divider"></span>${button('preview', 'play', 'Preview', 'plain-button')}${button('export', 'arrow-up-right', 'Export', 'primary-button')}</div>
   </header>
-  <div class="studio">
+  <div class="studio" data-left="${panels.left}" data-right="${panels.right}">
+    ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}${panels.right==='collapsed'?`<button type="button" class="panel-tab panel-tab-right" data-action="panel-pin" data-side="right" aria-label="${ui('Show the inspector','인스펙터 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-right')}</button>`:''}
     <aside class="library" aria-label="Component library">
+      <button type="button" class="panel-collapse" data-action="panel-collapse" data-side="left" aria-label="${ui('Collapse the library','라이브러리 접기')}" title="${ui('Collapse','접기')}">${icon('panel-left-close')}</button>
       <div class="workspace-title"><span class="workspace-icon">F</span><div><strong>${esc(project.name)}</strong><small>${ui("Design workspace","디자인 작업 공간")}</small></div>${iconButton('project', 'chevrons-up-down', 'Manage project')}</div>
       <div class="section-label">${ui("PAGES","페이지")} <button class="tiny-button" data-action="add-page" aria-label="${ui("Add page","페이지 추가")}">${icon('plus')}</button></div>
       <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-nav="fit" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
@@ -207,18 +214,18 @@ function render() {
     </aside>
     <main class="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span></header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom})}
     </main>
-    <aside class="inspector" aria-label="Design inspector">${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><button type="button" class="panel-collapse panel-collapse-right" data-action="panel-collapse" data-side="right" aria-label="${ui('Collapse the inspector','인스펙터 접기')}" title="${ui('Collapse','접기')}">${icon('panel-right-close')}</button>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
   </div><footer class="statusbar"><span id="editor-state" role="status" aria-live="polite"><span class="status-dot"></span>${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span><span>${ui('Built with intention','의도 있게')} <span class="footer-flower">✳</span> Aphrodite 0.1.1</span></footer>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
   if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell'))canvas.classList.add('moa-desktop');
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
-  mountSpace();
+  mountSpace();mountPanels();
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -421,14 +428,14 @@ function analysisModal() {
   showModal(ui('Read the clues. Keep the intent.','단서를 읽고, 의도는 지키세요.'), '레퍼런스는 단서입니다. 문구와 이미지 후보를 검토한 뒤 비교하세요.', `<div class="analysis-grid"><div><div class="reference-evidence-image"><img src="${project.reference}" alt="${ui('Analyzed reference','분석한 레퍼런스')}">${a.cropBox ? `<span class="crop-overlay" style="left:${a.cropBox.x * 100}%;top:${a.cropBox.y * 100}%;width:${a.cropBox.width * 100}%;height:${a.cropBox.height * 100}%"><b>${ui('MEDIA CANDIDATE','미디어 후보')}</b></span>` : ''}</div><div class="analysis-metrics"><span>${esc(a.engine)}</span><span>${a.lines.length} ${ui('text lines','텍스트 줄')}</span><span>${(a.elapsedMs / 1000).toFixed(2)}s</span></div><div class="evidence-palette">${a.palette.map(c => `<span style="background:${c}" title="${c}"></span>`).join('')}<small>${ui('Observed colors · project tokens unchanged','관찰된 색상 · 프로젝트 토큰은 그대로입니다')}</small></div><details class="ocr-details"><summary>${ui('Inspect OCR evidence','OCR 단서 확인')} (${a.lines.length})</summary>${a.lines.map(l => `<p>${esc(l.text)} <small>${Math.round(l.confidence * 100)}%</small></p>`).join('') || `<p>${ui('No OCR evidence available.','OCR 단서가 없습니다.')}</p>`}</details></div><div><div class="modal-note">${esc(a.warning)}</div><label class="form-label">${ui('Proposed heading','제안 제목')}<textarea id="reference-title" rows="2" maxlength="2000">${esc(copy.title)}</textarea></label><label class="form-label">${ui('Supporting copy','보조 문구')}<textarea id="reference-copy" rows="3" maxlength="4000">${esc(copy.text)}</textarea></label><label class="form-label">${ui('Action label','동작 라벨')}<input id="reference-label" maxlength="200" value="${esc(copy.label)}"></label>${a.crop ? `<label class="check-option"><input id="reference-use-crop" type="checkbox"><span><strong>${ui('Use this media candidate','이 미디어 후보 사용')}</strong><small>텍스처 기반 추정입니다. 영역에 문구가 섞였는지 확인하세요. 기본값은 빈 이미지입니다.</small></span><img class="crop-thumb" src="${a.crop}" alt="${ui('Proposed media crop','제안 미디어 영역')}"></label>` : '<p class="fine-print">명확한 이미지 영역을 찾지 못했습니다. 이미지 슬롯을 비워둡니다.</p>'}${button('compare-directions', 'columns-3', 'Compare 3 directions', 'primary-button full-width')}<p class="fine-print">같은 문구·토큰·컴포넌트로 배치만 비교합니다. 아래 섹션 문구는 편집용 플레이스홀더입니다.</p></div></div>`, true);
 }
 function compareModal() {
-  showModal(ui('Same intent. A different first impression.','같은 의도. 다른 첫인상.'), `${esc(project.system.name)} · ${ui('Same tokens, real components. 하나를 선택하면 편집 가능한 새 페이지가 됩니다.','같은 토큰, 실제 컴포넌트. 하나를 선택하면 편집 가능한 새 페이지가 됩니다.')}`, `<div class="direction-comparison">${candidatePages.map((p, i) => `<article class="direction-option"><div class="direction-option-heading"><span>0${i + 1}</span><div><h3>${esc(p.name)}</h3><p>${directions[i].description}</p></div></div><div class="direction-preview"><iframe title="${esc(p.name)} ${ui('preview','미리보기')}" sandbox="allow-same-origin" tabindex="-1"></iframe></div><div class="direction-option-footer"><code>aphrodite.hero / ${directions[i].variant}</code>${button('choose-direction', 'arrow-up-right', ui(`Use direction ${i + 1}`,`${i + 1}안 사용`), 'primary-button full-width', `data-index="${i}"`)}</div></article>`).join('')}</div><div class="comparison-note"><span>${icon('lock-keyhole')}${ui('Your brand stays intact. Only the composition changes.','브랜드는 그대로입니다. 구성만 바뀝니다.')}</span>${button('review-reference', 'arrow-left', 'Back to evidence', 'secondary-button')}</div>`, true);
+  showModal(ui('Same intent. A different first impression.','같은 의도. 다른 첫인상.'), `${esc(project.system.name)} · ${ui('Same tokens, real components. 하나를 선택하면 편집 가능한 새 페이지가 됩니다.','같은 토큰, 실제 컴포넌트. 하나를 선택하면 편집 가능한 새 페이지가 됩니다.')}`, `<div class="direction-comparison">${candidatePages.map((p, i) => `<article class="direction-option"><div class="direction-option-heading"><span>0${i + 1}</span><div><h3>${esc(p.name)}</h3><p>${directions[i].description}</p></div></div><div class="direction-preview"><iframe title="${esc(p.name)} ${ui('preview','미리보기')}" sandbox="allow-same-origin" tabindex="-1"></iframe></div><div class="direction-option-footer"><code>aphrodite.hero / ${directions[i].variant}</code>${button('choose-direction', 'arrow-up-right', ui(`Use direction ${i + 1}`,`${i + 1}안 사용`), 'primary-button full-width', `data-index="${i}"`)}</div></article>`).join('')}</div><div class="comparison-note"><span>${icon('lock-keyhole')}${ui('Your brand stays intact. Only the composition changes.','브랜드는 그대로입니다. 구성만 바뀝니다.')}</span>${button('propose-directions','frame',ui('Spread all three on the space','3안 모두 공간에 펼치기'),'secondary-button')}${button('review-reference', 'arrow-left', 'Back to evidence', 'secondary-button')}</div>`, true);
   modalRoot.querySelector('.modal')!.classList.add('comparison-modal');
   modalRoot.querySelectorAll<HTMLIFrameElement>('.direction-preview>iframe').forEach((frame, i) => { mountPagePreview(frame,project,candidatePages[i]); });
   comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 async function action(el: HTMLElement) {
-  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'')&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
+  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   switch (act) {
@@ -478,6 +485,14 @@ async function action(el: HTMLElement) {
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';render();break;
+    case 'panel-collapse': {const side=el.dataset.side==='right'?'right':'left';panels[side]='collapsed';savePanels();render();break;}
+    case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
+    case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
+    case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
+    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast('최대 30개 페이지를 지원합니다.');break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');});recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'});candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
+    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';});recordRun('proposal:accepted',{pageId:id,from,mode:'replace'});fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
+    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');});recordRun('proposal:kept',{pageId:id});fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
+    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:project.pages[0].id;selected='';}});recordRun('proposal:discarded',{pageId:id});toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
     case 'zoom-fit': fitAll();break;
     case 'zoom-frame': fitFrame(project.activePageId);break;
     case 'zoom-100': zoomCenter(1);break;
@@ -616,7 +631,7 @@ async function action(el: HTMLElement) {
 document.addEventListener('click', e => {
   if(performance.now()<suppressClickUntil){e.stopPropagation();e.preventDefault();suppressClickUntil=0;return;}
   const target = e.target as HTMLElement;
-  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
+  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
@@ -689,7 +704,7 @@ document.addEventListener('change', e => {
 document.addEventListener('submit', async e => {
   e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
   if(form.id==='frame-form'){if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(project.space!,preset,width);project.activePageId=created.id;selected='';});recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
-  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on'});return;}
+  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
     const nextUi=data.get('uiLanguage'),nextContent=data.get('contentLanguage');
@@ -735,6 +750,19 @@ function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='Arr
 function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
+function mountPanels(){
+  const studio=app.querySelector<HTMLElement>('.studio');if(!studio)return;
+  for(const side of ['left','right'] as const){
+    const tab=studio.querySelector<HTMLElement>(`.panel-tab-${side}`);const panel=studio.querySelector<HTMLElement>(side==='left'?'.library':'.inspector');
+    if(!tab||!panel)continue;
+    let timer=0;const cls=`peek-${side}`;
+    const hide=()=>{timer=window.setTimeout(()=>{if(!panel.matches(':hover')&&!tab.matches(':hover'))studio.classList.remove(cls);},350);};
+    tab.addEventListener('mouseenter',()=>{clearTimeout(timer);studio.classList.add(cls);});
+    tab.addEventListener('mouseleave',hide);
+    panel.addEventListener('mouseenter',()=>clearTimeout(timer));
+    panel.addEventListener('mouseleave',hide);
+  }
+}
 /* ---- The Space: camera + frames (see src/editor/space.ts for the math) ---- */
 function spaceEl(){return document.getElementById('canvas-scroll');}
 function spaceLocal(e:{clientX:number;clientY:number}){const r=spaceEl()!.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
@@ -795,6 +823,7 @@ function mountSpace(){
       if(frameId&&origin&&frameEl){
         const x=origin.x+(ev.clientX-start.x)/camera.zoom,y=origin.y+(ev.clientY-start.y)/camera.zoom;
         frameEl.classList.remove('dragging');
+        if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,'frame-move',{id:frameId})){frameEl.style.left=`${origin.x}px`;frameEl.style.top=`${origin.y}px`;toast(ui('Locked: the agent is scoped to another frame.','잠김: 에이전트가 다른 프레임에 한정되어 있습니다.'));return;}
         commit(()=>{project.space=moveFrame(project.space!,frameId,x,y);},true,'frame:move');
         recordRun('frame:moved',{pageId:frameId,x:Math.round(x),y:Math.round(y)});
       }
@@ -809,7 +838,7 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
+  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
@@ -825,7 +854,8 @@ document.addEventListener('keydown', e => {
   if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
-  else if (e.key === '/') { e.preventDefault(); tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); }
+  else if (e.key === '/') { e.preventDefault(); commandsModal(); }
+  else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
 });
 installPatternRuntime(document);

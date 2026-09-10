@@ -5,7 +5,7 @@ import type {Language} from '../i18n';
 /** One entry of the in-app command palette. `action`/`data` map 1:1 to the existing data-action dispatcher. */
 export type Command={id:string;action:string;data?:Record<string,string>;en:string;ko:string;group:'navigate'|'add'|'edit'|'design'|'review'|'file';keys?:string;hint?:{en:string;ko:string}};
 
-export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[]};
+export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[]};
 
 export function commandTable(ctx:PaletteContext):Command[]{
   const kinds=ctx.kinds??catalog;
@@ -35,6 +35,11 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'tool-select',action:'dock-select',en:'Select tool',ko:'선택 도구',group:'navigate',keys:'V'},
     {id:'new-frame',action:'new-frame',en:'New frame · a page placed on the space',ko:'새 프레임 · 공간 위에 페이지 만들기',group:'add',keys:'F'},
     {id:'tidy-frames',action:'tidy-frames',en:'Tidy frames into a row',ko:'프레임 한 줄로 정렬',group:'design'},
+    {id:'panel-left',action:'panel-toggle',data:{side:'left'},en:'Toggle the library panel',ko:'라이브러리 패널 접기/펼치기',group:'navigate'},
+    {id:'panel-right',action:'panel-toggle',data:{side:'right'},en:'Toggle the inspector panel',ko:'인스펙터 패널 접기/펼치기',group:'navigate'},
+    {id:'panels-all',action:'panels-all',en:'Hide or show both panels',ko:'양쪽 패널 숨기기/보이기',group:'navigate',keys:'⌘\\'},
+    {id:'content-language',action:'language-settings',en:'Content language settings',ko:'콘텐츠 언어 설정',group:'file'},
+    ...(ctx.pages??[]).filter(p=>!p.active).map(p=>({id:`frame-${p.id}`,action:'page',data:{id:p.id,nav:'fit'},en:`Go to frame · ${p.name}`,ko:`프레임으로 이동 · ${p.name}`,group:'navigate' as const})),
     {id:'desktop',action:'desktop',en:'Desktop viewport',ko:'데스크톱 뷰포트',group:'review',hint:ctx.viewport==='desktop'?{en:'current',ko:'현재'}:undefined},
     {id:'mobile',action:'mobile',en:'Mobile viewport (375px)',ko:'모바일 뷰포트 (375px)',group:'review',hint:ctx.viewport==='mobile'?{en:'current',ko:'현재'}:undefined},
     {id:'preview',action:'preview',en:'Preview the page (no scripts, same HTML as export)',ko:'페이지 미리보기 (스크립트 없음, export와 동일 HTML)',group:'review'},
@@ -67,7 +72,7 @@ export function commandPaletteHtml(commands:Command[],query:string,language:Lang
   const order:Command['group'][]=['navigate','design','review','edit','file','add'];
   const groups=order.filter(g=>list.some(c=>c.group===g));
   const items=groups.map(g=>`<li class="palette-group" role="presentation"><span>${esc(groupLabel[g][language])}</span><ul role="group">${list.filter(c=>c.group===g).map(c=>`<li><button type="button" role="option" data-palette data-action="${esc(c.action)}"${Object.entries(c.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')}><span>${esc(ko?c.ko:c.en)}</span>${c.hint?`<small>${esc(ko?c.hint.ko:c.hint.en)}</small>`:''}${c.keys?`<kbd>${esc(c.keys)}</kbd>`:''}</button></li>`).join('')}</ul></li>`).join('');
-  return `<div class="palette"><label class="palette-search">${ko?'명령 검색':'Search commands'}<input id="command-search" type="search" autocomplete="off" aria-label="${ko?'명령 검색':'Search commands'}" placeholder="${ko?'예: 히어로 추가, 디자인 시스템, 내보내기':'e.g. add hero, design system, export'}" value="${esc(query)}"></label><ul class="palette-list" role="listbox" aria-label="${ko?'명령':'Commands'}" id="command-list">${items||`<li class="palette-empty" role="status">${ko?'일치하는 명령이 없습니다.':'No matching commands.'}</li>`}</ul><p class="palette-footnote">${ko?'⌘K 또는 ? 로 열기 · ↑↓ 이동 · Enter 실행 · Esc 닫기 · “방향 승인”은 항상 화면에서 직접 클릭합니다.':'Open with ⌘K or ? · ↑↓ move · Enter run · Esc close · “Approve direction” is always a direct click on screen.'}</p></div>`;
+  return `<div class="palette"><label class="palette-search">${ko?'명령·컴포넌트·프레임 검색':'Search commands, components, frames'}<input id="command-search" type="search" autocomplete="off" aria-label="${ko?'명령·컴포넌트·프레임 검색':'Search commands, components, frames'}" placeholder="${ko?'예: 히어로 추가, 디자인 시스템, 내보내기':'e.g. add hero, design system, export'}" value="${esc(query)}"></label><ul class="palette-list" role="listbox" aria-label="${ko?'명령':'Commands'}" id="command-list">${items||`<li class="palette-empty" role="status">${ko?'일치하는 명령이 없습니다.':'No matching commands.'}</li>`}</ul><p class="palette-footnote">${ko?'⌘K 또는 ? 로 열기 · ↑↓ 이동 · Enter 실행 · Esc 닫기 · “방향 승인”은 항상 화면에서 직접 클릭합니다.':'Open with ⌘K or ? · ↑↓ move · Enter run · Esc close · “Approve direction” is always a direct click on screen.'}</p></div>`;
 }
 
 /** One-line editor status for the status bar and for screenshot-reading agents. */

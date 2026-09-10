@@ -45,3 +45,12 @@ test('groups are ordered so the long add-component list comes last',()=>{
   const idx=(label:string)=>html.indexOf(`<span>${label}</span>`);
   assert.ok(idx('Navigate')<idx('Design'));assert.ok(idx('Design')<idx('Review'));assert.ok(idx('Review')<idx('Edit'));assert.ok(idx('File')<idx('Add component'));
 });
+
+test('the palette lists other frames as navigate entries and skips the active one',()=>{
+  const list=commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',pages:[{id:'a',name:'Home',active:true},{id:'b',name:'Checkout',active:false}]});
+  const frames=list.filter(c=>c.id.startsWith('frame-'));
+  assert.equal(frames.length,1);
+  assert.deepEqual(frames[0].data,{id:'b',nav:'fit'});
+  assert.match(frames[0].ko,/Checkout/);
+  assert.ok(list.some(c=>c.action==='panels-all'));
+});

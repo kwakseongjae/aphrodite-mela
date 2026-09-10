@@ -13,6 +13,14 @@
 - The workbench heading, workflow strip and the bottom "Start from a brief" bar are gone from the canvas. Moa app recipes and the Pointer lab moved into the command palette.
 - Hover outline on canvas blocks in Select mode; nothing floats above the dock at rest. The pointer HUD appears only while moving or resizing (drop target, `W × H px`).
 
+**The Space (open canvas)**
+- Every page is a frame on an open canvas: desktop 1440, tablet 834, mobile 390 or a custom width. Pan with the wheel, Space+drag, the Hand tool (H) or the middle button; zoom with ⌘wheel or pinch; ⇧1 fits everything, ⇧2 the current frame, ⌘0 is 100%.
+- Drag a frame by its label to move it. New frame (F) creates a page and places it beside the others; Tidy frames lines them up. Frame positions save with the project, the camera per device.
+- Reference → 3 directions can spread all three as proposal frames below the source frame; pick one from its label (use / keep as page / discard).
+- Left and right panels collapse into floating corner tabs: hover to peek, click to pin. ⌘\ hides or shows both.
+- A search field in the top bar opens the command palette (⌘K, /, or click); it searches commands, components and frames. Language is the same dropdown as on Home.
+- Agent mode can be scoped to the current frame only.
+
 **Dev mode**
 - Read-only Inspect panel with a block selected: identity, tokens as CSS custom properties, rendered markup, content contract, node (parent · children · layout) and DESIGN.md, each with a copy button.
 - Page-level handoff with nothing selected: page HTML, SCENE node table, a prompt for a coding agent, tokens.json.

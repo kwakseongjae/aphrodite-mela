@@ -78,3 +78,26 @@ While the delegation is active, these decisions stay human even if the control i
 - **Export**, **Download handoff**, and **Save project** (`export`, `download-bundle`, `save-project`) are locked unless the scope has `export: true` (default true).
 
 The record of the session is the assembly run receipts together with the delegation object (operator, intent, start/end fingerprints, receipt count, outcome: `returned` / `ended-by-agent` / `timeout`). A screenshot of this document is not proof of work.
+
+## The Space (added 2026-09-10, chunk 7)
+
+The canvas is an open space. Every page of the project is a **frame** placed in world coordinates (`project.space.frames[pageId] = {x, y, preset, width?}`, presets desktop 1440 · tablet 834 · mobile 390 · custom). A camera (pan + zoom) looks at the space; `#app[data-camera="x,y,zoom"]` and `#app[data-frame="<active page id>"]` mirror it. Camera state is per project and per device (localStorage), frame positions travel with the project.
+
+- **Navigation that an agent can rely on**: command palette entries `Zoom to fit all frames` (⇧1), `Zoom to the current frame` (⇧2), `Zoom to 100%` (⌘0), `Zoom in/out` (⌘+ / ⌘-), and one `Go to frame · <name>` entry per other frame (`data-action="page" data-id=… data-nav="fit"`). Prefer these over scrolling: they are deterministic and leave a `camera:fit` receipt.
+- Human gestures: wheel pans, ⌘/ctrl+wheel and pinch zoom around the cursor, Space+drag or the Hand tool (H) pans, middle button pans. Drag a frame by its label to move it (`frame:moved` receipt, 8px grid). The active frame's label has a size preset select (`select[data-frame-preset]`, `frame:preset` receipt).
+- **New frame** (F, `data-action="new-frame"`): form `#frame-form` with `name`, `preset`, `width` → creates a page and places it right of the rightmost frame, then zooms to it (`frame:created`). **Tidy frames** (`data-action="tidy-frames"`) lines every frame up in page order.
+- Only the active frame is editable (`#design-canvas`); other frames render read-only and activate on click of their label. The pointer HUD is unchanged.
+
+### Proposals as frames
+
+Alternatives are not modals any more: **Reference → 3 directions → "Spread all three on the space"** (`data-action="propose-directions"`) places the three candidate pages as proposal frames one row below the source frame (`Page.proposal = {fromPageId, label, kind}`; dashed gold outline; label badge `제안 · <name>`). Each proposal label carries `proposal-accept` (replace the source frame's content), `proposal-keep` (becomes a normal page) and `proposal-discard`. Receipts: `proposal:placed`, `proposal:accepted`, `proposal:kept`, `proposal:discarded`. Approve direction is still a separate human action.
+
+### Panels, search, language
+
+- Left library and right inspector collapse (`data-action="panel-collapse" data-side="left|right"`); when collapsed a floating tab sits at the top corner: hover peeks the panel as an overlay, click pins it (`panel-pin`). ⌘\ hides or shows both. `#app[data-panel-left|right]` mirrors the state.
+- The top bar has a centred search field (`.topbar-search`, `data-action="commands"`) that opens the same palette as ⌘K; `/` opens it too. The palette now searches commands, "Add <component>" entries and frames.
+- Language is a dropdown (`details.top-lang`, `set-language`), the same control as on Home. Content language for samples stays in `language-settings`.
+
+### Agent scope: this frame only
+
+The hand-over form has a `frame` select: whole space or the current frame. With `scope.frameId` set, switching to other frames (`page` with a different id), moving other frames, deleting pages, and creating frames (`add-page`, `new-frame`) are refused with a toast; the agent console shows the frame name in its scope list.
