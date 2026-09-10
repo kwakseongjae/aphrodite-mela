@@ -25,7 +25,7 @@ test('decorative render leaves explicit review text available and escapes labels
   assert.match(html,/alt=""/);assert.match(html,/승인 대기 &lt;script&gt;/);
   assert.doesNotMatch(html,/<script>|autoplay|animation:/);
 });
-test('classic and vibe GLBs are self-contained and sunglasses are opt-in',()=>{
+test('classic and vibe GLBs are self-contained and sunglasses are opt-in',{skip:existsSync('lab/sculpture/models-v2/aphrodite-classic-v2.glb')?false:'local-only fixture under lab/ (git-ignored) is not present'},()=>{
   for(const variant of ['classic','vibe']){
     const bytes=readFileSync(`lab/sculpture/models-v2/aphrodite-${variant}-v2.glb`);
     assert.equal(bytes.subarray(0,4).toString(),'glTF');assert.equal(bytes.readUInt32LE(4),2);
