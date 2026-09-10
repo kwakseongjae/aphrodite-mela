@@ -4,7 +4,9 @@ Updated 2026-09-09. Existing feature-specific validation documents are evidence,
 
 ## Status and sequence
 
-Latest checkpoint #12 (2026-09-10 22:02, v0.1.3 shipped): v0.1.3 published (arm64 + x64, notarized, stapled, verified from a quarantined download; DMG carries the paper background) with the onboarding flow; landing download resolves to it. Demo handoff prompt for a computer-use agent in docs/DEMO-ASTRA-5MIN.md. Owner has a list of fixes to come back to after the demo.
+Latest checkpoint #13 (2026-09-10 22:26, v0.1.4 hotfix): text edits in the inspector crashed v0.1.2–v0.1.3 (stale .draft-badge/.review-card lookups after the Space rework) — guarded; every native <select> replaced by the custom menu (src/design/menu-select.ts, native element kept hidden for handlers/forms); data-viewport follows the frame preset. v0.1.4 published, notarized, verified. Demo must use v0.1.4.
+
+Checkpoint #12 (2026-09-10 22:02, v0.1.3 shipped): v0.1.3 published (arm64 + x64, notarized, stapled, verified from a quarantined download; DMG carries the paper background) with the onboarding flow; landing download resolves to it. Demo handoff prompt for a computer-use agent in docs/DEMO-ASTRA-5MIN.md. Owner has a list of fixes to come back to after the demo.
 
 Checkpoint #11 (2026-09-10 22:05, chunk 9 — v0.1.2 shipped + onboarding): v0.1.2 published (arm64 + x64, notarized, verified from a quarantined download); landing rebuilt with v0.1.2 screenshots (Space hero, Home / Agent console / Dev handoff cards, per-language images). Onboarding implemented for owner review before v0.1.3: DMG background, welcome sheet with language + sample/blank start, sample project (desktop + mobile frames), five-step editor tour, palette replay, data-onboarding/data-tour. 162 tests.
 
