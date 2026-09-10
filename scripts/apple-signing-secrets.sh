@@ -111,6 +111,12 @@ fi
 echo "3/4  Apple ID for notarization (must be a member of team $TEAM_ID)"
 read -r -p "     Apple ID e-mail: " APPLE_ID
 read -r -s -p "     App-specific password (from account.apple.com → App-Specific Passwords): " APPLE_PASSWORD; echo
+APPLE_PASSWORD="$(printf '%s' "$APPLE_PASSWORD" | tr -d '[:space:]')"
+echo "     received ${#APPLE_PASSWORD} characters (an app-specific password is 19: xxxx-xxxx-xxxx-xxxx)"
+case "$APPLE_PASSWORD" in
+  [a-z][a-z][a-z][a-z]-[a-z][a-z][a-z][a-z]-[a-z][a-z][a-z][a-z]-[a-z][a-z][a-z][a-z]) ;;
+  *) echo "     that does not look like an app-specific password (your Apple ID login password will not work). Generate one at account.apple.com → 앱 암호 → + and paste it."; exit 1;;
+esac
 echo "     checking the credentials with Apple (notarytool history)…"
 if ! xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" >/dev/null 2>"$TMP/notary.err"; then
   echo "     Apple rejected these credentials:"; sed 's/^/       /' "$TMP/notary.err" | head -5
