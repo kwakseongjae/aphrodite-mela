@@ -682,11 +682,11 @@ document.addEventListener('submit', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
+  if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
+  if(modalRoot.querySelector('#command-list')&&['ArrowDown','ArrowUp','Enter'].includes(e.key)){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const current=items.indexOf(document.activeElement as HTMLButtonElement);if(e.key==='Enter'){if(current>=0){e.preventDefault();items[current].click();}return;}e.preventDefault();const next=e.key==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items[next].focus();return;}
   if (modalRoot.children.length) {
     if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
-  if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
-  if(modalRoot.querySelector('#command-list')&&['ArrowDown','ArrowUp','Enter'].includes(e.key)){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const current=items.indexOf(document.activeElement as HTMLButtonElement);if(e.key==='Enter'){if(current>=0){e.preventDefault();items[current].click();}return;}e.preventDefault();const next=e.key==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items[next].focus();return;}
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
