@@ -494,6 +494,7 @@ async function action(el: HTMLElement) {
     case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample));await flushDisk();openProject(sample);break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
+    case 'welcome-show': welcomeModal();break;
     case 'tour-start': closeModal();if(screen!=='editor'){toast(ui('Open a project first, then start the tour.','프로젝트를 먼저 연 뒤 둘러보기를 시작하세요.'));break;}onboarding={...onboarding,toured:false};startTour();break;
     case 'tour-next': tourIndex++;positionTour();break;
     case 'tour-skip': endTour();break;
