@@ -15,7 +15,7 @@ test('native runtime replaces only marked executable script, retaining props and
 });
 test('kind-first inventory exposes only actual provider support',()=>{
  assert.deepEqual(implementations('button').map(x=>x.provider),['own','mui','astryx','seed','shadcn']);
- assert.deepEqual(implementations('input').map(x=>x.provider),['own','mui']);
+ assert.deepEqual(implementations('input').map(x=>x.provider),['own','mui','astryx','seed']);
  assert.deepEqual(implementations('hero').map(x=>x.provider),['own']);
  assert.equal(implementations('button').find(x=>x.provider==='seed')?.theme,'native');
 });
