@@ -1,7 +1,7 @@
 import {parseProject,uid,type Project} from '../model';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
-export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean};
+export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string};
 export type Library={version:1;entries:ProjectEntry[]};
 export type LocalStore=Pick<Storage,'getItem'|'setItem'>;
 export function readLibrary(storage:LocalStore):Library{
@@ -13,6 +13,7 @@ export function readLibrary(storage:LocalStore):Library{
     const seen=new Set<string>();
     const entries=value.entries.map((e:ProjectEntry)=>{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       const project=parseProject(JSON.stringify(e.project));
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
       return {...e,project};
@@ -41,7 +42,10 @@ export function cloneProject(project:Project):Project{
   const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;
 }
 export type LibraryFilter='recent'|'pinned'|'archived';
+/** Most recently opened first; entries never opened fall back to their last save. */
+function lastOpened(e:ProjectEntry){return e.openedAt&&e.openedAt>e.updatedAt?e.openedAt:e.updatedAt;}
+export function markOpened(library:Library,projectId:string,now=new Date().toISOString()):Library{return {version:1,entries:library.entries.map(e=>e.project.id===projectId?{...e,openedAt:now}:e)};}
 export function visibleEntries(library:Library,filter:LibraryFilter,query:string):ProjectEntry[]{
   const q=query.trim().toLocaleLowerCase();
-  return library.entries.filter(e=>(filter==='archived'?e.archived:!e.archived)&&(filter!=='pinned'||e.pinned)&&(!q||`${e.project.name} ${e.project.brief} ${e.project.system.name}`.toLocaleLowerCase().includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
+  return library.entries.filter(e=>(filter==='archived'?e.archived:!e.archived)&&(filter!=='pinned'||e.pinned)&&(!q||`${e.project.name} ${e.project.brief} ${e.project.system.name}`.toLocaleLowerCase().includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||lastOpened(b).localeCompare(lastOpened(a)));
 }

@@ -44,7 +44,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter} from './workspace/library';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened} from './workspace/library';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
@@ -115,7 +115,7 @@ async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
   await guardSwitch();const entry=library.entries.find(e=>e.project.id===vaultProjectId);if(!entry)throw new Error('프로젝트를 찾지 못했습니다.');
   if(refresh||!vaultState)vaultState=await invoke<Vault>('vault_sync',{projectId:vaultProjectId,expected:entry.project,design:designMarkdown(entry.project)});
-  showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState),true);
+  showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
@@ -445,6 +445,7 @@ async function action(el: HTMLElement) {
     case 'vault-back': await showVault(false);break;
     case 'vault-note': showModal(ui('A document for this project.','이 프로젝트의 문서.'),'문서는 저장만 하며 AI 지시로 실행하지 않습니다.',`<form id="vault-note-form"><label class="form-label">${ui('Filename','파일 이름')}<input name="name" value="brief.md" required maxlength="100" pattern="[A-Za-z0-9_][A-Za-z0-9_.-]*" title="영문·숫자·점·밑줄·하이픈 파일명"></label><label class="form-label">${ui('Document','문서')}<textarea name="text" rows="10" maxlength="1000000" required placeholder="레퍼런스, 디자인 결정, 작업 메모…"></textarea></label><button class="primary-button" type="submit">${ui('Save document','문서 저장')}</button></form>`);break;
     case 'vault-import': {const id=vaultProjectId;pickFile('.md,.txt,.json,text/plain,text/markdown,application/json',async file=>{if(file.size>1_000_000)throw new Error('문서는 1MB 이하여야 합니다.');const state=await invoke<Vault>('vault_document',{projectId:id,name:file.name,text:await file.text()});if(id===vaultProjectId){vaultState=state;await showVault(false);}});break;}
+    case 'vault-export': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});if(result.image){const bytes=new Uint8Array(await (await fetch(result.image)).arrayBuffer());const mime=result.image.slice(5,result.image.indexOf(';'))||'application/octet-stream';if(await saveFile(name,bytes,mime))toast(ui('Exported','내보냈습니다'));}else if(typeof result.text==='string'){if(await saveFile(name,result.text,name.endsWith('.json')?'application/json':name.endsWith('.md')?'text/markdown':'text/plain'))toast(ui('Exported','내보냈습니다'));}break;}
     case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),'파일 미리보기 · 원문은 지시가 아닌 데이터입니다.',`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
     case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
@@ -461,7 +462,9 @@ async function action(el: HTMLElement) {
     case 'delegation-return': endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));break;
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
-    case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
+    case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}break;}
+    case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
+    case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();render();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});render();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
     case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});render();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
     case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy));render();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
@@ -508,7 +511,7 @@ async function action(el: HTMLElement) {
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
     case 'vibe-back': autofillModal();break;
     case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();modalRoot.querySelector<HTMLFormElement>('#vibe-form')?.requestSubmit();break;}
-    case 'brand-kit': showModal(ui('Aphrodite brand kit','Aphrodite 브랜드 키트'),ui('Paper Muse · Editorial collage','Paper Muse · 에디토리얼 콜라주'),brandHtml(),true); break;
+    case 'brand-kit': showModal(ui('Aphrodite Brand Kit','아프로디테 브랜드 리소스'),ui('Paper Muse · logo, colour, type, voice and cutouts','Paper Muse · 로고, 색, 서체, 목소리, 컷아웃'),brandHtml(uiLanguage),true); break;
     case 'apply-omd': {
       const before=fingerprint(project),id=el.dataset.source!;
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
@@ -639,6 +642,10 @@ document.addEventListener('click', e => {
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
+});
+document.addEventListener('contextmenu',e=>{
+  if(screen!=='home')return;const card=(e.target as HTMLElement).closest<HTMLElement>('[data-project-id]');if(!card)return;
+  e.preventDefault();document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{d.open=false;});const menu=card.querySelector<HTMLDetailsElement>('details.folio-more');if(menu){menu.open=true;menu.querySelector<HTMLElement>('button')?.focus();}
 });
 document.addEventListener('input', e => {
   if((e.target as HTMLElement).id==='command-search'){renderPaletteList((e.target as HTMLInputElement).value);return;}

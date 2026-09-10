@@ -25,3 +25,5 @@
 
 .folio-night .folio-filters{border-color:#4a4839}.folio-night .folio-filter{color:#c3bda9}.folio-night .folio-filter:hover{background:#33322a}.folio-night .folio-filter[aria-pressed=true]{background:#3a382e;color:var(--ink)}.folio-night .folio-top button,.folio-night .folio-top summary{border-color:#4a4839;color:var(--ink)}.folio-night .folio-top button:hover,.folio-night .folio-top summary:hover{background:#2e2d26}.folio-top button:hover,.folio-top summary:hover{background:#efece3}.folio-night .folio-search svg{color:#c3bda9}
 @media(max-width:1050px){.folio-library-head{flex-direction:column;align-items:flex-start}}
+
+.folio-menu-danger{color:#a3462b!important}.folio-night .folio-menu-danger{color:#f0a58f!important}

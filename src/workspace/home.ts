@@ -16,7 +16,7 @@ function pinButton(e:ProjectEntry,t:Copy){
 }
 function moreMenu(e:ProjectEntry,t:Copy){
   const id=esc(e.project.id);
-  return `<details class="folio-more"><summary aria-label="${t.more} · ${esc(e.project.name)}" title="${t.more}"><span aria-hidden="true">···</span></summary><div class="folio-menu" role="menu"><button role="menuitem" data-action="vault-open" data-id="${id}">${t.files}</button><button role="menuitem" data-action="hub-rename" data-id="${id}">${t.rename}</button><button role="menuitem" data-action="hub-duplicate" data-id="${id}">${t.duplicate}</button><button role="menuitem" data-action="hub-archive" data-id="${id}">${e.archived?t.restore:t.archive}</button></div></details>`;
+  return `<details class="folio-more"><summary aria-label="${t.more} · ${esc(e.project.name)}" title="${t.more}"><span aria-hidden="true">···</span></summary><div class="folio-menu" role="menu"><button role="menuitem" data-action="vault-open" data-id="${id}">${t.files}</button><button role="menuitem" data-action="hub-rename" data-id="${id}">${t.rename}</button><button role="menuitem" data-action="hub-duplicate" data-id="${id}">${t.duplicate}</button><button role="menuitem" data-action="hub-archive" data-id="${id}">${e.archived?t.restore:t.archive}</button><button role="menuitem" class="folio-menu-danger" data-action="hub-delete" data-id="${id}">${t.remove}</button></div></details>`;
 }
 function previewStyle(e:ProjectEntry){const s=e.project.system;return `--preview-paper:${s.background};--preview-ink:${s.foreground};--preview-accent:${s.accent};background:${s.background};color:${s.foreground}`;}
 function photoOf(e:ProjectEntry){const blocks=e.project.pages[0].blocks;return blocks.find(b=>b.image)?.image||e.project.reference;}

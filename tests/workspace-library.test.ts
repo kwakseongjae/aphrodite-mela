@@ -8,3 +8,15 @@ test('archive, favorites and search compose without deleting entries',()=>{const
 test('corrupt library fails closed instead of falling back over it',()=>{const s=memory();s.setItem(LEGACY_KEY,JSON.stringify(initialProject()));s.setItem(LIBRARY_KEY,'broken');assert.throws(()=>readLibrary(s));assert.equal(s.getItem(LIBRARY_KEY),'broken');});
 test('failed write leaves stored library intact',()=>{const s=memory();const lib=upsertProject({version:1,entries:[]},initialProject());writeLibrary(s,lib);const before=s.getItem(LIBRARY_KEY);const fail={getItem:s.getItem,setItem:()=>{throw new Error('quota');}};assert.throws(()=>writeLibrary(fail,upsertProject(lib,initialProject())));assert.equal(s.getItem(LIBRARY_KEY),before);});
 test('duplicate project ids rejected on load',()=>{const s=memory(),lib=upsertProject({version:1,entries:[]},initialProject());lib.entries.push(lib.entries[0]);writeLibrary(s,lib);assert.throws(()=>readLibrary(s));});
+
+test('the library sorts by last opened, then by last save, pinned first',async()=>{
+  const {markOpened,visibleEntries,entryFor}=await import('../src/workspace/library');
+  const {initialProject}=await import('../src/model');
+  const a=entryFor({...initialProject(),id:'a',name:'A'},'2026-09-01T00:00:00.000Z');
+  const b=entryFor({...initialProject(),id:'b',name:'B'},'2026-09-02T00:00:00.000Z');
+  let lib={version:1 as const,entries:[a,b]};
+  assert.deepEqual(visibleEntries(lib,'recent','').map(e=>e.project.id),['b','a']);
+  lib=markOpened(lib,'a','2026-09-03T00:00:00.000Z');
+  assert.deepEqual(visibleEntries(lib,'recent','').map(e=>e.project.id),['a','b']);
+  assert.equal(lib.entries.find(e=>e.project.id==='a')?.openedAt,'2026-09-03T00:00:00.000Z');
+});
