@@ -155,7 +155,7 @@ function renderPaletteList(query:string){const list=modalRoot.querySelector('#co
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView);if(nativeDesktop){const footer=app.querySelector('.folio-sidebar footer');if(footer)footer.innerHTML=`<button data-action="storage-info" class="plain-button" data-storage-state>${control(lastSaved?'Saved to disk':'Not saved to disk')}</button><small>${ui('Local files · Automatic previous-save backup','로컬 파일 · 이전 저장본 자동 백업')}</small>`;}hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved);hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   if(!insertionTarget())insertParent=undefined;
   app.innerHTML = `${storageIssue?diskWarningHtml():''}
@@ -420,6 +420,8 @@ async function action(el: HTMLElement) {
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
+    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}render();}break;}
+    case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;render();break;
     case 'hub-view': hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}render();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)openProject(entry.project);break;}
@@ -427,7 +429,7 @@ async function action(el: HTMLElement) {
     case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});render();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
     case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy));render();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Give it a name.','이름을 지어 주세요.'),'프로젝트 내용은 그대로 보존됩니다.',`<form id="hub-rename-form"><input type="hidden" name="projectId" value="${esc(entry.project.id)}"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(entry.project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form>`);break;}
-    case 'storage-info': showModal(ui('Your work stays with you.','작업은 이 기기에 남습니다.'),'앱 전용 폴더에 프로젝트 보관함을 파일로 저장합니다.',`<p><code>${esc(storagePath)}</code></p><p>library.json: 현재 보관함<br>library.previous.json: 직전 저장본</p><p>라이브러리는 편집 원본입니다. 프로젝트 카드의 Files에서 이미지 추출·DESIGN.md 스냅샷·사용자 문서를 별도 파일로 관리합니다. 모델 실행 설정은 아직 포함하지 않습니다.</p><div class="vibe-actions">${button('hub-backup','download','Export current workspace','secondary-button')}${button('hub-recovery','download','Export disk recovery files','secondary-button')}</div><p>다른 창의 변경이 감지되면 덮어쓰지 않습니다. 저장 실패 시 현재 작업을 내보낸 뒤 앱을 다시 여세요.</p>`);break;
+    case 'storage-info': showModal(ui('Where your work lives','작업이 저장되는 곳'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),`<div class="storage-path"><code>${esc(storagePath)}</code><button class="secondary-button" data-action="copy-storage-path">${icon('copy')}${ui('Copy path','경로 복사')}</button></div><ul class="storage-facts"><li>${icon('hard-drive')}<span><strong>library.json</strong> · ${ui('your current projects','현재 프로젝트 보관함')}</span></li><li>${icon('history')}<span><strong>library.previous.json</strong> · ${ui('the previous save, kept automatically','직전 저장본 · 자동 보관')}</span></li><li>${icon('folder-open')}<span><strong>project-vault-v1/</strong> · ${ui('per-project images and DESIGN.md snapshots (Files on a project card)','프로젝트별 이미지·DESIGN.md 스냅샷 (프로젝트 카드의 파일)')}</span></li></ul><div class="vibe-actions">${button('hub-backup','download',ui('Save a workspace backup','작업 공간 백업 저장'),'secondary-button')}${button('hub-recovery','download',ui('Save raw recovery files','원본 복구 파일 저장'),'secondary-button')}</div><p class="fine-print">${ui('If another window changed the files, this one refuses to overwrite them and shows a banner with reload and backup options.','다른 창이 파일을 바꾸면 이 창은 덮어쓰지 않고, 다시 불러오기·백업 옵션이 있는 배너를 표시합니다.')}</p>`);break;
     case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id});refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
@@ -575,7 +577,7 @@ async function action(el: HTMLElement) {
 }
 document.addEventListener('click', e => {
   const target = e.target as HTMLElement;
-  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
+  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
@@ -692,7 +694,7 @@ function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='Arr
 function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
+  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
