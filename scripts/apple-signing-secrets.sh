@@ -27,6 +27,7 @@ TMP="$(mktemp -d)"
 TMP_KC="$TMP/filter.keychain-db"
 cleanup() { security delete-keychain "$TMP_KC" >/dev/null 2>&1 || true; security delete-keychain "$TMP/check.keychain-db" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
+trap 'echo "     failed at line $LINENO (exit $?)" >&2' ERR
 FULL="$TMP/all-identities.p12"
 P12="$TMP/developer-id.p12"
 
@@ -55,7 +56,7 @@ for _ in 1 2 3 4 5 6; do
   kc_certs "$TMP_KC" | while read -r sha label; do
     if [ "$label" != "$IDENTITY" ]; then security delete-certificate -Z "$sha" "$TMP_KC" >/dev/null 2>&1 || true; fi
   done
-  REMAINING="$(kc_certs "$TMP_KC" | grep -v -F "$IDENTITY" | wc -l | tr -d ' ')"
+  REMAINING="$({ kc_certs "$TMP_KC" | grep -v -F "$IDENTITY" || true; } | wc -l | tr -d ' ')"
   [ "$REMAINING" = "0" ] && break
 done
 echo "     certificates left in the scratch keychain:"; kc_certs "$TMP_KC" | sed 's/^[0-9A-F]* /       - /'
