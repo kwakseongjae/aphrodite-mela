@@ -53,6 +53,15 @@ Do not infer that this app authenticates to Codex, invokes a generative model, o
 
 These are Aphrodite-owned components, not official SEED/TDS or a certified OmD graph. Avoid claiming a pixel match, fully autonomous scene understanding or production-code parity.
 
+## Dock and modes (added 2026-09-10)
+
+- The canvas has a floating **dock** at the bottom centre (`.dock`, `role=toolbar`): Select (V, `data-action="dock-select"`), Add component (A, opens the catalog), Layout frame (F, `data-action="add" data-kind="frame"`), Reference (R), Get Vibe (G), Preview (P). Single letters work outside text inputs when no dialog is open.
+- Mode segment on the dock (`data-action="editor-mode" data-mode="design|dev|agent"`, keys 1/2/3). `#app[data-mode]` mirrors it.
+  - **design**: the inspector edits copy, tokens and layout.
+  - **dev**: the inspector becomes a read-only Inspect panel — identity (component id/version/provider/variant/options), tokens as CSS custom properties, the block's rendered markup, the content-contract row format, and copy buttons (`data-action="dev-copy" data-copy-target="identity|tokens|markup|design"`). The page still selects on click.
+  - **agent**: opens a short form (operator, intent); submitting starts a receipted assembly run and a delegation record, shows a banner with the live receipt count and **Take control back** (`data-action="delegation-return"`). While delegated, Approve direction and page deletion are refused with a toast (see "Agent mode (delegation)" below). Take control back ends the run and returns to Design.
+- The big workbench heading, the three-step workflow strip and the bottom "Start from a brief" bar are gone from the canvas; Moa app / Pointer lab live in the command palette.
+
 ## Agent mode (delegation)
 
 When `#app[data-mode="agent"]` is set, a human has handed this screen to an external computer-use agent (Codex/Astra). Detect that attribute before assuming you own the pointer. Delegation is a contract plus a record: the human mouse is not physically blocked.
