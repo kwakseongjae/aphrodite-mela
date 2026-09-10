@@ -115,6 +115,38 @@ jobs:
           prerelease: false
           args: --target aarch64-apple-darwin --bundles dmg
 
+      # tauri-action notarizes and staples the .app, but not the .dmg container. Gatekeeper
+      # evaluates the DMG first when a user double-clicks the download, so notarize + staple it
+      # too and replace the uploaded asset.
+      - name: Notarize and staple the DMG (API key)
+        if: steps.signing.outputs.mode == 'apikey'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+          xcrun notarytool submit "$DMG" --wait --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+          xcrun stapler staple "$DMG" && xcrun stapler validate "$DMG"
+          spctl --assess --type open --context context:primary-signature -v "$DMG"
+          gh release upload "$TAG" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Notarize and staple the DMG (Apple ID)
+        if: steps.signing.outputs.mode == 'appleid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+          xcrun notarytool submit "$DMG" --wait --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple "$DMG" && xcrun stapler validate "$DMG"
+          spctl --assess --type open --context context:primary-signature -v "$DMG"
+          gh release upload "$TAG" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+
       - name: Build and publish release (unsigned, ad-hoc)
         if: steps.signing.outputs.mode == 'unsigned'
         uses: tauri-apps/tauri-action@v0
