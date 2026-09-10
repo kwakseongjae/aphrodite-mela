@@ -39,6 +39,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'panel-right',action:'panel-toggle',data:{side:'right'},en:'Toggle the inspector panel',ko:'인스펙터 패널 접기/펼치기',group:'navigate'},
     {id:'panels-all',action:'panels-all',en:'Hide or show both panels',ko:'양쪽 패널 숨기기/보이기',group:'navigate',keys:'⌘\\'},
     {id:'content-language',action:'language-settings',en:'Content language settings',ko:'콘텐츠 언어 설정',group:'file'},
+    {id:'tour',action:'tour-start',en:'Show the editor tour again',ko:'에디터 둘러보기 다시 보기',group:'navigate'},
     ...(ctx.pages??[]).filter(p=>!p.active).map(p=>({id:`frame-${p.id}`,action:'page',data:{id:p.id,nav:'fit'},en:`Go to frame · ${p.name}`,ko:`프레임으로 이동 · ${p.name}`,group:'navigate' as const})),
     {id:'desktop',action:'desktop',en:'Desktop viewport',ko:'데스크톱 뷰포트',group:'review',hint:ctx.viewport==='desktop'?{en:'current',ko:'현재'}:undefined},
     {id:'mobile',action:'mobile',en:'Mobile viewport (375px)',ko:'모바일 뷰포트 (375px)',group:'review',hint:ctx.viewport==='mobile'?{en:'current',ko:'현재'}:undefined},

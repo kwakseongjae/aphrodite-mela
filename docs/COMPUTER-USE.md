@@ -101,3 +101,7 @@ Alternatives are not modals any more: **Reference → 3 directions → "Spread a
 ### Agent scope: this frame only
 
 The hand-over form has a `frame` select: whole space or the current frame. With `scope.frameId` set, switching to other frames (`page` with a different id), moving other frames, deleting pages, and creating frames (`add-page`, `new-frame`) are refused with a toast; the agent console shows the frame name in its scope list.
+
+## First run and the tour (added 2026-09-10, chunk 9)
+
+`#app[data-onboarding]` is `welcome-pending` (the welcome sheet is open on Home: `.welcome`, actions `set-language`, `welcome-sample`, `welcome-blank`, `welcome-dismiss`), `tour-pending` (the editor will start a five-step tour on first open) or `done`. While the tour runs, `#app[data-tour]` names the step (`dock`, `search`, `frame`, `inspector`, `agent`) and the card is `.tour-card` with `tour-next` / `tour-skip`; Esc ends it. The palette command `tour-start` replays it. An agent driving a fresh install should dismiss the sheet (`welcome-dismiss`) or take the sample (`welcome-sample`) and skip the tour before doing anything else.

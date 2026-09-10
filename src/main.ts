@@ -50,6 +50,7 @@ import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {placeProposals,resolveProposal} from './agent/proposals';
+import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
@@ -88,6 +89,7 @@ let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
+let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
 function topLanguageMenu(){return `<details class="top-lang"><summary aria-label="${ui('Language','언어')}" title="${ui('Interface language','앱 조작 언어')}">${icon('languages')}<span>${uiLanguage==='ko'?'한국어':'English'}</span>${icon('chevron-down')}</summary><div class="top-lang-menu" role="menu">${(['en','ko'] as const).map(l=>`<button type="button" role="menuitemradio" aria-checked="${uiLanguage===l}" data-action="set-language" data-lang="${l}">${l==='ko'?'한국어':'English'}${uiLanguage===l?icon('check'):''}</button>`).join('')}<button type="button" role="menuitem" data-action="language-settings">${ui('Content language…','콘텐츠 언어…')}</button></div></details>`;}let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
@@ -149,7 +151,7 @@ function syncStateAttributes(){
   const block=page?.blocks.find(b=>b.id===selected);
   const state:Record<string,string>={
     screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
-    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),panelLeft:panels.left,panelRight:panels.right,frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
+    project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),panelLeft:panels.left,panelRight:panels.right,onboarding:onboarding.welcomed?(onboarding.toured?'done':'tour-pending'):'welcome-pending',frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
@@ -226,6 +228,7 @@ function render() {
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
   mountSpace();mountPanels();
+  if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -454,7 +457,7 @@ async function action(el: HTMLElement) {
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
-    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}render();}break;}
+    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
     case 'dock-select': dockTool='select';selected='';render();break;
@@ -488,6 +491,12 @@ async function action(el: HTMLElement) {
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';render();break;
+    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample));await flushDisk();openProject(sample);break;}
+    case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn);btn.remove();break;}
+    case 'welcome-dismiss': markWelcomed();closeModal();render();break;
+    case 'tour-start': closeModal();if(screen!=='editor'){toast(ui('Open a project first, then start the tour.','프로젝트를 먼저 연 뒤 둘러보기를 시작하세요.'));break;}onboarding={...onboarding,toured:false};startTour();break;
+    case 'tour-next': tourIndex++;positionTour();break;
+    case 'tour-skip': endTour();break;
     case 'panel-collapse': {const side=el.dataset.side==='right'?'right':'left';panels[side]='collapsed';savePanels();render();break;}
     case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
@@ -757,6 +766,28 @@ function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='Arr
 function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
+function welcomeModal(){showModal(ui('Welcome to Aphrodite.','Aphrodite에 오신 것을 환영합니다.'),ui('Shape before you build.','만들기 전에, 방향부터.'),welcomeHtml(uiLanguage),true);}
+function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
+function tourActive(){return tourIndex>=0;}
+function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();positionTour();recordRun('tour:started');}
+function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
+function positionTour(){
+  if(!tourActive())return;const steps=tourSteps(uiLanguage);const step=steps[tourIndex];if(!step){endTour();return;}
+  document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));
+  const target=document.querySelector<HTMLElement>(step.target);
+  tourRoot.innerHTML=tourCardHtml(step,tourIndex,steps.length,uiLanguage);hydrateIcons();app.dataset.tour=step.id;
+  const card=tourRoot.querySelector<HTMLElement>('.tour-card')!;
+  if(!target){Object.assign(card.style,{left:`${innerWidth/2-160}px`,top:`${innerHeight/2-90}px`});return;}
+  target.classList.add('tour-target');
+  const r=target.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,gap=14;
+  let left=r.left+r.width/2-w/2,top=r.top-h-gap;
+  if(step.placement==='bottom')top=r.bottom+gap;
+  else if(step.placement==='left'){left=r.left-w-gap;top=r.top+24;}
+  else if(step.placement==='right'){left=r.right+gap;top=r.top+24;}
+  left=Math.max(12,Math.min(innerWidth-w-12,left));top=Math.max(12,Math.min(innerHeight-h-12,top));
+  Object.assign(card.style,{left:`${left}px`,top:`${top}px`});
+}
+window.addEventListener('resize',()=>positionTour());
 function mountPanels(){
   const studio=app.querySelector<HTMLElement>('.studio');if(!studio)return;
   for(const side of ['left','right'] as const){
@@ -845,6 +876,7 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
+  if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
@@ -896,5 +928,6 @@ async function boot(){
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
+  if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();
