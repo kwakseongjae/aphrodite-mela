@@ -41,7 +41,7 @@ Libraries already installed and licensed: MUI 9 (MIT), Astryx 0.5.4 (Apache-2.0)
 
 **Part B — official adapters** (Grok worker, branch `grok/official-adapters`): renderer registry in `src/vendor/runtime.tsx`, `src/vendor/coverage.ts` as the single source of truth for `providers.kinds`, targets MUI ≥ 20 kinds, Astryx ≥ 16, SEED ≥ 10, per-kind iframe heights, coverage test.
 
-**Part C — shadcn vendoring** (next): input, textarea, card, badge, table, skeleton, alert, breadcrumb, pagination (no Radix dependencies needed).
+**Part C — shadcn vendoring — merged 14:08**: input, textarea, card, badge, table, skeleton, alert, breadcrumb, pagination vendored under `src/vendor/shadcn` (MIT headers, no Radix beyond react-slot); shadcn coverage 1 → 10 kinds. **Final today: 35 kinds, 341 options** — button/input/notice 20, tabs/cards/table 16, textarea/badge/skeleton 15, most controls 12, stepper 9; layout sections 3–5 (own variants); calendar 3; Moa recipes 1. Runtime bundle 1.34 MB. 117 tests.
 
 **Merged 2026-09-10 13:55 (A + B):** 35 kinds, **298 options** (implementations × variations). Per kind: button 5×4=20; input, tabs, notice 4×4=16; cards, stats, table 3×4=12; select, checkbox, switch, textarea, badge, avatar, progress, skeleton, accordion, chips, slider, toggle 4×3=12; breadcrumb, pagination, stepper 3×3=9; calendar 1×3 (date-picker packages judged too heavy); layout sections (hero 4, frame 5, products 2, others 1) stay own-only for now. Runtime bundle for official components grew 690 kB → 1.32 MB (shared across iframes on native). 114 tests pass. Part C (shadcn: input, textarea, card, badge, table, skeleton, alert, breadcrumb, pagination) is running on `grok/shadcn-vendor` and will raise the 3× kinds to 4× and button-adjacent kinds toward 16–20.
 
@@ -73,7 +73,7 @@ A separate fresh subagent was asked to probe the app from screenshots only; it p
 | Feedback | Toasts stack: the persistent "Design mode · 핸들로 크기 조절…" hint occupies the toast slot and overlaps action toasts | p13. Todo: separate hint bar from action toasts; keep last receipts in the status bar. |
 | Approve | Correctly absent from the palette; stays a deliberate click | — |
 
-Open item: in the native WKWebView, ↑↓/Enter sent by System Events while the palette's search input is focused did not reach the document keydown handler (the same code works in Chromium over CDP; ⌘K, Esc and mouse clicks on palette items do work natively). A keyup fallback with an explicit active-item index was added and is being verified after the next rebuild; until then agents should click palette items.
+Native keyboard finding (root cause found): under a Korean input source, WKWebView delivers keys routed through the input method as `key='Process'`/`keyCode 229`, so `key`/`keyCode` checks for ↑↓/Enter never matched in the native app while Chromium passed (verified over CDP). Fix: palette, Escape and ⌘K now match on IME-independent `KeyboardEvent.code`. Verification of the rebuilt app is recorded below.
 
 Harness caveats for any computer-use agent on this app: a Korean input source turns `cliclick t:` ASCII into Hangul jamo (type via the palette's Korean labels or switch the IME); `cliclick kp:esc` did not reach the webview while `osascript … key code 53` did; the window must be frontmost before every click.
 
