@@ -28,9 +28,11 @@
 .catalog-index{padding:25px 18px;overflow:auto;border-right:1px solid #deddd5;background:#f2f1eb}
 .catalog-eyebrow{display:block;color:#697065;font-size:9px;letter-spacing:1.5px;font-weight:600;line-height:1.6}
 .catalog-index>.catalog-eyebrow{margin:0 12px 17px}
-.catalog-index>button{display:flex;justify-content:space-between;gap:8px;width:100%;padding:11px 12px;margin:3px 0;border-radius:6px;text-align:left;color:#52594e;font-size:12px;background:transparent;border:1px solid transparent}
-.catalog-index>button small{font:10px/1.6 monospace;color:#74786f}
-.catalog-index>button[aria-pressed=true]{background:#fff;color:#233e2f;border-color:#dedfd6;box-shadow:0 2px 3px #2c382908;font-weight:600}
+.catalog-index-group{margin:16px 12px 4px;font:600 9px/1.4 system-ui,sans-serif;letter-spacing:1.4px;text-transform:uppercase;color:#697065}
+.catalog-index .catalog-index-group:first-of-type{margin-top:0}
+.catalog-index button[data-action="explorer-kind-pick"]{display:flex;justify-content:space-between;gap:8px;width:100%;padding:11px 12px;margin:3px 0;border-radius:6px;text-align:left;color:#52594e;font-size:12px;background:transparent;border:1px solid transparent}
+.catalog-index button[data-action="explorer-kind-pick"] small{font:10px/1.6 monospace;color:#74786f}
+.catalog-index button[data-action="explorer-kind-pick"][aria-pressed=true]{background:#fff;color:#233e2f;border-color:#dedfd6;box-shadow:0 2px 3px #2c382908;font-weight:600}
 .catalog-brand{margin:26px 10px 0;padding-top:23px;border-top:1px solid #d8dacf}
 .catalog-brand strong{display:block;font-size:12px;margin:9px 0 12px;color:#30392e}
 .catalog-brand>div{display:flex;gap:4px;align-items:center}.catalog-brand i{width:16px;height:16px;display:block;border:1px solid #0002;border-radius:50%}.catalog-brand code{font-size:9px;margin-left:3px;color:#545e4e}
@@ -65,15 +67,22 @@
 .catalog-disclosure{font-size:10px;line-height:1.8;color:#69715f;margin:24px 0 0;max-width:78ch}
 .catalog-modal button:focus-visible,.catalog-modal select:focus-visible{outline:2px solid #2255cc;outline-offset:3px}
 @media(max-width:800px){.catalog-layout{grid-template-columns:150px minmax(0,1fr)}.catalog-results{padding:20px}.catalog-modal .explorer-grid,.catalog-modal .explorer-grid:not(:has([aria-label*=" button "])){grid-template-columns:1fr}.catalog-topline{padding:0 18px;gap:12px}.catalog-modal .catalog-categories{gap:14px}.catalog-shelf-link{max-width:145px;white-space:normal}.catalog-results-heading h3{font-size:28px}}
-@media(max-width:500px){.modal.catalog-modal.wide{max-width:calc(100vw - 16px);height:calc(100vh - 24px);max-height:calc(100vh - 24px)}.catalog-layout{grid-template-columns:110px minmax(0,1fr)}.catalog-index{padding:18px 6px}.catalog-index>button{font-size:10px;padding:9px 6px}.catalog-brand{margin:20px 3px 0}.catalog-results{padding:16px 10px}.catalog-results-heading{display:block}.catalog-variant{margin-top:15px}.catalog-origin{display:none}.catalog-card-meta{flex-wrap:wrap}.catalog-modal .modal-heading{padding:20px}.catalog-modal .modal-heading h2{font-size:25px}.catalog-topline{display:block}.catalog-shelf-link{margin-bottom:10px;max-width:none}.catalog-modal .catalog-card-actions button{font-size:10px}}
+@media(max-width:500px){.modal.catalog-modal.wide{max-width:calc(100vw - 16px);height:calc(100vh - 24px);max-height:calc(100vh - 24px)}.catalog-layout{grid-template-columns:110px minmax(0,1fr)}.catalog-index{padding:18px 6px}.catalog-index button[data-action="explorer-kind-pick"]{font-size:10px;padding:9px 6px}.catalog-index-group{margin-left:6px;margin-right:6px}.catalog-brand{margin:20px 3px 0}.catalog-results{padding:16px 10px}.catalog-results-heading{display:block}.catalog-variant{margin-top:15px}.catalog-origin{display:none}.catalog-card-meta{flex-wrap:wrap}.catalog-modal .modal-heading{padding:20px}.catalog-modal .modal-heading h2{font-size:25px}.catalog-topline{display:block}.catalog-shelf-link{margin-bottom:10px;max-width:none}.catalog-modal .catalog-card-actions button{font-size:10px}}
 .catalog-modal .explorer-preview button{width:auto}
 .catalog-modal .explorer-preview .kit-button{padding:16px 22px;background:var(--paper);border:1px solid #dedfd5;border-radius:8px}
-.catalog-modal .explorer-grid:not([data-preview-kind=button]) .explorer-preview{height:190px;display:block}
-.catalog-modal .explorer-grid:not([data-preview-kind=button]) .explorer-preview>.design-page{width:960px;transform:scale(.36);transform-origin:top left;min-height:520px}
+.catalog-modal .explorer-card{display:grid;grid-template-rows:auto auto 1fr;align-items:stretch;height:100%}
+.catalog-modal .explorer-card header{min-height:42px;box-sizing:border-box}
+.catalog-modal .explorer-preview .kit-header{display:none}
+.catalog-modal .explorer-preview .kit{padding:8px 0}
+.catalog-modal .explorer-preview .kit-field,.catalog-modal .explorer-preview .kit-checks,.catalog-modal .explorer-preview .kit-switch-list,.catalog-modal .explorer-preview .kit-slider-list,.catalog-modal .explorer-preview .kit-progress-list,.catalog-modal .explorer-preview .kit-acc{max-width:none;width:100%}
+.catalog-modal .explorer-grid[data-preview-size=control] .explorer-preview,.modal.catalog-modal .explorer-grid[data-preview-size=control] .explorer-card .explorer-preview{height:120px;min-height:120px;display:flex;align-items:center;justify-content:center}
+.catalog-modal .explorer-grid[data-preview-size=control] .explorer-preview>.design-page,.modal.catalog-modal .explorer-grid[data-preview-size=control] .explorer-preview>.design-page{width:76%;transform:none;min-height:0;zoom:1}
+.catalog-modal .explorer-grid[data-preview-size=data] .explorer-preview,.modal.catalog-modal .explorer-grid[data-preview-size=data] .explorer-card .explorer-preview{height:240px;min-height:240px;display:block}
+.catalog-modal .explorer-grid[data-preview-size=data] .explorer-preview>.design-page,.modal.catalog-modal .explorer-grid[data-preview-size=data] .explorer-preview>.design-page{width:100%;transform:none;min-height:0;zoom:1}
+.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-preview,.modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-card .explorer-preview{height:200px;min-height:200px;display:block}
+.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-preview>.design-page,.modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-preview>.design-page{width:200%;transform:scale(.5);transform-origin:top left;min-height:400px;zoom:1}
 .catalog-modal .explorer-card:only-child{grid-column:1/-1}
-.catalog-modal .explorer-grid:not([data-preview-kind=button]) .explorer-card:only-child .explorer-preview{height:300px}
-.catalog-modal .explorer-grid:not([data-preview-kind=button]) .explorer-card:only-child .explorer-preview>.design-page{width:142.857%;transform:scale(.7)}
-.catalog-modal .explorer-grid[data-preview-kind=input] .explorer-card .explorer-preview>.design-page{width:100%;transform:none;min-height:0}
+.catalog-modal .explorer-grid[data-preview-kind=input] .explorer-card .explorer-preview>.design-page{width:76%;transform:none;min-height:0}
 /* Density follows the object: controls are compact; page layouts keep their stage. */
 .modal.catalog-modal .modal-heading{padding:16px 26px 14px}
 .modal.catalog-modal .modal-heading h2{font-size:27px;margin:4px 0}
@@ -104,8 +113,18 @@
 @media(max-width:1050px){.modal.catalog-modal .explorer-grid[data-preview-kind=button]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.modal.catalog-modal .explorer-grid[data-preview-kind=button]{grid-template-columns:1fr}.catalog-filters{flex-wrap:wrap;padding:10px}.catalog-filters label:first-child{min-width:120px}.catalog-filters select{max-width:130px}.catalog-filters>span{display:none}}
 .modal.catalog-modal .explorer-grid[data-preview-kind=input] .explorer-card:only-child{grid-column:auto}
-.modal.catalog-modal .explorer-grid[data-preview-kind=input] .explorer-card:only-child .explorer-preview>.design-page{width:100%;transform:none;min-height:0}
+.modal.catalog-modal .explorer-grid[data-preview-kind=input] .explorer-card:only-child .explorer-preview>.design-page{width:76%;transform:none;min-height:0}
 .modal.catalog-modal .modal-heading .kicker{display:none}
 .modal.catalog-modal .catalog-categories button{padding:12px 0}
 
-.catalog-variants{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px}.catalog-chip{width:auto;flex:0 0 auto;border:1px solid #d7dccd;border-radius:999px;padding:4px 10px;font-size:11px;line-height:1.2;color:#6b7164;background:#fff;cursor:pointer}.catalog-chip:hover{color:var(--ink);border-color:#b9bfae}.catalog-chip[aria-pressed=true]{background:#344e41;border-color:#344e41;color:#f7faef}.catalog-index small i{font-style:normal;color:#a5a89a;margin-left:2px}
+.catalog-variants{display:flex;flex-wrap:wrap;gap:6px;height:52px;max-height:52px;overflow:hidden;align-content:flex-start;padding:0}.catalog-chip{width:auto;flex:0 0 auto;border:1px solid #d7dccd;border-radius:999px;padding:4px 10px;font-size:11px;line-height:1.2;color:#6b7164;background:#fff;cursor:pointer}.catalog-chip:hover{color:var(--ink);border-color:#b9bfae}.catalog-chip[aria-pressed=true]{background:#344e41;border-color:#344e41;color:#f7faef}.catalog-index small i{font-style:normal;color:#a5a89a;margin-left:2px}
+.catalog-modal .explorer-card footer{display:grid;grid-template-rows:52px auto auto;align-content:start}
+.modal.catalog-modal .explorer-preview .official-action{padding:0;border:0;height:100%;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:transparent}
+.modal.catalog-modal .explorer-grid:not([data-preview-kind=button]) .explorer-preview .official-component iframe{height:100%!important;max-height:100%}
+.modal.catalog-modal .explorer-grid[data-preview-kind=button] .explorer-preview,.modal.catalog-modal .explorer-grid[data-preview-kind=button] .explorer-card .explorer-preview{height:68px;min-height:68px}
+.modal.catalog-modal .explorer-grid[data-preview-kind=button] .explorer-preview>.design-page{width:auto;max-width:80%;transform:none}
+.modal.catalog-modal .explorer-grid[data-preview-size=layout] .catalog-stage{padding:0 0 28px}
+.modal.catalog-modal .explorer-grid[data-preview-size=data] .catalog-stage{padding:12px 14px 28px}
+.modal.catalog-modal .explorer-grid[data-preview-size=control]:not([data-preview-kind=button]) .catalog-stage{padding:10px 14px 28px}
+.modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-card:only-child .explorer-preview{height:200px}
+.modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-card:only-child .explorer-preview>.design-page{width:200%;transform:scale(.5);transform-origin:top left}

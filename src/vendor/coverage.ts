@@ -10,7 +10,7 @@ export const coverage = {
     'button','input','textarea','select','checkbox','switch',
     'cards','tabs','table','notice','stats','badge','avatar',
     'breadcrumb','pagination','progress','skeleton','accordion',
-    'chips','slider','stepper','toggle',
+    'chips','slider','stepper','toggle','calendar',
   ],
   seed: [
     'button','input','textarea','select','checkbox','switch',

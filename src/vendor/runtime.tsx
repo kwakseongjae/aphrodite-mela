@@ -66,6 +66,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Slider as AstryxSlider } from '@astryxdesign/core/Slider';
 import { Stepper as AstryxStepper, Step as AstryxStep } from '@astryxdesign/core/Stepper';
 import { ToggleButton as AstryxToggle, ToggleButtonGroup as AstryxToggleGroup } from '@astryxdesign/core/ToggleButton';
+import { Calendar as AstryxCalendar, type ISODateString } from '@astryxdesign/core/Calendar';
 import { Theme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 import {
@@ -172,6 +173,24 @@ function AxToggle({p}:{p:Props}){
   return <AstryxToggle label={lab(p)} isPressed={pressed} onPressedChange={setPressed} isDisabled={dis(p)} isLoading={load(p)} isIconOnly={p.variant==='icon'} icon={p.variant==='icon'?<span aria-hidden>•</span>:undefined} size="lg"/>;
 }
 function AxPagination({p}:{p:Props}){const [page,setPage]=useState(1);return <AstryxPagination page={page} onChange={setPage} totalPages={pageCount(p)} isDisabled={dis(p)} size={sm(p)||p.variant==='compact'?'sm':'md'} variant={p.variant==='simple'?'none':p.variant==='compact'?'compact':'pages'} label={p.title||lab(p)}/>;}
+function AxCalendar({p}:{p:Props}){
+  const msg=statusText(p);if(msg)return <>{msg}</>;
+  const items=lines(p).filter(Boolean).map(row=>({day:cell(row,0),task:cell(row,1),status:cell(row,2)||'대기'}));
+  if(p.variant==='agenda'){
+    const data=items.map((it,i)=>({id:String(i),...it}));
+    return <AstryxTable data={data} idKey="id" columns={[{key:'day',header:'요일'},{key:'task',header:'업무'},{key:'status',header:'상태'}]} density={sm(p)?'compact':'balanced'} dividers="rows"/>;
+  }
+  if(p.variant==='board'){
+    const groups=[...new Set(items.map(it=>it.status))];
+    return <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.max(1,Math.min(groups.length,5))},minmax(0,1fr))`,gap:8}}>{groups.map(g=><AstryxCard key={g} variant="muted" elevation="none" padding={2}><strong>{g}</strong>{items.filter(it=>it.status===g).map((it,i)=><p key={i} style={{margin:'6px 0 0',fontSize:12}}>{it.day} · {it.task}</p>)}</AstryxCard>)}</div>;
+  }
+  const now=new Date();
+  const offset=now.getDay()===0?-6:1-now.getDay();
+  const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()+offset);
+  const end=new Date(start.getFullYear(),start.getMonth(),start.getDate()+4);
+  const iso=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` as ISODateString;
+  return <div><AstryxCalendar mode="range" defaultValue={{start:iso(start),end:iso(end)}} weekStartsOn="mon" hasWeekNumbers hasVariableRowCount/><ul style={{listStyle:'none',margin:'8px 0 0',padding:0,fontSize:12}}>{items.map((it,i)=><li key={i} style={{display:'flex',gap:8,padding:'4px 0'}}><b>{it.day}</b><span>{it.task}</span><small style={{marginLeft:'auto'}}>{it.status}</small></li>)}</ul></div>;
+}
 
 function SeedInput({p}:{p:Props}){
   return <Field.Root invalid={err(p)} disabled={dis(p)}><Field.Header><Field.Label>{p.title||lab(p)}</Field.Label></Field.Header><SeedTextField.Root size={sm(p)?'medium':'large'} variant={p.variant==='underlined'?'underline':'outline'}><SeedTextField.Input placeholder={p.label} disabled={dis(p)}/></SeedTextField.Root>{err(p)?<Field.ErrorMessage>입력 내용을 확인해주세요</Field.ErrorMessage>:<Field.Description>{p.text}</Field.Description>}</Field.Root>;
@@ -280,6 +299,7 @@ const renderers: Record<CoverageProvider, Partial<Record<OfficialKind,(p:Props)=
     slider: p=><AxSlider p={p}/>,
     stepper: p=><AstryxStepper activeStep={1} orientation={p.variant==='vertical'?'vertical':'horizontal'} density={p.variant==='compact'||sm(p)?'compact':'balanced'} label={p.title||lab(p)}>{(lines(p).filter(Boolean).length?lines(p).filter(Boolean):['Start','Review','Done']).map((row,i)=><AstryxStep key={i} step={i} label={cell(row,0)} description={cell(row,1)}/>)}</AstryxStepper>,
     toggle: p=><AxToggle p={p}/>,
+    calendar: p=><AxCalendar p={p}/>,
   },
   seed: {
     button: p=>{const state=p.options?.state,disabled=state==='disabled',loading=state==='loading',onClick=p.onClick,label=p.label||'Continue';return <ActionButton variant={p.variant==='ghost'?'ghost':p.variant==='outline'?'brandOutline':'brandSolid'} disabled={disabled||loading} aria-busy={loading} onClick={onClick}>{loading?'불러오는 중…':label}</ActionButton>;},

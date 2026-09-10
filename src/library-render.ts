@@ -17,7 +17,7 @@ export function libraryHtml(b:Block,p?:Project):string {
   const button=b.kind==='button';
   const flexible=!button&&b.layout?.height!==undefined;
   const sectionStyle=flexible?`height:${b.layout!.height}px;box-sizing:border-box;display:flex;flex-direction:column`:b.layout?.height?'padding:16px':'';
-  const frameHeight:Record<string,number>={button:90,input:112,textarea:120,select:112,toggle:110,slider:120,notice:120,badge:110,avatar:120,chips:120,progress:120,breadcrumb:120,pagination:120,switch:120,checkbox:120,tabs:240,accordion:260,stepper:250,skeleton:240,cards:360,table:360,stats:360,calendar:360};
+  const frameHeight:Record<string,number>={button:90,input:112,textarea:120,select:112,toggle:110,slider:120,notice:120,badge:110,avatar:120,chips:120,progress:120,breadcrumb:120,pagination:120,switch:120,checkbox:120,tabs:240,accordion:260,stepper:250,skeleton:240,cards:360,table:360,stats:360,calendar:240};
   const frameSizing=flexible?'height:auto;flex:1;min-height:64px':`height:${frameHeight[b.kind]??120}px`;
   const copy=button||b.kind==='cards'?`<div class="official-copy">${b.title?`<h2>${escape(b.title).replaceAll('\n','<br>')}</h2>`:''}${button&&b.text?`<p>${escape(b.text).replaceAll('\n','<br>')}</p>`:''}</div>`:'';
   return `<section class="official-component official-action" data-provider="${b.provider}"${sectionStyle?` style="${sectionStyle}"`:''}>${copy}<iframe title="${escape(b.provider+' '+b.kind+' · '+b.title)}" sandbox="allow-scripts" style="display:block;border:0;width:100%;${frameSizing}" srcdoc="${escape(styledDoc)}"></iframe></section>`;
