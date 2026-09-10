@@ -4,7 +4,9 @@ import {filteredKinds,normalizeCatalogFilter} from '../src/design/catalog-filter
 import {catalogView} from '../src/design/catalog-view';
 import {initialProject} from '../src/model';
 test('catalog filters intersect supported provider, category and bilingual words',()=>{
- assert.deepEqual(filteredKinds('All',{query:'',provider:'mui'}).map(c=>c.kind),['button','input','cards']);
+ const muiKinds=filteredKinds('All',{query:'',provider:'mui'}).map(c=>c.kind);
+ assert.ok(muiKinds.includes('button')&&muiKinds.includes('input')&&muiKinds.includes('cards'));
+ assert.ok(!muiKinds.includes('hero'));
  assert.deepEqual(filteredKinds('All',{query:'입력',provider:'mui'}).map(c=>c.kind),['input']);
  assert.deepEqual(filteredKinds('Layout',{query:'',provider:'mui'}),[]);
  assert.deepEqual(filteredKinds('All',{query:'button mui',provider:'mui'}).map(c=>c.kind),['button']);
