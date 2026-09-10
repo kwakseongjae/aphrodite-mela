@@ -447,6 +447,7 @@ async function action(el: HTMLElement) {
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
     case 'vibe-back': autofillModal();break;
+    case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();modalRoot.querySelector<HTMLFormElement>('#vibe-form')?.requestSubmit();break;}
     case 'brand-kit': showModal('Aphrodite brand kit','Paper Muse · Editorial collage',brandHtml(),true); break;
     case 'apply-omd': {
       const before=fingerprint(project),id=el.dataset.source!;
@@ -658,7 +659,8 @@ document.addEventListener('submit', async e => {
     const language=data.get('language');if(language!=='en'&&language!=='ko')throw new Error('Unsupported content language');
     const plan=planVibe(currentPage(project).blocks,String(data.get('pack')),{copy:data.has('copy'),images:data.has('images'),replace:data.has('replace'),image:vibeImage,language,brandName:project.name});
     vibePending={plan,revision:fingerprint(project)};
-    showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage),true);return;
+    const unsupportedNames=[...new Set(plan.unsupported.map(id=>catalog.find(c=>c.kind===currentPage(project).blocks.find(b=>b.id===id)?.kind)?.name).filter((n):n is string=>!!n))];
+    showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage,unsupportedNames,data.has('replace')),true);return;
   }
   if(form.id==='assembly-run-form'){
     if(assemblyRun&&assemblyRun.status!=='ended'){toast('현재 실행을 먼저 종료하세요.');return;}

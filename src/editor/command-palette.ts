@@ -50,7 +50,8 @@ const groupLabel:Record<Command['group'],{en:string;ko:string}>={navigate:{en:'N
 export function commandPaletteHtml(commands:Command[],query:string,language:Language){
   const ko=language==='ko';
   const list=filterCommands(commands,query,language);
-  const groups=[...new Set(list.map(c=>c.group))];
+  const order:Command['group'][]=['navigate','design','review','edit','file','add'];
+  const groups=order.filter(g=>list.some(c=>c.group===g));
   const items=groups.map(g=>`<li class="palette-group" role="presentation"><span>${esc(groupLabel[g][language])}</span><ul role="group">${list.filter(c=>c.group===g).map(c=>`<li><button type="button" role="option" data-palette data-action="${esc(c.action)}"${Object.entries(c.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')}><span>${esc(ko?c.ko:c.en)}</span>${c.hint?`<small>${esc(ko?c.hint.ko:c.hint.en)}</small>`:''}${c.keys?`<kbd>${esc(c.keys)}</kbd>`:''}</button></li>`).join('')}</ul></li>`).join('');
   return `<div class="palette"><label class="palette-search">${ko?'명령 검색':'Search commands'}<input id="command-search" type="search" autocomplete="off" aria-label="${ko?'명령 검색':'Search commands'}" placeholder="${ko?'예: 히어로 추가, 디자인 시스템, 내보내기':'e.g. add hero, design system, export'}" value="${esc(query)}"></label><ul class="palette-list" role="listbox" aria-label="${ko?'명령':'Commands'}" id="command-list">${items||`<li class="palette-empty" role="status">${ko?'일치하는 명령이 없습니다.':'No matching commands.'}</li>`}</ul><p class="palette-footnote">${ko?'⌘K 또는 ? 로 열기 · ↑↓ 이동 · Enter 실행 · Esc 닫기 · “방향 승인”은 항상 화면에서 직접 클릭합니다.':'Open with ⌘K or ? · ↑↓ move · Enter run · Esc close · “Approve direction” is always a direct click on screen.'}</p></div>`;
 }

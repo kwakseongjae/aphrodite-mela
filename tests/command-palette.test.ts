@@ -39,3 +39,9 @@ test('state line summarises page, selection, system, approval, viewport and save
   assert.match(ko,/선택 없음/);assert.match(ko,/승인됨/);assert.match(ko,/저장 안 됨/);
   assert.doesNotMatch(stateLine({page:'<b>',blocks:1,system:'x',approved:false,viewport:'desktop',saved:true,language:'en'}),/<b>/);
 });
+
+test('groups are ordered so the long add-component list comes last',()=>{
+  const html=commandPaletteHtml(commandTable(ctx),'','en');
+  const idx=(label:string)=>html.indexOf(`<span>${label}</span>`);
+  assert.ok(idx('Navigate')<idx('Design'));assert.ok(idx('Design')<idx('Review'));assert.ok(idx('Review')<idx('Edit'));assert.ok(idx('File')<idx('Add component'));
+});
