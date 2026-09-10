@@ -4,7 +4,9 @@ Updated 2026-09-09. Existing feature-specific validation documents are evidence,
 
 ## Status and sequence
 
-Latest checkpoint #9 (2026-09-10 18:55, chunk 7 — the Space): open canvas with frames per page (presets), camera pan/zoom (wheel, Space+drag, Hand tool, pinch, ⇧1/⇧2/⌘0), frame drag/preset/new/tidy, camera persisted; proposals as frames below the source (Reference → 3 directions, Grok worker module) with accept/keep/discard; frame-scoped delegation; collapsible peek/pin panels with ⌘\\; top-bar search box → palette (⌘K, /) that also lists frames; language dropdown shared with Home. Verified over CDP (pan/zoom/fit/drag/tidy/persistence/panels/scope). 157 tests.
+Latest checkpoint #10 (2026-09-10 21:05, chunk 8 — polish round): light window appearance for the title bar, Brand Kit page (wordmark, app icon, colour, type, voice, cutouts, rules; Korean label 브랜드 리소스 after Toss/Meta usage), sticky modal heading, Files Preview/Export, home right-click menu + Delete… with confirmation, last-opened sort, handwritten line kept in English. 158 tests.
+
+Checkpoint #9 (2026-09-10 18:55, chunk 7 — the Space): open canvas with frames per page (presets), camera pan/zoom (wheel, Space+drag, Hand tool, pinch, ⇧1/⇧2/⌘0), frame drag/preset/new/tidy, camera persisted; proposals as frames below the source (Reference → 3 directions, Grok worker module) with accept/keep/discard; frame-scoped delegation; collapsible peek/pin panels with ⌘\\; top-bar search box → palette (⌘K, /) that also lists frames; language dropdown shared with Home. Verified over CDP (pan/zoom/fit/drag/tidy/persistence/panels/scope). 157 tests.
 
 Checkpoint #8 (2026-09-10 17:45, chunk 6 — dock and agent polish): pointer HUD shown only during move/resize (was a permanent caption above the dock); zoom moved onto the dock; hover outline on canvas blocks; Agent mode gained scope checkboxes and an agent console side panel (scope, newest-first receipt timeline, take control back); Dev mode gained page-level handoff (page HTML, SCENE nodes, agent prompt, tokens.json, node JSON) by a Grok worker. Draft v0.1.2 notes in docs/RELEASE-NOTES-v0.1.2.md. 138 tests.
 

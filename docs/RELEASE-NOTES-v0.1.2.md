@@ -30,7 +30,10 @@
 - Banner with elapsed time and live receipt count; the inspector becomes an agent console with scope and a newest-first receipt timeline. Take control back at any time; the run is recorded either way.
 - Locked actions are refused with a toast while delegated.
 
-**Home**
+**Home and brand**
+- Window uses the light appearance, so the title bar stays readable under macOS dark mode.
+- Aphrodite Brand Kit (아프로디테 브랜드 리소스): identity, colour, type, voice, cutouts and do/don't on one page. Modal headings stay put while the content scrolls.
+- Right-click a project card for its menu; Delete… asks for confirmation in-app. Projects sort by last opened. The Files modal offers Preview and Export per file.
 - Filters as chips next to a compact search; EN/KO dropdown; simpler storage button and modal; lucide icons throughout; no focus rings; two captions removed; Paper-theme button height fixed.
 
 **Under the hood**
