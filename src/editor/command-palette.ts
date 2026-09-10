@@ -43,7 +43,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'welcome',action:'welcome-show',en:'Show the welcome sheet again',ko:'환영 화면 다시 보기',group:'navigate'},
     ...(ctx.pages??[]).filter(p=>!p.active).map(p=>({id:`frame-${p.id}`,action:'page',data:{id:p.id,nav:'fit'},en:`Go to frame · ${p.name}`,ko:`프레임으로 이동 · ${p.name}`,group:'navigate' as const})),
     {id:'desktop',action:'desktop',en:'Desktop viewport',ko:'데스크톱 뷰포트',group:'review',hint:ctx.viewport==='desktop'?{en:'current',ko:'현재'}:undefined},
-    {id:'mobile',action:'mobile',en:'Mobile viewport (375px)',ko:'모바일 뷰포트 (375px)',group:'review',hint:ctx.viewport==='mobile'?{en:'current',ko:'현재'}:undefined},
+    {id:'mobile',action:'mobile',en:'Mobile viewport (390px)',ko:'모바일 뷰포트 (390px)',group:'review',hint:ctx.viewport==='mobile'?{en:'current',ko:'현재'}:undefined},
     {id:'preview',action:'preview',en:'Preview the page (no scripts, same HTML as export)',ko:'페이지 미리보기 (스크립트 없음, export와 동일 HTML)',group:'review'},
     {id:'agent',action:'agent',en:'Agent assembly console · brief & run log',ko:'에이전트 조립 콘솔 · 브리프·실행 기록',group:'review'},
     {id:'export',action:'export',en:'Export handoff (ZIP, prompt, DESIGN.md, SCENE.json)',ko:'핸드오프 내보내기 (ZIP, 프롬프트, DESIGN.md, SCENE.json)',group:'file'},
@@ -86,7 +86,7 @@ export function stateLine(s:{page:string;blocks:number;selectedKind?:string;sele
     s.selectedKind?`${ko?'선택':'Selected'} ${s.selectedName||s.selectedKind}`:(ko?'선택 없음':'No selection'),
     s.system,
     s.approved?(ko?'승인됨':'Approved'):(ko?'초안':'Draft'),
-    s.viewport==='mobile'?(ko?'모바일 375px':'Mobile 375px'):(ko?'데스크톱':'Desktop'),
+    s.viewport==='mobile'?(ko?'모바일 390px':'Mobile 390px'):(ko?'데스크톱':'Desktop'),
     s.saved?(ko?'저장됨':'Saved'):(ko?'저장 안 됨':'Unsaved'),
   ];
   return parts.map(p=>esc(p)).join(' <span class="status-divider">/</span> ');

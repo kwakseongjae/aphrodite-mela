@@ -50,6 +50,7 @@ import {homeCopy} from './workspace/home-copy';
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {placeProposals,resolveProposal} from './agent/proposals';
+import {installMenuSelects} from './design/menu-select';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
@@ -155,11 +156,13 @@ function syncStateAttributes(){
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
-    viewport:document.querySelector('[data-action="mobile"][aria-pressed="true"]')?'mobile':'desktop',
+    viewport:device==='mobile'?'mobile':'desktop',
     modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
     undo:String(undoStack.length),redo:String(redoStack.length),mode:editorMode,
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
+  const status=document.querySelector('#editor-state');
+  if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
 }
 function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
 function commandsModal(query=''){
@@ -185,7 +188,7 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentBannerHtml(){
   if(editorMode!=='agent'||!delegation)return '';
-  return `<div class="agent-banner" role="status">${icon('bot')}${delegationBannerHtml(delegation,uiLanguage)}</div>`;
+  return `<div class="agent-banner" role="status">${icon('bot')}${delegationBannerHtml({...delegation,receipts:assemblyRun?.projectId===project.id?assemblyRun.events.length:delegation.receipts},uiLanguage)}</div>`;
 }
 function render() {
   disposePointerEditor?.();
@@ -693,12 +696,15 @@ document.addEventListener('change', e => {
     document.querySelectorAll<HTMLElement>('.editor-handle').forEach(h=>h.setAttribute('aria-label',`Resize ${b.title} ${h.dataset.handle}`));
     document.querySelector('[data-action="undo"]')?.removeAttribute('disabled');
     document.querySelector('[data-action="redo"]')?.setAttribute('disabled', '');
-    const badge = document.querySelector('.draft-badge')!; badge.textContent = control('Draft'); badge.classList.remove('approved');
+    const badge = document.querySelector('.draft-badge'); if(badge){badge.textContent = control('Draft'); badge.classList.remove('approved');}
     const filled = document.querySelector('.selected-component-label>span'); if (filled) filled.textContent = control('Filled');
-    const review = document.querySelector('.review-card')!;
+    const review = document.querySelector('.review-card');
+    if(review){
     review.querySelector('strong')!.textContent = ui('Like where this is going?','이 방향으로 갈까요?');
     review.querySelector('p')!.textContent = '화면을 확인하고 디자인 방향을 확정하세요.';
     const approve = review.querySelector('button')!; approve.className = 'approve-button'; approve.innerHTML = icon('check') + `<span>${control('Approve direction')}</span>`;
+    }
+    syncStateAttributes();
     hydrateIcons();
   }
   else if(target.id==='component-provider' && b && supportsProvider(target.value,b.kind)) commit(()=>{b.provider=target.value as keyof typeof providers;if(!supportsComponentTheme(b))delete b.theme;});
@@ -899,9 +905,10 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
 });
 installPatternRuntime(document);
+installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 function diskWarningHtml(){return `<div class="disk-warning" role="alert">${icon('circle-alert')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
-function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;

@@ -34,7 +34,7 @@ test('palette html carries real data-action hooks, grouped, escaped, with shortc
 
 test('state line summarises page, selection, system, approval, viewport and save state',()=>{
   const en=stateLine({page:'Home',blocks:7,selectedKind:'hero',selectedName:'Editorial hero',system:'Atelier',approved:false,viewport:'mobile',saved:true,language:'en'});
-  assert.match(en,/Page Home/);assert.match(en,/7 components/);assert.match(en,/Selected Editorial hero/);assert.match(en,/Draft/);assert.match(en,/Mobile 375px/);assert.match(en,/Saved/);
+  assert.match(en,/Page Home/);assert.match(en,/7 components/);assert.match(en,/Selected Editorial hero/);assert.match(en,/Draft/);assert.match(en,/Mobile 390px/);assert.match(en,/Saved/);
   const ko=stateLine({page:'홈',blocks:0,system:'Toss inspired',approved:true,viewport:'desktop',saved:false,language:'ko'});
   assert.match(ko,/선택 없음/);assert.match(ko,/승인됨/);assert.match(ko,/저장 안 됨/);
   assert.doesNotMatch(stateLine({page:'<b>',blocks:1,system:'x',approved:false,viewport:'desktop',saved:true,language:'en'}),/<b>/);
