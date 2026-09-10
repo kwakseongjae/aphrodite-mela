@@ -1,76 +1,168 @@
-# Aphrodite
+<a name="aphrodite"></a>
 
-**Shape before you build.** 코딩 전에 디자인 방향을 조립하고 시각적으로 확인하는 Tauri 데스크톱 프로토타입.
+<p align="center">
+  <img src="public/brand/cutouts/aphrodite.png" width="240" alt="Aphrodite — a newspaper-collage muse in sunglasses beside a golden apple">
+</p>
 
-## 실행
+<h1 align="center">Aphrodite</h1>
+
+<p align="center"><strong>Shape before you build.</strong><br>
+A local-first macOS design workbench where you settle the direction of a screen — with real components, real tokens, and an agent that can drive the same canvas you do.</p>
+
+<p align="center">
+  <a href="https://kwakseongjae.github.io/aphrodite-mela/"><b>Website</b></a> ·
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest"><b>Download</b></a> ·
+  <a href="docs/AGENT-CHANNEL.md">Agent channel</a> ·
+  <a href="docs/COMPUTER-USE.md">Computer-use contract</a> ·
+  <a href="#한국어">한국어</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%2013%2B-1d1d1f" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-signed%20%2B%20notarized-3a4531" alt="Signed and notarized">
+  <img src="https://img.shields.io/badge/license-MIT-8f6a1c" alt="MIT">
+</p>
+
+<p align="center">
+  <img src="site/assets/shots/space-en.webp" width="820" alt="The Space: three frames — a desktop landing page, a mobile page and a variant — on one open canvas with a floating dock">
+</p>
+
+---
+
+## What it is
+
+A coding agent can ship a page in half an hour. It can also ship the *wrong* page in half an hour. Aphrodite is where you decide the direction first, in something real enough to judge, and hand a clean contract to whoever — or whatever — builds it.
+
+- **Local-first.** Projects live on your Mac. No account, no cloud, no generation credits. Your work never leaves the machine.
+- **An open canvas.** Every page is a frame — desktop, tablet, mobile, or a custom width — laid out on one pannable, zoomable space, built from real components and design tokens. Not a mockup, not a screenshot.
+- **Built for agents, too.** Real DOM, named actions, a command palette, and an **Agent mode** that hands the whole screen to a computer-use agent through a receipted channel while a human keeps approval. Same canvas, shared direction.
+
+## Three ways to work on one canvas
+
+<table>
+<tr>
+<td width="33%"><img src="site/assets/shots/home-en.webp" alt="Home: project cards with live previews"></td>
+<td width="33%"><img src="site/assets/shots/agent-en.webp" alt="Agent mode: a banner and a receipt console while an agent drives"></td>
+<td width="33%"><img src="site/assets/shots/dev-en.webp" alt="Dev mode: read-only handoff with identity, tokens and markup"></td>
+</tr>
+<tr>
+<td><b>Home</b> — every project as a card with a live preview, favourites, archive, and a brand kit for the studio itself.</td>
+<td><b>Agent mode</b> — delegate the same UI to an agent with a scope you choose; every edit is receipted, approval stays yours.</td>
+<td><b>Dev mode</b> — a read-only handoff: component identity, tokens as CSS, rendered markup, a prompt for a coding agent.</td>
+</tr>
+</table>
+
+## Download
+
+Grab the latest signed, notarized build for macOS 13 or later — Apple Silicon and Intel:
+
+**→ [github.com/kwakseongjae/aphrodite-mela/releases/latest](https://github.com/kwakseongjae/aphrodite-mela/releases/latest)**
+
+Open the DMG, drag **Aphrodite** into Applications, and launch it. First run walks you through a language choice, a sample project, and a two-minute tour of the editor.
+
+## How it works
+
+1. **Set the direction.** Start from a brief, or drop in a reference. On macOS, Apple Vision reads the copy and layout on-device; local pixel analysis proposes colours and image regions.
+2. **Make it tangible.** Assemble real components on the open canvas. Spread three directions side by side as proposal frames, swap design systems, edit copy and images, keep desktop and mobile in view. Every step is undoable.
+3. **Make it real.** Approve the direction and export a contract — `PROMPT.md`, `DESIGN.md`, `tokens.json`, the rendered HTML, uploaded images, and a project file — everything Codex or Claude Code needs to build exactly what you approved.
+
+## Agent mode
+
+Start Agent mode and the app locks itself for people: a golden shield covers the window, a one-line banner names the operator, and clicks and keys stop responding. The agent drives through a channel instead of the mouse — a loopback HTTP endpoint in the desktop app, or `window.aphroditeAgent` in a browser build — so *the agent, and only the agent, is in control* until a human ends it with **⌘⇧A** or the banner button. Every command is receipted and the approval lock still holds. See **[docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md)**.
+
+## Build from source
+
+Requires Node 22.12+, the Rust/Tauri toolchain, and (for the on-device OCR helper) the macOS Swift compiler. OCR is macOS-only.
 
 ```sh
 npm install
-./script/build_and_run.sh
+npm run dev          # browser build at http://127.0.0.1:1420
+npm run desktop      # Tauri dev app (HMR)
+./script/build_and_run.sh   # release build + launch (Codex's Run button uses this too)
 ```
 
-Codex의 Run 버튼도 같은 빌드·실행 스크립트를 사용한다. 개발 모드: `npm run desktop`.
-브라우저로 실행: `npm run dev` → http://127.0.0.1:1420
+Checks and a release build:
 
 ```sh
 npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
-npm run desktop:build
+npm run desktop:build   # → src-tauri/target/release/bundle/macos/Aphrodite.app
 ```
 
-macOS 빌드 산출물: `src-tauri/target/release/bundle/macos/Aphrodite.app` (DMG 번들 시에는 `bundle/dmg/`로 이동).
-디버그 번들: `npx tauri build --debug --bundles app` → `src-tauri/target/debug/bundle/macos/Aphrodite.app`.
-배포 서명·공증은 GitHub Actions 릴리스 워크플로에서 시크릿이 있을 때만 수행한다(아래 “다운로드와 배포”). Node 22.12+, Rust/Tauri 플랫폼 빌드 도구 및 macOS Swift 컴파일러가 필요하다. 현재 네이티브 OCR 빌드는 macOS 전용이다.
+Distribution signing and notarization run in the GitHub Actions release workflow when the signing secrets are present; tagging `v*` produces the DMGs attached to a release.
 
-## 직접 써보기
+## Under the hood
 
-1. 기본 Form & Field 프로젝트에서 Hero를 선택하고 오른쪽에서 문구를 바꾼다.
-2. Components의 + 또는 드래그로 섹션을 추가한다. 오른쪽 버튼으로 순서 변경·복제·삭제한다.
-3. 디자인 시스템을 바꾸거나 색상·타이포·반경을 편집한다. 같은 프로젝트의 모든 페이지에 적용된다.
-4. Start from a brief로 목적을 입력하면 새 초안 페이지가 추가된다. Auto fill로 샘플 카피와 이미지를 넣는다.
-5. 모바일 전환과 Preview에서 검토하고 Approve direction을 누른다.
-6. Export에서 프롬프트를 복사하거나 ZIP을 저장한다. ZIP 안의 index.html은 로컬 이미지와 함께 오프라인으로 열린다.
+- **Tauri 2** (WKWebView) shell, a **Vite + TypeScript** frontend, and Rust commands for the local workspace, the project file vault, the Vision OCR sidecar, and the agent channel.
+- Components render in sandboxed iframes; official design-system adapters (MUI, Astryx, SEED, shadcn) sit next to Aphrodite's own patterns, all driven by one design contract.
+- The studio's own look — Paper Muse — is documented in the in-app **Brand Kit** and in [docs/APHRODITE-BRAND.md](docs/APHRODITE-BRAND.md).
 
-프로젝트 메뉴에서 저장/열기/새 프로젝트. 페이지 옆 메뉴에서 이름 변경/복제/삭제. 에셋 탭에서 사진 선택. Undo/Redo는 버튼 또는 ⌘Z/⌘⇧Z. `/`로 컴포넌트 검색. 디자인 변경은 승인을 무효화한다.
+## License
 
-### 레퍼런스 → 3안 비교
+MIT — see [LICENSE](LICENSE). Sculpture and collage assets and other third-party references are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Reference → Upload reference 또는 Try a sample reference → Analyze reference. macOS에서는 Apple Vision으로 문구와 좌표를 읽고, 로컬 픽셀 분석으로 색상·이미지 영역 후보를 표시한다. 문구를 수정하고 필요한 경우에만 Use this media candidate를 체크한다. Compare 3 directions → Use direction 1/2/3으로 새 페이지를 추가한다. 원래 페이지와 토큰은 유지된다. 오른쪽 Composition에서 배치를 다시 바꿀 수 있다.
+<br>
 
-브라우저는 OCR 없이 Pixels only로 표시한다. 이미지 영역은 텍스처 기반 추정이지 의미 인식이나 정확한 객체 추출이 아니다. 비교안은 실제 컴포넌트의 3개 고정 배치 변형이며 생성 모델의 결과가 아니다. SCENE.json은 컴포넌트 ID·버전·변형·슬롯·분석 근거를 HTML과 함께 내보낸다.
+---
 
-## 현재 기능과 한계
+<a name="한국어"></a>
 
-실제 동작: 35종 컴포넌트(자체 패턴 + MUI·Astryx·SEED·shadcn 어댑터, 341 옵션), 삽입 DnD, 정렬 버튼, 속성 편집, 다중 페이지, 공유 토큰, 로컬 저장 및 JSON 왕복, PNG/JPG/WebP 업로드, 선택적 DESIGN.md 색상 파싱, 로컬 Auto fill, 미리보기, 승인 상태, ZIP export, 네이티브 파일 저장 대화상자.
+<p align="center">
+  <img src="public/brand/cutouts/aphrodite.png" width="200" alt="아프로디테 — 선글라스를 쓴 신문 콜라주 뮤즈와 황금사과">
+</p>
 
-아직 연결하지 않은 기능: 모델 기반 이미지/영상 생성·분석, 실제 OmD graph validator 및 전체 컴포넌트 계약, 인증/OAuth, 설치 가능한 Codex 플러그인, 백엔드·상품 결제·실제 사이트 라우팅. Brief는 키워드 규칙으로 구조를 고르고 Auto fill은 Form & Field 고정 샘플이다. 공식 브랜드 컴포넌트나 모델 연결을 가장하지 않는다.
+<h1 align="center">Aphrodite · 한국어</h1>
 
-프로젝트는 localStorage에 저장되며 별도 파일로 보관할 수 있다. 브라우저와 앱 저장 영역은 별개다. 업로드 이미지는 2MB 이하 PNG/JPG/WebP만 허용한다(앱 UI·네이티브 OCR 한도 동일). 프로젝트 가져오기는 20MB, 페이지 30개, 페이지당 블록 100개로 제한한다. 사용자가 임의로 고른 전경/배경 색상의 대비는 별도로 검토해야 한다. CTA 전경은 검정/흰색 중 대비가 좋은 값을 자동 선택한다.
+<p align="center"><strong>만들기 전에, 방향부터.</strong><br>
+실제 컴포넌트와 토큰으로 화면의 방향을 먼저 정하고, 당신과 같은 캔버스를 에이전트도 조작할 수 있는 로컬 우선 macOS 디자인 워크벤치.</p>
 
-## 다운로드와 배포
+<p align="center">
+  <a href="https://kwakseongjae.github.io/aphrodite-mela/"><b>웹사이트</b></a> ·
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest"><b>다운로드</b></a> ·
+  <a href="docs/AGENT-CHANNEL.md">에이전트 채널</a> ·
+  <a href="#aphrodite">English</a>
+</p>
 
-- 랜딩 페이지: `site/` (정적 HTML, EN/한국어 자동 전환). `main`에 푸시하면 `.github/workflows/pages.yml`이 GitHub Pages로 배포한다. 공개 주소는 `https://kwakseongjae.github.io/aphrodite-mela/`를 가정한다(저장소 이름이 바뀌면 `site/script.js`의 `REPO`와 `site/index.html`의 `og:*` 메타를 함께 바꾼다).
-- 릴리스: `v0.1.1` 같은 태그를 푸시하면 `.github/workflows/release.yml`이 macOS 러너에서 Apple Silicon(`_aarch64.dmg`)과 Intel(`_x64.dmg`) 두 개의 `.dmg`를 만들어 GitHub Release 초안에 첨부한다. `APPLE_*` 시크릿이 있으면 Developer ID 서명과 앱·DMG 공증(스테이플 포함)까지 수행하고(`v0.1.0`부터 적용), 없으면 ad-hoc 서명 프리릴리스로 남아 첫 실행 시 우클릭 → 열기가 필요하다. 시크릿은 `scripts/apple-signing-secrets.sh`(전체), `--notary-only`(Apple ID/앱 암호만), `--api-key`(App Store Connect API 키)로 넣는다.
-- 로컬 DMG: `npx tauri build --bundles dmg` → `src-tauri/target/release/bundle/dmg/Aphrodite_<ver>_aarch64.dmg`.
-- 최소 macOS 13.0(Ventura). OCR 헬퍼는 Tauri 사이드카(`bundle.externalBin`, 파일명 `src-tauri/bin/aphrodite-vision-<target-triple>`)로 번들되어 `Contents/MacOS/aphrodite-vision`에 놓이고 hardened runtime으로 함께 서명된다(공증 필수). `scripts/build-vision.mjs`가 `-target <arch>-apple-macos13.0`으로 컴파일하므로 빌드 머신의 OS 버전에 묶이지 않는다.
-- 앱 아이콘 원본: `public/brand/app-icon-1024.png`. `npx tauri icon public/brand/app-icon-1024.png`로 `src-tauri/icons/`를 재생성한다.
+### 무엇인가
 
-## 로컬 전용 폴더
+코딩 에이전트는 30분이면 페이지 하나를 만듭니다. 하지만 30분이면 *잘못된* 페이지도 만듭니다. Aphrodite는 판단할 수 있을 만큼 실제에 가까운 화면에서 방향을 먼저 정하고, 그것을 만드는 사람에게 — 혹은 에이전트에게 — 깔끔한 계약으로 넘기는 곳입니다.
 
-`lab/`는 git에 넣지 않는다(`.gitignore`). 실험 이미지, 검증 실행 결과, 네이티브 핸드오프 ZIP, 조각상 원본 모델이 여기 있다: `lab/artifacts/`, `lab/validation/`, `lab/sculpture/`, `lab/brand/`. 문서에 적힌 `artifacts/...`, `validation/...` 경로는 `lab/` 아래를 뜻한다. `scripts/*.mjs` 검증 스크립트는 `lab/artifacts/`에 쓰고 읽는다.
+- **로컬 우선.** 프로젝트는 이 Mac에 저장됩니다. 계정도, 클라우드도, 생성 크레딧도 없습니다. 작업이 기기를 떠나지 않습니다.
+- **열린 캔버스.** 모든 페이지가 프레임입니다. 데스크톱·태블릿·모바일·사용자 지정 너비를, 이동하고 확대할 수 있는 하나의 공간 위에 실제 컴포넌트와 디자인 토큰으로 배치합니다. 목업도, 스크린샷도 아닙니다.
+- **에이전트를 위한 설계.** 실제 DOM, 이름 있는 동작, 명령 팔레트, 그리고 **에이전트 모드**. 화면 전체를 컴퓨터 유즈 에이전트에게 영수증이 남는 채널로 위임하되, 승인은 사람이 쥡니다. 같은 캔버스, 공유된 방향.
 
-## 구조
+### 다운로드
 
-- `src/model.ts`: 버전이 있는 프로젝트/시스템/페이지/블록, 가져오기 검증, 승인 변경 감지
-- `src/render.ts` + `src/page.css`: 에디터와 export가 공유하는 HTML/CSS 렌더러
-- `src/components.ts`: 자체 컴포넌트 registry와 SCENE.json 계약
-- `src/reference.ts` + `src-tauri/native/ReferenceVision.swift`: 로컬 픽셀 분석 / 네이티브 OCR / 3안 조립
-- `src/main.ts` + `src/style.css`: 작업대, 편집/히스토리/모달, 파일 UI
-- `src/export.ts`: 프롬프트/구조적 DESIGN.md/HTML/JSON/에셋 ZIP, native save
-- `src-tauri/`: Tauri 2 셸, CSP 및 최소 저장 권한
-- `docs/PRODUCT.md`: 제품 정의, 이번 구현 범위, OmD와 agent 확장 로드맵
-- `docs/COMPUTER-USE.md`: 에이전트 UI 조작 가이드
-- `tests/model.test.ts`: 프로젝트 왕복·수입 검증·승인 무효화·토큰 파싱
+macOS 13 이상용 서명·공증된 최신 빌드(Apple Silicon·Intel):
 
-오마이디자인 계약을 참고했지만 내보낸 DESIGN.md는 검증된 OmD Portable Core 또는 Bound System이라고 주장하지 않는다. OpenDesign의 로컬 작업 흐름을 참고해 독립 구현했다. 원본 코드의 포크가 아니다. 출처와 라이선스는 `THIRD_PARTY_NOTICES.md` 참고. 이 저장소의 코드는 MIT 라이선스(`LICENSE`)다.
+**→ [github.com/kwakseongjae/aphrodite-mela/releases/latest](https://github.com/kwakseongjae/aphrodite-mela/releases/latest)**
+
+DMG를 열고 **Aphrodite**를 Applications로 끌어다 놓은 뒤 실행하세요. 첫 실행에서 언어 선택, 샘플 프로젝트, 2분짜리 에디터 둘러보기를 안내합니다.
+
+### 작동 방식
+
+1. **방향 잡기.** 브리프로 시작하거나 레퍼런스를 넣습니다. macOS에서는 Apple Vision이 기기 안에서 문구와 배치를 읽고, 로컬 픽셀 분석이 색과 이미지 영역을 제안합니다.
+2. **손에 잡히게.** 열린 캔버스에서 실제 컴포넌트로 조립합니다. 세 방향을 제안 프레임으로 나란히 펼치고, 디자인 시스템을 바꾸고, 문구와 이미지를 고치고, 데스크톱과 모바일을 한눈에 보세요. 모든 단계는 되돌릴 수 있습니다.
+3. **실제로 만들기.** 방향을 승인하고 계약을 내보냅니다. `PROMPT.md`, `DESIGN.md`, `tokens.json`, 렌더된 HTML, 업로드한 이미지, 프로젝트 파일까지 — Codex나 Claude Code가 승인한 그대로 구현하는 데 필요한 모든 것.
+
+### 에이전트 모드
+
+에이전트 모드를 켜면 앱이 사람에게는 잠깁니다. 황금색 음영이 창을 덮고, 한 줄 배너가 조작 주체를 알리며, 클릭과 키가 반응하지 않습니다. 에이전트는 마우스가 아니라 채널로 조작합니다 — 데스크톱 앱의 로컬 HTTP 엔드포인트, 또는 브라우저 빌드의 `window.aphroditeAgent`. 그래서 사람이 **⌘⇧A** 또는 배너 버튼으로 끄기 전까지 *에이전트가, 에이전트만이* 제어합니다. 모든 명령은 영수증으로 남고 승인 잠금은 그대로입니다. **[docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md)** 참고.
+
+### 소스에서 빌드
+
+Node 22.12+, Rust/Tauri 툴체인, (기기 내 OCR 도우미용) macOS Swift 컴파일러가 필요합니다. OCR은 macOS 전용입니다.
+
+```sh
+npm install
+npm run dev          # 브라우저 빌드 http://127.0.0.1:1420
+npm run desktop      # Tauri 개발 앱 (HMR)
+./script/build_and_run.sh   # 릴리스 빌드 + 실행
+```
+
+배포 서명·공증은 시크릿이 있을 때 GitHub Actions 릴리스 워크플로에서 수행되며, `v*` 태그를 밀면 릴리스에 DMG가 첨부됩니다.
+
+### 라이선스
+
+MIT — [LICENSE](LICENSE) 참고. 조각·콜라주 에셋과 기타 서드파티 참조는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 표기했습니다.

@@ -1,6 +1,12 @@
 /* Aphrodite landing — language toggle + latest-release download link. No build step. */
 (function () {
   var REPO = 'kwakseongjae/aphrodite-mela';
+  // Pinned floor: a real, signed DMG that downloads even if the GitHub API is rate-limited or a newer
+  // release is still a draft (GitHub's /releases/latest skips drafts). latestRelease() upgrades this.
+  var VERSION = '0.1.5';
+  var DL = 'https://github.com/' + REPO + '/releases/download/v' + VERSION + '/';
+  var PIN_ARM = DL + 'Aphrodite_' + VERSION + '_aarch64.dmg';
+  var PIN_INTEL = DL + 'Aphrodite_' + VERSION + '_x64.dmg';
   var GATEKEEPER_NOTE = false; // releases are Developer ID signed + notarized (v0.1.0+); set true for unsigned test builds
 
   var copy = {
@@ -117,9 +123,19 @@
     set('[data-releases-link]', base + '/releases');
     set('[data-readme-link]', base + '#readme');
     set('[data-notices-link]', base + '/blob/main/THIRD_PARTY_NOTICES.md');
-    set('[data-download]', base + '/releases/latest');
+    set('[data-download]', PIN_ARM);
+    var intel = document.querySelector('[data-download-intel]');
+    if (intel) { intel.href = PIN_INTEL; intel.hidden = false; }
+    var v = document.querySelector('[data-version]');
+    if (v) v.textContent = 'v' + VERSION;
     var note = document.querySelector('[data-gatekeeper]');
     if (note && !GATEKEEPER_NOTE) note.hidden = true;
+  }
+
+  function cmpVersion(a, b) {
+    var pa = String(a).split('.'), pb = String(b).split('.');
+    for (var i = 0; i < 3; i++) { var d = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0); if (d) return d < 0 ? -1 : 1; }
+    return 0;
   }
 
   function latestRelease() {
@@ -128,6 +144,8 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (rel) {
         if (!rel) return;
+        // Never let a stale "latest" (older than the pinned floor) downgrade the button.
+        if (cmpVersion((rel.tag_name || '').replace(/^v/, ''), VERSION) < 0) return;
         var assets = rel.assets || [];
         var arm = null, intel = null;
         for (var i = 0; i < assets.length; i++) {
