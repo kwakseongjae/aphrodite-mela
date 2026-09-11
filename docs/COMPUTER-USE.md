@@ -112,6 +112,8 @@ Home is scoped to one workspace at a time. The sidebar switcher is `details.foli
 
 Projects carry `workspaceId` in the library (absent means `personal`). New, imported, duplicated and sample projects are filed under the active workspace, and the project grid, the filter chips and their counts only ever show that workspace. An agent that cannot find a project should check which workspace is active before concluding it is gone.
 
+Right-clicking a project card opens that card's `details.folio-more` menu at the pointer; clicking the `···` button anchors the same menu under it. Both render as fixed layers, so the menu is never clipped by the card or the grid.
+
 The left sidebar collapses: `data-action="home-sidebar"` toggles it, `.folio-home[data-sidebar]` reports `open` or `collapsed`, and when collapsed a floating tab (`.folio-side-tab`, same action) brings it back. The state persists per device. The workspace menu renders as a fixed layer so the scrolling sidebar cannot clip it.
 
 Filtering, sorting and search update the grid in place (keyed reconciliation), so card elements persist across a filter change. Do not assume a fresh DOM node per filter; re-query by `[data-project-id]`.

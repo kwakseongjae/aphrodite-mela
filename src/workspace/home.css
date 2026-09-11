@@ -11,7 +11,7 @@
 .folio-night .folio-empty p,.folio-night .folio-art>span,.folio-night .folio-bottom{color:#c3bda9}
 
 /* favourites: outlined star fills on press, pops when toggled */
-.folio-pin{border:0;background:none;color:#b3a27c;padding:4px;display:inline-flex;border-radius:6px;transition:color .2s ease,transform .2s ease,background .15s}.folio-pin .folio-star{width:18px;height:18px;fill:transparent;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round;transition:fill .25s ease}.folio-pin:hover{transform:scale(1.12);background:#efece3}.folio-pin[aria-pressed=true]{color:#b48a32}.folio-pin[aria-pressed=true] .folio-star{fill:currentColor}
+.folio-pin{border:0;background:none;color:#b3a27c;padding:4px;display:inline-flex;border-radius:6px;transition:color .2s ease,transform .2s ease,background .15s}.folio-pin .folio-star{width:18px;height:18px;fill:transparent;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round;transition:fill .25s ease}.folio-pin:hover{background:#ebe7dc;color:#b48a32}.folio-pin[aria-pressed=true]{color:#b48a32}.folio-pin[aria-pressed=true] .folio-star{fill:currentColor}
 @keyframes folio-star-pop{0%{transform:scale(1)}35%{transform:scale(1.38) rotate(-10deg)}65%{transform:scale(.92) rotate(4deg)}100%{transform:scale(1)}}.folio-star-pop .folio-star{animation:folio-star-pop .48s cubic-bezier(.2,.8,.2,1.2)}
 /* more menu (native <details>) */
 .folio-more{position:relative}.folio-more summary{list-style:none;cursor:pointer;width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#8b8373;font-size:15px;letter-spacing:1px;line-height:1;transition:background .15s,color .15s}.folio-more summary::-webkit-details-marker{display:none}.folio-more summary:hover,.folio-more[open] summary{background:#ebe7dc;color:var(--ink)}.folio-menu{position:absolute;right:0;top:32px;min-width:160px;background:#fffdf7;border:1px solid #d9d3c4;border-radius:9px;box-shadow:0 16px 34px -16px rgba(41,40,32,.4);padding:6px;z-index:5;display:grid;gap:2px}.folio-menu button{border:0;background:none;text-align:left;justify-content:flex-start;padding:8px 10px;font-size:12px;border-radius:6px;width:100%;color:var(--ink)}.folio-menu button:hover{background:#efece3}
@@ -102,3 +102,26 @@
 .folio-night .folio-side-tab{background:rgba(46,45,38,.94);border-color:#4a4839;color:#c3bda9}
 .folio-night .folio-side-tab:hover{background:#34332b;color:#f4efdf}
 .folio-home[data-sidebar="collapsed"] .folio-top{padding-left:58px}
+
+.folio-more .folio-menu{position:fixed;top:0;left:0;right:auto;min-width:176px;z-index:60}
+.folio-pin{width:28px;height:28px;padding:0;place-items:center;border-radius:6px}
+.folio-pin:hover{transform:none;background:#ebe7dc;color:#b48a32}
+.folio-night .folio-pin:hover{background:#3a382e}
+.folio-pin:active{transform:scale(.94)}
+
+.ws-pick-row{display:flex;align-items:flex-start;gap:12px;padding:7px 0}
+.ws-pick-row+.ws-pick-row{border-top:1px dashed #eee9dc}
+.ws-pick-label{width:44px;flex:none;padding-top:6px;font-size:11px;color:#8b8577}
+.ws-swatches{margin:0;align-items:center}
+.ws-custom-color{position:relative;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;border:1px solid #d9d3c4;background:#fff;cursor:pointer;overflow:hidden}
+.ws-custom-color input{position:absolute;inset:0;opacity:0;width:100%;height:100%;padding:0;border:0;cursor:pointer}
+.ws-custom-color span{display:grid;place-items:center;pointer-events:none;color:#8b8577}
+.ws-custom-color svg{width:14px;height:14px}
+.ws-custom-color:hover{border-color:#b48a32;color:#b48a32}
+.ws-emoji-grid{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.ws-emoji{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:16px;line-height:1;border:1px solid transparent;background:none;cursor:pointer;transition:background .12s,border-color .12s}
+.ws-emoji:hover{background:#f1efe6}
+.ws-emoji[aria-pressed="true"]{border-color:#292820;background:#fff}
+.folio-night .ws-emoji:hover{background:#3a382e}
+.ws-emoji-custom{width:52px;height:30px;text-align:center;font-size:14px;border-radius:8px;border:1px dashed #d9d3c4;background:transparent}
+.ws-avatar-row{gap:8px}

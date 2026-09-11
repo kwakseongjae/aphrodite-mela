@@ -5,6 +5,9 @@ import type {Language} from '../i18n';
 
 export const avatarPalette=WORKSPACE_COLORS;
 
+/** A curated set that suits the studio: classical, papery, tools of the trade. Not a full emoji keyboard. */
+export const avatarEmoji=['🍎','🌿','🪶','🌙','✨','🔥','🎨','✏️','📐','🏛️','📚','🗂️','🧭','💎','🕯️','🧪','🛠️','🎬'] as const;
+
 /** The avatar chip: a colour with initials, an emoji, or an uploaded image. */
 export function avatarChipHtml(ws:Workspace,extraClass=''):string{
   return `<span class="ws-avatar ${extraClass}" style="${esc(avatarStyle(ws))}" aria-hidden="true">${avatarContent(ws)}</span>`;
@@ -30,8 +33,9 @@ export function workspaceFormHtml(language:Language,ws:Workspace|undefined,optio
   return `<form id="workspace-form" data-id="${esc(ws?.id??'')}">
 <div class="ws-form-head">${preview}<label class="form-label ws-name-field">${ko?'이름':'Name'}<input name="name" required maxlength="60" value="${esc(ws?.name??'')}" placeholder="${ko?'예: 개인 작업 공간, 클라이언트 A':'e.g. Personal workspace, Client A'}" autocomplete="off"></label></div>
 <fieldset class="ws-avatar-picker"><legend>${ko?'아바타':'Avatar'}</legend>
-<div class="ws-swatches" role="group" aria-label="${ko?'색상':'Colour'}">${swatches}</div>
-<div class="ws-avatar-row"><label class="ws-emoji-field">${ko?'이모지':'Emoji'}<input name="emoji" maxlength="8" value="${esc(avatar.kind==='emoji'?avatar.value:'')}" placeholder="✳" autocomplete="off"></label><button type="button" class="secondary-button" data-action="ws-pick-image">${icon('image-plus')}${ko?'이미지 올리기':'Upload image'}</button>${avatar.kind==='image'?`<button type="button" class="text-link" data-action="ws-clear-image">${ko?'이미지 제거':'Remove image'}</button>`:''}</div>
+<div class="ws-pick-row"><span class="ws-pick-label">${ko?'색상':'Colour'}</span><div class="ws-swatches" role="group" aria-label="${ko?'색상':'Colour'}">${swatches}<label class="ws-custom-color" title="${ko?'직접 고르기':'Pick your own'}"><input type="color" name="color" value="${esc(activeColor||avatarPalette[0])}" aria-label="${ko?'색상 직접 고르기':'Custom colour'}"><span aria-hidden="true">${icon('palette')}</span></label></div></div>
+<div class="ws-pick-row"><span class="ws-pick-label">${ko?'이모지':'Emoji'}</span><div class="ws-emoji-grid" role="group" aria-label="${ko?'이모지':'Emoji'}">${avatarEmoji.map(e=>`<button type="button" class="ws-emoji" data-action="ws-pick-emoji" data-emoji="${esc(e)}" aria-pressed="${avatar.kind==='emoji'&&avatar.value===e}" aria-label="${esc(e)}">${esc(e)}</button>`).join('')}<input class="ws-emoji-custom" name="emoji" maxlength="8" value="${esc(avatar.kind==='emoji'?avatar.value:'')}" placeholder="${ko?'직접':'Own'}" aria-label="${ko?'이모지 직접 입력':'Custom emoji'}" autocomplete="off"></div></div>
+<div class="ws-pick-row"><span class="ws-pick-label">${ko?'이미지':'Image'}</span><div class="ws-avatar-row"><button type="button" class="secondary-button" data-action="ws-pick-image">${icon('image-plus')}${ko?'이미지 올리기':'Upload image'}</button>${avatar.kind==='image'?`<button type="button" class="text-link" data-action="ws-clear-image">${ko?'제거':'Remove'}</button>`:''}</div></div>
 <input type="hidden" name="image" value="${esc(avatar.kind==='image'?avatar.value:'')}"></fieldset>
 <p class="fine-print">${ko?'작업 공간은 이 기기에만 저장됩니다. 프로젝트는 작업 공간별로 나뉘어 보입니다.':'Workspaces live on this device. Projects are listed per workspace.'}</p>
 <button class="primary-button full-width" type="submit">${editing?(ko?'변경 사항 저장':'Save changes'):(ko?'작업 공간 만들기':'Create workspace')}</button>

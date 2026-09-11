@@ -216,6 +216,23 @@ function agentChannelText(){
  * <img loading="lazy"> — including the hero collage — which reads as the page reloading.
  */
 /** The sidebar scrolls, which would clip an absolute dropdown; the workspace menu is placed as a fixed layer. */
+let cardMenuPoint:{x:number;y:number}|undefined;
+/** The card menu floats: anchored under the ··· button, or at the pointer when opened by right-click. */
+function placeCardMenu(host:HTMLDetailsElement){
+  const menu=host.querySelector<HTMLElement>('.folio-menu');if(!menu)return;
+  if(!host.open){menu.style.removeProperty('left');menu.style.removeProperty('top');cardMenuPoint=undefined;return;}
+  const summary=host.querySelector<HTMLElement>('summary');
+  const r=summary?.getBoundingClientRect();
+  const w=menu.offsetWidth||176,h=menu.offsetHeight||200;
+  const at=cardMenuPoint;
+  let left=at?at.x:(r?r.right-w:12);
+  let top=at?at.y:(r?r.bottom+6:12);
+  if(left+w>innerWidth-10)left=Math.max(10,innerWidth-w-10);
+  if(top+h>innerHeight-10)top=Math.max(10,(at?at.y:(r?r.top:0))-h-(at?0:6));
+  menu.style.left=`${Math.round(Math.max(10,left))}px`;
+  menu.style.top=`${Math.round(Math.max(10,top))}px`;
+  cardMenuPoint=undefined;
+}
 function placeWorkspaceMenu(){
   const host=document.querySelector<HTMLDetailsElement>('details.folio-ws');
   const menu=host?.querySelector<HTMLElement>('.ws-menu');
@@ -236,7 +253,8 @@ function wsPreview(){
   const name=(form.elements.namedItem('name') as HTMLInputElement).value.trim();
   const emoji=(form.elements.namedItem('emoji') as HTMLInputElement).value.trim();
   const image=(form.elements.namedItem('image') as HTMLInputElement).value;
-  const avatar:WorkspaceAvatar=image?{kind:'image',value:image}:emoji?{kind:'emoji',value:emoji}:(wsAvatarDraft&&wsAvatarDraft.kind==='color'?wsAvatarDraft:{kind:'color',value:WORKSPACE_COLORS[0]});
+  const picked=(form.elements.namedItem('color') as HTMLInputElement|null)?.value;
+  const avatar:WorkspaceAvatar=image?{kind:'image',value:image}:emoji?{kind:'emoji',value:emoji}:{kind:'color',value:picked||(wsAvatarDraft&&wsAvatarDraft.kind==='color'?wsAvatarDraft.value:WORKSPACE_COLORS[0])};
   const preview={id:'preview',name:name||ui('Workspace','작업 공간'),avatar,createdAt:''};
   chip.setAttribute('style',avatarStyle(preview));
   chip.innerHTML=avatarContent(preview);
@@ -543,7 +561,8 @@ async function action(el: HTMLElement) {
     case 'ws-switch': {const id=el.dataset.id!;if(id===workspaces.activeId)break;saveWorkspaces(setActiveWorkspace(workspaces,id));hubCardCache.clear();hubQuery='';render();break;}
     case 'ws-new': wsAvatarDraft=undefined;workspaceModal(undefined);break;
     case 'ws-settings': wsAvatarDraft=undefined;workspaceModal(workspaces.workspaces.find(w=>w.id===workspaces.activeId));break;
-    case 'ws-pick-color': {const value=el.dataset.color!;wsAvatarDraft={kind:'color',value};const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(form){(form.elements.namedItem('emoji') as HTMLInputElement).value='';(form.elements.namedItem('image') as HTMLInputElement).value='';}modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-color"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.color===value)));wsPreview();break;}
+    case 'ws-pick-color': {const value=el.dataset.color!;wsAvatarDraft={kind:'color',value};const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(form){(form.elements.namedItem('emoji') as HTMLInputElement).value='';(form.elements.namedItem('image') as HTMLInputElement).value='';(form.elements.namedItem('color') as HTMLInputElement).value=value;modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed','false'));}modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-color"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.color===value)));wsPreview();break;}
+    case 'ws-pick-emoji': {const value=el.dataset.emoji??'';const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)break;const field=form.elements.namedItem('emoji') as HTMLInputElement;const already=field.value===value;field.value=already?'':value;(form.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft=already?{kind:'color',value:(form.elements.namedItem('color') as HTMLInputElement).value}:{kind:'emoji',value};modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed',String(!already&&b.dataset.emoji===value)));wsPreview();break;}
     case 'ws-pick-image': pickFile('image/png,image/jpeg,image/webp',async file=>{if(file.size>2_000_000)throw new Error(ui('Pick an image under 2 MB.','2MB 이하 이미지를 골라주세요.'));const data=await readImage(file);const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)return;(form.elements.namedItem('image') as HTMLInputElement).value=data;(form.elements.namedItem('emoji') as HTMLInputElement).value='';wsAvatarDraft={kind:'image',value:data};wsPreview();});break;
     case 'ws-clear-image': {const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(form)(form.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft={kind:'color',value:WORKSPACE_COLORS[0]};wsPreview();break;}
     case 'ws-delete': {const id=el.dataset.id!;const target=workspaces.workspaces.find(w=>w.id===id);if(!target)break;const count=workspaceCounts(library)[id]??0;showModal(ui('Delete this workspace?','이 작업 공간을 삭제할까요?'),esc(target.name),`<p class="panel-description">${count?ui(`Its ${count} project(s) move to the workspace you land in. Nothing is deleted.`,`프로젝트 ${count}개는 이동한 작업 공간으로 옮겨집니다. 삭제되지 않습니다.`):ui('It holds no projects.','프로젝트가 없습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="ws-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete workspace','작업 공간 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
@@ -740,10 +759,10 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('contextmenu',e=>{
   if(screen!=='home')return;const card=(e.target as HTMLElement).closest<HTMLElement>('[data-project-id]');if(!card)return;
-  e.preventDefault();document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{d.open=false;});const menu=card.querySelector<HTMLDetailsElement>('details.folio-more');if(menu){menu.open=true;menu.querySelector<HTMLElement>('button')?.focus();}
+  e.preventDefault();document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{d.open=false;});const menu=card.querySelector<HTMLDetailsElement>('details.folio-more');if(menu){cardMenuPoint={x:e.clientX,y:e.clientY};menu.open=true;menu.querySelector<HTMLElement>('button')?.focus();}
 });
 document.addEventListener('input', e => {
-  if((e.target as HTMLElement).closest?.('#workspace-form')){wsPreview();}
+  if((e.target as HTMLElement).closest?.('#workspace-form')){const t=e.target as HTMLInputElement;if(t.name==='emoji'){modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.emoji===t.value)));if(t.value)(modalRoot.querySelector<HTMLFormElement>('#workspace-form')!.elements.namedItem('image') as HTMLInputElement).value='';}if(t.name==='color'){const f=modalRoot.querySelector<HTMLFormElement>('#workspace-form')!;(f.elements.namedItem('emoji') as HTMLInputElement).value='';(f.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft={kind:'color',value:t.value};modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-color"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.color?.toLowerCase()===t.value.toLowerCase())));modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed','false'));}wsPreview();}
   if((e.target as HTMLElement).id==='command-search'){const value=(e.target as HTMLInputElement).value;clearTimeout(paletteDebounce);paletteDebounce=window.setTimeout(()=>{if(modalRoot.querySelector('#command-search'))renderPaletteList(value);},value?90:0);return;}
   const target = e.target as HTMLInputElement;
   if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
@@ -815,7 +834,8 @@ document.addEventListener('submit', async e => {
     if(!name){toast(ui('Give the workspace a name.','작업 공간 이름을 입력해주세요.'));return;}
     const emoji=String(data.get('emoji')??'').trim().slice(0,8);
     const image=String(data.get('image')??'');
-    const avatar:WorkspaceAvatar=image?{kind:'image',value:image}:emoji?{kind:'emoji',value:emoji}:(wsAvatarDraft&&wsAvatarDraft.kind==='color'?wsAvatarDraft:{kind:'color',value:WORKSPACE_COLORS[0]});
+    const picked=String(data.get('color')??'');
+    const avatar:WorkspaceAvatar=image?{kind:'image',value:image}:emoji?{kind:'emoji',value:emoji}:{kind:'color',value:/^#[0-9a-fA-F]{6}$/.test(picked)?picked:(wsAvatarDraft&&wsAvatarDraft.kind==='color'?wsAvatarDraft.value:WORKSPACE_COLORS[0])};
     try{
       if(id){saveWorkspaces(setWorkspaceAvatar(renameWorkspace(workspaces,id,name),id,avatar));}
       else{saveWorkspaces(createWorkspace(workspaces,name,avatar));hubCardCache.clear();hubQuery='';}
@@ -893,7 +913,7 @@ function positionTour(){
   Object.assign(card.style,{left:`${left}px`,top:`${top}px`});
 }
 window.addEventListener('resize',()=>positionTour());
-document.addEventListener('toggle',e=>{if((e.target as HTMLElement)?.classList?.contains('folio-ws'))placeWorkspaceMenu();},{capture:true});
+document.addEventListener('toggle',e=>{const el=e.target as HTMLElement;if(el?.classList?.contains('folio-ws'))placeWorkspaceMenu();else if(el?.classList?.contains('folio-more'))placeCardMenu(el as HTMLDetailsElement);},{capture:true});
 window.addEventListener('resize',()=>placeWorkspaceMenu());
 /* ---- Agent channel: commands arrive over the loopback bridge (desktop) or window.aphroditeAgent (browser) ---- */
 function agentState(){return {ok:true,state:{...app.dataset},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
