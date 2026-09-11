@@ -22,6 +22,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 https://github.com/nexu-io/open-design — workflow reference, inspected 2026-09-08. The repository identifies Apache-2.0 licensing. No OpenDesign source code was copied or vendored into this prototype.
 
+## Generated brand assets
+
+`public/brand/apple-mark.png` — the engraved golden apple with a cream "a", generated 2026-09-11 with the built-in image generation tool through the Codex CLI, then trimmed and downscaled for the interface. Exact backend model not exposed. It is an original mark for Aphrodite, not a depiction of a real product.
+
 ## Photography
 
 Bundled reference images were retrieved from Unsplash's image CDN:

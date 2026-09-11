@@ -29,9 +29,9 @@
 .folio-menu-danger{color:#a3462b!important}.folio-night .folio-menu-danger{color:#f0a58f!important}
 
 .folio-wordmark{gap:10px;align-items:center;min-width:0}
-.brand-app-icon{width:36px;height:36px;flex:none;border-radius:9px;box-shadow:0 2px 6px -2px rgba(36,48,34,.35);user-select:none;-webkit-user-drag:none}
+.brand-app-icon{width:36px;height:36px;flex:none;user-select:none;-webkit-user-drag:none}
 .folio-wordmark>svg{width:auto;height:21px;max-width:none;flex:none}
-@media(max-width:1050px){.brand-app-icon{width:30px;height:30px;border-radius:8px}.folio-wordmark>svg{height:18px}}
+@media(max-width:1050px){.brand-app-icon{width:30px;height:30px}.folio-wordmark>svg{height:18px}}
 .folio-night .brand-app-icon{box-shadow:0 2px 8px -2px rgba(0,0,0,.6)}
 .folio-bottom{justify-content:flex-end}
 
@@ -88,8 +88,14 @@
 .ws-avatar{width:32px;height:32px;border-radius:9px;font-size:11.5px}
 
 .folio-home{position:relative}
-.folio-home[data-sidebar="collapsed"]{grid-template-columns:minmax(0,1fr)}
-.folio-home[data-sidebar="collapsed"]>.folio-sidebar{display:none}
+.folio-home{transition:grid-template-columns .26s cubic-bezier(.22,.7,.2,1)}
+.folio-home[data-sidebar="collapsed"]{grid-template-columns:0px minmax(0,1fr)}
+.folio-home>.folio-sidebar{overflow-x:hidden;transition:padding .26s cubic-bezier(.22,.7,.2,1),opacity .18s ease,border-color .26s ease}
+.folio-home[data-sidebar="collapsed"]>.folio-sidebar{padding-left:0;padding-right:0;opacity:0;pointer-events:none;border-right-color:transparent}
+.folio-home[data-sidebar="collapsed"]>.folio-sidebar>*{min-width:224px}
+.folio-side-tab{animation:folio-tab-in .22s ease-out}
+@keyframes folio-tab-in{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.folio-home,.folio-home>.folio-sidebar{transition:none}.folio-side-tab{animation:none}}
 .folio-side-collapse{position:absolute;top:12px;right:10px;z-index:3;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:#8b8577;opacity:0;transition:opacity .12s}
 .folio-side-collapse svg{width:15px;height:15px}
 .folio-sidebar:hover .folio-side-collapse,.folio-side-collapse:focus-visible{opacity:1}

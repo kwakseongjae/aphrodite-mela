@@ -264,6 +264,29 @@ function workspaceModal(ws:Workspace|undefined){
   showModal(ws?ui('Workspace settings','작업 공간 설정'):ui('A new workspace.','새 작업 공간.'),ws?ui('Name, avatar, and what happens to its projects.','이름과 아바타, 그리고 프로젝트 처리.'):ui('Projects are listed per workspace. Everything stays on this Mac.','프로젝트는 작업 공간별로 보입니다. 모든 것은 이 Mac에 남습니다.'),workspaceFormHtml(uiLanguage,ws,{canDelete:workspaces.workspaces.length>1,projectCount:count}));
   modalRoot.querySelector<HTMLInputElement>('#workspace-form input[name=name]')?.focus();
 }
+/** Flips the sidebar on the live element so the grid track can transition; a re-render would snap. */
+function toggleHomeSidebar(){
+  homeSidebar=homeSidebar==='open'?'collapsed':'open';
+  try{localStorage.setItem('aphrodite-home-sidebar',homeSidebar);}catch{}
+  const home=document.querySelector<HTMLElement>('.folio-home');
+  if(!home){render();return;}
+  home.dataset.sidebar=homeSidebar;
+  const t=homeCopy[uiLanguage];
+  const existing=home.querySelector<HTMLElement>('.folio-side-tab');
+  if(homeSidebar==='collapsed'){
+    if(!existing){
+      const tab=document.createElement('button');
+      tab.type='button';tab.className='folio-side-tab';tab.dataset.action='home-sidebar';
+      tab.setAttribute('aria-label',t.showSidebar);tab.title=t.showSidebar;
+      tab.innerHTML=icon('panel-left');
+      home.prepend(tab);hydrateIcons();tab.focus();
+    }
+  }else{
+    existing?.remove();
+    home.querySelector<HTMLElement>('.folio-side-collapse')?.focus();
+  }
+  syncStateAttributes();
+}
 function hubRefresh(){
   const grid=document.querySelector('#project-grid');
   if(screen!=='home'||!grid){render();return;}
@@ -557,7 +580,7 @@ async function action(el: HTMLElement) {
     case 'dock-select': dockTool='select';selected='';render();break;
     case 'dev-copy': {const payload=devPanelCopyPayload(app,el.dataset.copyTarget??'');if(payload===null)break;try{await navigator.clipboard.writeText(payload);toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 텍스트를 선택해 복사하세요.'));}break;}
     case 'delegation-return': endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));break;
-    case 'home-sidebar': homeSidebar=homeSidebar==='open'?'collapsed':'open';try{localStorage.setItem('aphrodite-home-sidebar',homeSidebar);}catch{}render();break;
+    case 'home-sidebar': toggleHomeSidebar();break;
     case 'ws-switch': {const id=el.dataset.id!;if(id===workspaces.activeId)break;saveWorkspaces(setActiveWorkspace(workspaces,id));hubCardCache.clear();hubQuery='';render();break;}
     case 'ws-new': wsAvatarDraft=undefined;workspaceModal(undefined);break;
     case 'ws-settings': wsAvatarDraft=undefined;workspaceModal(workspaces.workspaces.find(w=>w.id===workspaces.activeId));break;
