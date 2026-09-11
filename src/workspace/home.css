@@ -52,7 +52,7 @@
 .ws-avatar{width:33px;height:33px;flex:none;border-radius:9px;display:grid;place-items:center;font:600 12px -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;letter-spacing:.02em;background-position:center;overflow:hidden}
 .ws-avatar-sm{width:22px;height:22px;border-radius:6px;font-size:9.5px}
 .ws-avatar-lg{width:56px;height:56px;border-radius:14px;font-size:19px}
-.ws-menu{left:0;right:auto;top:calc(100% + 6px);min-width:250px;padding:6px;z-index:20}
+.ws-menu{position:fixed;left:0;right:auto;top:0;min-width:248px;padding:6px;z-index:60}
 .ws-menu-label{margin:4px 8px 4px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#a19d90}
 .ws-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:7px;font-size:13px;text-align:left}
 .ws-menu button:hover:not([disabled]){background:#f1efe6}
@@ -79,3 +79,26 @@
 .ws-delete{display:inline-flex;align-items:center;gap:6px;color:#a3462b;font-size:12.5px}
 .ws-delete svg{width:14px;height:14px}
 .ws-danger small{font-size:11px;color:#a19d90}
+
+.folio-ws summary{padding:8px 10px 8px 8px;gap:9px}
+.folio-ws summary>svg{margin-left:0;width:14px;height:14px;opacity:.75}
+.ws-summary-text{flex:1}
+.ws-summary-text strong{font-size:13px;line-height:1.25}
+.ws-summary-text small{font-size:11px;line-height:1.2;color:#8b8577}
+.ws-avatar{width:32px;height:32px;border-radius:9px;font-size:11.5px}
+
+.folio-home{position:relative}
+.folio-home[data-sidebar="collapsed"]{grid-template-columns:minmax(0,1fr)}
+.folio-home[data-sidebar="collapsed"]>.folio-sidebar{display:none}
+.folio-side-collapse{position:absolute;top:12px;right:10px;z-index:3;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:#8b8577;opacity:0;transition:opacity .12s}
+.folio-side-collapse svg{width:15px;height:15px}
+.folio-sidebar:hover .folio-side-collapse,.folio-side-collapse:focus-visible{opacity:1}
+.folio-side-collapse:hover{background:#e8e5da;color:#292820}
+.folio-night .folio-side-collapse:hover{background:#3a382e;color:#f4efdf}
+.folio-sidebar{position:relative}
+.folio-side-tab{position:fixed;top:14px;left:14px;z-index:40;width:34px;height:34px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;color:#5a604f;background:rgba(253,254,250,.94);border:1px solid #dedbd2;box-shadow:0 10px 24px -14px rgba(36,48,34,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.folio-side-tab svg{width:17px;height:17px}
+.folio-side-tab:hover{background:#fff;color:#292820}
+.folio-night .folio-side-tab{background:rgba(46,45,38,.94);border-color:#4a4839;color:#c3bda9}
+.folio-night .folio-side-tab:hover{background:#34332b;color:#f4efdf}
+.folio-home[data-sidebar="collapsed"] .folio-top{padding-left:58px}

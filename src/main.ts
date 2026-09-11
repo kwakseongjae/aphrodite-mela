@@ -76,6 +76,7 @@ function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const htm
 let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
 let wsAvatarDraft:WorkspaceAvatar|undefined;
+let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
 function saveWorkspaces(next:WorkspaceBook){workspaces=next;writeWorkspaces(localStorage,workspaces);}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
@@ -214,6 +215,21 @@ function agentChannelText(){
  * Filtering, sorting and search update the grid in place. A full render() would rebuild every
  * <img loading="lazy"> — including the hero collage — which reads as the page reloading.
  */
+/** The sidebar scrolls, which would clip an absolute dropdown; the workspace menu is placed as a fixed layer. */
+function placeWorkspaceMenu(){
+  const host=document.querySelector<HTMLDetailsElement>('details.folio-ws');
+  const menu=host?.querySelector<HTMLElement>('.ws-menu');
+  if(!host||!menu)return;
+  if(!host.open){menu.style.removeProperty('left');menu.style.removeProperty('top');menu.style.removeProperty('width');return;}
+  const summary=host.querySelector<HTMLElement>('summary')!;
+  const r=summary.getBoundingClientRect();
+  const width=Math.max(r.width,248);
+  menu.style.width=`${width}px`;
+  menu.style.left=`${Math.round(Math.min(r.left,innerWidth-width-10))}px`;
+  const below=innerHeight-r.bottom-10;
+  if(below<menu.offsetHeight&&r.top>below){menu.style.top='auto';menu.style.bottom=`${Math.round(innerHeight-r.top+6)}px`;}
+  else{menu.style.bottom='auto';menu.style.top=`${Math.round(r.bottom+6)}px`;}
+}
 function wsPreview(){
   const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)return;
   const chip=form.querySelector<HTMLElement>('.ws-avatar-lg');if(!chip)return;
@@ -250,7 +266,7 @@ function hubRefresh(){
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces);hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar);hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
@@ -523,6 +539,7 @@ async function action(el: HTMLElement) {
     case 'dock-select': dockTool='select';selected='';render();break;
     case 'dev-copy': {const payload=devPanelCopyPayload(app,el.dataset.copyTarget??'');if(payload===null)break;try{await navigator.clipboard.writeText(payload);toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 텍스트를 선택해 복사하세요.'));}break;}
     case 'delegation-return': endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));break;
+    case 'home-sidebar': homeSidebar=homeSidebar==='open'?'collapsed':'open';try{localStorage.setItem('aphrodite-home-sidebar',homeSidebar);}catch{}render();break;
     case 'ws-switch': {const id=el.dataset.id!;if(id===workspaces.activeId)break;saveWorkspaces(setActiveWorkspace(workspaces,id));hubCardCache.clear();hubQuery='';render();break;}
     case 'ws-new': wsAvatarDraft=undefined;workspaceModal(undefined);break;
     case 'ws-settings': wsAvatarDraft=undefined;workspaceModal(workspaces.workspaces.find(w=>w.id===workspaces.activeId));break;
@@ -876,6 +893,8 @@ function positionTour(){
   Object.assign(card.style,{left:`${left}px`,top:`${top}px`});
 }
 window.addEventListener('resize',()=>positionTour());
+document.addEventListener('toggle',e=>{if((e.target as HTMLElement)?.classList?.contains('folio-ws'))placeWorkspaceMenu();},{capture:true});
+window.addEventListener('resize',()=>placeWorkspaceMenu());
 /* ---- Agent channel: commands arrive over the loopback bridge (desktop) or window.aphroditeAgent (browser) ---- */
 function agentState(){return {ok:true,state:{...app.dataset},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
