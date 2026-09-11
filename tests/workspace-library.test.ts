@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject} from '../src/model';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,LIBRARY_KEY,LEGACY_KEY} from '../src/workspace/library';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,entryFor,moveEntries,workspaceCounts,LIBRARY_KEY,LEGACY_KEY} from '../src/workspace/library';
+import {DEFAULT_WORKSPACE_ID} from '../src/workspace/workspaces';
 function memory(){const values=new Map<string,string>();return {values,getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>{values.set(k,v);}};}
 test('legacy migration preserves original bytes and edits are isolated',()=>{const s=memory(),p=initialProject(),raw=JSON.stringify(p);s.setItem(LEGACY_KEY,raw);const lib=readLibrary(s);assert.equal(s.getItem(LIBRARY_KEY),null);const copy=cloneProject(p);copy.pages[0].name='Independent';const next=upsertProject(lib,copy);writeLibrary(s,next);assert.equal(s.getItem(LEGACY_KEY),raw);assert.equal(readLibrary(s).entries.length,2);assert.notEqual(lib.entries[0].project.pages[0].name,'Independent');assert.notEqual(copy.id,p.id);assert.equal(copy.approvedFingerprint,undefined);});
 test('archive, favorites and search compose without deleting entries',()=>{const p=initialProject();p.name='Paper Muse';const lib=upsertProject({version:1,entries:[]},p);lib.entries[0].pinned=true;assert.equal(visibleEntries(lib,'pinned','paper').length,1);lib.entries[0].archived=true;assert.equal(visibleEntries(lib,'recent','').length,0);assert.equal(visibleEntries(lib,'archived','MUSE').length,1);assert.equal(lib.entries.length,1);});
@@ -20,3 +21,53 @@ test('the library sorts by last opened, then by last save, pinned first',async()
   assert.deepEqual(visibleEntries(lib,'recent','').map(e=>e.project.id),['a','b']);
   assert.equal(lib.entries.find(e=>e.project.id==='a')?.openedAt,'2026-09-03T00:00:00.000Z');
 });
+
+test('entries without workspaceId belong to the default workspace and stay hidden in another',()=>{
+  const now='2026-09-11T00:00:00.000Z';
+  const absent=entryFor({...initialProject(),id:'a',name:'A'},now);
+  const team=entryFor({...initialProject(),id:'b',name:'B'},now,'team');
+  const lib={version:1 as const,entries:[absent,team]};
+  assert.equal(absent.workspaceId,undefined);
+  assert.deepEqual(visibleEntries(lib,'recent','').map(e=>e.project.id),['a','b']);
+  assert.deepEqual(visibleEntries(lib,'recent','',DEFAULT_WORKSPACE_ID).map(e=>e.project.id),['a']);
+  assert.deepEqual(visibleEntries(lib,'recent','','team').map(e=>e.project.id),['b']);
+  assert.deepEqual(visibleEntries(lib,'recent','','other').map(e=>e.project.id),[]);
+  const kept=upsertProject(lib,absent.project,now);
+  assert.equal(kept.entries.find(e=>e.project.id==='a')?.workspaceId,undefined);
+  const moved=upsertProject(lib,absent.project,now,'studio');
+  assert.equal(moved.entries.find(e=>e.project.id==='a')?.workspaceId,'studio');
+});
+
+test('moveEntries reassigns a workspace and workspaceCounts ignores archived',()=>{
+  const now='2026-09-11T00:00:00.000Z';
+  const a=entryFor({...initialProject(),id:'a',name:'A'},now);
+  const b=entryFor({...initialProject(),id:'b',name:'B'},now,DEFAULT_WORKSPACE_ID);
+  const c={...entryFor({...initialProject(),id:'c',name:'C'},now,'team'),archived:true};
+  let lib={version:1 as const,entries:[a,b,c]};
+  assert.deepEqual(workspaceCounts(lib),{[DEFAULT_WORKSPACE_ID]:2});
+  lib=moveEntries(lib,DEFAULT_WORKSPACE_ID,'team');
+  assert.equal(lib.entries.every(e=>e.workspaceId==='team'),true);
+  assert.deepEqual(workspaceCounts(lib),{team:2});
+  assert.equal(visibleEntries(lib,'archived','','team').length,1);
+});
+
+test('readLibrary rejects a malformed workspaceId and accepts a valid one',()=>{
+  const s=memory();
+  const lib=upsertProject({version:1,entries:[]},initialProject(),'2026-09-11T00:00:00.000Z','ok_ID-1');
+  writeLibrary(s,lib);
+  assert.equal(readLibrary(s).entries[0].workspaceId,'ok_ID-1');
+  const parsed=JSON.parse(s.getItem(LIBRARY_KEY)!);
+  parsed.entries[0].workspaceId='bad id';
+  s.setItem(LIBRARY_KEY,JSON.stringify(parsed));
+  assert.throws(()=>readLibrary(s));
+  parsed.entries[0].workspaceId='';
+  s.setItem(LIBRARY_KEY,JSON.stringify(parsed));
+  assert.throws(()=>readLibrary(s));
+  parsed.entries[0].workspaceId=1;
+  s.setItem(LIBRARY_KEY,JSON.stringify(parsed));
+  assert.throws(()=>readLibrary(s));
+  delete parsed.entries[0].workspaceId;
+  s.setItem(LIBRARY_KEY,JSON.stringify(parsed));
+  assert.equal(readLibrary(s).entries[0].workspaceId,undefined);
+});
+
