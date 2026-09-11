@@ -105,3 +105,11 @@ The hand-over form has a `frame` select: whole space or the current frame. With 
 ## First run and the tour (added 2026-09-10, chunk 9)
 
 `#app[data-onboarding]` is `welcome-pending` (the welcome sheet is open on Home: `.welcome`, actions `set-language`, `welcome-sample`, `welcome-blank`, `welcome-dismiss`), `tour-pending` (the editor will start a five-step tour on first open) or `done`. While the tour runs, `#app[data-tour]` names the step (`dock`, `search`, `frame`, `inspector`, `agent`) and the card is `.tour-card` with `tour-next` / `tour-skip`; Esc ends it. The palette command `tour-start` replays it. An agent driving a fresh install should dismiss the sheet (`welcome-dismiss`) or take the sample (`welcome-sample`) and skip the tour before doing anything else.
+
+## Workspaces (added 2026-09-11)
+
+Home is scoped to one workspace at a time. The sidebar switcher is `details.folio-ws`: its summary shows the active workspace's avatar, name and project count; the menu lists every workspace (`data-action="ws-switch" data-id=…`) plus **New workspace** (`ws-new`) and **Workspace settings** (`ws-settings`). Both open `#workspace-form` (name, colour swatches `ws-pick-color`, emoji field, `ws-pick-image` / `ws-clear-image`); submitting creates or updates. `ws-delete` → `ws-delete-confirm` removes a workspace and moves its projects to the one you land in; the last workspace cannot be deleted.
+
+Projects carry `workspaceId` in the library (absent means `personal`). New, imported, duplicated and sample projects are filed under the active workspace, and the project grid, the filter chips and their counts only ever show that workspace. An agent that cannot find a project should check which workspace is active before concluding it is gone.
+
+Filtering, sorting and search update the grid in place (keyed reconciliation), so card elements persist across a filter change. Do not assume a fresh DOM node per filter; re-query by `[data-project-id]`.

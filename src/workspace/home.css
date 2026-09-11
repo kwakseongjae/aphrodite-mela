@@ -27,3 +27,55 @@
 @media(max-width:1050px){.folio-library-head{flex-direction:column;align-items:flex-start}}
 
 .folio-menu-danger{color:#a3462b!important}.folio-night .folio-menu-danger{color:#f0a58f!important}
+
+.folio-wordmark{gap:10px;align-items:center;min-width:0}
+.brand-app-icon{width:36px;height:36px;flex:none;border-radius:9px;box-shadow:0 2px 6px -2px rgba(36,48,34,.35);user-select:none;-webkit-user-drag:none}
+.folio-wordmark>svg{width:auto;height:21px;max-width:none;flex:none}
+@media(max-width:1050px){.brand-app-icon{width:30px;height:30px;border-radius:8px}.folio-wordmark>svg{height:18px}}
+.folio-night .brand-app-icon{box-shadow:0 2px 8px -2px rgba(0,0,0,.6)}
+.folio-bottom{justify-content:flex-end}
+
+.folio-card,.folio-row{transition:opacity .16s ease,transform .16s ease}
+.folio-card.is-entering,.folio-row.is-entering{animation:folio-enter .22s ease-out}
+@keyframes folio-enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.folio-card,.folio-row{transition:none}.folio-card.is-entering,.folio-row.is-entering{animation:none}}
+
+.folio-ws{position:relative;margin-top:2px}
+.folio-ws summary{list-style:none;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 7px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+.folio-ws summary::-webkit-details-marker{display:none}
+.folio-ws summary:hover,.folio-ws[open] summary{background:#eceadf;border-color:#dedbd2}
+.folio-night .folio-ws summary:hover,.folio-night .folio-ws[open] summary{background:#34332b;border-color:#4a4839}
+.folio-ws summary>svg{width:15px;height:15px;color:#8b8577;flex:none;margin-left:auto}
+.ws-summary-text{min-width:0;display:flex;flex-direction:column;gap:1px}
+.ws-summary-text strong{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-summary-text small{font-size:10.5px;color:#8b8577;letter-spacing:.02em}
+.ws-avatar{width:33px;height:33px;flex:none;border-radius:9px;display:grid;place-items:center;font:600 12px -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;letter-spacing:.02em;background-position:center;overflow:hidden}
+.ws-avatar-sm{width:22px;height:22px;border-radius:6px;font-size:9.5px}
+.ws-avatar-lg{width:56px;height:56px;border-radius:14px;font-size:19px}
+.ws-menu{left:0;right:auto;top:calc(100% + 6px);min-width:250px;padding:6px;z-index:20}
+.ws-menu-label{margin:4px 8px 4px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#a19d90}
+.ws-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:7px;font-size:13px;text-align:left}
+.ws-menu button:hover:not([disabled]){background:#f1efe6}
+.folio-night .ws-menu button:hover:not([disabled]){background:#3a382e}
+.ws-menu button[disabled]{opacity:.4}
+.ws-menu button>svg{width:15px;height:15px;flex:none;color:#8b8577}
+.ws-menu button[aria-checked="true"]>svg:last-child{color:#2f4cd8}
+.ws-menu-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-menu small{font:11px ui-monospace,Menlo,monospace;color:#a19d90}
+.ws-menu-sep{height:1px;background:#e6e3d6;margin:6px 4px}
+.folio-night .ws-menu-sep{background:#4a4839}
+.ws-form-head{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.ws-name-field{flex:1;margin:0}
+.ws-avatar-picker{border:1px solid #e6e3d6;border-radius:10px;padding:10px 12px 12px;margin:0 0 12px}
+.ws-avatar-picker legend{font-size:11px;color:#77756c;padding:0 4px}
+.ws-swatches{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.ws-swatch{width:26px;height:26px;border-radius:8px;border:2px solid transparent;cursor:pointer}
+.ws-swatch[aria-pressed="true"]{border-color:#292820;box-shadow:0 0 0 2px #fff inset}
+.ws-avatar-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.ws-emoji-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:#77756c}
+.ws-emoji-field input{width:74px;text-align:center;font-size:17px}
+.ws-avatar-row .secondary-button{height:34px;gap:6px;font-size:12px}
+.ws-danger{margin-top:14px;padding-top:12px;border-top:1px solid #eee9dc;display:flex;flex-direction:column;gap:4px}
+.ws-delete{display:inline-flex;align-items:center;gap:6px;color:#a3462b;font-size:12.5px}
+.ws-delete svg{width:14px;height:14px}
+.ws-danger small{font-size:11px;color:#a19d90}
