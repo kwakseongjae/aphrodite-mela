@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {localRef,parseLocalRef,isLocalRef,localRefsIn,extensionFor,dataUrl,cacheLocal,cachedLocal,forgetLocal,readableImages,isWide} from '../src/design/local-images';
+import {localRef,parseLocalRef,isLocalRef,localRefsIn,extensionFor,dataUrl,cacheLocal,cachedLocal,forgetLocal,readableImages,isWide,inScope} from '../src/design/local-images';
 import {safeImage} from '../src/model';
 
 const id='0123456789abcdef';
@@ -43,13 +43,24 @@ test('mime helpers and the session cache behave',()=>{
 });
 
 test('the library listing drops unreadable entries and reports orientation',()=>{
-  const wide={id,name:'a.png',bytes:10,mime:'image/png',width:1600,height:900,modified:2};
-  const square={id:'1111111111111111',name:'b.webp',bytes:10,mime:'image/webp',width:800,height:800,modified:1};
-  const junk={id:'2222222222222222',name:'c.txt',bytes:10,mime:'text/plain',width:0,height:0,modified:3};
-  const empty={id:'3333333333333333',name:'d.png',bytes:0,mime:'image/png',width:10,height:10,modified:4};
+  const wide={id,scope:'global',name:'a.png',bytes:10,mime:'image/png',width:1600,height:900,modified:2};
+  const square={id:'1111111111111111',scope:'global',name:'b.webp',bytes:10,mime:'image/webp',width:800,height:800,modified:1};
+  const junk={id:'2222222222222222',scope:'global',name:'c.txt',bytes:10,mime:'text/plain',width:0,height:0,modified:3};
+  const empty={id:'3333333333333333',scope:'global',name:'d.png',bytes:0,mime:'image/png',width:10,height:10,modified:4};
   assert.deepEqual(readableImages({dir:'/x',images:[wide,square,junk,empty]}).map(i=>i.name),['a.png','b.webp']);
   assert.equal(readableImages(undefined).length,0);
   assert.equal(isWide(wide),true);
   assert.equal(isWide(square),false);
   assert.equal(isWide({...square,width:0,height:0}),false,'unknown size is not wide');
+});
+
+test('scopes separate a project\'s own pictures from the shared ones',()=>{
+  const mine={id:'aaaaaaaaaaaaaaaa',scope:'proj-1',name:'m.png',bytes:9,mime:'image/png',width:10,height:10,modified:2};
+  const shared={id:'bbbbbbbbbbbbbbbb',scope:'global',name:'s.png',bytes:9,mime:'image/png',width:10,height:10,modified:1};
+  const other={id:'cccccccccccccccc',scope:'proj-2',name:'o.png',bytes:9,mime:'image/png',width:10,height:10,modified:3};
+  const all=[mine,shared,other];
+  assert.deepEqual(inScope(all,'all','proj-1').map(i=>i.name),['m.png','s.png','o.png']);
+  assert.deepEqual(inScope(all,'project','proj-1').map(i=>i.name),['m.png']);
+  assert.deepEqual(inScope(all,'global','proj-1').map(i=>i.name),['s.png']);
+  assert.deepEqual(inScope(all,'project','proj-3'),[],'a project with none of its own sees none');
 });

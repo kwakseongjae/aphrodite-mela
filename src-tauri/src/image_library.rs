@@ -13,6 +13,7 @@ const FOLDER: &str = "image-library";
 #[derive(Serialize)]
 pub struct LibraryImage {
     id: String,
+    scope: String,
     name: String,
     bytes: u64,
     mime: String,
@@ -21,10 +22,48 @@ pub struct LibraryImage {
     modified: u64,
 }
 
+/// A project id is a scope, not a path: only these characters are allowed and they never nest.
+fn safe_scope(scope: &str) -> Option<String> {
+    if scope.is_empty() || scope.len() > 200 || !scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return None;
+    }
+    Some(scope.to_string())
+}
+
 fn library_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join(FOLDER);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
+}
+
+/// Pictures shared by every project, or the ones kept with one project.
+fn scope_dir(app: &AppHandle, project: Option<&str>) -> Result<PathBuf, String> {
+    let base = library_dir(app)?;
+    let dir = match project {
+        None => base,
+        Some(id) => base.join("projects").join(safe_scope(id).ok_or("invalid project id")?),
+    };
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Reads one folder, ignoring subdirectories and anything that is not a renderable image.
+fn scan(dir: &Path, scope: &str, seen: &mut Vec<String>, out: &mut Vec<LibraryImage>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            continue;
+        }
+        if let Some((mut image, _)) = read_entry(&path) {
+            if seen.contains(&image.id) {
+                continue;
+            }
+            seen.push(image.id.clone());
+            image.scope = scope.to_string();
+            out.push(image);
+        }
+    }
 }
 
 /// 64-bit FNV-1a over the whole file, rendered as 16 hex characters. Content addressing only,
@@ -141,6 +180,7 @@ fn read_entry(path: &Path) -> Option<(LibraryImage, Vec<u8>)> {
     Some((
         LibraryImage {
             id: content_id(&bytes),
+            scope: String::new(),
             name: path.file_name()?.to_string_lossy().to_string(),
             bytes: meta.len(),
             mime: mime.to_string(),
@@ -152,51 +192,58 @@ fn read_entry(path: &Path) -> Option<(LibraryImage, Vec<u8>)> {
     ))
 }
 
-/// Lists every readable image in the folder. Unreadable or unsupported files are ignored, not an error.
+/// Lists the shared pictures and, when a project is named, that project's own.
 #[tauri::command]
-pub fn image_library_list(app: AppHandle) -> Result<Value, String> {
-    let dir = library_dir(&app)?;
+pub fn image_library_list(app: AppHandle, project: Option<String>) -> Result<Value, String> {
+    let global = scope_dir(&app, None)?;
     let mut images: Vec<LibraryImage> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if let Some((image, _)) = read_entry(&entry.path()) {
-                if seen.contains(&image.id) {
-                    continue;
-                }
-                seen.push(image.id.clone());
-                images.push(image);
-            }
-        }
+    if let Some(id) = project.as_deref() {
+        let dir = scope_dir(&app, Some(id))?;
+        scan(&dir, id, &mut seen, &mut images);
     }
+    scan(&global, "global", &mut seen, &mut images);
     images.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
-    Ok(json!({"dir": dir.to_string_lossy(), "images": images}))
+    Ok(json!({"dir": global.to_string_lossy(), "images": images}))
 }
 
-/// Returns one image's bytes as base64 so the webview can render it as a data URL.
+/// Returns one picture's bytes as base64 so the webview can render it as a data URL.
 #[tauri::command]
-pub fn image_library_read(app: AppHandle, id: String) -> Result<Value, String> {
-    let dir = library_dir(&app)?;
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
-        if let Some((image, bytes)) = read_entry(&entry.path()) {
-            if image.id == id {
-                return Ok(json!({"id": image.id, "mime": image.mime, "base64": base64_encode(&bytes)}));
+pub fn image_library_read(app: AppHandle, id: String, project: Option<String>) -> Result<Value, String> {
+    for dir in scopes(&app, project.as_deref())? {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if let Some((image, bytes)) = read_entry(&entry.path()) {
+                    if image.id == id {
+                        return Ok(json!({"id": image.id, "mime": image.mime, "base64": base64_encode(&bytes)}));
+                    }
+                }
             }
         }
     }
     Err(format!("no image {id} in the library"))
 }
 
+/// The folders a lookup may touch: the project's own first, then the shared one.
+fn scopes(app: &AppHandle, project: Option<&str>) -> Result<Vec<PathBuf>, String> {
+    let mut dirs = Vec::new();
+    if let Some(id) = project {
+        dirs.push(scope_dir(app, Some(id))?);
+    }
+    dirs.push(scope_dir(app, None)?);
+    Ok(dirs)
+}
+
 /// Writes bytes into the folder. Used by the file picker and by an agent that only has the channel.
 #[tauri::command]
-pub fn image_library_import(app: AppHandle, name: String, base64: String) -> Result<Value, String> {
+pub fn image_library_import(app: AppHandle, name: String, base64: String, project: Option<String>) -> Result<Value, String> {
     let bytes = base64_decode(&base64).ok_or("not valid base64")?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("image is larger than 12 MB".into());
     }
     let mime = sniff(&bytes).ok_or("only PNG, JPEG and WebP are accepted")?;
     let id = content_id(&bytes);
-    let dir = library_dir(&app)?;
+    let dir = scope_dir(&app, project.as_deref())?;
     // The caller's name is a label, never a path: the file is named by its own hash.
     let stem: String = name
         .chars()
@@ -208,13 +255,31 @@ pub fn image_library_import(app: AppHandle, name: String, base64: String) -> Res
     if !path.exists() {
         fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     }
-    Ok(json!({"id": id, "mime": mime, "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
+    Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
+}
+
+/// Removes one picture from the library. The file is deleted; projects that used it show a gap.
+#[tauri::command]
+pub fn image_library_delete(app: AppHandle, id: String, project: Option<String>) -> Result<Value, String> {
+    for dir in scopes(&app, project.as_deref())? {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some((image, _)) = read_entry(&path) {
+                if image.id == id {
+                    fs::remove_file(&path).map_err(|e| e.to_string())?;
+                    return Ok(json!({"id": id, "removed": path.file_name().map(|n| n.to_string_lossy().to_string())}));
+                }
+            }
+        }
+    }
+    Err(format!("no image {id} in the library"))
 }
 
 /// Opens the folder in Finder so a person can drop files in directly.
 #[tauri::command]
-pub fn image_library_reveal(app: AppHandle) -> Result<String, String> {
-    let dir = library_dir(&app)?;
+pub fn image_library_reveal(app: AppHandle, project: Option<String>) -> Result<String, String> {
+    let dir = scope_dir(&app, project.as_deref())?;
     #[cfg(target_os = "macos")]
     std::process::Command::new("open")
         .arg(&dir)
@@ -317,6 +382,14 @@ mod tests {
             assert_eq!(base64_decode(&encoded).as_deref(), Some(case), "{encoded}");
         }
         assert_eq!(base64_decode("!!!!"), None);
+    }
+
+    #[test]
+    fn scope_names_cannot_escape_the_folder() {
+        assert_eq!(safe_scope("abc-123_XYZ").as_deref(), Some("abc-123_XYZ"));
+        for bad in ["", "../etc", "a/b", "a b", "a.b", "~", &"x".repeat(201)] {
+            assert_eq!(safe_scope(bad), None, "{bad}");
+        }
     }
 
     #[test]

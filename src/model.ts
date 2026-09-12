@@ -2,6 +2,7 @@ import { patternSpecs, isPattern, patternVariants, validOptions, type PatternKin
 import {sanitizeSpace,type Space} from './editor/space';
 import {isSampleSrc} from './design/sample-images';
 import {isLocalRef} from './design/local-images';
+import {sanitizeFamily} from './design/fonts';
 import { supportsProvider, type Provider } from './providers';
 import {validComponentTheme,type ComponentTheme} from './design/component-theme';
 import {validShelf,type ShelfChoice} from './design/shelf';
@@ -10,7 +11,7 @@ import {ownSystems} from './design/presets';
 export type BlockKind = 'frame' | 'navigation' | 'hero' | 'features' | 'products' | 'testimonial' | 'cta' | 'footer' | PatternKind;
 export type HeroVariant = 'split' | 'image-left' | 'stacked';
 export type Block = { id: string; kind: BlockKind; title: string; text: string; label: string; image: string; filled: boolean; variant?: string; eyebrow?: string; description?:string; itemImages?:string[]; options?: PatternOptions; provider?: Provider; theme?:ComponentTheme; parentId?: string; layout?: Layout };
-export type DesignSystem = { id: string; name: string; description: string; accent: string; background: string; foreground: string; radius: number; font: 'serif' | 'sans'; source: string; originalMarkdown?: string };
+export type DesignSystem = { id: string; name: string; description: string; accent: string; background: string; foreground: string; radius: number; font: 'serif' | 'sans'; headingFamily?: string; bodyFamily?: string; source: string; originalMarkdown?: string };
 export type ReferenceEvidence = { engine: 'Apple Vision + pixels' | 'Pixels only'; sourceFingerprint: string; textLines: number; palette: string[]; elapsedMs: number; direction: HeroVariant; mediaUsed: boolean };
 export type VibeReceipt = {packId:string;changedFields:number;source:'local-authored-demo';imageSource:'user-upload'|'bundled-generated'|'none';modelCalled:false};
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
@@ -86,6 +87,8 @@ export function parseProject(raw: string): Project {
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
   if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
+  if (s.headingFamily !== undefined) { const clean = sanitizeFamily(s.headingFamily); if (clean) s.headingFamily = clean; else delete s.headingFamily; }
+  if (s.bodyFamily !== undefined) { const clean = sanitizeFamily(s.bodyFamily); if (clean) s.bodyFamily = clean; else delete s.bodyFamily; }
   if (![s.accent, s.background, s.foreground].every(v => /^#[a-fA-F0-9]{6}$/.test(v)) || !Number.isFinite(s.radius) || s.radius < 0 || s.radius > 48 || !['serif', 'sans'].includes(s.font) || ![s.name, s.id, s.description, s.source].every(v => str(v)) || (s.originalMarkdown !== undefined && !str(s.originalMarkdown, 200000))) throw new Error('디자인 토큰 형식이 올바르지 않습니다.');
   const ids = new Set<string>();
   for (const page of p.pages) {

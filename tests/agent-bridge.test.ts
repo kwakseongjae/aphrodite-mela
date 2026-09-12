@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAgentCommand,isHumanHatch,bridgeExamples} from '../src/agent/bridge';
+import {parseAgentCommand,isHumanHatch,bridgeExamples,libraryActions} from '../src/agent/bridge';
 
 test('parseAgentCommand validates every kind and rejects junk',()=>{
   assert.deepEqual(parseAgentCommand('state',null),{command:{kind:'state'}});
@@ -30,4 +30,19 @@ test('bridge examples carry the base url and token',()=>{
   assert.match(text,/http:\/\/127\.0\.0\.1:4321\/agent\/state/);
   assert.match(text,/Bearer abc/);
   assert.match(text,/\/agent\/end/);
+});
+
+test('library commands validate the action, the scope and the payload',()=>{
+  assert.deepEqual(libraryActions,['list','delete','import']);
+  assert.deepEqual(parseAgentCommand('library',{}),{command:{kind:'library',action:'list',scope:'global'}});
+  assert.deepEqual(parseAgentCommand('library',{action:'list',scope:'project'}),{command:{kind:'library',action:'list',scope:'project'}});
+  assert.deepEqual(parseAgentCommand('library',{action:'delete',id:'0123456789abcdef'}),{command:{kind:'library',action:'delete',id:'0123456789abcdef',scope:'global'}});
+  assert.match((parseAgentCommand('library',{action:'delete'}) as {error:string}).error,/16-character/);
+  assert.match((parseAgentCommand('library',{action:'delete',id:'nope'}) as {error:string}).error,/16-character/);
+  assert.match((parseAgentCommand('library',{action:'wipe'}) as {error:string}).error,/list\|delete\|import/);
+  assert.match((parseAgentCommand('library',{scope:'/etc'}) as {error:string}).error,/scope/);
+  assert.match((parseAgentCommand('library',{action:'import',name:'x'}) as {error:string}).error,/base64/);
+  assert.match((parseAgentCommand('library',{action:'import',base64:'AAAA'}) as {error:string}).error,/name/);
+  assert.match((parseAgentCommand('library',{action:'import',name:'x',base64:'not base64 <>'}) as {error:string}).error,/base64/);
+  assert.deepEqual(parseAgentCommand('library',{action:'import',name:'hero',base64:'AAAA',scope:'project'}),{command:{kind:'library',action:'import',name:'hero',base64:'AAAA',scope:'project'}});
 });

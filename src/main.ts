@@ -50,7 +50,8 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
-import {localRef,parseLocalRef,localRefsIn,dataUrl,cachedLocal,cacheLocal,forgetLocal,hydrateLocalImages,readableImages,isWide,type LocalLibrary,type LocalImage} from './design/local-images';
+import {sanitizeFamily,fontStack,freeFonts,fontsFor,licenseNote,type FreeFont} from './design/fonts';
+import {localRef,parseLocalRef,localRefsIn,dataUrl,cachedLocal,cacheLocal,forgetLocal,hydrateLocalImages,readableImages,isWide,inScope,type LocalLibrary,type LocalImage,type LocalScope} from './design/local-images';
 import {syncKeyedChildren} from './workspace/grid-sync';
 const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
@@ -264,6 +265,25 @@ function wsPreview(){
   chip.setAttribute('style',avatarStyle(preview));
   chip.innerHTML=avatarContent(preview);
 }
+/** Choosing a typeface: what this Mac already has, and what the app can install for you. */
+function fontPickerModal(){
+  const current=project.system.headingFamily??'';
+  const mine=(installedFonts??[]).filter(f=>!fontQuery||f.family.toLowerCase().includes(fontQuery.toLowerCase()));
+  const missing=fontsFor('all').filter(f=>!hasFamily(f.family)&&(!fontQuery||f.family.toLowerCase().includes(fontQuery.toLowerCase())));
+  const row=(family:string,note:string,installedHere:boolean)=>`<button type="button" class="font-row" data-action="font-choose" data-family="${esc(family)}" aria-pressed="${family===current}" style="font-family:${esc(fontStack({family,category:project.system.font}))}"><span class="font-row-name">${esc(family)}</span><small>${esc(note)}</small>${family===current?icon('check'):''}${installedHere?`<em class="font-mine">${ui('yours','내 폴더')}</em>`:''}</button>`;
+  const installRow=(f:FreeFont)=>`<div class="font-row font-row-install"><span class="font-row-name">${esc(f.family)}</span><small>${esc(uiLanguage==='ko'?f.ko:f.en)}</small><button type="button" class="secondary-button" data-action="font-install" data-id="${esc(f.id)}"${fontBusy===f.id?' disabled':''}>${fontBusy===f.id?ui('Installing…','설치 중…'):ui('Install','설치')}</button></div>`;
+  showModal(ui('Typeface','서체'),ui('Fonts on this Mac, and freely licensed ones the app can install.','이 Mac에 있는 서체와, 앱이 설치해 줄 수 있는 자유 라이선스 서체.'),
+`<label class="search-box font-search">${icon('search')}<input id="font-search" aria-label="${ui('Find a font','서체 찾기')}" placeholder="${ui('Find a font…','서체 찾기…')}" value="${esc(fontQuery)}"></label>
+<div class="font-list">
+  <p class="ws-menu-label">${ui('Default','기본')}</p>
+  ${row('',ui('Follow the design system','디자인 시스템을 따름'),false)}
+  <p class="ws-menu-label">${ui('Installed on this Mac','이 Mac에 설치됨')} · ${mine.length}</p>
+  ${mine.slice(0,120).map(f=>row(f.family,'',f.installed_here)).join('')||`<p class="panel-description">${ui('Nothing matched.','일치하는 서체가 없습니다.')}</p>`}
+  ${missing.length?`<p class="ws-menu-label">${ui('Free to install','설치할 수 있는 자유 서체')} · ${missing.length}</p>${missing.map(installRow).join('')}`:''}
+</div>
+<p class="fine-print">${ui('Installing copies the font file into your own font folder. Exported HTML names the family and keeps a fallback, so a reader without it still sees a sensible page.','설치하면 서체 파일이 내 폰트 폴더에 복사됩니다. 내보낸 HTML은 서체 이름과 대체 서체를 함께 적으므로, 그 서체가 없는 사람도 무리 없이 보입니다.')}</p>`,true);
+  modalRoot.querySelector<HTMLInputElement>('#font-search')?.focus();
+}
 function workspaceModal(ws:Workspace|undefined){
   const count=ws?workspaceCounts(library)[ws.id]??0:0;
   showModal(ws?ui('Workspace settings','작업 공간 설정'):ui('A new workspace.','새 작업 공간.'),ws?ui('Name, avatar, and what happens to its projects.','이름과 아바타, 그리고 프로젝트 처리.'):ui('Projects are listed per workspace. Everything stays on this Mac.','프로젝트는 작업 공간별로 보입니다. 모든 것은 이 Mac에 남습니다.'),workspaceFormHtml(uiLanguage,ws,{canDelete:workspaces.workspaces.length>1,projectCount:count}));
@@ -296,7 +316,7 @@ function toggleHomeSidebar(){
 async function resolveLocalBytes(id:string):Promise<{bytes:Uint8Array;mime:string}|undefined>{
   if(!nativeDesktop)return undefined;
   try{
-    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id});
+    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:project.id});
     const binary=atob(got.base64);
     const bytes=new Uint8Array(binary.length);
     for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
@@ -406,32 +426,42 @@ function libraryHtml() {
     const mine=readableImages(localLibrary);
     const chips=[{id:'all' as const,en:'All',ko:'전체'},...sampleCategories,...(nativeDesktop?[{id:'local' as const,en:'My library',ko:'내 라이브러리'}]:[])]
       .map(c=>`<button class="asset-chip" data-action="asset-category" data-category="${c.id}" aria-pressed="${assetCategory===c.id}">${esc(uiLanguage==='ko'?c.ko:c.en)}${c.id==='local'?`<small>${mine.length}</small>`:''}</button>`).join('');
+    const scoped=inScope(mine,localScope,project.id);
     const tiles=assetCategory==='local'
-      ? mine.map((image:LocalImage)=>`<button class="asset-tile ${isWide(image)?'wide':''}" data-action="apply-local" data-id="${esc(image.id)}" title="${esc(image.name)}"><img src="${esc(cachedLocal(image.id)??localRef(image.id))}" alt="${esc(image.name)}" loading="lazy" draggable="false"><span>${esc(image.name)}</span></button>`).join('')
+      ? scoped.map((image:LocalImage)=>`<div class="asset-tile ${isWide(image)?'wide':''}"><button class="asset-tile-open" data-action="apply-local" data-id="${esc(image.id)}" title="${esc(image.name)}"><img src="${esc(cachedLocal(image.id)??localRef(image.id))}" alt="${esc(image.name)}" loading="lazy" draggable="false"><span>${esc(image.name)}</span></button><button class="asset-del" data-action="local-delete" data-id="${esc(image.id)}" aria-label="${ui('Delete','삭제')} ${esc(image.name)}" title="${ui('Delete from the library','라이브러리에서 삭제')}">${icon('trash-2')}</button><em class="asset-scope">${image.scope==='global'?ui('Shared','공용'):ui('This project','이 프로젝트')}</em></div>`).join('')
       : samplesIn(assetCategory as SampleCategory|'all').map(sample=>`<button class="asset-tile ${sample.wide?'wide':''}" data-action="apply-sample" data-sample="${esc(sample.id)}" title="${esc(uiLanguage==='ko'?sample.ko:sample.en)}"><img src="${sampleSrc(sample.id)}" alt="${esc(uiLanguage==='ko'?sample.ko:sample.en)}" loading="lazy" draggable="false"><span>${esc(uiLanguage==='ko'?sample.ko:sample.en)}</span></button>`).join('');
-    const localTools=assetCategory==='local'?`<div class="asset-tools"><button class="secondary-button" data-action="local-import">${icon('image-plus')}${ui('Add images','이미지 추가')}</button><button class="secondary-button" data-action="local-reveal">${icon('folder-open')}${ui('Open the folder','폴더 열기')}</button><button class="secondary-button" data-action="local-refresh">${ui('Refresh','새로고침')}</button></div><p class="fine-print">${ui('Drop PNG, JPEG or WebP into the folder — your agent can write there too — then refresh. Nothing is uploaded.','폴더에 PNG·JPEG·WebP를 넣고 새로고침하세요. 에이전트가 직접 넣어도 됩니다. 아무것도 업로드되지 않습니다.')}</p>`:'';
-    const empty=assetCategory==='local'&&!mine.length?`<p class="panel-description">${ui('The folder is empty. Add images or let an agent write into it.','폴더가 비어 있습니다. 이미지를 추가하거나 에이전트가 넣도록 하세요.')}</p>`:'';
+    const scopeRow=assetCategory==='local'?`<div class="asset-chips asset-scopes" role="group" aria-label="${ui('Where the pictures live','사진이 있는 위치')}">${([['all','All','전체'],['project','This project','이 프로젝트'],['global','Shared','공용']] as const).map(([id,en,ko])=>`<button class="asset-chip" data-action="local-scope" data-scope="${id}" aria-pressed="${localScope===id}">${ui(en,ko)}<small>${inScope(mine,id,project.id).length}</small></button>`).join('')}</div>`:'';
+    const localTools=assetCategory==='local'?`<div class="asset-tools"><button class="secondary-button" data-action="local-import" data-scope="project">${icon('image-plus')}${ui('Add to this project','이 프로젝트에 추가')}</button><button class="secondary-button" data-action="local-import" data-scope="global">${icon('image-plus')}${ui('Add to shared','공용에 추가')}</button><button class="secondary-button" data-action="local-reveal">${icon('folder-open')}${ui('Open the folder','폴더 열기')}</button><button class="secondary-button" data-action="local-refresh">${ui('Refresh','새로고침')}</button></div><p class="fine-print">${ui('Drop PNG, JPEG or WebP into the folder — your agent can write there too — then refresh. Nothing is uploaded.','폴더에 PNG·JPEG·WebP를 넣고 새로고침하세요. 에이전트가 직접 넣어도 됩니다. 아무것도 업로드되지 않습니다.')}</p>`:'';
+    const empty=assetCategory==='local'&&!scoped.length?`<p class="panel-description">${ui('The folder is empty. Add images or let an agent write into it.','폴더가 비어 있습니다. 이미지를 추가하거나 에이전트가 넣도록 하세요.')}</p>`:'';
     return `<div class="section-label">${ui('REFERENCE','레퍼런스')}</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${esc(project.reference)}" alt="${ui('Uploaded reference','올린 레퍼런스')}">` : icon('image-plus')}<strong>${project.reference ? ui('View your reference','레퍼런스 보기') : ui('Bring your inspiration','영감을 가져와 보세요')}</strong><span>${ui('PNG, JPG, WebP · up to 2MB','PNG, JPG, WebP · 최대 2MB')}</span></button>
     <div class="section-label">${ui('IMAGERY','이미지')}</div><p class="panel-description">${ui('Select a component, then pick a picture.','컴포넌트를 선택한 뒤 사진을 고르세요.')}</p>
     <div class="asset-chips" role="group" aria-label="${ui('Image categories','이미지 분류')}">${chips}</div>
-    ${localTools}${empty}<div class="asset-tiles">${tiles}</div>`;
+    ${scopeRow}${localTools}${empty}<div class="asset-tiles">${tiles}</div>`;
   }
   return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="${ui('Find a component...','컴포넌트 찾기…')}" value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>${ui('Drag onto the canvas.','캔버스로 드래그하세요.')}<br>${ui('Or click + to add instantly.','또는 +를 눌러 바로 추가하세요.')}</span></div>`;
 }
 let assetCategory:SampleCategory|'all'|'local'='all';
-let localLibrary:LocalLibrary|undefined;let localPending=new Set<string>();
+let localLibrary:LocalLibrary|undefined;let localPending=new Set<string>();let localScope:LocalScope='all';
+let installedFonts:{family:string;installed_here:boolean}[]|undefined;let fontDir='';let fontBusy='';let fontQuery='';
+async function loadFonts(force=false){
+  if(!nativeDesktop)return;
+  if(installedFonts&&!force)return;
+  try{const got=await invoke<{dir:string;fonts:{family:string;installed_here:boolean}[]}>('fonts_installed');installedFonts=got.fonts;fontDir=got.dir;}
+  catch{installedFonts=[];}
+}
+function hasFamily(family:string){return (installedFonts??[]).some(f=>f.family.toLowerCase()===family.toLowerCase());}
 /** Reads the folder once per session, and again whenever the person asks for a refresh. */
 async function loadLocalLibrary(force=false){
   if(!nativeDesktop)return;
   if(localLibrary&&!force)return;
-  try{localLibrary=await invoke<LocalLibrary>('image_library_list');}catch{localLibrary={dir:'',images:[]};}
+  try{localLibrary=await invoke<LocalLibrary>('image_library_list',{project:project.id});}catch{localLibrary={dir:'',images:[]};}
 }
 /** Pulls one picture's bytes in, then repaints the images waiting on it. */
 async function resolveLocal(id:string){
   if(cachedLocal(id)||localPending.has(id))return;
   localPending.add(id);
   try{
-    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id});
+    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:project.id});
     cacheLocal(id,dataUrl(got.mime,got.base64));
     document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});
   }catch{
@@ -498,7 +528,7 @@ function componentCards() {
 function inspectorHtml() {
   const b = currentPage(project).blocks.find(b => b.id === selected);
   return `<div class="inspector-title"><span>${ui('Design','디자인')}</span><span class="inspector-kicker">${ui('PROJECT TOKENS','프로젝트 토큰')}</span></div>
-  <section class="inspector-section"><div class="section-heading"><h2>${ui('Look & feel','분위기와 스타일')}</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">${ui('Color palette','색상 팔레트')} <span>${ui('Shared across pages','모든 페이지에 공유')}</span></label><div class="color-swatches">${[project.system.accent, project.system.background, project.system.foreground, '#e5e1d8', '#c0c8b8'].map((color, i) => `<span style="background:${color}" title="${i < 3 ? [ui('Primary','메인'), ui('Background','배경'), ui('Foreground','전경')][i] : ui('Decorative editor swatch','편집기 장식 색')}: ${color}"></span>`).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${[ui('Primary','메인'), ui('Canvas','캔버스'), ui('Text','텍스트')][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>${ui('Typeface','서체')}<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>${ui('Editorial serif','에디토리얼 세리프')}</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>${ui('Modern sans','모던 산스')}</option></select></label><label>${ui('Radius','모서리')}<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><button class="text-link" data-action="design-md">${icon('file-text')}${ui('View DESIGN.md','DESIGN.md 보기')}${icon('arrow-up-right')}</button></section>
+  <section class="inspector-section"><div class="section-heading"><h2>${ui('Look & feel','분위기와 스타일')}</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">${ui('Color palette','색상 팔레트')} <span>${ui('Shared across pages','모든 페이지에 공유')}</span></label><div class="color-swatches">${[project.system.accent, project.system.background, project.system.foreground, '#e5e1d8', '#c0c8b8'].map((color, i) => `<span style="background:${color}" title="${i < 3 ? [ui('Primary','메인'), ui('Background','배경'), ui('Foreground','전경')][i] : ui('Decorative editor swatch','편집기 장식 색')}: ${color}"></span>`).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${[ui('Primary','메인'), ui('Canvas','캔버스'), ui('Text','텍스트')][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>${ui('Typeface','서체')}<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>${ui('Editorial serif','에디토리얼 세리프')}</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>${ui('Modern sans','모던 산스')}</option></select></label><label class="font-family-field">${ui('Heading font','제목 서체')}<button type="button" class="font-pick" data-action="font-picker" style="font-family:${esc(fontStack({family:project.system.headingFamily,category:project.system.font}))}"><span>${esc(project.system.headingFamily??(project.system.font==='serif'?ui('Editorial serif','에디토리얼 세리프'):ui('Modern sans','모던 산스')))}</span>${icon('chevron-down')}</button></label><label>${ui('Radius','모서리')}<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><button class="text-link" data-action="design-md">${icon('file-text')}${ui('View DESIGN.md','DESIGN.md 보기')}${icon('arrow-up-right')}</button></section>
   <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', currentPage(project).blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', currentPage(project).blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
   <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button')}</div>`;
 }
@@ -799,13 +829,33 @@ async function action(el: HTMLElement) {
     case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
     case 'asset-category': {assetCategory=el.dataset.category as SampleCategory|'all'|'local';if(assetCategory==='local')await loadLocalLibrary();refreshLibraryPanel();break;}
     case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'font-picker': fontQuery='';await loadFonts();fontPickerModal();break;
+    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;});closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
+    case 'font-install': {
+      const font=freeFonts.find(f=>f.id===el.dataset.id);if(!font)break;
+      fontBusy=font.id;fontPickerModal();
+      try{
+        for(const file of font.files){
+          const name=`${font.family.replace(/[^A-Za-z0-9]/g,'')}-${file.weight}.${file.url.endsWith('.otf')?'otf':'ttf'}`;
+          await invoke('fonts_install',{url:file.url,family:font.family,fileName:name});
+        }
+        await loadFonts(true);fontBusy='';fontPickerModal();
+        toast(`${font.family} · ${ui('installed','설치했습니다')} · ${licenseNote(font,uiLanguage).slice(0,60)}`);
+      }catch(error){fontBusy='';fontPickerModal();toast(String(error));}
+      break;
+    }
+    case 'local-scope': localScope=(el.dataset.scope as LocalScope)??'all';refreshLibraryPanel();break;
+    case 'local-delete': {const id=el.dataset.id!;const image=readableImages(localLibrary).find(i=>i.id===id);if(!image)break;
+      showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
+    case 'local-delete-confirm': {const id=el.dataset.id!;try{await invoke('image_library_delete',{id,project:project.id});}catch(error){toast(String(error));break;}forgetLocal(id);await loadLocalLibrary(true);closeModal();refreshLibraryPanel();render();toast(ui('Deleted','삭제했습니다'));break;}
     case 'local-refresh': forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();toast(ui('Library refreshed','라이브러리를 새로고침했습니다'));break;
-    case 'local-reveal': try{const dir=await invoke<string>('image_library_reveal');toast(dir);}catch(error){toast(String(error));}break;
+    case 'local-reveal': try{const dir=await invoke<string>('image_library_reveal',{project:localScope==='project'?project.id:undefined});toast(dir);}catch(error){toast(String(error));}break;
     case 'local-import': pickFile('image/png,image/jpeg,image/webp',async file=>{
       if(file.size>12_000_000)throw new Error(ui('Pick an image under 12 MB.','12MB 이하 이미지를 골라주세요.'));
       const bytes=new Uint8Array(await file.arrayBuffer());
       let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
-      await invoke('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary)});
+      const scope=el.dataset.scope==='project'?project.id:undefined;
+      await invoke('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary),project:scope});
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;
@@ -892,6 +942,7 @@ document.addEventListener('contextmenu',e=>{
 });
 document.addEventListener('input', e => {
   if((e.target as HTMLElement).closest?.('#workspace-form')){const t=e.target as HTMLInputElement;if(t.name==='emoji'){modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.emoji===t.value)));if(t.value)(modalRoot.querySelector<HTMLFormElement>('#workspace-form')!.elements.namedItem('image') as HTMLInputElement).value='';}if(t.name==='color'){const f=modalRoot.querySelector<HTMLFormElement>('#workspace-form')!;(f.elements.namedItem('emoji') as HTMLInputElement).value='';(f.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft={kind:'color',value:t.value};modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-color"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.color?.toLowerCase()===t.value.toLowerCase())));modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed','false'));}wsPreview();}
+  if((e.target as HTMLElement).id==='font-search'){fontQuery=(e.target as HTMLInputElement).value;const list=modalRoot.querySelector('.font-list');const scroll=list?.scrollTop??0;fontPickerModal();modalRoot.querySelector<HTMLInputElement>('#font-search')!.value=fontQuery;const next=modalRoot.querySelector('.font-list');if(next)next.scrollTop=scroll;return;}
   if((e.target as HTMLElement).id==='command-search'){const value=(e.target as HTMLInputElement).value;clearTimeout(paletteDebounce);paletteDebounce=window.setTimeout(()=>{if(modalRoot.querySelector('#command-search'))renderPaletteList(value);},value?90:0);return;}
   const target = e.target as HTMLInputElement;
   if(target.id==='proposal-color'||target.id==='proposal-font'){themeDraft=themeProposal(project,target.id==='proposal-color'?target.value:themeDraft!.candidate.system.accent,target.id==='proposal-font'?target.value as 'serif'|'sans':themeDraft!.candidate.system.font);themeReview();return;}
@@ -1061,7 +1112,14 @@ async function runAgentCommand(kind:unknown,payload:unknown):Promise<Record<stri
       case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
       case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(new KeyboardEvent('keydown',init));document.body.dispatchEvent(new KeyboardEvent('keyup',init));recordRun('agent:key',{key:c.key});break;}
       case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{});recordRun('agent:command',{query:c.query,command:hit.id});break;}
-      case 'library':{if(!nativeDesktop)return {error:'the image library is desktop only'};if(c.refresh)forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,name:i.name,width:i.width,height:i.height,mime:i.mime}))};}
+      case 'library':{
+        if(!nativeDesktop)return {error:'the image library is desktop only'};
+        const scope=c.scope==='project'?project.id:undefined;
+        if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id});}
+        if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope});}
+        forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();
+        return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime}))};
+      }
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }

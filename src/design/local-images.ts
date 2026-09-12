@@ -3,7 +3,8 @@
  * A project stores `local:<id>` where id is a hash of the bytes, never a path, so the reference
  * survives renames and says nothing about the machine. Bytes are resolved at render and at export.
  */
-export type LocalImage={id:string;name:string;bytes:number;mime:string;width:number;height:number;modified:number};
+export type LocalImage={id:string;scope:string;name:string;bytes:number;mime:string;width:number;height:number;modified:number};
+export type LocalScope='all'|'project'|'global';
 export type LocalLibrary={dir:string;images:LocalImage[]};
 
 export const LOCAL_PREFIX='local:';
@@ -57,3 +58,10 @@ export function readableImages(library:LocalLibrary|undefined):LocalImage[]{
 }
 
 export function isWide(image:LocalImage):boolean{return image.width>0&&image.height>0&&image.width/image.height>=1.25;}
+
+/** 'project' keeps the pictures filed with this project; 'global' the ones every project can reach. */
+export function inScope(images:readonly LocalImage[],scope:LocalScope,projectId:string):LocalImage[]{
+  if(scope==='all')return [...images];
+  if(scope==='global')return images.filter(i=>i.scope==='global');
+  return images.filter(i=>i.scope===projectId);
+}

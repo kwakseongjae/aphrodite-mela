@@ -12,8 +12,11 @@ export type AgentCommand=
   |{kind:'key';key:string;code?:string;meta?:boolean;shift?:boolean;ctrl?:boolean;alt?:boolean}
   |{kind:'command';query:string}
   |{kind:'edit';field:EditableField;text:string;blockId?:string}
-  |{kind:'library';refresh?:boolean}
+  |{kind:'library';action:LibraryAction;id?:string;name?:string;base64?:string;scope?:'project'|'global'}
   |{kind:'end'};
+
+export const libraryActions=['list','delete','import'] as const;
+export type LibraryAction=typeof libraryActions[number];
 
 export const editableFields=['title','text','label','eyebrow','description'] as const;
 export type EditableField=typeof editableFields[number];
@@ -56,7 +59,24 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       if(!query||!query.trim())return {error:'command needs "query" (palette search text)'};
       return {command:{kind:'command',query:query.trim()}};
     }
-    case 'library':return {command:{kind:'library',refresh:p.refresh===true}};
+    case 'library':{
+      const action=(str(p.action,10)??'list') as LibraryAction;
+      if(!libraryActions.includes(action))return {error:`library action must be one of ${libraryActions.join('|')}`};
+      const scope=p.scope==='project'?'project' as const:p.scope===undefined||p.scope==='global'?'global' as const:undefined;
+      if(!scope)return {error:'library scope must be "project" or "global"'};
+      if(action==='delete'){
+        const id=str(p.id,64);
+        if(!id||!/^[0-9a-f]{16}$/.test(id))return {error:'delete needs the 16-character image "id"'};
+        return {command:{kind:'library',action,id,scope}};
+      }
+      if(action==='import'){
+        const name=str(p.name,120),base64=str(p.base64,20_000_000);
+        if(!name)return {error:'import needs a "name"'};
+        if(!base64||!/^[A-Za-z0-9+/=\s]+$/.test(base64))return {error:'import needs base64 image bytes in "base64"'};
+        return {command:{kind:'library',action,name,base64,scope}};
+      }
+      return {command:{kind:'library',action,scope}};
+    }
     case 'edit':{
       const field=str(p.field,20) as EditableField|undefined,text=str(p.text,20000);
       if(!field||!editableFields.includes(field))return {error:`edit needs "field" (${editableFields.join('|')})`};
@@ -83,7 +103,9 @@ export function bridgeExamples(base:string,token:string):string{
     `curl -s -X POST ${base}/agent/act ${auth} -d '{"action":"add","data":{"kind":"cta"}}'`,
     `curl -s -X POST ${base}/agent/click ${auth} -d '{"selector":".space-frame.active [data-kind=hero]"}'`,
     `curl -s -X POST ${base}/agent/edit ${auth} -d '{"field":"title","text":"빛으로 완성하는 공간"}'`,
-    `curl -s -X POST ${base}/agent/library ${auth} -d '{"refresh":true}'   # after writing images into the library folder`,
+    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"list"}'`,
+    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"import","scope":"project","name":"hero","base64":"<png bytes>"}'`,
+    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"delete","id":"0123456789abcdef"}'`,
     `curl -s -X POST ${base}/agent/key ${auth} -d '{"key":"1","shift":true}'`,
     `curl -s -X POST ${base}/agent/end ${auth}`,
   ].join('\n');

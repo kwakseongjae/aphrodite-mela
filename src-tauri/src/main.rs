@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
+mod fonts;
 mod image_library;
 mod reference;
 mod vault;
@@ -24,7 +25,12 @@ fn main() {
             image_library::image_library_list,
             image_library::image_library_read,
             image_library::image_library_import,
-            image_library::image_library_reveal
+            image_library::image_library_reveal,
+            image_library::image_library_delete,
+            fonts::fonts_installed,
+            fonts::fonts_has_family,
+            fonts::fonts_install,
+            fonts::fonts_uninstall
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");

@@ -234,3 +234,32 @@ body.is-col-resizing{cursor:col-resize;user-select:none;-webkit-user-select:none
 .asset-chip small{margin-left:5px;font:10px ui-monospace,Menlo,monospace;opacity:.7}
 .asset-tile img[data-local-missing]{background:repeating-linear-gradient(45deg,#f1efe6,#f1efe6 6px,#e8e5da 6px,#e8e5da 12px)}
 img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
+
+.asset-scopes{padding-bottom:6px}
+.asset-tile{position:relative}
+.asset-tile-open{display:grid;gap:4px;width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer}
+.asset-tile-open img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;background:#f1efe6;display:block}
+.asset-tile.wide .asset-tile-open img{aspect-ratio:3/2}
+.asset-tile-open span{font-size:11px;color:#7a7f70;padding:0 2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.asset-del{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:rgba(253,254,250,.92);border:1px solid #dfe3d6;color:#a3462b;opacity:0;transition:opacity .12s}
+.asset-del svg{width:13px;height:13px}
+.asset-tile:hover .asset-del,.asset-del:focus-visible{opacity:1}
+.asset-del:hover{background:#a3462b;border-color:#a3462b;color:#fff}
+.asset-scope{position:absolute;top:5px;left:5px;font-style:normal;font-size:9.5px;letter-spacing:.03em;padding:2px 6px;border-radius:5px;background:rgba(41,40,32,.62);color:#fdfefa;opacity:0;transition:opacity .12s}
+.asset-tile:hover .asset-scope{opacity:1}
+
+.font-family-field{min-width:0}
+.font-pick{width:100%;height:34px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 0 10px;border:1px solid #dfe3d6;border-radius:8px;background:#fff;font-size:13px;color:#3a4531}
+.font-pick:hover{background:#f6f7f2}
+.font-pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.font-pick svg{width:14px;height:14px;flex:none;color:#8e9a80}
+.font-search{margin-bottom:10px}
+.font-list{max-height:min(56vh,480px);overflow:auto;display:grid;gap:2px;padding-right:4px}
+.font-row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:8px;font-size:15px;color:#292820;text-align:left;background:none;border:1px solid transparent}
+.font-row:hover{background:#f4f5ef}
+.font-row[aria-pressed="true"]{border-color:#dfe3d6;background:#fbfcf7}
+.font-row-name{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.font-row small{flex:1;font:11.5px -apple-system,BlinkMacSystemFont,sans-serif;color:#8e9a80;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.font-row svg{width:15px;height:15px;color:#2f4cd8;flex:none}
+.font-mine{font-style:normal;font:10px ui-monospace,Menlo,monospace;color:#8f6a1c;background:#fbf1d9;border-radius:5px;padding:1px 5px;flex:none}
+.font-row-install .secondary-button{height:28px;padding:0 10px;font-size:11.5px;flex:none}
