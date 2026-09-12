@@ -22,6 +22,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 https://github.com/nexu-io/open-design — workflow reference, inspected 2026-09-08. The repository identifies Apache-2.0 licensing. No OpenDesign source code was copied or vendored into this prototype.
 
+## Generated sample photography
+
+`public/assets/samples/*.webp` — 50 bundled sample photographs across devices, workspace, coffee, fashion, books, objects, food and interiors, generated 2026-09-12 with the built-in image generation tool through the Codex CLI, then downscaled to WebP. Exact backend model not exposed. They are synthetic images, not photographs of real products, places or people: no brand marks, no readable text and no identifiable faces were requested. They ship as prototype-only imagery and are not cleared for commercial publication.
+
 ## Generated brand assets
 
 `public/brand/apple-mark.png` — the engraved golden apple with a cream "a", generated 2026-09-11 with the built-in image generation tool through the Codex CLI, then trimmed and downscaled for the interface. Exact backend model not exposed. It is an original mark for Aphrodite, not a depiction of a real product.

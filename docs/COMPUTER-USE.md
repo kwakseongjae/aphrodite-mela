@@ -135,3 +135,7 @@ The top bar and the bottom status bar are **gone**. Nothing is lost, it moved:
 - Clicking empty canvas clears the selection (`#app[data-selected-id]` becomes empty and the overlay hides). Dragging on empty canvas draws a marquee and selects the block it covers most (`marquee:select` receipt). Selection is still single; the marquee does not produce a multi-selection.
 - Preview and Export sit at the top of the inspector (`.inspector-top`). Undo and Redo have no buttons — use ⌘Z and ⇧⌘Z, or the palette.
 - Panels are pinned to their grid columns, so hiding or peeking one never moves the canvas or the inspector.
+
+## Sample imagery (added 2026-09-12)
+
+The Assets tab carries 50 bundled photographs (`/assets/samples/<id>.webp`) grouped by category: devices, workspace, coffee, fashion, books, objects, food, interior. Filter with `data-action="asset-category" data-category="all|tech|office|coffee|fashion|books|hobby|food|interior"`, then apply one with `data-action="apply-sample" data-sample="<id>"`. With a Hero or Collection component selected it becomes that component's image; otherwise it becomes the project reference. The catalogue lives in `src/design/sample-images.ts` and `safeImage` only accepts ids from it, so an arbitrary path cannot be injected into a project. Export bundles whichever samples the project actually references into `assets/samples/`.

@@ -1,4 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
+import {sampleImages} from './design/sample-images';
 import { type Project, isApproved } from './model';
 import { pageHtml } from './render';
 import { sceneManifest } from './components';
@@ -133,6 +134,14 @@ export async function exportBundle(p: Project): Promise<Uint8Array> {
   p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)); });
   for(const u of uploads)files[u.name]=u.bytes;
   if(uploads.length)files['UPLOADS.md']=strToU8(uploadsMarkdown(p,uploads));
+  for (const sample of sampleImages) {
+    const path=`assets/samples/${sample.id}.webp`;
+    const used=Object.entries(files).some(([name,content])=>(name.endsWith('.html')||name==='project.aphrodite.json')&&new TextDecoder().decode(content).includes(path));
+    if(!used)continue;
+    const res=await fetch(`/${path}`);
+    if(!res.ok)throw new Error(`에셋을 묶지 못했습니다: ${sample.id}`);
+    files[path]=new Uint8Array(await res.arrayBuffer());
+  }
   for (const asset of ['interior', 'chair', 'living']) {
     const used = Object.entries(files).some(([name,content]) => (name.endsWith('.html') || name === 'project.aphrodite.json') && new TextDecoder().decode(content).includes(`assets/${asset}.jpg`));
     if (!used) continue;

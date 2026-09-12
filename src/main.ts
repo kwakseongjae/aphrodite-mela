@@ -49,6 +49,7 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
+import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
 import {syncKeyedChildren} from './workspace/grid-sync';
 const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
@@ -382,9 +383,17 @@ function render() {
 }
 function libraryHtml() {
   if (tab === 'layers') return `<div class="panel-description">화면 순서대로 쌓이는 구성 요소입니다.</div><div class="layer-list">${currentPage(project).blocks.map(b => `<button class="layer ${b.id === selected ? 'selected' : ''}" data-action="select" data-id="${b.id}" data-layer-id="${b.id}" title="${ui('Drag grip to reorder · Alt + arrows','핸들을 드래그해 순서 변경 · Alt + 방향키')}"><span data-layer-grip aria-hidden="true">${icon('grip-vertical')}</span>${icon(catalog.find(c => c.kind === b.kind)!.icon)}<span>${catalog.find(c => c.kind === b.kind)!.name}</span></button>`).join('') || `<p class="empty-state">${ui('Add your first component.','첫 컴포넌트를 추가하세요.')}</p>`}</div>`;
-  if (tab === 'assets') return `<div class="section-label">${ui('REFERENCE & IMAGERY','레퍼런스·이미지')}</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${project.reference}" alt="${ui('Uploaded reference','올린 레퍼런스')}">` : icon('image-plus')}<strong>${project.reference ? ui('View your reference','레퍼런스 보기') : ui('Bring your inspiration','영감을 가져와 보세요')}</strong><span>${ui('PNG, JPG, WebP · up to 2MB','PNG, JPG, WebP · 최대 2MB')}</span></button><p class="panel-description">내 이미지를 업로드하거나 로컬 샘플 이미지로 분위기를 확인하세요.</p><div class="asset-grid">${['interior', 'chair', 'living'].map(a => `<button data-action="apply-asset" data-asset="${a}" aria-label="Use ${a} image"><img src="/assets/${a}.jpg" alt="${a} reference photo"><span>${a}</span></button>`).join('')}</div><p class="panel-description">${ui('Unsplash reference photography.','Unsplash 레퍼런스 사진입니다.')}<br>샘플 이미지이며, AI 생성 이미지가 아닙니다.</p>`;
+  if (tab === 'assets') {
+    const chips=[{id:'all' as const,en:'All',ko:'전체'},...sampleCategories].map(c=>`<button class="asset-chip" data-action="asset-category" data-category="${c.id}" aria-pressed="${assetCategory===c.id}">${esc(uiLanguage==='ko'?c.ko:c.en)}</button>`).join('');
+    const shots=samplesIn(assetCategory).map(sample=>`<button class="asset-tile ${sample.wide?'wide':''}" data-action="apply-sample" data-sample="${esc(sample.id)}" title="${esc(uiLanguage==='ko'?sample.ko:sample.en)}"><img src="${sampleSrc(sample.id)}" alt="${esc(uiLanguage==='ko'?sample.ko:sample.en)}" loading="lazy" draggable="false"><span>${esc(uiLanguage==='ko'?sample.ko:sample.en)}</span></button>`).join('');
+    return `<div class="section-label">${ui('REFERENCE','레퍼런스')}</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${project.reference}" alt="${ui('Uploaded reference','올린 레퍼런스')}">` : icon('image-plus')}<strong>${project.reference ? ui('View your reference','레퍼런스 보기') : ui('Bring your inspiration','영감을 가져와 보세요')}</strong><span>${ui('PNG, JPG, WebP · up to 2MB','PNG, JPG, WebP · 최대 2MB')}</span></button>
+    <div class="section-label">${ui('SAMPLE IMAGERY','샘플 이미지')}</div><p class="panel-description">${ui('Bundled photography for trying a direction. Select a component, then pick one.','방향을 시험해 볼 번들 사진입니다. 컴포넌트를 선택한 뒤 고르세요.')}</p>
+    <div class="asset-chips" role="group" aria-label="${ui('Image categories','이미지 분류')}">${chips}</div>
+    <div class="asset-tiles">${shots}</div>`;
+  }
   return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="${ui('Find a component...','컴포넌트 찾기…')}" value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>${ui('Drag onto the canvas.','캔버스로 드래그하세요.')}<br>${ui('Or click + to add instantly.','또는 +를 눌러 바로 추가하세요.')}</span></div>`;
 }
+let assetCategory:SampleCategory|'all'='all';
 let explorerKind:BlockKind='button',explorerVariant='solid';
 let explorerGroup='All';
 let explorerFilter={...emptyCatalogFilter};
@@ -744,6 +753,8 @@ async function action(el: HTMLElement) {
     case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }); break;
     case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }); break;
     case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
+    case 'asset-category': {const next=el.dataset.category as SampleCategory|'all';assetCategory=next;const host=app.querySelector('.library-content');if(host){host.innerHTML=libraryHtml();hydrateIcons();bindDragAndDrop();}break;}
+    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
       if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
