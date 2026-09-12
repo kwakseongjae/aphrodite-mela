@@ -15,7 +15,7 @@ export type DockGroup={id:string;items:readonly DockItem[]};
 export const dockGroups:readonly DockGroup[]=[
   {id:'pointer',items:[
     {id:'select',action:'dock-select',icon:'mouse-pointer-2',en:'Select',ko:'선택',key:'V'},
-    {id:'hand',action:'dock-hand',icon:'hand',en:'Hand · drag to pan (or hold Space)',ko:'손 · 드래그로 이동 (Space 누른 채도 가능)',key:'H'},
+    {id:'hand',action:'dock-hand',icon:'hand',en:'Hand',ko:'손',key:'H'},
   ]},
   {id:'insert',items:[
     {id:'add',action:'component-explorer',icon:'plus',en:'Add component',ko:'컴포넌트 추가',key:'A'},

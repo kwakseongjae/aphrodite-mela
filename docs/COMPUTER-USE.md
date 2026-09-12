@@ -117,3 +117,15 @@ Right-clicking a project card opens that card's `details.folio-more` menu at the
 The left sidebar collapses: `data-action="home-sidebar"` toggles it, `.folio-home[data-sidebar]` reports `open` or `collapsed`, and when collapsed a floating tab (`.folio-side-tab`, same action) brings it back. The state persists per device. The workspace menu renders as a fixed layer so the scrolling sidebar cannot clip it.
 
 Filtering, sorting and search update the grid in place (keyed reconciliation), so card elements persist across a filter change. Do not assume a fresh DOM node per filter; re-query by `[data-project-id]`.
+
+## Editor chrome rebuilt, Figma-style (2026-09-12)
+
+The top bar and the bottom status bar are **gone**. Nothing is lost, it moved:
+
+- **Left panel head**: back to Home (`home`), the project menu (`project`), a save dot, then a row with the command search (`commands`, ⌘K) and Undo/Redo. The assembly-shelf block no longer renders in this panel; the shelf still lives in the catalog explorer.
+- **Dock** (bottom centre): tools are grouped into slots like Figma's. Each slot shows its active tool plus a caret (`data-action="dock-group" data-group="pointer|insert|media|run|zoom"`) that opens a `.dock-menu` of `role="menuitemradio"` items with shortcuts. Groups: pointer (Select V · Hand H), insert (Add component A · New frame F), media (Reference R · Get Vibe G), run (Preview P). The mode segment and the zoom control follow, and the zoom caret opens the zoom commands.
+- **Floating top-right of the canvas**: Preview and Export (`.canvas-corner-top`).
+- **Floating bottom-right**: the `?` help menu (`details.help-fab`) with commands, the tour, the computer-use guide, the brand kit, release notes, issues and language.
+- **Status**: `#editor-state` still exists with the same `stateLine` text, now visually hidden. Read `#app[data-*]` as before — that contract is unchanged.
+- **Inspector**: no collapse control. Drag its left border (`.inspector-grip`) to resize between 220 and 520px; the width persists. The left panel still collapses (`panel-collapse` / `panel-pin`), and a collapsed panel keeps its grid cell so the canvas simply widens.
+- Dragging a component from the library now carries a preview of that component under the cursor, and the canvas outlines while a drop is possible.
