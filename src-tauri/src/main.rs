@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
+mod image_library;
 mod reference;
 mod vault;
 mod workspace;
@@ -19,7 +20,11 @@ fn main() {
             vault::vault_read,
             agent::agent_bridge_start,
             agent::agent_bridge_reply,
-            agent::agent_bridge_info
+            agent::agent_bridge_info,
+            image_library::image_library_list,
+            image_library::image_library_read,
+            image_library::image_library_import,
+            image_library::image_library_reveal
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");

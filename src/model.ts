@@ -1,6 +1,7 @@
 import { patternSpecs, isPattern, patternVariants, validOptions, type PatternKind, type PatternOptions } from './patterns';
 import {sanitizeSpace,type Space} from './editor/space';
 import {isSampleSrc} from './design/sample-images';
+import {isLocalRef} from './design/local-images';
 import { supportsProvider, type Provider } from './providers';
 import {validComponentTheme,type ComponentTheme} from './design/component-theme';
 import {validShelf,type ShelfChoice} from './design/shelf';
@@ -73,7 +74,7 @@ export function assemble(brief: string): BlockKind[] {
   return ['navigation', 'hero', 'features', 'testimonial', 'cta', 'footer'];
 }
 export function safeImage(value: string) {
-  return /^data:image\/(png|jpeg|webp);base64,[a-zA-Z0-9+/=]+$/.test(value) || /^\/assets\/(interior|chair|living)\.jpg$/.test(value) || value==='/assets/lighting-hero.png' || isSampleSrc(value) ? value : '';
+  return /^data:image\/(png|jpeg|webp);base64,[a-zA-Z0-9+/=]+$/.test(value) || /^\/assets\/(interior|chair|living)\.jpg$/.test(value) || value==='/assets/lighting-hero.png' || isSampleSrc(value) || isLocalRef(value) ? value : '';
 }
 export function parseProject(raw: string): Project {
   if (raw.length > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.');

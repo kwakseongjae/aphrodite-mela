@@ -1,4 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
+import {localRefsIn,extensionFor,LOCAL_PREFIX} from './design/local-images';
 import {sampleImages} from './design/sample-images';
 import { type Project, isApproved } from './model';
 import { pageHtml } from './render';
@@ -109,7 +110,7 @@ function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[
     return `${u.name} → ${used.join(', ')}`;
   }).join('\n');
 }
-export async function exportBundle(p: Project): Promise<Uint8Array> {
+export async function exportBundle(p: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
   const files: Record<string, Uint8Array> = {
     'DESIGN.md': strToU8(designMarkdown(p)),
     'PROMPT.md': strToU8(buildPrompt(p)),
@@ -131,7 +132,17 @@ export async function exportBundle(p: Project): Promise<Uint8Array> {
   const hasLibraries=p.pages.some(page=>page.blocks.some(b=>b.provider&&b.provider!=='own'));
   if(hasLibraries)for(const [name,value] of Object.entries(sourceFiles()))files[name]=strToU8(value);
   const uploads=collectUploads(p);
-  p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)); });
+  // Pictures from the local library are referenced by hash; the handoff carries the bytes instead.
+  const localFiles: {ref: string; name: string}[] = [];
+  for(const id of localRefsIn(p)){
+    const got=await resolveLocal?.(id);
+    if(!got)continue;
+    const name=`assets/uploads/local-${id}.${extensionFor(got.mime)}`;
+    files[name]=got.bytes;
+    localFiles.push({ref:`${LOCAL_PREFIX}${id}`,name});
+  }
+  const rewriteLocal=(html:string)=>localFiles.reduce((acc,f)=>acc.replaceAll(`src="${f.ref}"`,`src="${f.name}"`),html);
+  p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(rewriteLocal(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads))); });
   for(const u of uploads)files[u.name]=u.bytes;
   if(uploads.length)files['UPLOADS.md']=strToU8(uploadsMarkdown(p,uploads));
   for (const sample of sampleImages) {

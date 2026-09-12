@@ -108,12 +108,13 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                 (Method::Post, "/agent/key") => "key",
                 (Method::Post, "/agent/command") => "command",
                 (Method::Post, "/agent/edit") => "edit",
+                (Method::Post, "/agent/library") => "library",
                 (Method::Post, "/agent/end") => "end",
                 _ => {
                     respond(
                         request,
                         404,
-                        json!({"error": "unknown route", "routes": ["GET /agent/state", "POST /agent/act", "POST /agent/click", "POST /agent/type", "POST /agent/key", "POST /agent/command", "POST /agent/edit", "POST /agent/end"]}),
+                        json!({"error": "unknown route", "routes": ["GET /agent/state", "POST /agent/act", "POST /agent/click", "POST /agent/type", "POST /agent/key", "POST /agent/command", "POST /agent/edit", "POST /agent/library", "POST /agent/end"]}),
                     );
                     continue;
                 }

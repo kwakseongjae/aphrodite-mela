@@ -50,6 +50,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
+import {localRef,parseLocalRef,localRefsIn,dataUrl,cachedLocal,cacheLocal,forgetLocal,hydrateLocalImages,readableImages,isWide,type LocalLibrary,type LocalImage} from './design/local-images';
 import {syncKeyedChildren} from './workspace/grid-sync';
 const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
@@ -291,6 +292,23 @@ function toggleHomeSidebar(){
   }
   syncStateAttributes();
 }
+/** Export needs the actual bytes: a `local:` reference means nothing on another machine. */
+async function resolveLocalBytes(id:string):Promise<{bytes:Uint8Array;mime:string}|undefined>{
+  if(!nativeDesktop)return undefined;
+  try{
+    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id});
+    const binary=atob(got.base64);
+    const bytes=new Uint8Array(binary.length);
+    for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+    return {bytes,mime:got.mime};
+  }catch{return undefined;}
+}
+function refreshLibraryPanel(){
+  const host=app.querySelector('.library-content');
+  if(!host)return;
+  host.innerHTML=libraryHtml();hydrateIcons();bindDragAndDrop();
+  hydrateLocalImages(host,resolveLocal);
+}
 function hubRefresh(){
   const grid=document.querySelector('#project-grid');
   if(screen!=='home'||!grid){render();return;}
@@ -351,6 +369,7 @@ function render() {
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
   mountSpace();mountPanels();mountInspectorResize();
+  hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
@@ -384,16 +403,41 @@ function render() {
 function libraryHtml() {
   if (tab === 'layers') return `<div class="panel-description">화면 순서대로 쌓이는 구성 요소입니다.</div><div class="layer-list">${currentPage(project).blocks.map(b => `<button class="layer ${b.id === selected ? 'selected' : ''}" data-action="select" data-id="${b.id}" data-layer-id="${b.id}" title="${ui('Drag grip to reorder · Alt + arrows','핸들을 드래그해 순서 변경 · Alt + 방향키')}"><span data-layer-grip aria-hidden="true">${icon('grip-vertical')}</span>${icon(catalog.find(c => c.kind === b.kind)!.icon)}<span>${catalog.find(c => c.kind === b.kind)!.name}</span></button>`).join('') || `<p class="empty-state">${ui('Add your first component.','첫 컴포넌트를 추가하세요.')}</p>`}</div>`;
   if (tab === 'assets') {
-    const chips=[{id:'all' as const,en:'All',ko:'전체'},...sampleCategories].map(c=>`<button class="asset-chip" data-action="asset-category" data-category="${c.id}" aria-pressed="${assetCategory===c.id}">${esc(uiLanguage==='ko'?c.ko:c.en)}</button>`).join('');
-    const shots=samplesIn(assetCategory).map(sample=>`<button class="asset-tile ${sample.wide?'wide':''}" data-action="apply-sample" data-sample="${esc(sample.id)}" title="${esc(uiLanguage==='ko'?sample.ko:sample.en)}"><img src="${sampleSrc(sample.id)}" alt="${esc(uiLanguage==='ko'?sample.ko:sample.en)}" loading="lazy" draggable="false"><span>${esc(uiLanguage==='ko'?sample.ko:sample.en)}</span></button>`).join('');
-    return `<div class="section-label">${ui('REFERENCE','레퍼런스')}</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${project.reference}" alt="${ui('Uploaded reference','올린 레퍼런스')}">` : icon('image-plus')}<strong>${project.reference ? ui('View your reference','레퍼런스 보기') : ui('Bring your inspiration','영감을 가져와 보세요')}</strong><span>${ui('PNG, JPG, WebP · up to 2MB','PNG, JPG, WebP · 최대 2MB')}</span></button>
-    <div class="section-label">${ui('SAMPLE IMAGERY','샘플 이미지')}</div><p class="panel-description">${ui('Bundled photography for trying a direction. Select a component, then pick one.','방향을 시험해 볼 번들 사진입니다. 컴포넌트를 선택한 뒤 고르세요.')}</p>
+    const mine=readableImages(localLibrary);
+    const chips=[{id:'all' as const,en:'All',ko:'전체'},...sampleCategories,...(nativeDesktop?[{id:'local' as const,en:'My library',ko:'내 라이브러리'}]:[])]
+      .map(c=>`<button class="asset-chip" data-action="asset-category" data-category="${c.id}" aria-pressed="${assetCategory===c.id}">${esc(uiLanguage==='ko'?c.ko:c.en)}${c.id==='local'?`<small>${mine.length}</small>`:''}</button>`).join('');
+    const tiles=assetCategory==='local'
+      ? mine.map((image:LocalImage)=>`<button class="asset-tile ${isWide(image)?'wide':''}" data-action="apply-local" data-id="${esc(image.id)}" title="${esc(image.name)}"><img src="${esc(cachedLocal(image.id)??localRef(image.id))}" alt="${esc(image.name)}" loading="lazy" draggable="false"><span>${esc(image.name)}</span></button>`).join('')
+      : samplesIn(assetCategory as SampleCategory|'all').map(sample=>`<button class="asset-tile ${sample.wide?'wide':''}" data-action="apply-sample" data-sample="${esc(sample.id)}" title="${esc(uiLanguage==='ko'?sample.ko:sample.en)}"><img src="${sampleSrc(sample.id)}" alt="${esc(uiLanguage==='ko'?sample.ko:sample.en)}" loading="lazy" draggable="false"><span>${esc(uiLanguage==='ko'?sample.ko:sample.en)}</span></button>`).join('');
+    const localTools=assetCategory==='local'?`<div class="asset-tools"><button class="secondary-button" data-action="local-import">${icon('image-plus')}${ui('Add images','이미지 추가')}</button><button class="secondary-button" data-action="local-reveal">${icon('folder-open')}${ui('Open the folder','폴더 열기')}</button><button class="secondary-button" data-action="local-refresh">${ui('Refresh','새로고침')}</button></div><p class="fine-print">${ui('Drop PNG, JPEG or WebP into the folder — your agent can write there too — then refresh. Nothing is uploaded.','폴더에 PNG·JPEG·WebP를 넣고 새로고침하세요. 에이전트가 직접 넣어도 됩니다. 아무것도 업로드되지 않습니다.')}</p>`:'';
+    const empty=assetCategory==='local'&&!mine.length?`<p class="panel-description">${ui('The folder is empty. Add images or let an agent write into it.','폴더가 비어 있습니다. 이미지를 추가하거나 에이전트가 넣도록 하세요.')}</p>`:'';
+    return `<div class="section-label">${ui('REFERENCE','레퍼런스')}</div><button class="reference-upload" data-action="reference">${project.reference ? `<img src="${esc(project.reference)}" alt="${ui('Uploaded reference','올린 레퍼런스')}">` : icon('image-plus')}<strong>${project.reference ? ui('View your reference','레퍼런스 보기') : ui('Bring your inspiration','영감을 가져와 보세요')}</strong><span>${ui('PNG, JPG, WebP · up to 2MB','PNG, JPG, WebP · 최대 2MB')}</span></button>
+    <div class="section-label">${ui('IMAGERY','이미지')}</div><p class="panel-description">${ui('Select a component, then pick a picture.','컴포넌트를 선택한 뒤 사진을 고르세요.')}</p>
     <div class="asset-chips" role="group" aria-label="${ui('Image categories','이미지 분류')}">${chips}</div>
-    <div class="asset-tiles">${shots}</div>`;
+    ${localTools}${empty}<div class="asset-tiles">${tiles}</div>`;
   }
   return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="${ui('Find a component...','컴포넌트 찾기…')}" value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>${ui('Drag onto the canvas.','캔버스로 드래그하세요.')}<br>${ui('Or click + to add instantly.','또는 +를 눌러 바로 추가하세요.')}</span></div>`;
 }
-let assetCategory:SampleCategory|'all'='all';
+let assetCategory:SampleCategory|'all'|'local'='all';
+let localLibrary:LocalLibrary|undefined;let localPending=new Set<string>();
+/** Reads the folder once per session, and again whenever the person asks for a refresh. */
+async function loadLocalLibrary(force=false){
+  if(!nativeDesktop)return;
+  if(localLibrary&&!force)return;
+  try{localLibrary=await invoke<LocalLibrary>('image_library_list');}catch{localLibrary={dir:'',images:[]};}
+}
+/** Pulls one picture's bytes in, then repaints the images waiting on it. */
+async function resolveLocal(id:string){
+  if(cachedLocal(id)||localPending.has(id))return;
+  localPending.add(id);
+  try{
+    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id});
+    cacheLocal(id,dataUrl(got.mime,got.base64));
+    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});
+  }catch{
+    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.dataset.localMissing='gone';});
+  }finally{localPending.delete(id);}
+}
 let explorerKind:BlockKind='button',explorerVariant='solid';
 let explorerGroup='All';
 let explorerFilter={...emptyCatalogFilter};
@@ -753,7 +797,18 @@ async function action(el: HTMLElement) {
     case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }); break;
     case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }); break;
     case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
-    case 'asset-category': {const next=el.dataset.category as SampleCategory|'all';assetCategory=next;const host=app.querySelector('.library-content');if(host){host.innerHTML=libraryHtml();hydrateIcons();bindDragAndDrop();}break;}
+    case 'asset-category': {assetCategory=el.dataset.category as SampleCategory|'all'|'local';if(assetCategory==='local')await loadLocalLibrary();refreshLibraryPanel();break;}
+    case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'local-refresh': forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();toast(ui('Library refreshed','라이브러리를 새로고침했습니다'));break;
+    case 'local-reveal': try{const dir=await invoke<string>('image_library_reveal');toast(dir);}catch(error){toast(String(error));}break;
+    case 'local-import': pickFile('image/png,image/jpeg,image/webp',async file=>{
+      if(file.size>12_000_000)throw new Error(ui('Pick an image under 12 MB.','12MB 이하 이미지를 골라주세요.'));
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
+      await invoke('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary)});
+      await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
+      toast(ui('Added to your library','라이브러리에 추가했습니다'));
+    });break;
     case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
@@ -800,7 +855,7 @@ async function action(el: HTMLElement) {
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
-    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
     case 'close-modal': closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
@@ -1006,6 +1061,7 @@ async function runAgentCommand(kind:unknown,payload:unknown):Promise<Record<stri
       case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
       case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(new KeyboardEvent('keydown',init));document.body.dispatchEvent(new KeyboardEvent('keyup',init));recordRun('agent:key',{key:c.key});break;}
       case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{});recordRun('agent:command',{query:c.query,command:hit.id});break;}
+      case 'library':{if(!nativeDesktop)return {error:'the image library is desktop only'};if(c.refresh)forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,name:i.name,width:i.width,height:i.height,mime:i.mime}))};}
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
@@ -1224,6 +1280,7 @@ async function boot(){
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
+  if(nativeDesktop)void loadLocalLibrary();
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

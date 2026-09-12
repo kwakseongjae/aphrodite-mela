@@ -227,3 +227,10 @@ body.is-col-resizing{cursor:col-resize;user-select:none;-webkit-user-select:none
 .asset-tile span{font-size:11px;color:#7a7f70;padding:0 2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .asset-tile:hover{border-color:#dfe3d6;background:#fbfcf7}
 .asset-tile:hover span{color:#3a4531}
+
+.asset-tools{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 8px}
+.asset-tools .secondary-button{height:30px;padding:0 10px;font-size:11.5px;gap:6px}
+.asset-tools .secondary-button svg{width:14px;height:14px}
+.asset-chip small{margin-left:5px;font:10px ui-monospace,Menlo,monospace;opacity:.7}
+.asset-tile img[data-local-missing]{background:repeating-linear-gradient(45deg,#f1efe6,#f1efe6 6px,#e8e5da 6px,#e8e5da 12px)}
+img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
