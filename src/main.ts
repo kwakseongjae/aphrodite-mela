@@ -326,8 +326,7 @@ function render() {
         <span class="panel-save ${lastSaved?'':'warning'}" title="${control(lastSaved?(nativeDesktop?'Saved to disk':'Saved locally'):'Unsaved')}"><span class="status-dot ${lastSaved?'':'warning'}"></span></span>
       </div>
       <div class="panel-search-row">
-        <button type="button" class="panel-search" data-action="commands" aria-label="${ui('Search commands, components and frames (⌘K)','명령·컴포넌트·프레임 검색 (⌘K)')}">${icon('search')}<span>${ui('Search…','검색…')}</span><kbd>⌘K</kbd></button>
-        ${iconButton('undo','undo-2','Undo',undoStack.length?'':'disabled')}${iconButton('redo','redo-2','Redo',redoStack.length?'':'disabled')}
+        <button type="button" class="panel-search" data-action="commands" aria-label="${ui('Search commands, components and frames (⌘K)','명령·컴포넌트·프레임 검색 (⌘K)')}">${icon('search')}<span>${ui('Search commands, components, frames…','명령·컴포넌트·프레임 검색…')}</span><kbd>⌘K</kbd></button>
       </div>
       <div class="section-label">${ui("PAGES","페이지")} <button class="tiny-button" data-action="add-page" aria-label="${ui("Add page","페이지 추가")}">${icon('plus')}</button></div>
       <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-nav="fit" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
@@ -341,13 +340,9 @@ function render() {
       <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
-      <div class="canvas-corner canvas-corner-top">
-        ${button('preview','play','Preview','corner-button')}
-        ${button('export','arrow-up-right','Export','corner-button primary')}
-      </div>
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
     </main>
-    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
   </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -1089,6 +1084,39 @@ function mountSpace(){
   space.addEventListener('gesturestart',e=>{e.preventDefault();gestureZoom=camera.zoom;},{signal} as AddEventListenerOptions);
   space.addEventListener('gesturechange',e=>{e.preventDefault();const g=e as unknown as {scale:number;clientX:number;clientY:number};camera=zoomAt(camera,spaceLocal(g),gestureZoom*g.scale);applyCamera();},{signal} as AddEventListenerOptions);
   const swallowNextClick=()=>{suppressClickUntil=performance.now()+400;};
+  // Empty canvas: click clears the selection, drag draws a marquee (Figma's pointer behaviour).
+  space.addEventListener('pointerdown',e=>{
+    if(e.button!==0||spaceHeld||dockTool==='hand')return;
+    const target=e.target as HTMLElement;
+    if(target.closest('[data-block-id]')||target.closest('[data-action]')||target.closest('[data-frame-handle]')||target.closest('.editor-selection')||target.closest('select,input,button'))return;
+    const start={x:e.clientX,y:e.clientY};
+    const box=document.createElement('div');box.className='marquee';box.hidden=true;document.body.append(box);
+    let dragging=false;
+    const draw=(ev:PointerEvent)=>{
+      if(!dragging&&Math.hypot(ev.clientX-start.x,ev.clientY-start.y)<5)return;
+      dragging=true;box.hidden=false;
+      const l=Math.min(start.x,ev.clientX),t=Math.min(start.y,ev.clientY);
+      Object.assign(box.style,{left:`${l}px`,top:`${t}px`,width:`${Math.abs(ev.clientX-start.x)}px`,height:`${Math.abs(ev.clientY-start.y)}px`});
+    };
+    const done=(ev:PointerEvent)=>{
+      space.removeEventListener('pointermove',draw);space.removeEventListener('pointerup',done);space.removeEventListener('pointercancel',done);
+      const rect=box.getBoundingClientRect();box.remove();
+      if(!dragging){if(selected){selected='';render();}return;}
+      // One selection model: keep the block the marquee covers most.
+      let best:{id:string;area:number}|undefined;
+      for(const el of Array.from(document.querySelectorAll<HTMLElement>('.space-frame.active [data-block-id]'))){
+        const r=el.getBoundingClientRect();
+        const w=Math.max(0,Math.min(rect.right,r.right)-Math.max(rect.left,r.left));
+        const h=Math.max(0,Math.min(rect.bottom,r.bottom)-Math.max(rect.top,r.top));
+        const area=w*h;
+        if(area>0&&(!best||area>best.area))best={id:el.dataset.blockId!,area};
+      }
+      const next=best?.id??'';
+      if(next!==selected){selected=next;render();recordRun('marquee:select',{selected:next||null});}
+      else if(!next&&selected){selected='';render();}
+    };
+    space.addEventListener('pointermove',draw,{signal});space.addEventListener('pointerup',done,{signal});space.addEventListener('pointercancel',done,{signal});
+  },{signal});
   space.addEventListener('pointerdown',e=>{
     const handle=(e.target as HTMLElement).closest<HTMLElement>('[data-frame-handle]');
     const panning=spaceHeld||dockTool==='hand'||e.button===1;

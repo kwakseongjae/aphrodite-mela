@@ -129,3 +129,9 @@ The top bar and the bottom status bar are **gone**. Nothing is lost, it moved:
 - **Status**: `#editor-state` still exists with the same `stateLine` text, now visually hidden. Read `#app[data-*]` as before — that contract is unchanged.
 - **Inspector**: no collapse control. Drag its left border (`.inspector-grip`) to resize between 220 and 520px; the width persists. The left panel still collapses (`panel-collapse` / `panel-pin`), and a collapsed panel keeps its grid cell so the canvas simply widens.
 - Dragging a component from the library now carries a preview of that component under the cursor, and the canvas outlines while a drop is possible.
+
+### Selection and panel corrections (2026-09-12)
+
+- Clicking empty canvas clears the selection (`#app[data-selected-id]` becomes empty and the overlay hides). Dragging on empty canvas draws a marquee and selects the block it covers most (`marquee:select` receipt). Selection is still single; the marquee does not produce a multi-selection.
+- Preview and Export sit at the top of the inspector (`.inspector-top`). Undo and Redo have no buttons — use ⌘Z and ⇧⌘Z, or the palette.
+- Panels are pinned to their grid columns, so hiding or peeking one never moves the canvas or the inspector.

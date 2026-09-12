@@ -196,3 +196,21 @@ body.is-col-resizing{cursor:col-resize;user-select:none;-webkit-user-select:none
 
 .drag-ghost-native{transform:none;position:fixed;top:-1000px;left:-1000px}
 .drag-ghost .component-thumbnail{width:100%;height:100%;margin:0;transform:scale(.9);transform-origin:center}
+
+.studio>.library{grid-column:1}
+.studio>.workbench{grid-column:2}
+.studio>.inspector{grid-column:3}
+.studio.peek-left>.library,.studio.peek-right>.inspector{grid-column:auto}
+
+.inspector-top{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:#fcfcf8;position:sticky;top:0;z-index:6}
+.inspector-action{height:32px;padding:0 12px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;border:1px solid #dfe3d6;background:#fff;color:#3a4531}
+.inspector-action:hover{background:#f4f5ef}
+.inspector-action svg{width:14px;height:14px}
+.inspector-action.primary{background:#344e41;border-color:#344e41;color:#fdfefa}
+.inspector-action.primary:hover{background:#3f5e4e}
+.panel-search{width:100%}
+
+.marquee{position:fixed;z-index:24;pointer-events:none;border:1px solid #2f4cd8;background:rgba(47,76,216,.1);border-radius:2px}
+
+/* A peeking panel floats above the canvas overlays it covers. */
+.studio.peek-left>.library,.studio.peek-right>.inspector{z-index:45}
