@@ -32,6 +32,13 @@ export function formatSize(bytes:number|undefined):string{
   return `${(bytes/(1024*1024)).toFixed(1)} MB`;
 }
 
+/** 이 or 가 after a version number, by how its last digit is read aloud: 0·1·3·6·7·8 end in a
+ *  consonant and take 이, while 2·4·5·9 take 가. "0.1.6이" but "0.1.5가". */
+export function koParticle(version:string):string{
+  const digit=version.replace(/[^0-9]/g,'').slice(-1);
+  return '2459'.includes(digit)?'가':'이';
+}
+
 const esc=(s:string)=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 /** The card itself. `state` drives the line of copy and which buttons are offered. */
@@ -42,7 +49,7 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
   const icon=(name:string)=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
   const heading=state==='ready'
     ? t(`Version ${version} is downloaded`,`${version} 버전을 받았습니다`)
-    : t(`Version ${version} is available`,`새 버전 ${version}이 나왔습니다`);
+    : t(`Version ${version} is available`,`새 버전 ${version}${koParticle(version)} 나왔습니다`);
   const line=state==='failed'
     ? esc(detail||t('The download did not finish.','다운로드를 끝내지 못했습니다.'))
     : state==='ready'

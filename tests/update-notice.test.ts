@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,CHECK_INTERVAL,type UpdateInfo} from '../src/update-notice';
+import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,koParticle,CHECK_INTERVAL,type UpdateInfo} from '../src/update-notice';
 
 const offer:UpdateInfo={current:'0.1.5',latest:'0.1.6',newer:true,name:'Aphrodite_0.1.6_aarch64.dmg',url:'https://github.com/kwakseongjae/aphrodite-mela/releases/download/v0.1.6/Aphrodite_0.1.6_aarch64.dmg',size:12_600_000,notes:'https://github.com/kwakseongjae/aphrodite-mela/releases/tag/v0.1.6'};
 
@@ -64,4 +64,11 @@ test('a failure message is escaped rather than pasted into the page',()=>{
 
 test('a release with no notes link offers no notes button',()=>{
   assert.doesNotMatch(updateNoticeHtml({...offer,notes:undefined},'offer','en'),/update-notes/);
+});
+
+test('the Korean subject particle follows how the last digit is read aloud',()=>{
+  const cases:[string,string][]=[['0.1.0','이'],['0.1.1','이'],['0.1.2','가'],['0.1.3','이'],['0.1.4','가'],['0.1.5','가'],['0.1.6','이'],['0.1.7','이'],['0.1.8','이'],['0.1.9','가'],['1.2.10','이']];
+  for(const [version,particle] of cases)assert.equal(koParticle(version),particle,version);
+  assert.match(updateNoticeHtml({...offer,latest:'0.1.5'},'offer','ko'),/0\.1\.5가 나왔습니다/);
+  assert.match(updateNoticeHtml({...offer,latest:'0.1.6'},'offer','ko'),/0\.1\.6이 나왔습니다/);
 });
