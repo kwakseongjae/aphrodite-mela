@@ -1,6 +1,22 @@
-# Agent channel (Agent mode, v0.1.5+)
+# Agent channel
 
-When a human starts **Agent mode** (dock → Agent, or key `3`), the app locks itself for people and opens a channel for the agent:
+The channel is **open from launch**. An agent on this Mac can read the project without anyone clicking anything. Writing is a separate question, and the app — not the calling client — decides it (`src/agent/authority.ts`).
+
+| | 읽기 (`state`, 그리고 이후의 의미 단위 조회) | 쓰기 (`edit`, `act`, `click`, `type`, `key`, `command`, `library`) |
+|---|---|---|
+| **평소** (design) | 200 | **423** — 사람에게 연결 모드나 에이전트 모드를 켜 달라고 요청하라는 안내 |
+| **연결 모드** (connected) | 200 | 200, 단 쓰기 리스를 쥔 주체만. 다른 주체는 **409**(보유자 이름 포함) |
+| **에이전트 모드** (delegated) | 200 | 200 |
+
+- **연결 모드**는 사람이 켠다: 도움말(`?`) → **에이전트 연결** → 스위치. 사람은 화면을 계속 쓰고, 에이전트의 편집은 상단 한 줄 배너에 집계되며 ⌘Z로 되돌아간다. 이번 실행 동안만 유지되고 앱을 끄면 꺼진다.
+- **에이전트가 스스로 문을 열 수는 없다.** 스위치를 누르는 것도 쓰기라서 `agent-connect-toggle`을 `act`로 호출하면 423이 돌아온다.
+- **사람이 항상 이긴다.** 연결 모드에서 사람이 타이핑하거나 클릭하면 리스가 즉시 사람에게 돌아가고, 에이전트의 다음 쓰기는 409를 받는다. 몇 초 조용하면 다시 열린다. 에이전트의 리스도 90초 무활동이면 풀린다.
+- **호출자 이름**: `X-Aphrodite-Agent: claude-code` 헤더로 자기 이름을 밝힌다. 영수증마다 `by`로 남는다. `human`은 쓸 수 없다.
+- 승인(Approve direction)은 채널에 존재하지 않는다. 제어는 `end`로 내려놓을 수만 있고, `start`는 없다.
+
+## Agent mode — 완전 위임
+
+사람이 **에이전트 모드**(독 → Agent, 또는 `3`)를 켜면 앱은 사람을 잠그고 화면을 통째로 넘긴다:
 
 - A golden shield covers the window and a one-line banner sits on top. Every OS-originated event (mouse, keyboard, wheel, paste, drag) is dropped. The only human controls left are the banner's **End Agent mode** button and **⌘⇧A**.
 - Programmatic events pass. The agent drives through the channel below; the app executes commands as untrusted DOM events, records a receipt for each one, and answers with the live state.
@@ -8,13 +24,13 @@ When a human starts **Agent mode** (dock → Agent, or key `3`), the app locks i
 
 ## Desktop app: loopback HTTP
 
-On Agent mode start the app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` (mode 600):
+From launch the app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` (mode 600):
 
 ```json
 {"schema":"aphrodite.agent-endpoint/1","port":49321,"token":"…","base":"http://127.0.0.1:49321"}
 ```
 
-The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready-made curl lines. Every request needs `Authorization: Bearer <token>` and JSON bodies. Answers are JSON; `409` means the app refused (Agent mode off, locked action, nothing selected…), `504` means no answer in 15 s.
+The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready-made curl lines. Every request needs `Authorization: Bearer <token>` and JSON bodies, and should carry `X-Aphrodite-Agent: <name>` so its edits are named in the receipts. Answers are JSON: `401` wrong token, `403` no such command, `409` someone else holds the screen (or the app refused), `423` writing is not open yet, `504` no answer in 15 s.
 
 | Route | Body | Does |
 |---|---|---|

@@ -282,3 +282,19 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 .update-off{margin-top:10px;font-size:11px;color:#9aa48c}
 .update-off:hover{color:#6a755e;text-decoration:underline}
 @keyframes update-spin{to{transform:rotate(360deg)}}
+
+/* Connected mode: a line, not a takeover. The person keeps the screen; this says who else is on it. */
+.connect-banner{position:relative;z-index:70;flex-shrink:0;display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 14px;background:#eef3e8;color:#33422c;font-size:12px;white-space:nowrap;border-bottom:1px solid #d9e2cd}
+.connect-banner svg{width:14px;height:14px;color:#5c7a4a}
+.connect-banner strong{font-weight:600}
+.connect-banner code{font:11px ui-monospace,Menlo,monospace;color:#5d6b52}
+.connect-sep{color:#a9b79a}
+.connect-fill{flex:1}
+.connect-note{color:#6d7a62;overflow:hidden;text-overflow:ellipsis}
+.connect-banner button{height:24px;padding:0 10px;border-radius:6px;border:1px solid #c6d3b7;background:#fdfefa;color:#3f5136;font-size:11.5px}
+.connect-banner button:hover{background:#f4f7ee}
+.connect-switch{display:flex;align-items:center;gap:14px;padding:14px;border:1px solid #e0e6d7;border-radius:8px;margin:18px 0}
+.connect-switch>div{flex:1}
+.connect-switch strong{display:block;font-size:12.5px;color:#30402a}
+.connect-switch small{display:block;margin-top:5px;font-size:11px;line-height:1.6;color:#8b977e}
+.connect-switch button{min-width:78px;justify-content:center}

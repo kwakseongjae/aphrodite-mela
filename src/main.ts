@@ -48,6 +48,7 @@ import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveE
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
+import {judge,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -131,6 +132,19 @@ async function checkForUpdate(){
     updateInfo=info;updateState='offer';updateDetail='';updateFile='';paintUpdate();
   }catch{/* offline, rate limited, or GitHub unreachable */}
 }
+/* Connected mode: the person keeps the screen and an agent may edit alongside them. Session-only —
+   a standing write permission should not outlive the launch that granted it. */
+let connectMode=false;let lease:Holder|null=null;let connectWrites=0;let commandCaller='';
+function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
+function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
+/** Updates the connected banner in place, so a write does not cost a full render. */
+function bumpConnect(by:string){
+  connectWrites++;
+  const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
+  if(count)count.textContent=String(connectWrites);
+  if(who)who.textContent=by;
+  if(!count)render();
+}
 let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
@@ -175,13 +189,27 @@ function history(direction: 'undo' | 'redo') {
   const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
-function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
+function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
 function insertionTarget(){return currentPage(project).blocks.find(b=>b.id===insertParent&&b.kind==='frame')?.id;}
 let assemblyExpanded=false;try{assemblyExpanded=localStorage.getItem('aphrodite-assembly-expanded')==='true';}catch{}
 function assemblyBar(){const page=currentPage(project),last=assemblyRun?.events.at(-1),foreign=assemblyRun&&assemblyRun.projectId!==project.id;
   if((!assemblyRun||foreign)&&!assemblyExpanded)return `<div class="assembly-bar-header assembly-collapsed"><strong>${ui('AGENT ASSEMBLY','에이전트 조립')} · ${ui('Ready','준비됨')}</strong><span class="assembly-hint">${ui('For an external agent (Codex/Astra) driving this screen. You can ignore it while designing by hand.','외부 에이전트(Codex/Astra)가 이 화면을 조작할 때 씁니다. 직접 디자인할 땐 무시해도 됩니다.')}</span><button data-action="assembly-toggle" aria-expanded="false">${ui('Show','펼치기')}</button></div>`;
   return `<div class="assembly-bar-header"><strong>${ui('AGENT ASSEMBLY','에이전트 조립')} · ${assemblyRun?esc(foreign?'다른 프로젝트 · 기록 중지':assemblyRun.status):ui('Ready','준비됨')}</strong><div><button data-action="agent" title="${ui('Assembly brief, run receipts and the computer-use playbook for an external agent','외부 에이전트를 위한 조립 브리프·실행 기록·컴퓨터 유즈 플레이북')}">${ui('Assembly console','조립 콘솔')}</button> <button data-action="pin-frame" ${page.blocks.find(b=>b.id===selected)?.kind==='frame'?'':'disabled'} title="${ui('Keep inserting new components inside the selected Layout frame (select a frame first)','새 컴포넌트를 선택한 레이아웃 프레임 안에 계속 넣습니다 (먼저 프레임을 선택)')}">${ui('Pin selected frame','선택한 프레임에 고정')}</button> <button data-action="insert-root" title="${ui('Insert new components at the top level of the page again','새 컴포넌트를 다시 페이지 최상위에 넣습니다')}">${ui('Insert at page root','페이지 최상위에 삽입')}</button>${assemblyRun&&!foreign?'':` <button data-action="assembly-toggle" aria-expanded="true">${ui('Hide','접기')}</button>`}</div></div><div class="assembly-context"><span><strong>${ui('Selected','선택')}</strong> ${esc(nodePath(page.blocks,selected))}</span><span><strong>${ui('Insert into','삽입 위치')}</strong> ${esc(nodePath(page.blocks,insertionTarget()))}</span></div><p class="assembly-receipt ${runStorageWarning?'warning':''}" role="status">${runStorageWarning?esc(runStorageWarning):last?`${ui('Receipt','영수증')} #${last.seq} · ${esc(last.kind)} · ${esc(last.revision)}${assemblyRun!.dropped?` · ${assemblyRun!.dropped} ${ui('events omitted','이벤트 생략')}`:''}`:'Codex가 조립하고, 사람은 방향을 검토합니다. 실행 기록은 Console에서 시작하세요.'}</p>`;}
 function refreshAssemblyBar(){const bar=app.querySelector('.assembly-bar');if(bar)bar.innerHTML=assemblyBar();}
+/** Explains the channel and holds the one switch that lets an agent write. */
+function agentConnectModal(){
+  const on=connectMode;
+  const channel=agentEndpoint?`http://127.0.0.1:${agentEndpoint.port}`:'';
+  const token=agentEndpoint?agentEndpoint.token:'';
+  showModal(ui('Agent connection','에이전트 연결'),
+    ui('Reading is always open. Writing is not, until you say so.','읽기는 언제나 열려 있습니다. 쓰기는 허용하기 전까지 막혀 있습니다.'),
+    `<p class="panel-description">${ui('An agent on this Mac can always read this project — its pages, components and tokens. To let one edit while you keep working, turn this on. You keep the screen the whole time: your own typing takes priority, and ⌘Z undoes an agent edit like any other.','이 Mac의 에이전트는 이 프로젝트를 언제나 읽을 수 있습니다. 페이지·컴포넌트·토큰이요. 사용자가 계속 작업하는 동안 에이전트가 편집도 하게 하려면 이 스위치를 켜세요. 화면은 내내 사용자 것입니다. 사용자의 입력이 우선하고, 에이전트의 편집도 ⌘Z로 되돌립니다.')}</p>`+
+    `<div class="connect-switch"><div><strong>${ui('Let an agent edit alongside me','에이전트가 함께 편집하도록 허용')}</strong><small>${on?ui('On for this launch. Turning the app off resets it.','이번 실행 동안 켜져 있습니다. 앱을 끄면 초기화됩니다.'):ui('Off. Agents can read but not change anything.','꺼짐. 에이전트는 읽을 수만 있습니다.')}</small></div>`+
+    `<button type="button" class="${on?'primary-button':'secondary-button'}" data-action="agent-connect-toggle" aria-pressed="${on}">${on?ui('On','켜짐'):ui('Off','꺼짐')}</button></div>`+
+    `<div class="modal-note">${ui('Agent mode is the other way to hand over: it locks people out entirely and gives the agent the whole screen. This switch does not do that.','에이전트 모드는 다른 방식의 위임입니다. 사람을 완전히 잠그고 화면 전체를 에이전트에게 넘깁니다. 이 스위치는 그렇게 하지 않습니다.')}</div>`+
+    (nativeDesktop&&channel?`<details><summary>${ui('Channel details','채널 정보')}</summary><pre class="export-code">${esc(bridgeExamples(channel,token))}</pre></details>`:''),
+    true);
+}
 function agentModal(){const active=assemblyRun&&assemblyRun.status!=='ended';showModal(ui('Agent assembly console','에이전트 조립 콘솔'),'외부 Codex/Astra가 레고를 조립하고, 사용자는 검토·승인합니다.',`<p class="panel-description">${esc(nodePath(currentPage(project).blocks,selected))}<br>삽입 대상: ${esc(nodePath(currentPage(project).blocks,insertionTarget()))}</p>${!active?`<form id="assembly-run-form"><label class="form-label">조립 목표<textarea name="intent" maxlength="1200" required placeholder="레퍼런스의 영역, 반복 카드, 필요한 상태를 설명하세요"></textarea></label><label class="form-label">모델 / 설정 (사용자 기입)<input name="model" maxlength="100" placeholder="실제 사용 모델과 설정 · 앱이 자동 확인하지 않습니다"></label><p class="fine-print">이미지·화면·문구 본문은 자동 수집하지 않습니다. 목표와 편집 명령 메타데이터를 로컬에 보관합니다. 이전 기록은 실행 ID별로 유지됩니다.</p><button class="primary-button" type="submit">${ui('Start assembly run','조립 실행 시작')}</button></form>`:`<p>${ui('Run','실행')} ${esc(assemblyRun!.id)} · ${esc(assemblyRun!.status)} · ${assemblyRun!.events.length} ${ui('receipts','기록')}</p><p>${esc(assemblyRun!.intent)}</p>`}<div class="assembly-actions">${button('assembly-empty','plus','New assembly page','secondary-button')}${button('assembly-brief','download','Download assembly brief','secondary-button')}${active?button('assembly-review','eye','Request human review','secondary-button')+button('assembly-end','square','End run','secondary-button'):''}${assemblyRun?button('assembly-log','download','Download run log','secondary-button'):''}</div><div class="modal-note">Request review는 승인하지 않습니다. Preview 변경은 세션 한정입니다. 기록은 편집 명령과 체크포인트이며, Codex 도구 호출·녹화·토큰 사용량이 아닙니다.</div><details><summary>조립 플레이북 · 현재 컨텍스트</summary><pre class="assembly-brief">${esc(assemblyBrief(project,selected,insertionTarget()))}</pre></details><div class="assembly-ledger">${assemblyRun?.events.slice(-6).map(e=>`<p>#${e.seq} ${esc(e.kind)} · ${esc(e.at)}</p>`).join('')??''}</div>`,true);}
 function cloneBlocks(blocks:Page['blocks']):Page['blocks'] {
  const ids=new Map(blocks.map(b=>[b.id,uid()]));
@@ -230,6 +258,13 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentLocked(){return editorMode==='agent'&&!!delegation;}
 /** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
+/** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
+function connectBannerHtml(){
+  if(agentMode()!=='connected')return '';
+  const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
+  const holder=lease&&lease.label!==HUMAN?lease.label:'';
+  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder||ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span><span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
+}
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
   const frame=delegation.scope.frameId?project.pages.find(p=>p.id===delegation!.scope.frameId)?.name:undefined;
@@ -373,12 +408,12 @@ function hubRefresh(){
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar);hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=`${connectBannerHtml()}${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar)}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}
+  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}
   <div class="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
     ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}
     <aside class="library" aria-label="Component library">
@@ -955,6 +990,9 @@ async function action(el: HTMLElement) {
     case 'duplicate-page': if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); break;
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
+    case 'agent-connect': agentConnectModal();break;
+    case 'agent-connect-toggle': {connectMode=!connectMode;if(!connectMode){lease=null;connectWrites=0;}render();agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-disconnect': connectMode=false;lease=null;connectWrites=0;render();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }
@@ -1135,12 +1173,16 @@ window.addEventListener('resize',()=>placeWorkspaceMenu());
 function agentState(){return {ok:true,state:{...app.dataset},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
-async function runAgentCommand(kind:unknown,payload:unknown):Promise<Record<string,unknown>>{
+async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
+  const who=normalizeCaller(caller);
+  const verdict=judge(c.kind,who,currentAuthority());
+  if(!verdict.allow)return {error:verdict.error,status:verdict.status};
+  lease=verdict.hold;
   if(c.kind==='state')return agentState();
-  if(!agentLocked())return {error:'agent mode is off: a human must start Agent mode first'};
+  commandCaller=who;
   try{
     switch(c.kind){
       case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
@@ -1159,15 +1201,18 @@ async function runAgentCommand(kind:unknown,payload:unknown):Promise<Record<stri
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
-  }catch(error){return {error:error instanceof Error?error.message:String(error)};}
+  }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}
+  commandCaller='';
+  if(agentMode()==='connected')bumpConnect(who);
   await new Promise(r=>setTimeout(r,60));
   return agentState();
 }
-(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown)=>runAgentCommand(kind,payload)};
-if(nativeDesktop)void tauriListen<{id:number;kind:string;payload:unknown}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}});
+(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
+if(nativeDesktop)void tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}});
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{
+    if(e.isTrusted&&connectMode&&lease&&lease.label!==HUMAN){lease={label:HUMAN,since:Date.now()};}
     if(!agentLocked()||!e.isTrusted)return;
     const target=e.target as HTMLElement|null;
     if(target?.closest?.('.agent-banner'))return;
@@ -1369,6 +1414,9 @@ async function boot(){
       diskQueue=attachDiskQueue(stored.revision);
       if(stored.data===null&&!startupError){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
+      // The channel is open from launch so an agent can read without a person clicking first.
+      // Writing still needs Connected mode or Agent mode — see src/agent/authority.ts.
+      try{agentEndpoint=await invoke<{port:number;token:string;file:string}>('agent_bridge_start');}catch{agentEndpoint=undefined;}
       const {getCurrentWindow}=await import('@tauri-apps/api/window');
       await getCurrentWindow().onCloseRequested(async event=>{if(!lastSaved){event.preventDefault();try{await flushDisk();if(lastSaved)await getCurrentWindow().close();}catch{toast('저장 실패로 종료를 중지했습니다. Save project로 백업하세요.');}}});
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}

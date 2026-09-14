@@ -13,7 +13,10 @@
 
 ---
 
-## 1단계 — 권한 판정과 쓰기 리스
+## 1단계 — 권한 판정과 쓰기 리스 · **완료 2026-09-14**
+
+> 실제로 확인한 것: 앱을 켜자마자 `curl /agent/state` 200(클릭 없음), 쓰기 423, 잘못된 토큰 401, 없는 경로 404, `act`로 자기 스위치를 켜려는 시도 423. 브라우저 빌드에서 `scripts/verify-agent-authority.mjs` 9개 검사 통과 — 사람의 실제 키 입력(CDP trusted 이벤트)이 리스를 회수하고, 몇 초 뒤 다시 열리고, 두 번째 에이전트가 이름과 함께 거절되는 것까지.
+
 
 ### 1.1 새 파일 `src/agent/authority.ts` (순수 함수, DOM 없음)
 
@@ -21,14 +24,16 @@
 export type Mode='design'|'connected'|'delegated';        // 평소 / 연결 / 완전 위임
 export type Holder={label:string;since:number};           // 'human' | 'claude-code' | 'astra' | …
 export type Authority={mode:Mode;holder:Holder|null;now:number};
-export type Verdict={allow:true;take?:Holder}|{allow:false;status:403|409|423;error:string};
+export type Verdict={allow:true;hold:Holder|null}|{allow:false;status:403|409|423;error:string};
 
 export const readKinds=['state','contract','tokens','components','images','render'] as const;
-export const writeKinds=['apply','system','edit','act','click','type','key','command','library','export'] as const;
+export const writeKinds=['apply','system','export','edit','act','click','type','key','command','library'] as const;
 
+export const HUMAN_IDLE_MS=5_000;    // 사람이 잠깐 만진 것 때문에 에이전트가 1분씩 막히지 않게
 export const LEASE_IDLE_MS=90_000;   // 조용하면 자동 반납
-export function judge(kind:string, caller:string, a:Authority):Verdict
-export function leaseAfter(v:Verdict, a:Authority, caller:string):Holder|null
+export function judge(kind:string, caller:string, a:Authority):Verdict   // allow면 hold가 다음 보유자
+export function leaseHeld(a:Authority):Holder|null
+export function normalizeCaller(raw:string|undefined):string             // 'human'은 쓸 수 없다
 ```
 
 판정표 — **이 표가 곧 테스트다.**
@@ -203,7 +208,7 @@ stdio로 서버를 띄워 `tools/list` → 도구 9개의 이름·주석·스키
 
 | 단계 | 완료 조건 |
 |---|---|
-| 1 | T1(authority)·T2·T3 통과. 앱 켜자마자 state 200, 쓰기 423. 기존 대본 무회귀. |
+| 1 | ✅ T1(authority 11개)·T2(caller 2개)·T3(parity 5개) 통과. 앱 켜자마자 state 200, 쓰기 423. `npm run verify:authority` 9/9. 남은 확인: 에이전트 모드 차폐가 예전 그대로인지(사람 눈). |
 | 2 | T1(ops·contract)·T4 통과. `apply` 3개 추가가 ⌘Z 하나로 되돌아감. |
 | 3 | T5 통과. Claude Code에서 `/mcp`에 `aphrodite` 연결됨으로 표시. |
 | 4 | T1(errors) 통과. 모든 도구 설명에 예시 1개. |

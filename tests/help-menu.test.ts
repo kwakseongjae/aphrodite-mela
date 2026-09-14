@@ -7,9 +7,9 @@ const entries=helpItems.filter((item):item is HelpItem=>item!=='separator');
 
 test('help items keep Figma-like order with two separators',()=>{
   assert.deepEqual(helpItems.map(item=>item==='separator'?'separator':item.id),[
-    'commands','tour-start','agent','separator','brand-kit','release-notes','report-issue','separator','language-settings',
+    'commands','tour-start','agent','agent-connect','separator','brand-kit','release-notes','report-issue','separator','language-settings',
   ]);
-  assert.equal(entries.length,7);
+  assert.equal(entries.length,8);
   assert.equal(helpItems.filter(item=>item==='separator').length,2);
 });
 

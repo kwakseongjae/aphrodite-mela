@@ -39,6 +39,23 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The name an agent gives itself, for the receipts. Cleaned to the same shape the app expects;
+/// an empty result means "unknown", which the app turns into `unknown-agent`.
+fn caller_label(headers: &[Header]) -> String {
+    let raw = headers
+        .iter()
+        .find(|h| h.field.equiv("X-Aphrodite-Agent"))
+        .map(|h| h.value.as_str().to_string())
+        .unwrap_or_default();
+    raw.to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+        .take(32)
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
 fn respond(request: tiny_http::Request, status: u16, body: Value) {
     let response = Response::from_string(body.to_string())
         .with_status_code(status)
@@ -99,6 +116,7 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                 respond(request, 401, json!({"error": "missing or wrong bearer token"}));
                 continue;
             }
+            let caller = caller_label(request.headers());
             let url = request.url().to_string();
             let kind = match (request.method(), url.as_str()) {
                 (Method::Get, "/agent/state") => "state",
@@ -139,7 +157,7 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                 map.insert(id, tx);
             }
             if app_handle
-                .emit("agent:command", json!({"id": id, "kind": kind, "payload": payload}))
+                .emit("agent:command", json!({"id": id, "kind": kind, "payload": payload, "caller": caller}))
                 .is_err()
             {
                 respond(request, 500, json!({"error": "webview unavailable"}));
@@ -147,7 +165,13 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
             }
             match rx.recv_timeout(Duration::from_secs(15)) {
                 Ok(result) => {
-                    let status = if result.get("error").is_some() { 409 } else { 200 };
+                    // The app decides the status; 409 stays the default refusal for older replies.
+                    let asked = result.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let status = match (asked, result.get("error").is_some()) {
+                        (403 | 409 | 423, _) => asked as u16,
+                        (_, true) => 409,
+                        (_, false) => 200,
+                    };
                     respond(request, status, result);
                 }
                 Err(_) => {
@@ -179,4 +203,30 @@ pub fn agent_bridge_info(bridge: State<'_, AgentBridge>) -> Result<Value, String
         Some(e) => json!({"port": e.port, "running": true}),
         None => json!({"running": false}),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn header(name: &str, value: &str) -> Header {
+        Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("header")
+    }
+
+    #[test]
+    fn the_caller_label_is_read_from_the_header_and_cleaned() {
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "claude-code")]), "claude-code");
+        assert_eq!(caller_label(&[header("x-aphrodite-agent", "Astra")]), "astra", "the field name is case-insensitive");
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "my agent!")]), "myagent");
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "-astra-")]), "astra");
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", &"x".repeat(80))]).len(), 32);
+    }
+
+    #[test]
+    fn a_missing_or_empty_label_comes_back_empty_for_the_app_to_name() {
+        assert_eq!(caller_label(&[]), "");
+        assert_eq!(caller_label(&[header("Authorization", "Bearer abc")]), "");
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "   ")]), "");
+        assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "!!!")]), "");
+    }
 }

@@ -7,6 +7,7 @@ export const helpItems:readonly (HelpItem|'separator')[]=[
   {id:'commands',action:'commands',en:'Keyboard shortcuts & commands',ko:'키보드 단축키와 명령',keys:'⌘K'},
   {id:'tour-start',action:'tour-start',en:'Editor tour',ko:'에디터 둘러보기'},
   {id:'agent',action:'agent',en:'Computer-use guide',ko:'에이전트 사용 안내'},
+  {id:'agent-connect',action:'agent-connect',en:'Agent connection',ko:'에이전트 연결'},
   'separator',
   {id:'brand-kit',action:'brand-kit',en:'Aphrodite Brand Kit',ko:'아프로디테 브랜드 키트'},
   {id:'release-notes',href:'https://github.com/kwakseongjae/aphrodite-mela/releases',en:'Release notes',ko:'릴리스 노트'},
