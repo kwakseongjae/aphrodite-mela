@@ -79,6 +79,9 @@ async function callTool(name, args) {
     // The app's refusals already explain themselves; pass them through unchanged.
     return {isError: true, text: payload.error ?? `Aphrodite refused that (HTTP ${response.status}).`};
   }
+  // A document is meant to be read: returning the guide inside a JSON envelope would hand the model
+  // a string with escaped newlines instead of prose. Everything else is data, and stays JSON.
+  if (typeof payload.guide === 'string') return {isError: false, text: payload.guide};
   return {isError: false, text: JSON.stringify(payload, null, 2)};
 }
 

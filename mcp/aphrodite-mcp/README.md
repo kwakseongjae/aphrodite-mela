@@ -16,6 +16,24 @@ Anywhere else, or from another folder:
 claude mcp add --transport stdio aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
 ```
 
+Codex:
+
+```sh
+codex mcp add aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+codex mcp get aphrodite
+```
+
+Anything else that speaks MCP over stdio: run `node /path/to/mcp/aphrodite-mcp/index.mjs`. The working directory does not matter.
+
+An agent with only a shell needs none of this — the channel is plain HTTP:
+
+```sh
+E=$(cat ~/Library/Application\ Support/studio.aphrodite.mela/agent-endpoint.json)
+BASE=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["base"])')
+TOKEN=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+curl -s "$BASE/agent/guide" -H "Authorization: Bearer $TOKEN" -H 'X-Aphrodite-Agent: codex'
+```
+
 Open Aphrodite first: the server reads `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` to find it. Port and token change every launch, so nothing is stored here.
 
 ## The tools

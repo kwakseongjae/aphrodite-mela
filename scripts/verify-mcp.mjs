@@ -106,6 +106,16 @@ check('with the app closed it says so in one sentence, not a stack trace', async
   }
 });
 
+check('the guide arrives as prose, not as an escaped string inside JSON', async () => {
+  const {result} = await request('tools/call', {name: 'aphrodite_guide', arguments: {}});
+  const text = result.content[0].text;
+  if (result.isError) return; // the app is closed; covered by the check above
+  assert.match(text, /^# Working with Aphrodite/, 'it starts as a document');
+  assert.ok(text.includes('\n'), 'real newlines, not \\n');
+  assert.ok(!text.startsWith('{'), 'not wrapped in a JSON envelope');
+  assert.match(text, /## Right now/);
+});
+
 check('nothing but protocol messages went to stdout', async () => {
   assert.deepEqual(stray, [], `stdout carried non-JSON lines: ${stray.join(' | ')}`);
 });
