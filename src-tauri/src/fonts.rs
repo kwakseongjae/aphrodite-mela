@@ -124,8 +124,9 @@ fn read_families(path: &Path, into: &mut BTreeSet<String>) {
     }
 }
 
-/// Every family this Mac can render, with a flag for the ones in the user's own folder.
-#[tauri::command]
+/// Every family this Mac can render, with a flag for the ones in the user's own folder. Reading a
+/// few hundred font files is slow enough to keep off the main thread.
+#[tauri::command(async)]
 pub fn fonts_installed() -> Result<Value, String> {
     let mut shared: BTreeSet<String> = BTreeSet::new();
     let mut mine: BTreeSet<String> = BTreeSet::new();
@@ -162,8 +163,9 @@ pub fn fonts_has_family(family: String) -> Result<bool, String> {
 }
 
 /// Downloads one font file and writes it into the user's font folder. The caller has already shown
-/// the licence; this only accepts https, a known font extension, and a real font header.
-#[tauri::command]
+/// the licence; this only accepts https, a known font extension, and a real font header. Runs off
+/// the main thread so a slow download cannot freeze the window.
+#[tauri::command(async)]
 pub fn fonts_install(url: String, family: String, file_name: String) -> Result<Value, String> {
     if !url.starts_with("https://") {
         return Err("fonts install only over https".into());

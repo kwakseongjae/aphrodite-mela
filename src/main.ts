@@ -47,6 +47,7 @@ import './design/studio.css';
 import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
+import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -107,6 +108,29 @@ let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
 let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDebounce=0;
+const updateRoot=document.createElement('div');updateRoot.className='update-layer';updateRoot.hidden=true;document.body.append(updateRoot);
+let updateInfo:UpdateInfo|undefined,updateState:NoticeState='offer',updateDetail='',updateFile='';
+function paintUpdate(){
+  if(!updateInfo){updateRoot.hidden=true;updateRoot.innerHTML='';return;}
+  updateRoot.hidden=false;updateRoot.innerHTML=updateNoticeHtml(updateInfo,updateState,uiLanguage==='ko'?'ko':'en',updateDetail);hydrateIcons();
+}
+function closeUpdate(){updateInfo=undefined;updateDetail='';paintUpdate();}
+/** Asks the release feed, at most every few hours and only in the desktop app. Silence on failure:
+ *  an offline Mac must not be nagged about a version it could not look up. */
+async function checkForUpdate(){
+  if(!nativeDesktop)return;
+  let skipped:string|null=null;
+  try{
+    if(!shouldCheck(Date.now(),localStorage.getItem(CHECKED_KEY),localStorage.getItem(OFF_KEY)))return;
+    skipped=localStorage.getItem(SKIP_KEY);
+  }catch{/* storage unavailable: ask once rather than never */}
+  try{
+    const info=await invoke<UpdateInfo>('update_check');
+    try{localStorage.setItem(CHECKED_KEY,String(Date.now()));}catch{/* nothing to remember it with */}
+    if(!shouldOffer(info,skipped))return;
+    updateInfo=info;updateState='offer';updateDetail='';updateFile='';paintUpdate();
+  }catch{/* offline, rate limited, or GitHub unreachable */}
+}
 let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
@@ -694,7 +718,7 @@ async function action(el: HTMLElement) {
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
-    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
+    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();paintUpdate();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
     case 'dock-select': dockTool='select';dockGroupOpen='';selected='';render();break;
@@ -844,6 +868,18 @@ async function action(el: HTMLElement) {
       }catch(error){fontBusy='';fontPickerModal();toast(String(error));}
       break;
     }
+    case 'update-download': {
+      if(!updateInfo?.url||!updateInfo.name||updateState==='working')break;
+      updateState='working';updateDetail='';paintUpdate();
+      try{const got=await invoke<{path:string}>('update_download',{url:updateInfo.url,name:updateInfo.name});updateFile=got.path;updateState='ready';}
+      catch(error){updateState='failed';updateDetail=String(error);}
+      paintUpdate();break;
+    }
+    case 'update-open': if(updateFile)try{await invoke('update_open',{path:updateFile});}catch(error){toast(String(error));}break;
+    case 'update-reveal': if(updateFile)try{await invoke('update_reveal',{path:updateFile});}catch(error){toast(String(error));}break;
+    case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){toast(String(error));}break;
+    case 'update-dismiss': try{if(updateInfo?.latest)localStorage.setItem(SKIP_KEY,updateInfo.latest);}catch{/* not remembered */}closeUpdate();break;
+    case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();toast(ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
     case 'local-scope': localScope=(el.dataset.scope as LocalScope)??'all';refreshLibraryPanel();break;
     case 'local-delete': {const id=el.dataset.id!;const image=readableImages(localLibrary).find(i=>i.id===id);if(!image)break;
       showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
@@ -1338,7 +1374,7 @@ async function boot(){
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
-  if(nativeDesktop)void loadLocalLibrary();
+  if(nativeDesktop){void loadLocalLibrary();void checkForUpdate();}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

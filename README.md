@@ -31,7 +31,7 @@
 
 A coding agent can ship a page in half an hour. It can also ship the *wrong* page in half an hour — wrong layout, wrong tone, a hero nobody asked for — and you find out at the end. Aphrodite is the step before that: a workbench where you settle the **direction** of a screen in something real enough to judge, then hand a clean contract to whoever, or whatever, builds it.
 
-It is not a mockup tool and not a screenshot generator. Every page is a frame on one pannable, zoomable **Space**, built from real components (Aphrodite's own patterns plus MUI, Astryx, SEED and shadcn adapters) driven by one design contract. Nothing leaves your Mac: no account, no cloud, no generation credits.
+It is not a mockup tool and not a screenshot generator. Every page is a frame on one pannable, zoomable **Space**, built from real components (Aphrodite's own patterns plus MUI, Astryx, SEED and shadcn adapters) driven by one design contract. Nothing about your work leaves your Mac: no account, no cloud, no generation credits.
 
 ---
 
@@ -115,6 +115,9 @@ Aphrodite is deliberately narrow: one screen, one direction, one contract. It is
 1. Download the DMG for your Mac from the [latest release](https://github.com/kwakseongjae/aphrodite-mela/releases/latest) — Apple Silicon (`_aarch64.dmg`) or Intel (`_x64.dmg`). Signed with a Developer ID and notarized; macOS 13 or later.
 2. Open the DMG and drag **Aphrodite** into **Applications**.
 3. Launch it. First run offers English or Korean, a **sample project** (a small lighting brand with a desktop and a mobile frame) or a blank one, and a two-minute tour of the editor.
+4. Updates are not silent. When a newer release exists, a small card appears in the bottom-left corner; clicking it downloads that release's DMG to your Downloads folder and you install it the same way. The card can be dismissed for that version, or switched off entirely.
+
+**The only things Aphrodite sends over the network** are the version check above and a font file when you click Install in the typeface picker. Both go to GitHub and neither carries anything about you or your work. Your projects, images and text stay on this Mac.
 
 Five minutes from there — reference → three directions → pick → Get Vibe → edit → approve → export — is walked through in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 

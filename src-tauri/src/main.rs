@@ -3,6 +3,7 @@ mod agent;
 mod fonts;
 mod image_library;
 mod reference;
+mod update;
 mod vault;
 mod workspace;
 
@@ -30,7 +31,12 @@ fn main() {
             fonts::fonts_installed,
             fonts::fonts_has_family,
             fonts::fonts_install,
-            fonts::fonts_uninstall
+            fonts::fonts_uninstall,
+            update::update_check,
+            update::update_download,
+            update::update_open,
+            update::update_reveal,
+            update::update_notes
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");
