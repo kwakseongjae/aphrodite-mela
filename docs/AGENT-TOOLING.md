@@ -1,0 +1,124 @@
+# 도구 표면 설계 — 보통의 모델이 아프로디테를 잘 다루게 하는 법
+
+작성 2026-09-14. 목표: **Astra급 컴퓨터 유즈 모델이 아니어도**, Claude Code에 붙은 Opus 5 정도의 모델이 Figma MCP로 피그마를 다루듯 아프로디테를 다루게 만든다. 이 문서는 진단과 도입 계획이며, 아직 구현된 것은 없다.
+
+---
+
+## 1. 진단 — 지금 채널은 "컴퓨터 유즈 모양"이다
+
+현재 에이전트 채널(`docs/AGENT-CHANNEL.md`, `src/agent/bridge.ts`)이 주는 동사는 이렇다.
+
+| 명령 | 모델이 알아야 하는 것 |
+|---|---|
+| `click {selector}` | DOM 구조, 클래스 이름, 어떤 요소가 무엇을 하는지 |
+| `type {selector,text}` | 지금 열려 있는 폼의 내부 구조 |
+| `key {key,meta,shift}` | 단축키 표 |
+| `act {action,data}` | `data-action` 어휘 (`add`, `systems`, `explorer-variant-pick`…) |
+| `command {query}` | 팔레트 검색어가 무엇에 걸리는지 |
+| `state` | `app.dataset`의 납작한 문자열 20여 개 |
+
+이건 **화면을 조작하는 법**이지 **디자인을 다루는 법**이 아니다. 모델은 매 턴 "지금 화면이 어떻게 생겼더라"를 추론해야 하고, 그 추론이 바로 컴퓨터 유즈 모델이 특별히 잘하는 일이다. 보통 모델에게 이걸 시키면 셀렉터를 지어내고, 모달이 열린 줄 모르고, 한 작업에 열 번씩 왕복한다.
+
+덧붙여 **구조적 차단막**이 하나 있다. 브리지는 `startAgentMode()` 안에서만 켜진다(`src/main.ts`). 즉 **사람이 먼저 클릭해야** 에이전트가 말을 걸 수 있고, 그 순간 사람은 화면에서 잠긴다. Claude Code가 옆에서 거드는 그림과 맞지 않는다.
+
+## 2. Figma MCP가 잘 먹히는 이유 — 네 가지
+
+피그마 MCP 서버가 노출하는 도구는 사실상 네 개뿐이다: `get_code`, `get_variable_defs`, `get_image`, `get_code_connect_map`.
+
+1. **의미 단위다.** 클릭이 없다. "이 프레임을 코드로", "이 선택의 변수 정의를", "이 노드의 렌더 이미지를". 모델은 UI를 몰라도 된다.
+2. **선택이 공유 포인터다.** 사람이 피그마에서 고른 것을 에이전트가 "the selection"으로 가리킨다. 좌표도 DOM도 필요 없다.
+3. **반환이 촘촘하다.** 토큰 이름(매직 넘버 대신), 코드 경로, 렌더 이미지까지 함께 준다. 모델이 추가 질문을 할 필요가 줄어든다.
+4. **읽기 위주다.** 쓰기는 에이전트의 홈그라운드(코드 파일)에서 일어난다. 실패 비용이 낮은 쪽에 무게가 실린다.
+
+## 3. Anthropic이 말하는 도구 설계 원칙
+
+[Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents)에서 실제로 효과가 큰 것들:
+
+- **도구 수는 적게, 레버리지는 크게.** 얇은 API 래퍼 여러 개보다, 한 번에 의미 있는 일을 끝내는 하나가 낫다.
+- **네임스페이스.** `aphrodite_*` 접두사로 다른 서버 도구와 섞이지 않게.
+- **반환은 고신호로.** UUID 대신 사람이 읽는 이름. `response_format: concise | detailed`로 토큰을 고르게.
+- **토큰 예산.** Claude Code의 MCP 응답 상한은 기본 25,000 토큰. 잘릴 때는 "어떻게 좁혀 물어보라"까지 적어 준다.
+- **에러가 가르쳐야 한다.** `no element matches ...`는 나쁜 에러다. 좋은 에러는 유효한 값의 목록과 가장 가까운 후보를 함께 준다.
+- **평가로 다듬는다.** 현실적인 다단계 과제를 만들어 돌리고, 도구 호출 수·에러율·토큰을 재고, 설명 문구를 고친다. 여기서 얻는 개선폭이 가장 크다.
+
+## 4. Claude Code 쪽 실제 연동 사실
+
+- **전송 방식**: stdio / http / sse(폐기 예정) / ws. 로컬 우선인 우리에겐 **stdio**가 맞다. 클라우드도 OAuth도 필요 없다.
+- **등록 범위**: `local`(내 기계), `project`(`.mcp.json`, git으로 공유), `user`(모든 프로젝트). 레포에 `.mcp.json`을 두면 팀이 그대로 쓴다(워크스페이스 신뢰 승인 필요).
+- **도구 이름**은 `mcp__<서버>__<도구>` 형태로 노출되고, 권한 규칙·훅·스킬에서 그 이름으로 지목한다.
+- **프롬프트는 슬래시 커맨드로 뜬다.** 서버가 prompt를 제공하면 사용자에게 `/aphrodite:...`로 보인다. 워크플로를 여기에 심을 수 있다.
+- **호출마다 승인 요구**: 도구 정의에 `_meta["anthropic/requiresUserInteraction"]`. 쓰기 도구에 쓰기 좋다.
+- **주석(annotations)**: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`를 전부 명시한다. 우리는 전부 로컬이므로 `openWorldHint: false`.
+- **응답 상한 조절**: 서버 쪽 `_meta["anthropic/maxResultSizeChars"]`, 사용자 쪽 `MAX_MCP_OUTPUT_TOKENS`.
+
+## 5. 도입 설계
+
+### 5.0 선결 과제 — 채널을 사람 클릭에서 떼어낸다
+
+브리지를 **부팅 때 항상 켠다**(루프백, 토큰 파일 0600 그대로). 대신 권한을 둘로 나눈다.
+
+- **읽기**는 언제나 허용. 상태·계약·토큰·카탈로그·렌더는 잠금과 무관하다.
+- **쓰기**는 두 갈래. (a) 사람이 에이전트 모드를 켠 상태(지금의 완전 위임), 또는 (b) **연결 모드** — 사람은 계속 화면을 쓰고, 에이전트의 편집은 영수증 배너와 함께 들어오며 ⌘Z로 되돌릴 수 있다. Figma에 가까운 감각은 (b)다.
+- **승인(Approve direction)은 영원히 사람 클릭.** 지금 규칙 그대로 도구로 노출하지 않는다.
+
+### 5.1 MCP 서버
+
+`mcp/aphrodite-mcp/` — Node stdio 서버. 사용자가 토큰을 만질 일이 없도록 서버가 `agent-endpoint.json`을 직접 읽어 루프백 브리지에 붙는다. 앱이 꺼져 있으면 "아프로디테를 먼저 실행하세요"라는 에러 하나로 끝낸다.
+
+레포에는 `.mcp.json`을, 최종 사용자에게는 `npx @aphrodite/mcp` 한 줄을 준다.
+
+### 5.2 도구 목록 (9개)
+
+| 도구 | 성격 | 하는 일 |
+|---|---|---|
+| `aphrodite_get_contract` | read | 프로젝트의 디자인 계약: 페이지·프레임·블록(`block_id`, kind, variant, 핵심 카피), 디자인 시스템, 승인 상태, **그리고 지금 사람이 선택한 것**. `page_id` 필터와 `format: concise\|detailed`. |
+| `aphrodite_get_tokens` | read | 토큰을 실제 CSS 변수명과 함께(`--accent`, `--heading`, `--body`). 생성 코드가 매직 넘버 대신 토큰을 쓰게 하는 장치. 피그마의 `get_variable_defs` 자리. |
+| `aphrodite_get_render` | read | 프레임 PNG. 내보내기 HTML을 헤드리스 크롬으로 스냅샷(레포에 이미 있는 하네스 재사용). 피그마의 `get_image` 자리. |
+| `aphrodite_list_components` | read | 카탈로그: kind × provider × variant × 옵션. 모델이 조립에 쓸 **어휘**. |
+| `aphrodite_list_images` | read | 로컬 사진 라이브러리(id, 이름, 스코프, 크기). `local:<id>`로 바로 꽂을 수 있게. |
+| `aphrodite_apply_edits` | write | **배치 하나로** add / update / move / delete / 프레임 변경. 한 번의 undo, 한 번의 영수증, 원자적. 대상은 `block_id` 또는 `"selection"`. |
+| `aphrodite_set_design_system` | write | 프리셋 또는 토큰·서체 지정. |
+| `aphrodite_add_image` | write | 라이브러리에 이미지 추가(이미 있는 경로). |
+| `aphrodite_export` | write | 핸드오프 번들을 지정 경로로. |
+
+노출하지 않는 것: 승인, 임의 DOM 접근, 외부 URL, 프로젝트 삭제.
+
+### 5.3 품질을 만드는 세부 — 여기가 진짜 작업
+
+도구 목록보다 아래가 성패를 가른다.
+
+- **설명은 신입에게 인수인계하듯.** 각 도구 설명에 "언제 쓰는지 / 언제 쓰지 않는지 / 완결된 예시 하나".
+- **파라미터 이름을 모호하지 않게.** `id` 대신 `block_id`, `page_id`, `component_kind`.
+- **에러가 가르치게.** 예:
+  `unknown component_kind "hero-large". 유효한 값: hero, features, products, testimonial, cta, footer, navigation. 가장 가까운 값: "hero". 변형을 고르려면 aphrodite_list_components를 먼저 부르세요.`
+- **쓰기는 결과 상태를 돌려준다.** 이미 그렇게 되어 있다(`agentState()`). 유지하고, 무엇이 바뀌었는지 diff 요약을 덧붙인다.
+- **선택이 공유 포인터.** 읽기는 사람의 현재 선택을 함께 알려주고, 쓰기는 `"selection"`을 대상으로 받는다.
+- **주석·상한을 전부 명시.** 읽기는 `readOnlyHint: true`, 삭제·내보내기는 `destructiveHint: true`, 전부 `openWorldHint: false`.
+
+### 5.4 워크플로를 클라이언트에 심기
+
+- **MCP 프롬프트** → Claude Code에서 `/aphrodite:assemble-from-brief`, `/aphrodite:apply-reference` 같은 슬래시 커맨드로 노출.
+- **스킬/CLAUDE.md 조각** — "계약 읽기 → 제안 → 사람 승인 → 편집 → 내보내기" 순서와, 승인은 사람만 누른다는 규칙.
+
+### 5.5 평가 — 없으면 개선이 감이 된다
+
+브라우저 빌드의 `window.aphroditeAgent`로 헤드리스 평가 하네스를 만든다(데스크톱 앱 없이 돈다).
+
+- 현실 과제 10개 내외: "로컬 사진으로 조명 브랜드 랜딩 3섹션, 토큰 유지", "레퍼런스를 읽고 방향 3안", "모바일 프레임 추가 후 동일 계약 적용".
+- 지표: 성공률, 도구 호출 수, 에러율, 토큰, 사람 개입 횟수.
+- 실패 전사를 읽고 **도구 설명과 에러 문구를 고친다.** 이 루프가 본체다.
+
+## 6. 순서와 규모
+
+| 단계 | 내용 | 규모 |
+|---|---|---|
+| 1 | 브리지를 부팅 시 켜고 읽기/쓰기 권한 분리, 연결 모드 배너 | 2h 한 덩이 |
+| 2 | 브리지에 의미 단위 라우트 추가(`/agent/contract`, `/agent/tokens`, `/agent/apply`) | 2h |
+| 3 | MCP 서버 + 읽기 도구 5개 + `.mcp.json` | 2h |
+| 4 | 쓰기 도구 4개, 주석·상한·에러 문구 | 2h |
+| 5 | 평가 하네스와 1차 튜닝 | 2h |
+| 6 | 렌더 도구(헤드리스 스냅샷), 프롬프트/슬래시 커맨드 | 2h |
+
+## 7. 경계
+
+`docs/PRODUCT-STRATEGY.md`가 이미 짚었듯 **MCP 연결 자체는 차별화가 아니다.** 피그마도 한다. 아프로디테의 몫은 그 위에 있다. 잠금과 영수증, 승인은 사람만 누른다는 규칙, 하나의 디자인 계약. MCP는 그 규칙을 에이전트가 어길 수 없는 형태로 드러내는 통로다. 도구 표면을 만들 때 그 규칙이 문서가 아니라 **스키마와 에러로** 나타나야 한다.
