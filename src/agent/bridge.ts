@@ -8,6 +8,8 @@ export type AgentCommand=
   |{kind:'state'}
   |{kind:'contract';format?:'concise'|'detailed';pageId?:string}
   |{kind:'tokens'}
+  |{kind:'guide'}
+  |{kind:'connect'}
   |{kind:'components'}
   |{kind:'apply';ops:unknown[];pageId?:string}
   |{kind:'act';action:string;data:Record<string,string>}
@@ -36,6 +38,8 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
     case 'state':return {command:{kind:'state'}};
     case 'end':return {command:{kind:'end'}};
     case 'tokens':return {command:{kind:'tokens'}};
+    case 'guide':return {command:{kind:'guide'}};
+    case 'connect':return {command:{kind:'connect'}};
     case 'components':return {command:{kind:'components'}};
     case 'contract':{
       const format=p.format===undefined||p.format==='concise'?'concise' as const:p.format==='detailed'?'detailed' as const:undefined;

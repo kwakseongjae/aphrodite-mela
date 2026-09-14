@@ -15,6 +15,38 @@ const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint:
 
 export const tools = [
   {
+    name: 'aphrodite_guide',
+    title: 'How to work with Aphrodite',
+    description: [
+      'Read this first. What Aphrodite is, how to change a design, what needs the person\'s permission, and what is happening in the app right now — which project is open, whether you may edit, who is holding the screen.',
+      '',
+      'Call it at the start of a session, and again if a call is refused and you are unsure why. It costs nothing and needs no permission.',
+      'It works even with the app closed, in which case it tells you how to open it.',
+      '',
+      'Example: {}',
+    ].join('\n'),
+    annotations: {title: 'How to work with Aphrodite', ...READ},
+    inputSchema: {type: 'object', properties: {}, additionalProperties: false},
+    route: {method: 'GET', path: '/agent/guide'},
+  },
+  {
+    name: 'aphrodite_request_connection',
+    title: 'Ask to edit alongside the person',
+    description: [
+      'Ask the person to let you change the design. A line appears at the top of their app with your name on it, and they allow or decline with one click.',
+      '',
+      'Call it once, when an edit came back saying writing is off. Then tell the person in your own words what you would like to change while they decide — that is what makes them comfortable saying yes.',
+      'Asking again straight away does nothing: one request stands at a time, and a decline holds for a few minutes. This is deliberate. Nothing here can open the door on its own.',
+      'You do not need it if the reply says Connected mode or Agent mode is already on.',
+      '',
+      'Example: {}',
+    ].join('\n'),
+    annotations: {title: 'Ask to edit alongside the person', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+    inputSchema: {type: 'object', properties: {}, additionalProperties: false},
+    route: {method: 'POST', path: '/agent/connect'},
+    body: () => ({}),
+  },
+  {
     name: 'aphrodite_get_contract',
     title: 'Read the design contract',
     description: [

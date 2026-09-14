@@ -34,6 +34,50 @@ check('an agent cannot open the door for itself', async () => {
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'no banner appeared');
 });
 
+check('an agent can ask, and the request reaches the person with its name on it', async () => {
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  assert.match(asked.message, /claude-code/, 'the reply says the person can see who is asking');
+  await sleep(200);
+  const banner = await evaluate(`document.querySelector('.ask-banner')?.textContent ?? ''`);
+  assert.match(banner, /claude-code/, 'the request is on their screen');
+  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'asking did not open anything');
+  const again = await agent('connect', {}, 'claude-code');
+  assert.equal(again.status, 'waiting', 'asking twice does not put up a second request');
+});
+
+check('the person allows it with one click, and the agent may write', async () => {
+  await personClicks('ask-allow');
+  await sleep(250);
+  assert.equal(await evaluate(`document.querySelector('.ask-banner') !== null`), false, 'the request is answered and gone');
+  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
+  const allowed = await agent('edit', {field: 'title', text: 'Asked and allowed'});
+  assert.equal(allowed.status, undefined, JSON.stringify(allowed));
+  await personClicks('agent-disconnect');
+  await sleep(200);
+});
+
+check('the person declines, and the agent is told to stop asking', async () => {
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', 'a spent yes does not bar a fresh request');
+  await sleep(200);
+  await personClicks('ask-decline');
+  await sleep(200);
+  assert.equal(await evaluate(`document.querySelector('.ask-banner') !== null`), false, 'the request is gone');
+  const refused = await agent('connect', {}, 'claude-code');
+  assert.equal(refused.status, 'declined');
+  assert.match(refused.message, /Do not ask again/);
+  const write = await agent('edit', {field: 'title', text: 'x'});
+  assert.equal(write.status, 423, 'and the door is still shut');
+});
+
+check('the guide tells an agent where it stands without asking permission', async () => {
+  const {guide} = await agent('guide');
+  assert.match(guide, /## Right now/);
+  assert.match(guide, /Mode: design/);
+  assert.match(guide, /Approve a direction/, 'it says what is never theirs to do');
+});
+
 check('the person turns it on, and the banner says so', async () => {
   await personClicks('agent-connect-toggle');
   await sleep(120);

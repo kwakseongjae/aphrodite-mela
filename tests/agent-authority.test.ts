@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -97,4 +97,16 @@ test('listing the picture library is a read; importing and deleting are not',()=
   assert.equal(gateFor({kind:'edit'}),'edit');
   assert.equal(allowed(gateFor({kind:'library',action:'list'}),'claude-code',at('design')),true,'an agent may see what pictures exist without the door open');
   assert.equal(refused(gateFor({kind:'library',action:'delete'}),'claude-code',at('design')).status,423);
+});
+
+test('asking is always allowed, and never takes the screen',()=>{
+  for(const kind of askKinds)for(const mode of ['design','connected','delegated'] as Mode[]){
+    const holder={label:'astra',since:NOW};
+    const v=judge(kind,'claude-code',at(mode,holder));
+    assert.equal(v.allow,true,`${kind} in ${mode}`);
+    assert.deepEqual((v as {hold:unknown}).hold,holder,'asking leaves the hold where it was');
+  }
+  assert.equal(isAsk('connect'),true);
+  assert.equal(isAsk('apply'),false);
+  assert.equal(isWrite('connect'),false,'asking to connect is not itself a change');
 });

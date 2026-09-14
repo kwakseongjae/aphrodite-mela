@@ -38,7 +38,7 @@ test('annotations say honestly what each tool does',()=>{
     if(a.readOnlyHint)assert.equal(a.destructiveHint,false,`${tool.name} cannot be both read-only and destructive`);
   }
   const reads=tools.filter(t=>t.annotations.readOnlyHint).map(t=>t.name).sort();
-  assert.deepEqual(reads,['aphrodite_get_contract','aphrodite_get_tokens','aphrodite_list_components','aphrodite_list_images']);
+  assert.deepEqual(reads,['aphrodite_get_contract','aphrodite_get_tokens','aphrodite_guide','aphrodite_list_components','aphrodite_list_images']);
   assert.deepEqual(tools.filter(t=>t.annotations.destructiveHint).map(t=>t.name),['aphrodite_delete_image']);
 });
 
@@ -48,6 +48,16 @@ test('a read-only tool never sends a body that changes anything',()=>{
     assert.ok(!('ops' in body),`${tool.name} must not carry edits`);
     if('action' in body)assert.equal(body.action,'list',`${tool.name} may only list`);
   }
+});
+
+test('asking to connect is offered, but nothing can open the door by itself',()=>{
+  const ask=tools.find(t=>t.name==='aphrodite_request_connection');
+  assert.ok(ask,'an agent can ask');
+  assert.equal(ask!.annotations.readOnlyHint,false,'it does change something: it puts a request on their screen');
+  assert.equal(ask!.annotations.destructiveHint,false);
+  assert.match(ask!.description,/one click/,'it says the person answers it');
+  assert.match(ask!.description,/Nothing here can open the door on its own/);
+  assert.ok(!tools.some(t=>t.body&&JSON.stringify(t.body({})).includes('connectMode')),'no tool flips the switch directly');
 });
 
 test('no tool can approve a direction',()=>{

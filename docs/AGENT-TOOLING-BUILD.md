@@ -133,6 +133,17 @@ export const opAction:Record<OpKind,string>={add:'add',update:'edit-field',move:
 
 ---
 
+## 3.5단계 — 에이전트가 스스로 붙게 · **완료 2026-09-14**
+
+문을 여는 마찰의 원인은 스위치가 아니라 **메뉴를 찾아 들어가야 한다는 것**이었다. 그래서 스위치를 에이전트에게 주는 대신, 요청이 사람의 화면으로 가게 했다.
+
+- `GET /agent/guide` — 권한 없이 읽는 안내서(`src/agent/guide.ts`). 작업 방식 + 지금 상태. MCP `aphrodite_guide`.
+- `POST /agent/connect` — 요청. 앱 상단에 요청자 이름이 박힌 한 줄이 뜨고 사람이 **허용/나중에**를 누른다. MCP `aphrodite_request_connection`.
+- 판정에 세 번째 갈래가 생겼다: `askKinds`는 읽기도 쓰기도 아니고 **언제나 허용되지만 앱이 횟수를 제한한다.** 요청은 한 번에 하나, 거절은 5분.
+- 발견한 결함 하나: 허용 뒤 사람이 연결을 끊으면 "이미 요청 중"으로 잠겨 다시 못 물었다. 답이 나온 요청은 소진된 것으로 처리하도록 고쳤다.
+
+> 확인: `npm run verify:authority` 13개(요청 → 화면에 뜸 → 허용 → 쓰기 통과 → 끊김 → 재요청 → 거절 → 여전히 잠김), `verify:mcp` 9개, `verify:tools` 11개.
+
 ## 4단계 — 설명과 에러
 
 `src/agent/errors.ts`:

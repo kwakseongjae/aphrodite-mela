@@ -51,6 +51,7 @@ import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,ty
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
 import {parseOps,SELECTION,type Op} from './agent/ops';
+import {guideFor,considerAsk,ASK_COOLDOWN_MS,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -136,7 +137,7 @@ async function checkForUpdate(){
 }
 /* Connected mode: the person keeps the screen and an agent may edit alongside them. Session-only —
    a standing write permission should not outlive the launch that granted it. */
-let connectMode=false;let lease:Holder|null=null;let connectWrites=0;let commandCaller='';
+let connectMode=false;let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
@@ -260,6 +261,12 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentLocked(){return editorMode==='agent'&&!!delegation;}
 /** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
+/** An agent asking to be let in. A line at the top, not a dialog: it must never interrupt a drag. */
+function askBannerHtml(){
+  if(!askState||askState.answered!=='pending'||agentMode()!=='design')return '';
+  return `<div class="ask-banner" role="status">${icon('bot')}<strong>${esc(askState.by)}</strong><span class="connect-sep">·</span><span>${ui('would like to edit alongside you','함께 편집하기를 요청합니다')}</span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes any of it','화면은 그대로 쓰시면 됩니다 · 무엇이든 ⌘Z로 되돌립니다')}</span><span class="connect-fill"></span><button type="button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="ask-allow" data-action="ask-allow">${ui('Allow','허용')}</button></div>`;
+}
+
 /** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
 function connectBannerHtml(){
   if(agentMode()!=='connected')return '';
@@ -410,12 +417,12 @@ function hubRefresh(){
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=`${connectBannerHtml()}${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar)}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=`${connectBannerHtml()}${askBannerHtml()}${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar)}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}
+  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}
   <div class="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
     ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}
     <aside class="library" aria-label="Component library">
@@ -993,8 +1000,10 @@ async function action(el: HTMLElement) {
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
+    case 'ask-allow': {const by=askState?.by??'';askState=askState?{...askState,answered:'allowed'}:null;connectMode=true;lease=null;connectWrites=0;render();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
+    case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;render();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
     case 'agent-connect-toggle': {connectMode=!connectMode;if(!connectMode){lease=null;connectWrites=0;}render();agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-disconnect': connectMode=false;lease=null;connectWrites=0;render();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
+    case 'agent-disconnect': connectMode=false;lease=null;connectWrites=0;askState=null;render();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }
@@ -1261,6 +1270,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
   if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
+  if(c.kind==='connect'){
+    const outcome=considerAsk(who,agentMode(),askState,Date.now());
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};render();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
+  }
   commandCaller=who;
   try{
     switch(c.kind){

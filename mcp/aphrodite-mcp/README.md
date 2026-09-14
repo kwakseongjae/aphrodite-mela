@@ -22,6 +22,8 @@ Open Aphrodite first: the server reads `~/Library/Application Support/studio.aph
 
 | Tool | Reads / writes | For |
 |---|---|---|
+| `aphrodite_guide` | read | How to work with Aphrodite, and what is true right now — **start here** |
+| `aphrodite_request_connection` | asks | Ask the person to let you edit; they answer with one click |
 | `aphrodite_get_contract` | read | Pages, frames, components, the design system, and what the person has selected |
 | `aphrodite_get_tokens` | read | The CSS variables the page is painted with |
 | `aphrodite_list_components` | read | The kinds and variants available to add |
@@ -33,7 +35,7 @@ Open Aphrodite first: the server reads `~/Library/Application Support/studio.aph
 ## What it will not do
 
 - **Approve a direction.** That is the person's decision and no tool here can make it.
-- **Let itself in.** Reading is always open; editing needs the person to turn on Connected mode (Help → Agent connection) or start Agent mode. Asking for that over the channel is itself a write, so it is refused.
+- **Let itself in.** Reading is always open; editing needs the person to open the door. An agent may *ask* — `aphrodite_request_connection` puts a line at the top of their app with the agent's name on it, and they allow or decline with one click — but nothing here can open it unasked. One request stands at a time and a decline holds for a few minutes, so a prompt cannot become a nag.
 - **Decide anything.** Permission is the app's judgement (`src/agent/authority.ts`), so the same request made with `curl` meets the same answer. Nothing here can be relaxed by a client.
 
 ## Checking it
