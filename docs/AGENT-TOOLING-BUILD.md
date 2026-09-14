@@ -114,7 +114,12 @@ export const opAction:Record<OpKind,string>={add:'add',update:'edit-field',move:
 
 ---
 
-## 3단계 — MCP 서버
+## 3단계 — MCP 서버 · **완료 2026-09-14**
+
+> 확인한 것: `npm run verify:mcp` 9개 검사 통과(프로토콜 핸드셰이크·버전 협상·도구 매니페스트·주석·stdout 청결·앱이 꺼졌을 때의 한 줄 안내). 앱을 켠 상태에서 MCP → stdio → 루프백 → 앱까지 실제 왕복해 계약 JSON을 받았고, 문이 닫힌 상태의 쓰기는 앱의 문장이 그대로 전달됐다. `claude mcp list`가 `.mcp.json`을 찾아 `aphrodite`를 승인 대기로 띄운다(승인은 사용자 몫).
+>
+> **의존성 0개로 갔다.** `@modelcontextprotocol/sdk` 대신 JSON-RPC를 직접 말한다 — stdio 프레임은 줄바꿈 구분 JSON 한 줄이고 필요한 메서드는 initialize·tools/list·tools/call·ping뿐이라, 설치 단계 없이 `node mcp/aphrodite-mcp/index.mjs` 한 줄로 붙는 쪽이 낫다고 봤다.
+
 
 `mcp/aphrodite-mcp/`(별도 `package.json`, `@modelcontextprotocol/sdk`, stdio). **로직 없음** — 엔드포인트 파일을 읽고, HTTP를 호출하고, 결과를 그대로 넘긴다. 150~300줄.
 
@@ -213,7 +218,7 @@ stdio로 서버를 띄워 `tools/list` → 도구 9개의 이름·주석·스키
 |---|---|
 | 1 | ✅ T1(authority 11개)·T2(caller 2개)·T3(parity 5개) 통과. 앱 켜자마자 state 200, 쓰기 423. `npm run verify:authority` 9/9. 남은 확인: 에이전트 모드 차폐가 예전 그대로인지(사람 눈). |
 | 2 | ✅ T1(ops 10 · contract 9 · errors 4 · 규칙2 2)·T2(라우트 표 1)·T4(11/11) 통과. `apply` 3개 추가가 ⌘Z 하나로 되돌아감. |
-| 3 | T5 통과. Claude Code에서 `/mcp`에 `aphrodite` 연결됨으로 표시. |
+| 3 | ✅ T5(9/9)·매니페스트 교차검증(7) 통과. `claude mcp list`가 서버를 찾음 — 워크스페이스 승인은 사용자 클릭 한 번. |
 | 4 | T1(errors) 통과. 모든 도구 설명에 예시 1개. |
 | 5 | T6 통과 — **여기서 컴퓨터 유즈 경로가 자동 검증된다.** |
 | 6 | T7 1회차 기록이 `docs/AGENT-TOOL-EVAL.md`에 남음. |

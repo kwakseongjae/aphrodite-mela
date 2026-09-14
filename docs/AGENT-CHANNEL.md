@@ -62,6 +62,10 @@ curl -s -X POST "$BASE/agent/key"     "${H[@]}" -d '{"key":"1","shift":true}'
 curl -s -X POST "$BASE/agent/end"     "${H[@]}"
 ```
 
+## MCP
+
+`mcp/aphrodite-mcp/` wraps this channel as an MCP stdio server for Claude Code and anything else that speaks MCP — 7 도구, 의존성 0개, `node mcp/aphrodite-mcp/index.mjs`. 레포에 `.mcp.json`이 있으니 `claude mcp list`가 바로 찾는다. 서버는 **아무 판정도 하지 않는다** — 위 권한 표 그대로다. 자세한 것은 `mcp/aphrodite-mcp/README.md`.
+
 ## Browser build: `window.aphroditeAgent`
 
 Without Tauri the same executor is exposed as `window.aphroditeAgent.run(kind, payload)` returning a promise — for CDP-driven harnesses and tests:

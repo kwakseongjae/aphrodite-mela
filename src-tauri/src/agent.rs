@@ -74,6 +74,20 @@ pub const ROUTES: &[&str] = &[
     "POST /agent/end",
 ];
 
+/// A GET route's query string as a payload object, so `?format=detailed` reaches the app the same
+/// way a POST body would. Values are taken literally; the app validates every one of them.
+fn query_params(query: &str) -> Value {
+    let mut map = serde_json::Map::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()).take(10) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key.is_empty() || key.len() > 40 || value.len() > 300 {
+            continue;
+        }
+        map.insert(key.to_string(), Value::String(value.to_string()));
+    }
+    Value::Object(map)
+}
+
 fn respond(request: tiny_http::Request, status: u16, body: Value) {
     let response = Response::from_string(body.to_string())
         .with_status_code(status)
@@ -136,7 +150,8 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
             }
             let caller = caller_label(request.headers());
             let url = request.url().to_string();
-            let kind = match (request.method(), url.as_str()) {
+            let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
+            let kind = match (request.method(), path) {
                 (Method::Get, "/agent/state") => "state",
                 (Method::Get, "/agent/contract") => "contract",
                 (Method::Get, "/agent/tokens") => "tokens",
@@ -159,10 +174,11 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                     continue;
                 }
             };
+            let query_payload = query_params(query);
             let mut body = String::new();
             let _ = request.as_reader().read_to_string(&mut body);
             let payload: Value = if body.trim().is_empty() {
-                json!({})
+                query_payload
             } else {
                 match serde_json::from_str(&body) {
                     Ok(v) => v,
@@ -250,7 +266,7 @@ mod tests {
     fn every_advertised_route_is_matched_and_every_matched_route_is_advertised() {
         let source = include_str!("agent.rs");
         let matcher = source
-            .split("let kind = match (request.method(), url.as_str()) {")
+            .split("let kind = match (request.method(), path) {")
             .nth(1)
             .and_then(|rest| rest.split("_ => {").next())
             .expect("the route matcher");
@@ -261,6 +277,15 @@ mod tests {
         }
         let matched = matcher.matches("(Method::").count();
         assert_eq!(matched, ROUTES.len(), "the matcher has {matched} routes but {} are advertised", ROUTES.len());
+    }
+
+    #[test]
+    fn a_get_routes_query_string_becomes_the_payload() {
+        assert_eq!(query_params("format=detailed&pageId=abc"), json!({"format": "detailed", "pageId": "abc"}));
+        assert_eq!(query_params(""), json!({}));
+        assert_eq!(query_params("flag"), json!({"flag": ""}));
+        assert_eq!(query_params(&format!("big={}", "x".repeat(400))), json!({}), "an overlong value is dropped, not truncated into something else");
+        assert_eq!(query_params("a=1&a=2"), json!({"a": "2"}), "the last one wins, as query strings usually go");
     }
 
     #[test]

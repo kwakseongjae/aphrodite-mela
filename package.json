@@ -12,7 +12,8 @@
     "desktop": "tauri dev",
     "desktop:build": "tauri build --bundles app",
     "verify:authority": "node scripts/verify-agent-authority.mjs",
-    "verify:tools": "node scripts/verify-agent-tools.mjs"
+    "verify:tools": "node scripts/verify-agent-tools.mjs",
+    "verify:mcp": "node scripts/verify-mcp.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.5.4",

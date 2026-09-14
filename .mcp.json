@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "aphrodite": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["mcp/aphrodite-mcp/index.mjs"]
+    }
+  }
+}
