@@ -34,6 +34,10 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 
 | Route | Body | Does |
 |---|---|---|
+| `GET /agent/contract` | `?format=detailed&pageId=…` | 디자인 계약: 페이지·프레임·컴포넌트(`block_id`, kind, variant, 카피), 디자인 시스템, **사람이 지금 선택한 것**. 기본은 concise, 큰 프로젝트는 잘리고 어떻게 좁혀 물을지 알려준다. 이미지 바이트는 절대 싣지 않는다(`inline:image/png:24000`처럼 설명만). |
+| `GET /agent/tokens` | — | 토큰과 **실제 CSS 변수명**(`--brand`, `--heading`). 생성 코드가 매직 넘버 대신 토큰을 쓰게. |
+| `GET /agent/components` | — | 조립 어휘: kind × 변형 × 프로바이더. |
+| `POST /agent/apply` | `{"ops":[…],"page_id":"…"}` | 배치 편집. **전부 적용되거나 하나도 안 된다.** undo 하나, 영수증 하나. 실패하면 `{error, failed_at, applied:0}`. |
 | `GET /agent/state` | — | `#app` data attributes (`mode`, `page`, `frame`, `camera`, `selectedId`, `selectedKind`, …), delegation summary, last 10 receipts. Works even when Agent mode is off. |
 | `POST /agent/command` | `{"query":"hero 추가"}` | Runs the best palette match (same search as ⌘K: commands, "Add <component>", "Go to frame · …"). |
 | `POST /agent/act` | `{"action":"add","data":{"kind":"cta"}}` | Dispatches a `data-action` exactly like a click on a button with those data attributes. |

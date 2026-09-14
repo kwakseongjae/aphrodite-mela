@@ -64,7 +64,10 @@ HTTP 헤더 `X-Aphrodite-Agent: <label>`(없으면 `unknown agent`). `agent.rs`�
 
 ---
 
-## 2단계 — 의미 단위 라우트
+## 2단계 — 의미 단위 라우트 · **완료 2026-09-14**
+
+> 확인한 것: `npm run verify:tools` 11개 검사 통과. 한 번의 `apply`로 컴포넌트 3개를 넣고 **⌘Z 한 번으로 셋 다 사라지는 것**, 잘못된 op가 섞이면 앞의 멀쩡한 op도 안 남는 것, `hero-large`가 유효값 목록과 "Closest match: hero"와 함께 거절되는 것까지. `render`·`system`·`export` 라우트는 아직 없다(권한 분류만 되어 있다).
+
 
 `agent.rs`의 match에 추가: `GET /agent/contract`, `GET /agent/tokens`, `GET /agent/components`, `POST /agent/apply`, `POST /agent/system`, `POST /agent/export`, `GET /agent/render`. 404 목록도 함께 갱신(테스트가 검사).
 
@@ -209,7 +212,7 @@ stdio로 서버를 띄워 `tools/list` → 도구 9개의 이름·주석·스키
 | 단계 | 완료 조건 |
 |---|---|
 | 1 | ✅ T1(authority 11개)·T2(caller 2개)·T3(parity 5개) 통과. 앱 켜자마자 state 200, 쓰기 423. `npm run verify:authority` 9/9. 남은 확인: 에이전트 모드 차폐가 예전 그대로인지(사람 눈). |
-| 2 | T1(ops·contract)·T4 통과. `apply` 3개 추가가 ⌘Z 하나로 되돌아감. |
+| 2 | ✅ T1(ops 10 · contract 9 · errors 4 · 규칙2 2)·T2(라우트 표 1)·T4(11/11) 통과. `apply` 3개 추가가 ⌘Z 하나로 되돌아감. |
 | 3 | T5 통과. Claude Code에서 `/mcp`에 `aphrodite` 연결됨으로 표시. |
 | 4 | T1(errors) 통과. 모든 도구 설명에 예시 1개. |
 | 5 | T6 통과 — **여기서 컴퓨터 유즈 경로가 자동 검증된다.** |

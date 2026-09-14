@@ -56,6 +56,24 @@ fn caller_label(headers: &[Header]) -> String {
         .to_string()
 }
 
+/// Every route, in the order they are matched. The 404 answer lists exactly this, so a route can
+/// never exist without being advertised — a test holds the two together.
+pub const ROUTES: &[&str] = &[
+    "GET /agent/state",
+    "GET /agent/contract",
+    "GET /agent/tokens",
+    "GET /agent/components",
+    "POST /agent/apply",
+    "POST /agent/act",
+    "POST /agent/click",
+    "POST /agent/type",
+    "POST /agent/key",
+    "POST /agent/command",
+    "POST /agent/edit",
+    "POST /agent/library",
+    "POST /agent/end",
+];
+
 fn respond(request: tiny_http::Request, status: u16, body: Value) {
     let response = Response::from_string(body.to_string())
         .with_status_code(status)
@@ -120,6 +138,10 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
             let url = request.url().to_string();
             let kind = match (request.method(), url.as_str()) {
                 (Method::Get, "/agent/state") => "state",
+                (Method::Get, "/agent/contract") => "contract",
+                (Method::Get, "/agent/tokens") => "tokens",
+                (Method::Get, "/agent/components") => "components",
+                (Method::Post, "/agent/apply") => "apply",
                 (Method::Post, "/agent/act") => "act",
                 (Method::Post, "/agent/click") => "click",
                 (Method::Post, "/agent/type") => "type",
@@ -132,7 +154,7 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                     respond(
                         request,
                         404,
-                        json!({"error": "unknown route", "routes": ["GET /agent/state", "POST /agent/act", "POST /agent/click", "POST /agent/type", "POST /agent/key", "POST /agent/command", "POST /agent/edit", "POST /agent/library", "POST /agent/end"]}),
+                        json!({"error": "unknown route", "routes": ROUTES}),
                     );
                     continue;
                 }
@@ -220,6 +242,25 @@ mod tests {
         assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "my agent!")]), "myagent");
         assert_eq!(caller_label(&[header("X-Aphrodite-Agent", "-astra-")]), "astra");
         assert_eq!(caller_label(&[header("X-Aphrodite-Agent", &"x".repeat(80))]).len(), 32);
+    }
+
+    /// The matcher and the 404 list must stay the same set: a route that exists but is not advertised
+    /// is a route agents never find, and one advertised but missing is a promise the app breaks.
+    #[test]
+    fn every_advertised_route_is_matched_and_every_matched_route_is_advertised() {
+        let source = include_str!("agent.rs");
+        let matcher = source
+            .split("let kind = match (request.method(), url.as_str()) {")
+            .nth(1)
+            .and_then(|rest| rest.split("_ => {").next())
+            .expect("the route matcher");
+        for route in ROUTES {
+            let (method, path) = route.split_once(' ').expect("METHOD /path");
+            let arm = format!("(Method::{}, \"{}\")", if method == "GET" { "Get" } else { "Post" }, path);
+            assert!(matcher.contains(&arm), "{route} is advertised but not matched");
+        }
+        let matched = matcher.matches("(Method::").count();
+        assert_eq!(matched, ROUTES.len(), "the matcher has {matched} routes but {} are advertised", ROUTES.len());
     }
 
     #[test]

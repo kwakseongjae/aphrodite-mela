@@ -49,6 +49,8 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
+import {designContract,designTokens,componentVocabulary} from './agent/contract';
+import {parseOps,SELECTION,type Op} from './agent/ops';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -1173,6 +1175,80 @@ window.addEventListener('resize',()=>placeWorkspaceMenu());
 function agentState(){return {ok:true,state:{...app.dataset},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
+/**
+ * One operation against a page. Returns an error string rather than throwing, so the batch can be
+ * abandoned cleanly and nothing is left half-applied.
+ */
+function runOp(page:Page,op:Op):string|undefined{
+  const blocks=page.blocks;
+  const find=(id:string)=>blocks.find(b=>b.id===(id===SELECTION?selected:id));
+  if(op.op==='add'){
+    if(blocks.length>=100)return 'this page already has 100 components, which is the limit.';
+    const kind=op.component_kind as BlockKind;
+    const block=makeBlock(kind);
+    if(op.variant)block.variant=op.variant;
+    if(supportsProvider(project.system.id,kind))block.provider=project.system.id;
+    const before=op.before_block_id?blocks.find(b=>b.id===op.before_block_id):undefined;
+    if(op.before_block_id&&!before)return `no component ${op.before_block_id} on this page; before_block_id must name one of its components.`;
+    block.parentId=before?(before.kind==='frame'?before.id:before.parentId):undefined;
+    if(!canParent([...blocks,block],block.id,block.parentId))return 'that frame cannot nest any deeper.';
+    for(const [field,text] of Object.entries(op.content??{}))(block as unknown as Record<string,string>)[field]=text;
+    const at=before&&before.kind!=='frame'?blocks.indexOf(before):-1;
+    blocks.splice(at<0?blocks.length:at,0,block);
+    selected=block.id;
+    return undefined;
+  }
+  if(op.op==='update'){
+    const block=find(op.block_id);
+    if(!block)return op.block_id===SELECTION?'nothing is selected. Pass a block_id from the contract, or ask the person to select something.':`no component ${op.block_id} on this page.`;
+    if(op.fields.description!==undefined&&block.kind!=='products')return 'description belongs to a collection component; this one is a '+block.kind+'.';
+    for(const [field,text] of Object.entries(op.fields))(block as unknown as Record<string,string>)[field]=text;
+    return undefined;
+  }
+  if(op.op==='move'){
+    const block=find(op.block_id);
+    if(!block)return `no component ${op.block_id} on this page.`;
+    const from=blocks.indexOf(block),to=from+(op.direction==='up'?-1:1);
+    if(to<0||to>=blocks.length)return `that component is already ${op.direction==='up'?'first':'last'}.`;
+    [blocks[from],blocks[to]]=[blocks[to],blocks[from]];
+    return undefined;
+  }
+  if(op.op==='delete'){
+    const block=find(op.block_id);
+    if(!block)return `no component ${op.block_id} on this page.`;
+    blocks.forEach(child=>{if(child.parentId===block.id)child.parentId=block.parentId;});
+    blocks.splice(blocks.indexOf(block),1);
+    if(selected===block.id)selected='';
+    return undefined;
+  }
+  ensureSpace(project);
+  const frame=project.space!.frames[op.page_id??page.id];
+  if(!frame)return `no page ${op.page_id} to resize.`;
+  frame.preset=op.preset;
+  return undefined;
+}
+
+/** A batch: all of it lands as one undo step and one receipt, or none of it lands. */
+function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
+  const page=pageId?project.pages.find(p=>p.id===pageId):currentPage(project);
+  if(!page)return {error:`no page "${pageId}". This project has: ${project.pages.map(p=>p.id).join(', ')}`};
+  const before=JSON.parse(JSON.stringify(project)) as Project;
+  const snapshot=JSON.stringify(project);
+  const selectedBefore=selected;
+  let failure:{index:number;error:string}|undefined;
+  commit(()=>{
+    const target=project.pages.find(p=>p.id===page.id)!;
+    for(const [index,op] of ops.entries()){
+      const error=runOp(target,op);
+      if(error){failure={index,error};break;}
+    }
+    // Nothing half-applied: put the project back and let commit see no change at all.
+    if(failure){project=JSON.parse(snapshot) as Project;selected=selectedBefore;}
+  },true,'agent:apply');
+  if(failure)return {error:`ops[${failure.index}]: ${failure.error}`,failed_at:failure.index,applied:0};
+  return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
+}
+
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
@@ -1182,6 +1258,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
   if(c.kind==='state')return agentState();
+  if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
+  if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
+  if(c.kind==='components')return {ok:true,...componentVocabulary()};
   commandCaller=who;
   try{
     switch(c.kind){
@@ -1200,6 +1279,14 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime}))};
       }
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
+      case 'apply':{
+        const parsed=parseOps({ops:c.ops,page_id:c.pageId});
+        if('error' in parsed){commandCaller='';return {error:parsed.error};}
+        const result=applyOps(parsed.ops,parsed.pageId);
+        commandCaller='';
+        if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
+        return result;
+      }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
   }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}

@@ -6,6 +6,10 @@
  */
 export type AgentCommand=
   |{kind:'state'}
+  |{kind:'contract';format?:'concise'|'detailed';pageId?:string}
+  |{kind:'tokens'}
+  |{kind:'components'}
+  |{kind:'apply';ops:unknown[];pageId?:string}
   |{kind:'act';action:string;data:Record<string,string>}
   |{kind:'click';selector:string}
   |{kind:'type';selector:string;text:string;submit?:boolean}
@@ -31,6 +35,21 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
   switch(kind){
     case 'state':return {command:{kind:'state'}};
     case 'end':return {command:{kind:'end'}};
+    case 'tokens':return {command:{kind:'tokens'}};
+    case 'components':return {command:{kind:'components'}};
+    case 'contract':{
+      const format=p.format===undefined||p.format==='concise'?'concise' as const:p.format==='detailed'?'detailed' as const:undefined;
+      if(!format)return {error:'contract format must be "concise" or "detailed"'};
+      const pageId=str(p.pageId,200);
+      if(p.pageId!==undefined&&(!pageId||!/^[a-zA-Z0-9_-]{1,200}$/.test(pageId)))return {error:'contract pageId must be a page id from the contract'};
+      return {command:{kind:'contract',format,...(pageId?{pageId}:{})}};
+    }
+    case 'apply':{
+      // The ops themselves are validated by parseOps, which owns the vocabulary and its error text.
+      if(!Array.isArray(p.ops))return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
+      const pageId=str(p.page_id??p.pageId,200);
+      return {command:{kind:'apply',ops:p.ops,...(pageId?{pageId}:{})}};
+    }
     case 'act':{
       const action=str(p.action,80);
       if(!action||!SAFE_ACTION.test(action))return {error:'act needs "action" (kebab-case data-action name)'};
