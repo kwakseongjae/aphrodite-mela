@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,leaseHeld,normalizeCaller,isRead,isWrite,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -88,4 +88,13 @@ test('a caller label is cleaned up and can never claim to be the person',()=>{
 test('an agent cannot hold the screen under the name human',()=>{
   const v=judge('apply','human',at('connected'));
   assert.deepEqual(v,{allow:true,hold:{label:'unknown-agent',since:NOW}});
+});
+
+test('listing the picture library is a read; importing and deleting are not',()=>{
+  assert.equal(gateFor({kind:'library',action:'list'}),'images');
+  assert.equal(gateFor({kind:'library',action:'import'}),'library');
+  assert.equal(gateFor({kind:'library',action:'delete'}),'library');
+  assert.equal(gateFor({kind:'edit'}),'edit');
+  assert.equal(allowed(gateFor({kind:'library',action:'list'}),'claude-code',at('design')),true,'an agent may see what pictures exist without the door open');
+  assert.equal(refused(gateFor({kind:'library',action:'delete'}),'claude-code',at('design')).status,423);
 });

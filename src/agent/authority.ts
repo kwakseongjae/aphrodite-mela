@@ -26,6 +26,15 @@ export const HUMAN = 'human';
 export function isRead(kind: string): boolean {
   return (readKinds as readonly string[]).includes(kind);
 }
+
+/**
+ * Some commands carry their own verb: `library` lists, imports or deletes. Listing is a read and must
+ * not need the door opened, so the gate is asked about the narrower thing the command actually does.
+ */
+export function gateFor(command: {kind: string; action?: string}): string {
+  if (command.kind === 'library') return command.action === 'list' ? 'images' : 'library';
+  return command.kind;
+}
 export function isWrite(kind: string): boolean {
   return (writeKinds as readonly string[]).includes(kind);
 }

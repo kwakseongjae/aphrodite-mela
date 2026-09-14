@@ -48,7 +48,7 @@ import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveE
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
-import {judge,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -1178,7 +1178,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
   const who=normalizeCaller(caller);
-  const verdict=judge(c.kind,who,currentAuthority());
+  const verdict=judge(gateFor(c),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
   if(c.kind==='state')return agentState();
@@ -1195,7 +1195,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         const scope=c.scope==='project'?project.id:undefined;
         if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id});}
         if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope});}
-        forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();
+        // Listing is a read: it must not redraw the screen under the person's hands.
+        if(c.action==='list'){await loadLocalLibrary(true);}else{forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();}
         return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime}))};
       }
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
