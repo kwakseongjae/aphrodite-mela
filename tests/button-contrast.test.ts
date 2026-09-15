@@ -39,3 +39,24 @@ test('every design system reads on its own banner',()=>{
     assert.ok(ratio>=4.5,`${system.name}: ink on paper is ${ratio.toFixed(1)}:1, under the 4.5 a label needs`);
   }
 });
+
+/**
+ * The same mistake in another place: a colour chosen for one surface used on another.
+ *
+ * A caption over a photograph is white with a shadow, which is right — until there is no photograph
+ * yet and it sits on the pale placeholder instead, where it is white on light. Every new project
+ * starts that way, so this was the first thing a person saw.
+ */
+test('a caption over a placeholder takes the ink, not the photograph treatment',()=>{
+  assert.match(css,/\.image-caption\{[^}]*color:#fff/,'over a photograph it stays white');
+  const onPlaceholder=css.match(/:has\(\.media-placeholder\)[^{]*\.image-caption\{([^}]*)\}/);
+  assert.ok(onPlaceholder,'nothing changes the caption when there is no photograph');
+  assert.match(onPlaceholder![1],/color:var\(--ink\)/);
+  assert.match(onPlaceholder![1],/text-shadow:none/,'and drops the shadow meant for a photograph');
+});
+
+test('nothing else paints white text without saying what it sits on',()=>{
+  const whites=[...css.matchAll(/([^{}]*)\{([^}]*color:#fff[^}]*)\}/g)].map(m=>m[1].trim());
+  // Only the caption does, and only because a rule above covers the case where there is no photo.
+  assert.deepEqual(whites,['.image-caption']);
+});
