@@ -62,11 +62,15 @@ async function callTool(name, args) {
     init.body = JSON.stringify(Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)));
   }
 
+  // A call that never returns would leave the agent waiting for ever, so it is given a deadline: the
+  // app's own bridge answers or gives up within fifteen seconds, and this allows for the round trip.
   let response;
   try {
-    response = await fetch(url, init);
-  } catch {
-    return {isError: true, text: NOT_RUNNING};
+    response = await fetch(url, {...init, signal: AbortSignal.timeout(25_000)});
+  } catch (error) {
+    return {isError: true, text: error?.name === 'TimeoutError'
+      ? 'Aphrodite did not answer in time. It may be busy or mid-dialog — ask the person to check the app.'
+      : NOT_RUNNING};
   }
   const text = await response.text();
   let payload;

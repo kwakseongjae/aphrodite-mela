@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {fallbackStacks,sanitizeFamily,fontStack,isInstallable,freeFonts,fontsFor,licenseNote} from '../src/design/fonts';
+import {fallbackStacks,sanitizeFamily,fontStack,isInstallable,freeFonts,fontsFor,licenseNote,hangulFaces} from '../src/design/fonts';
 
 test('the catalogue is unique, licensed and has installable files',()=>{
   assert.equal(new Set(freeFonts.map(f=>f.id)).size,freeFonts.length,'ids are unique');
@@ -48,4 +48,20 @@ test('licenseNote names the licence and differs by language',()=>{
   assert.ok(en.includes(font.license));
   assert.ok(ko.includes(font.license));
   assert.notEqual(en,ko);
+});
+
+test('every fallback stack can actually render Korean',()=>{
+  for(const [category,stack] of Object.entries(fallbackStacks)){
+    const covered=hangulFaces.some(face=>stack.includes(face));
+    assert.ok(covered,`the ${category} stack has no Hangul face, so Korean text falls through to whatever the device picks`);
+  }
+  assert.match(fallbackStacks.serif,/Georgia.*Nanum Myeongjo/,'Latin first, then a Korean face of the same character');
+  assert.match(fallbackStacks.sans,/Arial.*Pretendard/);
+  assert.notEqual(fallbackStacks.serif.replace(/Georgia|Times New Roman/g,''),fallbackStacks.sans.replace(/Arial|Helvetica/g,''),'a serif heading stays distinct from a sans body in Korean too');
+});
+
+test('a chosen family still leads, with the Korean fallbacks behind it',()=>{
+  const stack=fontStack({family:'Gowun Dodum',category:'sans'});
+  assert.match(stack,/^'Gowun Dodum', Arial/);
+  assert.ok(hangulFaces.some(face=>stack.includes(face)));
 });

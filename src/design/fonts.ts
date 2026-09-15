@@ -17,11 +17,22 @@ export type FreeFont={
   scripts:readonly ('latin'|'korean')[];
 };
 
+/**
+ * The fallbacks each category lands on.
+ *
+ * Latin faces first, then a Hangul face of the same character. Georgia has no Korean glyphs, so a
+ * page written in Korean under a Latin-only stack falls through to whatever the system picks — which
+ * differs between a Mac, an iPhone and an Android, and flattens the serif heading against the sans
+ * body because both end up as the same default. Naming the Korean faces keeps the distinction the
+ * design system is making, and the ones the workbench can install for you come first.
+ */
 export const fallbackStacks:Record<FontCategory,string>={
-  serif:"Georgia, 'Times New Roman', serif",
-  sans:'Arial, Helvetica, sans-serif',
-  mono:'ui-monospace, Menlo, monospace',
+  serif:"Georgia, 'Times New Roman', 'Nanum Myeongjo', 'Noto Serif KR', AppleMyungjo, Batang, serif",
+  sans:"Arial, Helvetica, Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif",
+  mono:"ui-monospace, Menlo, 'D2Coding', 'Apple SD Gothic Neo', monospace",
 };
+/** Families in the stacks above that carry Hangul, so a test can hold every category to covering it. */
+export const hangulFaces=['Nanum Myeongjo','Noto Serif KR','AppleMyungjo','Batang','Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','D2Coding'] as const;
 
 const FAMILY=/^[\p{L}\p{N} +._-]+$/u;
 const OFL='OFL-1.1' as const;
