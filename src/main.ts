@@ -48,6 +48,7 @@ import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveE
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
+import {importDesignGraph,importSummary} from './design/omd';
 import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
@@ -651,7 +652,7 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
 function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
 }
 function systemModal() {
-  showModal(ui('Start with a point of view.','관점부터 정하세요.'), '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import your DESIGN.md', 'secondary-button full-width')}<p class="fine-print">명시적인 primary / background / foreground 색상을 읽습니다. 전체 원문도 내보내기에 보존합니다.</p>`);
+  showModal(ui('Start with a point of view.','관점부터 정하세요.'), '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import a design system', 'secondary-button full-width')}<p class="fine-print">${ui('A DESIGN.md, or a design-system graph as .json. Named colours are painted; the rest is kept with the project so a round trip loses nothing.','DESIGN.md 또는 디자인 시스템 그래프(.json). 이름이 맞는 색은 화면에 적용하고, 나머지는 프로젝트에 그대로 보관해 왕복해도 잃지 않습니다.')}</p>`);
 }
 function designBridgeModal() {
   systemModal();
@@ -1016,7 +1017,31 @@ async function action(el: HTMLElement) {
     }
     case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { project.reference = image; }); referenceModal(); }); break;
     case 'remove-reference': commit(() => { delete project.reference; }); referenceModal(); break;
-    case 'import-md': pickFile('.md,text/markdown,text/plain', async file => { const s = importDesignMarkdown(await file.text(), file.name, project.system); commit(() => { project.system = s; }); closeModal(); toast('색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'); }); break;
+    case 'import-md': pickFile('.md,.json,text/markdown,text/plain,application/json', async file => {
+      const text = await file.text();
+      // A design system arrives either as the document a person wrote or as the graph a tool emits.
+      if (/\.json$/i.test(file.name)) {
+        const read = importDesignGraph(JSON.parse(text));
+        if (!read.report.read) throw new Error(ui('No tokens were found in that file.','이 파일에서 토큰을 찾지 못했습니다.'));
+        commit(() => {
+          project.system = {
+            ...project.system, id: 'imported', name: read.report.name ?? file.name.replace(/\.json$/i, ''),
+            description: ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'),
+            ...(read.accent ? {accent: read.accent} : {}), ...(read.background ? {background: read.background} : {}),
+            ...(read.foreground ? {foreground: read.foreground} : {}), ...read.tokens,
+            ...(read.type ? {type: read.type} : {}),
+            ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
+          };
+        });
+        closeModal();
+        toast(importSummary(read.report, uiLanguage === 'ko'));
+        return;
+      }
+      const s = importDesignMarkdown(text, file.name, project.system);
+      commit(() => { project.system = s; });
+      closeModal();
+      toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
+    }); break;
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
     case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
