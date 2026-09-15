@@ -1,6 +1,7 @@
 import { type Block, type Project, type Page, safeImage } from './model';
 import pageCss from './page.css?raw';
 import { componentIdentity } from './components';
+import {tokenVars} from './design/tokens';
 import { isPattern } from './patterns';
 import { patternHtml, planningHtml, defaultPlanningText } from './pattern-render';
 import patternCss from './patterns.css?raw';
@@ -52,7 +53,7 @@ export function themeVars(p: Project): string {
   const rgb = p.system.accent.slice(1).match(/../g)!.map(h => { const v = parseInt(h, 16) / 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
   const luminance = rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
   const onBrand = onColor(p.system.accent);
-  return `--brand:${p.system.accent};--on-brand:${onBrand};--paper:${p.system.background};--ink:${p.system.foreground};--radius:${p.system.radius}px;--heading:${fontStack({family:p.system.headingFamily,category:p.system.font})};--body:${fontStack({family:p.system.bodyFamily,category:'sans'})}`;
+  return `--brand:${p.system.accent};--on-brand:${onBrand};--paper:${p.system.background};--ink:${p.system.foreground};--radius:${p.system.radius}px;--heading:${fontStack({family:p.system.headingFamily,category:p.system.font})};--body:${fontStack({family:p.system.bodyFamily,category:'sans'})};${tokenVars(p.system)}`;
 }
 export function pageHtml(p: Project, page: Page): string {
   const content = renderTree(page.blocks,p).replaceAll('id="collection"','id="collection-section"').replaceAll('id="contact"','id="contact-section"')

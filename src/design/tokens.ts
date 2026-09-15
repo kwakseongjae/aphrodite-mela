@@ -62,10 +62,19 @@ export function resolveTokens(system: {foreground: string; background: string} &
   };
 }
 
-/** The css a page is painted with, for the semantic half. */
+/**
+ * The css a page is painted with, for the semantic half.
+ *
+ * `muted` is handled differently on purpose. Secondary text is dimmed with opacity today, at five
+ * different strengths, and opacity has a property a single colour does not: it adapts to whatever is
+ * behind it. So the fade stays unless a design system actually names a muted colour, and then the
+ * colour takes over at full strength. A system that says nothing leaves the page exactly as it was.
+ */
 export function tokenVars(system: {foreground: string; background: string} & Partial<Record<SemanticToken, string>>): string {
   const resolved = resolveTokens(system);
-  return semanticTokens.map(name => `--${name}:${resolved[name]}`).join(';');
+  const parts = semanticTokens.filter(name => name !== 'muted').map(name => `--${name}:${resolved[name]}`);
+  if (isColour(system.muted)) parts.push(`--muted:${system.muted}`, '--muted-fade:1');
+  return parts.join(';');
 }
 
 /** Keeps only what a page can actually be painted with, and says nothing it cannot honour. */

@@ -43,10 +43,15 @@ test('muted defaults to what dimmed text already looks like over the paper',()=>
   assert.equal(mix('nope','#ffffff'),'nope','a bad colour is handed back rather than blended into nonsense');
 });
 
-test('the css names every token once',()=>{
-  const css=tokenVars(atelier);
-  for(const name of semanticTokens)assert.match(css,new RegExp(`--${name}:#[0-9a-f]{6}`),name);
-  assert.equal(css.split(';').length,semanticTokens.length);
+test('the css names the colour tokens, and leaves the fade alone until muted is asked for',()=>{
+  const plain=tokenVars(atelier);
+  for(const name of semanticTokens.filter(n=>n!=='muted'))assert.match(plain,new RegExp(`--${name}:#[0-9a-f]{6}`),name);
+  assert.doesNotMatch(plain,/--muted:/,'no colour, so dimmed text keeps adapting to whatever is behind it');
+  assert.doesNotMatch(plain,/--muted-fade/);
+
+  const named=tokenVars({...atelier,muted:'#8b95a1'});
+  assert.match(named,/--muted:#8b95a1/);
+  assert.match(named,/--muted-fade:1/,'the colour takes over at full strength');
 });
 
 test('a type role keeps only what a page can be painted with',()=>{
