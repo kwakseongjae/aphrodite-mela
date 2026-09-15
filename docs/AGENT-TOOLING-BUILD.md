@@ -144,6 +144,19 @@ export const opAction:Record<OpKind,string>={add:'add',update:'edit-field',move:
 
 > 확인: `npm run verify:authority` 13개(요청 → 화면에 뜸 → 허용 → 쓰기 통과 → 끊김 → 재요청 → 거절 → 여전히 잠김), `verify:mcp` 9개, `verify:tools` 11개.
 
+## 렌더 · **완료 2026-09-15**
+
+에이전트가 자기 결과를 본다. `GET /agent/render` → MCP `aphrodite_get_render`가 **이미지 블록**으로 돌려준다(텍스트 안의 base64가 아니라).
+
+의존성 없이 갔다. 헤드리스 크롬 대신 **앱을 그리는 그 WebKit**으로 그린다. 화면 밖 창에 내보내기 HTML을 띄우고 `takeSnapshotWithConfiguration:`으로 찍는다.
+
+가는 길에 네 번 막혔고, 넷 다 기록해둔다.
+
+1. **숨긴 창은 사진이 안 찍힌다.** `visible(false)`면 macOS가 합성을 안 해 빈 이미지가 온다. 화면 밖(-9000,-9000)에 **보이는** 창으로 두되 포커스를 주지 않는다.
+2. **WKWebView는 최상위 `data:` 이동을 거부한다.** Tauri의 `webview-data-url`을 켜도 창만 만들어지고 이동하지 않는다.
+3. **루프백 서버가 스스로를 교착시켰다.** 단일 스레드라, 렌더 명령을 기다리며 막힌 동안 그 렌더가 필요로 하는 페이지 요청을 받을 수 없었다. 요청마다 스레드를 띄우게 고쳤고, 덤으로 동시 요청이 직렬화되던 문제도 사라졌다.
+4. **인증 검사가 페이지 경로보다 먼저였다.** 웹뷰는 Authorization 헤더를 실을 수 없어 401 JSON을 받아 그걸 그렸다 — 흰 화면의 정체. 페이지 경로를 인증 위로 올렸다. nonce가 곧 자격이고, 한 번만 내주고 잊는다.
+
 ## 4단계 — 설명과 에러
 
 `src/agent/errors.ts`:
@@ -232,7 +245,7 @@ stdio로 서버를 띄워 `tools/list` → 도구 9개의 이름·주석·스키
 | 3 | ✅ T5(9/9)·매니페스트 교차검증(7) 통과. `claude mcp list`가 서버를 찾음 — 워크스페이스 승인은 사용자 클릭 한 번. |
 | 4 | T1(errors) 통과. 모든 도구 설명에 예시 1개. |
 | 5 | T6 통과 — **여기서 컴퓨터 유즈 경로가 자동 검증된다.** |
-| 6 | T7 1회차 기록이 `docs/AGENT-TOOL-EVAL.md`에 남음. |
+| 6 | ✅ T7 3회차까지 `docs/AGENT-TOOL-EVAL.md`에 기록. 렌더 도구 완료(아래). |
 
 ## 7. 되돌릴 지점
 
