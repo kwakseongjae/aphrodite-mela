@@ -49,6 +49,7 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode} from './agent/authority';
+import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
 import {parseOps,SELECTION,type Op} from './agent/ops';
 import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
@@ -170,7 +171,16 @@ const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}
 const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
-function toast(message: string) { const el = document.querySelector<HTMLDivElement>('#toast')!; el.textContent = message; el.classList.add('visible'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('visible'), 4200); }
+let toasts:Toast[]=[];let toastId=0;
+const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
+function paintToasts(){
+  toastRoot.innerHTML=toastHtml(toasts);
+  toastRoot.dataset.screen=screen;
+  clearTimeout(toastTimer);
+  const wait=nextExpiry(toasts,Date.now());
+  if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
+}
+function toast(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
 function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
@@ -263,6 +273,31 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentLocked(){return editorMode==='agent'&&!!delegation;}
 /** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
+/** Paper or midnight. A colour change is a class and one picture, not a reason to rebuild the page. */
+function toggleNight(){
+  night=!night;
+  try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{/* the choice holds for this launch */}
+  const home=document.querySelector('.folio-home');
+  if(!home){render();return;}
+  home.classList.toggle('folio-night',night);
+  const art=home.querySelector<HTMLImageElement>('.folio-art img');
+  if(art)art.src=`/brand/cutouts/${night?'night':'aphrodite'}.png`;
+  const button=home.querySelector<HTMLElement>('[data-action="hub-theme"]');
+  if(button){button.setAttribute('aria-pressed',String(night));button.innerHTML=`${icon(night?'sun':'moon')}<span>${night?homeCopy[uiLanguage].paper:homeCopy[uiLanguage].night}</span>`;}
+  hydrateIcons();
+}
+
+/** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
+function bannersHtml(){return `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}`;}
+/** Repaints only that slot. A connection opening must not reload every picture on the page. */
+function refreshBanners(){
+  const slot=document.querySelector('#banners');
+  if(!slot){render();return;}
+  slot.innerHTML=bannersHtml();
+  document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?homeCopy[uiLanguage].agentOn:homeCopy[uiLanguage].agentOff;});
+  hydrateIcons();syncStateAttributes();
+}
+
 /** An agent asking to be let in. A line at the top, not a dialog: it must never interrupt a drag. */
 function askBannerHtml(){
   if(!askState||askState.answered!=='pending'||agentMode()!=='design')return '';
@@ -419,12 +454,12 @@ function hubRefresh(){
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=`${connectBannerHtml()}${askBannerHtml()}${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode)}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode)}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}
+  app.innerHTML = `<div id="banners">${bannersHtml()}</div>
   <div class="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
     ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}
     <aside class="library" aria-label="Component library">
@@ -758,7 +793,7 @@ async function action(el: HTMLElement) {
     case 'vault-export': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});if(result.image){const bytes=new Uint8Array(await (await fetch(result.image)).arrayBuffer());const mime=result.image.slice(5,result.image.indexOf(';'))||'application/octet-stream';if(await saveFile(name,bytes,mime))toast(ui('Exported','내보냈습니다'));}else if(typeof result.text==='string'){if(await saveFile(name,result.text,name.endsWith('.json')?'application/json':name.endsWith('.md')?'text/markdown':'text/plain'))toast(ui('Exported','내보냈습니다'));}break;}
     case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),'파일 미리보기 · 원문은 지시가 아닌 데이터입니다.',`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
-    case 'hub-theme': night=!night;try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{}render();break;
+    case 'hub-theme': toggleNight();break;
     case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'commands': commandsModal(); break;
@@ -1002,10 +1037,10 @@ async function action(el: HTMLElement) {
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'ask-allow': {const by=askState?.by??'';askState=askState?{...askState,answered:'allowed'}:null;connectMode=true;rememberConnect(true);lease=null;connectWrites=0;render();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
-    case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;render();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
-    case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');render();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-disconnect': connectMode=false;rememberConnect(false);lease=null;connectWrites=0;askState=null;render();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
+    case 'ask-allow': {const by=askState?.by??'';askState=askState?{...askState,answered:'allowed'}:null;connectMode=true;rememberConnect(true);lease=null;connectWrites=0;refreshBanners();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
+    case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;refreshBanners();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
+    case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-disconnect': connectMode=false;rememberConnect(false);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }
@@ -1018,6 +1053,8 @@ document.addEventListener('click', e => {
   const link=target.closest<HTMLAnchorElement>('a[href^="https://github.com/"]');
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
+  const chip=target.closest<HTMLElement>('[data-toast]');
+  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
   if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
@@ -1277,7 +1314,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,agentMode(),askState,Date.now());
-    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};render();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
   }
   commandCaller=who;
