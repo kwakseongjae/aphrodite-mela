@@ -1348,8 +1348,11 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
     const width=c.width??frameWidth(project.space?.frames[page.id]??{x:0,y:0,preset:'desktop'});
     try{
-      const png=await invoke<string>('render_page',{html:pageHtml(project,page),width,height:Math.round(width*1.6)});
-      return {ok:true,page_id:page.id,width,mime:'image/png',png};
+      // A render is a viewport, not a whole page: a caller that wants more of a long page asks for
+      // a taller one. The default is a shape a phone or a laptop actually has.
+      const height=c.height??Math.round(width*1.6);
+      const png=await invoke<string>('render_page',{html:pageHtml(project,page),width,height});
+      return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
   if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};

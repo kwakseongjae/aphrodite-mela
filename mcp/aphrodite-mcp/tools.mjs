@@ -92,7 +92,7 @@ export const tools = [
       'A picture of the page as it will actually be seen, drawn at the width you ask for.',
       '',
       'Use it after a change to check the result, and before saying anything about how something looks — the contract tells you what is on the page, not whether it works. Ask for a narrow width to see how the design holds up on a phone.',
-      'It renders the page on its own, not the app around it: no panels, no dock, no zoom.',
+      'It renders the page on its own, not the app around it: no panels, no dock, no zoom. What comes back is a viewport, so a long page is cut off at the bottom unless you ask for a taller one.',
       '',
       'Example: {"width": 390} for a phone, or {} for the page\'s own frame width.',
     ].join('\n'),
@@ -101,12 +101,13 @@ export const tools = [
       type: 'object',
       properties: {
         width: {type: 'number', minimum: 240, maximum: 2000, description: 'Pixels. Defaults to the frame width of the page.'},
+        height: {type: 'number', minimum: 320, maximum: 6000, description: 'Pixels. This is a viewport, so a long page is cut off — ask for a taller one to see the rest.'},
         page_id: {type: 'string', description: 'Which page. Defaults to the one being edited.'},
       },
       additionalProperties: false,
     },
     route: {method: 'GET', path: '/agent/render'},
-    params: args => ({width: args.width, pageId: args.page_id}),
+    params: args => ({width: args.width, height: args.height, pageId: args.page_id}),
   },
   {
     name: 'aphrodite_list_components',
