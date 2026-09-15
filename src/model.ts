@@ -3,7 +3,7 @@ import {sanitizeSpace,type Space} from './editor/space';
 import {isSampleSrc} from './design/sample-images';
 import {isLocalRef} from './design/local-images';
 import {sanitizeFamily} from './design/fonts';
-import {semanticTokens,isColour,sanitizeTypeScale,type SemanticToken,type TypeScale} from './design/tokens';
+import {semanticTokens,tokenSynonyms,isColour,sanitizeTypeScale,type SemanticToken,type TypeScale} from './design/tokens';
 import { supportsProvider, type Provider } from './providers';
 import {validComponentTheme,type ComponentTheme} from './design/component-theme';
 import {validShelf,type ShelfChoice} from './design/shelf';
@@ -141,5 +141,16 @@ export function importDesignMarkdown(markdown: string, name: string, base: Desig
   const background = token('canvas|background');
   const foreground = token('foreground');
   if (!accent && !background && !foreground) throw new Error('primary: #RRGGBB 같은 명시적인 색상 토큰을 찾지 못했습니다. 원본 형식을 확인해주세요.');
-  return { ...base, id: 'imported', name: name.replace(/\.md$/i, ''), description: 'Imported color tokens · original Markdown preserved', accent: accent ?? base.accent, background: background ?? base.background, foreground: foreground ?? base.foreground, source: `User-imported ${name}. Only explicit primary/accent, canvas/background, foreground fields are parsed. Other values retain prior project decisions.`, originalMarkdown: markdown };
+  // The semantic half, and then everything else that was labelled a colour. What this prototype
+  // cannot paint is carried rather than dropped: a round trip must not lose someone's design system.
+  const semantic: Partial<Record<SemanticToken, string>> = {};
+  for (const name of semanticTokens) { const value = tokenSynonyms[name].map(alias => token(alias.replace(/ /g, '[ _-]'))).find(Boolean); if (value) semantic[name] = value; }
+  const known = new Set<string>([...semanticTokens.flatMap(name => tokenSynonyms[name].map(alias => alias.replace(/ /g, '-'))), 'primary', 'accent', 'canvas', 'background', 'foreground']);
+  const carried: Record<string, string> = {};
+  for (const [, label, value] of markdown.matchAll(/(?:^|\n)\s*(?:[-*]\s*)?\**([a-z][a-z0-9 ._-]{0,60}?)\**\s*:\s*["'`]?(#[a-fA-F0-9]{6})\b/gi)) {
+    // Real design documents label colours the way people say them — "Link Blue", "Weak Background".
+    const key = label.trim().toLowerCase().replace(/[ _]+/g, '-');
+    if (!known.has(key) && !(key in carried) && Object.keys(carried).length < 200) carried[key] = value;
+  }
+  return { ...base, ...semantic, ...(Object.keys(carried).length ? {carried} : {}), id: 'imported', name: name.replace(/\.md$/i, ''), description: 'Imported color tokens · original Markdown preserved', accent: accent ?? base.accent, background: background ?? base.background, foreground: foreground ?? base.foreground, source: `User-imported ${name}. Only explicit primary/accent, canvas/background, foreground fields are parsed. Other values retain prior project decisions.`, originalMarkdown: markdown };
 }

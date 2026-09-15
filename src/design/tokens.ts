@@ -99,3 +99,21 @@ export function sanitizeTypeScale(value: unknown): TypeScale | undefined {
   }
   return Object.keys(scale).length ? scale : undefined;
 }
+
+/**
+ * What other people call these.
+ *
+ * A brand writes "Border" or "Hairline", not "line"; "Secondary" or "Body", not "muted". Importing a
+ * real design system means meeting its vocabulary rather than making it learn ours. They are tried in
+ * order, not searched for at once: a document that mentions its body colour before its muted one
+ * would otherwise hand us the wrong grey.
+ */
+export const tokenSynonyms: Record<SemanticToken, readonly string[]> = {
+  surface: ['surface', 'elevated', 'surface grey', 'surface gray', 'card', 'panel', 'layer'],
+  line: ['line', 'border', 'border default', 'divider', 'hairline', 'outline', 'stroke'],
+  muted: ['muted', 'muted grey', 'muted gray', 'secondary text', 'secondary', 'subtle', 'tertiary'],
+  danger: ['danger', 'error', 'error red', 'negative', 'destructive'],
+  success: ['success', 'success green', 'positive'],
+  warning: ['warning', 'warning amber', 'caution', 'attention'],
+};
+
