@@ -61,9 +61,9 @@ test('the home menu drops what needs a canvas and what has its own control',()=>
   assert.ok(!ids.includes('commands'),'no command palette on home');
   assert.ok(!ids.includes('tour-start'),'no editor tour on home');
   assert.ok(!ids.includes('agent-connect'),'the connection is a top-row control, not a help entry');
-  assert.ok(ids.includes('agent'),'the computer-use guide stays');
-  assert.ok(ids.includes('brand-kit'));
-  assert.ok(ids.includes('language-settings'));
+  assert.ok(!ids.includes('language-settings'),'language is a top-row control too');
+  assert.ok(!ids.includes('agent'),'the assembly console describes a page home does not have');
+  assert.deepEqual(ids.filter(id=>id!=='separator'),['brand-kit','release-notes','report-issue'],'only what works from home');
   const html=helpMenuHtml('ko',homeHelpItems,'folio-menu');
   assert.match(html,/<div class="folio-menu"/,'it wears the chrome the home screen already uses');
   assert.doesNotMatch(html,/data-action="commands"/);

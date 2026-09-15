@@ -148,6 +148,21 @@ pub fn update_open(path: String) -> Result<String, String> {
     Ok(path)
 }
 
+/// Opens one of the app's own pages in the person's browser. A webview cannot follow a target=_blank
+/// link, so a menu entry that looks like a link does nothing until it comes through here.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<String, String> {
+    if !url.starts_with(&format!("https://github.com/{REPO}")) || url.contains(['"', '\'', ' ', '\n']) {
+        return Err("that link does not belong to this app".into());
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(url)
+}
+
 /// Opens this release's notes in the browser. Only a page on this repository is accepted, so a
 /// tampered feed cannot turn the button into a link to anywhere else.
 #[tauri::command]

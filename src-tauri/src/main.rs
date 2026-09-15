@@ -36,7 +36,8 @@ fn main() {
             update::update_download,
             update::update_open,
             update::update_reveal,
-            update::update_notes
+            update::update_notes,
+            update::open_external
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");

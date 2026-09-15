@@ -1004,7 +1004,7 @@ async function action(el: HTMLElement) {
     case 'agent-connect': agentConnectModal();break;
     case 'ask-allow': {const by=askState?.by??'';askState=askState?{...askState,answered:'allowed'}:null;connectMode=true;rememberConnect(true);lease=null;connectWrites=0;render();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
     case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;render();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
-    case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}render();agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');render();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
     case 'agent-disconnect': connectMode=false;rememberConnect(false);lease=null;connectWrites=0;askState=null;render();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
@@ -1015,6 +1015,8 @@ document.addEventListener('click', e => {
   if(dockGroupOpen&&!target.closest('.dock-slot')){dockGroupOpen='';render();return;}
   document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{if(!d.contains(target)){d.open=false;helpOpen=false;}});
   document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open],details.folio-help[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
+  const link=target.closest<HTMLAnchorElement>('a[href^="https://github.com/"]');
+  if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
   if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();

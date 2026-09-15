@@ -17,11 +17,13 @@ export const helpItems:readonly (HelpItem|'separator')[]=[
 ];
 
 /**
- * The home screen has no canvas, so the entries about editing one are left out, and the agent
- * connection has its own control up there — it is a state you want to see at a glance, not a page of
- * help. Everything else belongs in both places, and deriving the list keeps them from drifting.
+ * What the home screen's menu leaves out, and why. The command palette and the editor tour need a
+ * canvas. The assembly console describes the page you are editing, which on home is whichever project
+ * happens to be in memory — worse than useless. The agent connection and the interface language each
+ * have their own control in the top row already, and an entry that duplicates a visible control is
+ * one more thing to read. What is left are the three that work the same from either screen.
  */
-export const homeOnly=['commands','tour-start','agent-connect'];
+export const homeOnly=['commands','tour-start','agent-connect','agent','language-settings'];
 export const homeHelpItems:readonly (HelpItem|'separator')[]=
   helpItems.filter(item=>item==='separator'||!homeOnly.includes(item.id));
 

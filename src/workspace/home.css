@@ -146,3 +146,24 @@
 /* The agent connection is a state you want to see at a glance, so it sits in the top row with a dot. */
 .folio-top .folio-dot-live{background:#5c8a4a;box-shadow:0 0 0 3px rgba(92,138,74,.16)}
 .folio-night .folio-help>summary:hover,.folio-night .folio-help[open]>summary{background:#3a382e}
+
+/* A switch reads as a switch: the state is the control's shape, not a word beside it. */
+.folio-top .folio-toggle{gap:8px;padding:0 10px 0 11px}
+.folio-switch{width:26px;height:15px;border-radius:9px;background:#cfcabc;position:relative;transition:background .16s;flex:none}
+.folio-switch::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fffdf7;transition:transform .16s;box-shadow:0 1px 2px rgba(41,40,32,.3)}
+.folio-toggle[aria-checked="true"] .folio-switch{background:#5c8a4a}
+.folio-toggle[aria-checked="true"] .folio-switch::after{transform:translateX(11px)}
+.folio-toggle[aria-checked="true"]{border-color:#b6c9a8;background:#f0f4ea}
+.folio-toggle[aria-checked="true"] svg{color:#4b7239}
+.folio-night .folio-switch{background:#4a4839}
+.folio-night .folio-toggle[aria-checked="true"]{background:#33402d;border-color:#4f6b45}
+
+/* States are quiet when nothing is wrong: the storage readout drops its box and speaks up only when
+   something is unsaved. The header was starting to read as six equal buttons. */
+.folio-top button[data-action="storage-info"]{border-color:transparent;padding:0 8px;color:var(--muted)}
+.folio-top button[data-action="storage-info"]:hover{border-color:#d5d1c5;color:var(--ink)}
+.folio-top button[data-action="storage-info"]:has(.folio-dot-warn){border-color:#c2a365;color:var(--ink)}
+.folio-top .folio-lang>summary,.folio-top button[data-action="hub-theme"]{border-color:transparent;color:var(--muted)}
+.folio-top .folio-lang>summary:hover,.folio-top .folio-lang[open]>summary,.folio-top button[data-action="hub-theme"]:hover{border-color:#d5d1c5;color:var(--ink)}
+.folio-help>summary{border-color:transparent;color:var(--muted)}
+.folio-help>summary:hover,.folio-help[open]>summary{border-color:#d5d1c5;color:var(--ink);background:transparent}
