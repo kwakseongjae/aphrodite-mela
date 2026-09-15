@@ -3,6 +3,7 @@ import {sanitizeSpace,type Space} from './editor/space';
 import {isSampleSrc} from './design/sample-images';
 import {isLocalRef} from './design/local-images';
 import {sanitizeFamily} from './design/fonts';
+import {semanticTokens,isColour,sanitizeTypeScale,type SemanticToken,type TypeScale} from './design/tokens';
 import { supportsProvider, type Provider } from './providers';
 import {validComponentTheme,type ComponentTheme} from './design/component-theme';
 import {validShelf,type ShelfChoice} from './design/shelf';
@@ -11,7 +12,13 @@ import {ownSystems} from './design/presets';
 export type BlockKind = 'frame' | 'navigation' | 'hero' | 'features' | 'products' | 'testimonial' | 'cta' | 'footer' | PatternKind;
 export type HeroVariant = 'split' | 'image-left' | 'stacked';
 export type Block = { id: string; kind: BlockKind; title: string; text: string; label: string; image: string; filled: boolean; variant?: string; eyebrow?: string; description?:string; itemImages?:string[]; options?: PatternOptions; provider?: Provider; theme?:ComponentTheme; parentId?: string; layout?: Layout };
-export type DesignSystem = { id: string; name: string; description: string; accent: string; background: string; foreground: string; radius: number; font: 'serif' | 'sans'; headingFamily?: string; bodyFamily?: string; source: string; originalMarkdown?: string };
+/**
+ * The design contract. `accent`/`background`/`foreground`/`radius` are the original four; the
+ * semantic tokens and the type scale are optional, and when absent the renderer paints what it
+ * always has. `carried` holds token names an imported system defines that nothing here renders yet —
+ * kept verbatim so a round trip does not lose someone's design system.
+ */
+export type DesignSystem = { id: string; name: string; description: string; accent: string; background: string; foreground: string; radius: number; font: 'serif' | 'sans'; headingFamily?: string; bodyFamily?: string; source: string; originalMarkdown?: string } & Partial<Record<SemanticToken, string>> & { type?: TypeScale; carried?: Record<string, string> };
 export type ReferenceEvidence = { engine: 'Apple Vision + pixels' | 'Pixels only'; sourceFingerprint: string; textLines: number; palette: string[]; elapsedMs: number; direction: HeroVariant; mediaUsed: boolean };
 export type VibeReceipt = {packId:string;changedFields:number;source:'local-authored-demo';imageSource:'user-upload'|'bundled-generated'|'none';modelCalled:false};
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
@@ -89,6 +96,19 @@ export function parseProject(raw: string): Project {
   if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
   if (s.headingFamily !== undefined) { const clean = sanitizeFamily(s.headingFamily); if (clean) s.headingFamily = clean; else delete s.headingFamily; }
   if (s.bodyFamily !== undefined) { const clean = sanitizeFamily(s.bodyFamily); if (clean) s.bodyFamily = clean; else delete s.bodyFamily; }
+  // A token we cannot paint is dropped rather than rejecting the whole project: a design system with
+  // one bad value is still a design system, and the renderer falls back to what it paints today.
+  for (const token of semanticTokens) { if (s[token] !== undefined && !isColour(s[token])) delete s[token]; }
+  if (s.type !== undefined) { const scale = sanitizeTypeScale(s.type); if (scale) s.type = scale; else delete s.type; }
+  if (s.carried !== undefined) {
+    const kept: Record<string, string> = {};
+    if (s.carried && typeof s.carried === 'object' && !Array.isArray(s.carried)) {
+      for (const [name, value] of Object.entries(s.carried).slice(0, 200)) {
+        if (/^[a-z][a-z0-9.-]{0,60}$/.test(name) && typeof value === 'string' && value.length <= 200) kept[name] = value;
+      }
+    }
+    if (Object.keys(kept).length) s.carried = kept; else delete s.carried;
+  }
   if (![s.accent, s.background, s.foreground].every(v => /^#[a-fA-F0-9]{6}$/.test(v)) || !Number.isFinite(s.radius) || s.radius < 0 || s.radius > 48 || !['serif', 'sans'].includes(s.font) || ![s.name, s.id, s.description, s.source].every(v => str(v)) || (s.originalMarkdown !== undefined && !str(s.originalMarkdown, 200000))) throw new Error('디자인 토큰 형식이 올바르지 않습니다.');
   const ids = new Set<string>();
   for (const page of p.pages) {
