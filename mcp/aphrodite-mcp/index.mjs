@@ -86,6 +86,10 @@ async function callTool(name, args) {
   // A document is meant to be read: returning the guide inside a JSON envelope would hand the model
   // a string with escaped newlines instead of prose. Everything else is data, and stays JSON.
   if (typeof payload.guide === 'string') return {isError: false, text: payload.guide};
+  if (typeof payload.png === 'string') {
+    const {png, ...rest} = payload;
+    return {isError: false, image: {data: png, mimeType: payload.mime ?? 'image/png'}, text: JSON.stringify(rest, null, 2)};
+  }
   return {isError: false, text: JSON.stringify(payload, null, 2)};
 }
 
@@ -115,8 +119,12 @@ async function handle(message) {
     case 'tools/list':
       return reply(id, {tools: toolManifest()});
     case 'tools/call': {
-      const {isError, text} = await callTool(params?.name, params?.arguments);
-      return reply(id, {content: [{type: 'text', text}], isError});
+      const {isError, text, image} = await callTool(params?.name, params?.arguments);
+      // A picture goes back as a picture: a model cannot read a page from base64 in a text block.
+      const content = image
+        ? [{type: 'image', data: image.data, mimeType: image.mimeType}, {type: 'text', text}]
+        : [{type: 'text', text}];
+      return reply(id, {content, isError});
     }
     default:
       if (isRequest) return fail(id, -32601, `Method not found: ${method}`);

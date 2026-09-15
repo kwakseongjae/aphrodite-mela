@@ -1311,6 +1311,16 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
   if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
+  if(c.kind==='render'){
+    if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
+    const page=c.pageId?project.pages.find(x=>x.id===c.pageId):currentPage(project);
+    if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
+    const width=c.width??frameWidth(project.space?.frames[page.id]??{x:0,y:0,preset:'desktop'});
+    try{
+      const png=await invoke<string>('render_page',{html:pageHtml(project,page),width,height:Math.round(width*1.6)});
+      return {ok:true,page_id:page.id,width,mime:'image/png',png};
+    }catch(error){return {error:String(error)};}
+  }
   if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,agentMode(),askState,Date.now());

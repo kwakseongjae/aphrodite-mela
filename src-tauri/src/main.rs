@@ -3,6 +3,7 @@ mod agent;
 mod fonts;
 mod image_library;
 mod reference;
+mod snapshot;
 mod update;
 mod vault;
 mod workspace;
@@ -37,7 +38,8 @@ fn main() {
             update::update_open,
             update::update_reveal,
             update::update_notes,
-            update::open_external
+            update::open_external,
+            snapshot::render_page
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");

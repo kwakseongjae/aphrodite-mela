@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::mpsc::{channel, Sender};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -14,6 +15,17 @@ use tiny_http::{Header, Method, Response, Server};
 pub struct AgentBridge {
     inner: Mutex<Option<Endpoint>>,
     pending: Arc<Mutex<HashMap<u64, Sender<Value>>>>,
+    /// Pages waiting to be photographed. A hidden webview cannot carry an Authorization header, so
+    /// each one is left behind an unguessable one-shot path on the loopback server instead.
+    renders: Arc<Mutex<HashMap<String, String>>>,
+}
+
+/// Parks a page for the off-screen webview to fetch, and says where to find it. One fetch only.
+pub fn stash_render(bridge: &AgentBridge, html: String) -> Result<String, String> {
+    let endpoint = bridge.inner.lock().map_err(|e| e.to_string())?.clone().ok_or("the local channel is not running")?;
+    let nonce = random_token();
+    bridge.renders.lock().map_err(|e| e.to_string())?.insert(nonce.clone(), html);
+    Ok(format!("http://127.0.0.1:{}/render/{nonce}", endpoint.port))
 }
 
 #[derive(Clone)]
@@ -62,6 +74,7 @@ pub const ROUTES: &[&str] = &[
     "GET /agent/state",
     "GET /agent/contract",
     "GET /agent/tokens",
+    "GET /agent/render",
     "GET /agent/guide",
     "POST /agent/connect",
     "POST /agent/ui",
@@ -138,11 +151,34 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
     let token = random_token();
     *bridge.inner.lock().map_err(|e| e.to_string())? = Some(Endpoint { port, token: token.clone() });
     let pending = bridge.pending.clone();
+    let renders = bridge.renders.clone();
     let app_handle = app.clone();
     let expected = format!("Bearer {token}");
     std::thread::spawn(move || {
-        let mut next_id: u64 = 1;
+        // One thread per request. The loop used to do the waiting itself, which deadlocked the moment
+        // a command made the app come back to this same server — rendering a page does exactly that.
+        let next_id = Arc::new(AtomicU64::new(1));
         for mut request in server.incoming_requests() {
+            // A page parked for the off-screen renderer. This sits above the bearer check on
+            // purpose: a webview cannot carry an Authorization header, so the unguessable one-shot
+            // path in the URL is the capability. Loopback only, served once, then forgotten.
+            {
+                let raw = request.url().to_string();
+                let just_path = raw.split('?').next().unwrap_or("").to_string();
+                if let Some(nonce) = just_path.strip_prefix("/render/") {
+                    let html = renders.lock().ok().and_then(|mut map| map.remove(nonce));
+                    match html {
+                        Some(body) => {
+                            let response = Response::from_string(body)
+                                .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap());
+                            let _ = request.respond(response);
+                        }
+                        None => respond(request, 404, json!({"error": "no such page"})),
+                    }
+                    continue;
+                }
+            }
+
             let authorized = request
                 .headers()
                 .iter()
@@ -158,6 +194,7 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                 (Method::Get, "/agent/state") => "state",
                 (Method::Get, "/agent/contract") => "contract",
                 (Method::Get, "/agent/tokens") => "tokens",
+                (Method::Get, "/agent/render") => "render",
                 (Method::Get, "/agent/guide") => "guide",
                 (Method::Post, "/agent/connect") => "connect",
                 (Method::Post, "/agent/ui") => "ui",
@@ -194,37 +231,43 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                     }
                 }
             };
-            let id = next_id;
-            next_id += 1;
-            let (tx, rx) = channel::<Value>();
-            if let Ok(mut map) = pending.lock() {
-                map.insert(id, tx);
-            }
-            if app_handle
-                .emit("agent:command", json!({"id": id, "kind": kind, "payload": payload, "caller": caller}))
-                .is_err()
-            {
-                respond(request, 500, json!({"error": "webview unavailable"}));
-                continue;
-            }
-            match rx.recv_timeout(Duration::from_secs(15)) {
-                Ok(result) => {
-                    // The app decides the status; 409 stays the default refusal for older replies.
-                    let asked = result.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let status = match (asked, result.get("error").is_some()) {
-                        (403 | 409 | 423, _) => asked as u16,
-                        (_, true) => 409,
-                        (_, false) => 200,
-                    };
-                    respond(request, status, result);
+            let id = next_id.fetch_add(1, Ordering::SeqCst);
+            let pending = pending.clone();
+            let app_handle = app_handle.clone();
+            let kind = kind.to_string();
+            std::thread::spawn(move || {
+                let (tx, rx) = channel::<Value>();
+                if let Ok(mut map) = pending.lock() {
+                    map.insert(id, tx);
                 }
-                Err(_) => {
-                    if let Ok(mut map) = pending.lock() {
-                        map.remove(&id);
+                if app_handle
+                    .emit("agent:command", json!({"id": id, "kind": kind, "payload": payload, "caller": caller}))
+                    .is_err()
+                {
+                    respond(request, 500, json!({"error": "webview unavailable"}));
+                    return;
+                }
+                // Long enough for a page to be laid out and photographed, which is the slowest thing
+                // the app is asked to do.
+                match rx.recv_timeout(Duration::from_secs(30)) {
+                    Ok(result) => {
+                        // The app decides the status; 409 stays the default refusal for older replies.
+                        let asked = result.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let status = match (asked, result.get("error").is_some()) {
+                            (403 | 409 | 423, _) => asked as u16,
+                            (_, true) => 409,
+                            (_, false) => 200,
+                        };
+                        respond(request, status, result);
                     }
-                    respond(request, 504, json!({"error": "the app did not answer in 15s"}));
+                    Err(_) => {
+                        if let Ok(mut map) = pending.lock() {
+                            map.remove(&id);
+                        }
+                        respond(request, 504, json!({"error": "the app did not answer in 30s"}));
+                    }
                 }
-            }
+            });
         }
     });
     let path = write_endpoint_file(&app, port, &token)?;

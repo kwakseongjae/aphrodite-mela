@@ -86,6 +86,29 @@ export const tools = [
     route: {method: 'GET', path: '/agent/tokens'},
   },
   {
+    name: 'aphrodite_get_render',
+    title: 'Look at the page',
+    description: [
+      'A picture of the page as it will actually be seen, drawn at the width you ask for.',
+      '',
+      'Use it after a change to check the result, and before saying anything about how something looks — the contract tells you what is on the page, not whether it works. Ask for a narrow width to see how the design holds up on a phone.',
+      'It renders the page on its own, not the app around it: no panels, no dock, no zoom.',
+      '',
+      'Example: {"width": 390} for a phone, or {} for the page\'s own frame width.',
+    ].join('\n'),
+    annotations: {title: 'Look at the page', ...READ},
+    inputSchema: {
+      type: 'object',
+      properties: {
+        width: {type: 'number', minimum: 240, maximum: 2000, description: 'Pixels. Defaults to the frame width of the page.'},
+        page_id: {type: 'string', description: 'Which page. Defaults to the one being edited.'},
+      },
+      additionalProperties: false,
+    },
+    route: {method: 'GET', path: '/agent/render'},
+    params: args => ({width: args.width, pageId: args.page_id}),
+  },
+  {
     name: 'aphrodite_list_components',
     title: 'List the component vocabulary',
     description: [

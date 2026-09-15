@@ -55,7 +55,7 @@ check('an unknown protocol version gets a known one back, not a refusal', async 
 check('every tool is named, described and annotated honestly', async () => {
   const {result} = await request('tools/list');
   manifest = result.tools;
-  assert.ok(manifest.length >= 9, `${manifest.length} tools`);
+  assert.ok(manifest.length >= 10, `${manifest.length} tools`);
   for (const tool of manifest) {
     assert.match(tool.name, /^aphrodite_[a-z_]+$/, `${tool.name} is namespaced`);
     assert.ok(tool.description.length > 120, `${tool.name} has a real description`);
@@ -65,7 +65,7 @@ check('every tool is named, described and annotated honestly', async () => {
     assert.equal(typeof tool.annotations.readOnlyHint, 'boolean', `${tool.name} says whether it writes`);
   }
   const reads = manifest.filter(t => t.annotations.readOnlyHint).map(t => t.name);
-  assert.deepEqual(reads.sort(), ['aphrodite_get_contract', 'aphrodite_get_tokens', 'aphrodite_guide', 'aphrodite_list_components', 'aphrodite_list_images']);
+  assert.deepEqual(reads.sort(), ['aphrodite_get_contract', 'aphrodite_get_render', 'aphrodite_get_tokens', 'aphrodite_guide', 'aphrodite_list_components', 'aphrodite_list_images']);
   const destructive = manifest.filter(t => t.annotations.destructiveHint).map(t => t.name);
   assert.deepEqual(destructive, ['aphrodite_delete_image'], 'deleting a picture is the only destructive tool');
 });

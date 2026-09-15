@@ -8,6 +8,7 @@ export type AgentCommand=
   |{kind:'state'}
   |{kind:'contract';format?:'concise'|'detailed';pageId?:string}
   |{kind:'tokens'}
+  |{kind:'render';pageId?:string;width?:number}
   |{kind:'guide'}
   |{kind:'connect'}
   |{kind:'ui';action:'command'|'click'|'type'|'key';payload:Record<string,unknown>}
@@ -39,6 +40,13 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
     case 'state':return {command:{kind:'state'}};
     case 'end':return {command:{kind:'end'}};
     case 'tokens':return {command:{kind:'tokens'}};
+    case 'render':{
+      const pageId=str(p.pageId,200);
+      if(p.pageId!==undefined&&(!pageId||!/^[a-zA-Z0-9_-]{1,200}$/.test(pageId)))return {error:'render pageId must be a page id from the contract'};
+      const raw=p.width===undefined?undefined:Number(p.width);
+      if(raw!==undefined&&(!Number.isFinite(raw)||raw<240||raw>2000))return {error:'render width must be between 240 and 2000'};
+      return {command:{kind:'render',...(pageId?{pageId}:{}),...(raw?{width:raw}:{})}};
+    }
     case 'guide':return {command:{kind:'guide'}};
     case 'connect':return {command:{kind:'connect'}};
     case 'ui':{
