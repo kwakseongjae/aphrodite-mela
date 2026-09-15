@@ -1399,7 +1399,10 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   return agentState();
 }
 (window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
-if(nativeDesktop)void tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}});
+/* Registering the listener is itself a round trip to Rust. The channel must not advertise itself
+   before this lands, or a request arriving in between is emitted into nothing and waits out the
+   whole timeout — which is what an agent calling the moment it saw the endpoint file used to get. */
+const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{
@@ -1607,6 +1610,7 @@ async function boot(){
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.
       // Writing still needs Connected mode or Agent mode — see src/agent/authority.ts.
+      await agentListening;
       try{agentEndpoint=await invoke<{port:number;token:string;file:string}>('agent_bridge_start');}catch{agentEndpoint=undefined;}
       const {getCurrentWindow}=await import('@tauri-apps/api/window');
       await getCurrentWindow().onCloseRequested(async event=>{if(!lastSaved){event.preventDefault();try{await flushDisk();if(lastSaved)await getCurrentWindow().close();}catch{toast('저장 실패로 종료를 중지했습니다. Save project로 백업하세요.');}}});

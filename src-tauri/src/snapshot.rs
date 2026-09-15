@@ -47,9 +47,9 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
 
     // Let the page lay out and fetch what it needs before the shutter.
     tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(1_500))).await.ok();
-    let png = snapshot(&window, width, height)?;
+    let png = snapshot(&window, width, height);
     let _ = window.close();
-    Ok(png)
+    png
 }
 
 /// Percent-encodes for a data URL. Only the characters that would end the URL or confuse the parser.
