@@ -56,15 +56,22 @@ test('an injected quote or angle bracket in a label cannot break out',()=>{
   assert.match(ko,/href="https:\/\/example\.test\/&quot;onclick=1"/);
 });
 
-test('the home menu drops the two entries that need a canvas, and keeps the rest',()=>{
+test('the home menu drops what needs a canvas and what has its own control',()=>{
   const ids=homeHelpItems.map(item=>item==='separator'?'separator':item.id);
   assert.ok(!ids.includes('commands'),'no command palette on home');
   assert.ok(!ids.includes('tour-start'),'no editor tour on home');
-  assert.ok(ids.includes('agent-connect'),'the agent connection is reachable from home');
-  assert.ok(ids.includes('agent'));
+  assert.ok(!ids.includes('agent-connect'),'the connection is a top-row control, not a help entry');
+  assert.ok(ids.includes('agent'),'the computer-use guide stays');
+  assert.ok(ids.includes('brand-kit'));
   assert.ok(ids.includes('language-settings'));
-  const html=helpMenuHtml('ko',homeHelpItems);
-  assert.match(html,/data-action="agent-connect"/);
-  assert.match(html,/에이전트 연결/);
+  const html=helpMenuHtml('ko',homeHelpItems,'folio-menu');
+  assert.match(html,/<div class="folio-menu"/,'it wears the chrome the home screen already uses');
   assert.doesNotMatch(html,/data-action="commands"/);
+});
+
+test('the editor menu still carries everything, including the connection',()=>{
+  const ids=helpItems.map(item=>item==='separator'?'separator':item.id);
+  assert.ok(ids.includes('agent-connect'));
+  assert.ok(ids.includes('commands'));
+  assert.match(helpMenuHtml('en'),/<div class="help-menu"/,'and keeps its own chrome by default');
 });
