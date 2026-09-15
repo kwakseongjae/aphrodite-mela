@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {esc} from '../src/html';
-import {helpItems,helpMenuHtml,type HelpItem} from '../src/editor/help-menu';
+import {helpItems,homeHelpItems,helpMenuHtml,type HelpItem} from '../src/editor/help-menu';
 
 const entries=helpItems.filter((item):item is HelpItem=>item!=='separator');
 
@@ -54,4 +54,17 @@ test('an injected quote or angle bracket in a label cannot break out',()=>{
   assert.ok(ko.includes(esc(hostile.ko)));
   assert.doesNotMatch(ko,/href="[^"]*"onclick=/);
   assert.match(ko,/href="https:\/\/example\.test\/&quot;onclick=1"/);
+});
+
+test('the home menu drops the two entries that need a canvas, and keeps the rest',()=>{
+  const ids=homeHelpItems.map(item=>item==='separator'?'separator':item.id);
+  assert.ok(!ids.includes('commands'),'no command palette on home');
+  assert.ok(!ids.includes('tour-start'),'no editor tour on home');
+  assert.ok(ids.includes('agent-connect'),'the agent connection is reachable from home');
+  assert.ok(ids.includes('agent'));
+  assert.ok(ids.includes('language-settings'));
+  const html=helpMenuHtml('ko',homeHelpItems);
+  assert.match(html,/data-action="agent-connect"/);
+  assert.match(html,/에이전트 연결/);
+  assert.doesNotMatch(html,/data-action="commands"/);
 });

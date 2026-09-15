@@ -10,6 +10,7 @@ export type AgentCommand=
   |{kind:'tokens'}
   |{kind:'guide'}
   |{kind:'connect'}
+  |{kind:'ui';action:'command'|'click'|'type'|'key';payload:Record<string,unknown>}
   |{kind:'components'}
   |{kind:'apply';ops:unknown[];pageId?:string}
   |{kind:'act';action:string;data:Record<string,string>}
@@ -40,6 +41,15 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
     case 'tokens':return {command:{kind:'tokens'}};
     case 'guide':return {command:{kind:'guide'}};
     case 'connect':return {command:{kind:'connect'}};
+    case 'ui':{
+      // One door onto the interface for things the semantic tools do not cover. The individual verbs
+      // are validated by their own parsers below, so nothing loosens by going through here.
+      const action=str(p.action,10);
+      if(action!=='command'&&action!=='click'&&action!=='type'&&action!=='key')return {error:'ui action must be one of command|click|type|key'};
+      const inner=parseAgentCommand(action,p);
+      if('error' in inner)return inner;
+      return {command:{kind:'ui',action,payload:p}};
+    }
     case 'components':return {command:{kind:'components'}};
     case 'contract':{
       const format=p.format===undefined||p.format==='concise'?'concise' as const:p.format==='detailed'?'detailed' as const:undefined;

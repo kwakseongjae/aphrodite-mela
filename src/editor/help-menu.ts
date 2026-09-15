@@ -16,6 +16,15 @@ export const helpItems:readonly (HelpItem|'separator')[]=[
   {id:'language-settings',action:'language-settings',en:'Language',ko:'언어'},
 ];
 
+/**
+ * The home screen has no canvas, so the entries about editing one are left out, and the agent
+ * connection has its own control up there — it is a state you want to see at a glance, not a page of
+ * help. Everything else belongs in both places, and deriving the list keeps them from drifting.
+ */
+export const homeOnly=['commands','tour-start','agent-connect'];
+export const homeHelpItems:readonly (HelpItem|'separator')[]=
+  helpItems.filter(item=>item==='separator'||!homeOnly.includes(item.id));
+
 function helpRow(item:HelpItem,ko:boolean):string{
   const label=esc(ko?item.ko:item.en);
   const kbd=item.keys?`<kbd>${esc(item.keys)}</kbd>`:'';
@@ -23,7 +32,12 @@ function helpRow(item:HelpItem,ko:boolean):string{
   return `<button type="button" role="menuitem"${item.action?` data-action="${esc(item.action)}"`:''}>${label}${kbd}</button>`;
 }
 
-export function helpMenuHtml(language:Language,items:readonly (HelpItem|'separator')[]=helpItems):string{
+/**
+ * `className` lets the home screen render the same list inside its own dropdown chrome. The editor's
+ * menu hangs upward from a corner button; home's hangs down from the top row, and reusing the
+ * chrome that already works there is safer than a second set of positioning rules.
+ */
+export function helpMenuHtml(language:Language,items:readonly (HelpItem|'separator')[]=helpItems,className='help-menu'):string{
   const ko=language==='ko';
-  return `<div class="help-menu" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep"></div>':helpRow(item,ko)).join('')}</div>`;
+  return `<div class="${className}" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep"></div>':helpRow(item,ko)).join('')}</div>`;
 }

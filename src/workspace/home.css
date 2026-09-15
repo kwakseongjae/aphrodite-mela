@@ -131,3 +131,18 @@
 .folio-night .ws-emoji:hover{background:#3a382e}
 .ws-emoji-custom{width:52px;height:30px;text-align:center;font-size:14px;border-radius:8px;border:1px dashed #d9d3c4;background:transparent}
 .ws-avatar-row{gap:8px}
+
+/* Help on the home screen rides the dropdown chrome the card and language menus already use, so
+   there is one set of positioning rules to get wrong rather than two. Only the trigger differs. */
+.folio-help{position:relative}
+.folio-help>summary{width:34px;justify-content:center;padding:0;font:13px Georgia,serif;list-style:none}
+.folio-help>summary::-webkit-details-marker{display:none}
+.folio-help>summary:hover,.folio-help[open]>summary{background:#ebe7dc}
+.folio-help .folio-menu{min-width:236px}
+.folio-help .folio-menu a{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;font-size:12px;border-radius:6px;text-decoration:none;color:var(--ink)}
+.folio-help .folio-menu a:hover{background:#efece3}
+.folio-help .folio-menu kbd{font:10px ui-monospace,Menlo,monospace;color:#8b8373}
+.folio-help .help-sep{height:1px;background:#e2ded2;margin:5px 4px}
+/* The agent connection is a state you want to see at a glance, so it sits in the top row with a dot. */
+.folio-top .folio-dot-live{background:#5c8a4a;box-shadow:0 0 0 3px rgba(92,138,74,.16)}
+.folio-night .folio-help>summary:hover,.folio-night .folio-help[open]>summary{background:#3a382e}

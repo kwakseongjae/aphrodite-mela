@@ -96,3 +96,29 @@ export function considerAsk(caller: string, mode: GuideStatus['mode'], state: As
   }
   return {status: 'asked', message: `Asked. The person now sees a request from "${caller}" and can allow it with one click. Tell them what you would like to change while they decide.`};
 }
+
+/**
+ * How long an allowed connection lasts. It used to end with the launch, which sounded careful and
+ * was merely annoying: the app restarts often, and each restart cost the person another click for a
+ * permission they had already given. It is remembered for a working day instead — visibly, since the
+ * banner stays up the whole time, and reversibly, since Disconnect ends it and ⌘Z undoes any edit.
+ */
+export const CONNECT_HOURS = 12;
+export const CONNECT_KEY = 'aphrodite-connect-until';
+
+export function connectUntil(now: number): number {
+  return now + CONNECT_HOURS * 60 * 60 * 1000;
+}
+
+/** Whether a remembered permission is still good. Anything unreadable or past its time is not. */
+export function connectActive(stored: string | null, now: number): boolean {
+  const until = Number(stored);
+  return Number.isFinite(until) && until > now;
+}
+
+/** What the person is told about how long it lasts. */
+export function connectRemaining(stored: string | null, now: number, ko: boolean): string {
+  if (!connectActive(stored, now)) return '';
+  const hours = Math.max(1, Math.round((Number(stored) - now) / (60 * 60 * 1000)));
+  return ko ? `약 ${hours}시간 남음` : `about ${hours}h left`;
+}
