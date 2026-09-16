@@ -321,6 +321,24 @@ mod tests {
         assert!(release_summary(&long)[0].chars().count() <= 120, "one very long line cannot run away");
     }
 
+    /// The shipped notes, not a fixture I wrote. The hand-written one was clean and unwrapped, so
+    /// it passed while the card was showing "…the last one you install by" / "hand." / the name of
+    /// a disk image. This reads what CI actually puts in latest.json.
+    #[test]
+    fn the_notes_we_ship_read_as_sentences() {
+        let notes = include_str!("../../docs/RELEASE-NOTES-v0.2.0.md");
+        let out = release_summary(notes);
+        assert_eq!(out.len(), 3, "{out:?}");
+        for line in &out {
+            assert!(line.chars().count() > 20, "a fragment, not a sentence: {line:?}");
+            assert!(!line.contains(".dmg"), "a file name is not news: {line:?}");
+            assert!(!line.ends_with(" by") && !line.ends_with(" the") && !line.ends_with(" and"),
+                "cut mid-clause, which is how a wrapped paragraph breaks: {line:?}");
+            assert!(!line.starts_with('#') && !line.contains("**"), "markdown reached the card: {line:?}");
+        }
+        assert!(out[0].contains("agent"), "the opening sentence is the one worth showing: {:?}", out[0]);
+    }
+
     use super::*;
 
     #[test]
