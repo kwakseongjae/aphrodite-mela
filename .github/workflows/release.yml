@@ -67,6 +67,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # The Rust half — the bridge's route table, the vault's pruning, the updater's version
+      # comparison and its disk-image check — was only ever verified on the author's Mac.
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --target ${{ matrix.target }}
+
       # Tauri treats a *defined but empty* APPLE_CERTIFICATE as a certificate to import,
       # so the signed and unsigned paths are separate steps: the APPLE_* variables only
       # exist in the signed one.
