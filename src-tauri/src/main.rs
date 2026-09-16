@@ -5,6 +5,7 @@ mod image_library;
 mod reference;
 mod references;
 mod snapshot;
+mod taste;
 mod update;
 mod vault;
 mod workspace;
@@ -49,6 +50,9 @@ fn main() {
             references::references_add,
             references::references_delete,
             references::references_fetch,
+            taste::taste_read,
+            taste::taste_write,
+            taste::taste_forget,
             fonts::fonts_installed,
             fonts::fonts_has_family,
             fonts::fonts_install,

@@ -365,3 +365,15 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 /* A dead link keeps its card — the poster is why we saved the bytes — but stops pretending. */
 .reference-gone{opacity:.62}
 .reference-gone .reference-source::after{content:" ·";}
+
+/* The taste consent sheet. Three states side by side, because "off" has to be as easy to pick as
+   the other two — a default nobody can find is not a default. */
+.taste-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.taste-choice{display:grid;gap:4px;padding:11px 12px;border:1px solid #dfe3d6;border-radius:9px;background:#fff;text-align:left;cursor:pointer}
+.taste-choice strong{font-size:12.5px;font-weight:600}
+.taste-choice small{font-size:11px;line-height:1.45;color:#6b7063}
+.taste-choice[aria-pressed=true]{border-color:#5a604f;background:#f3f5ee}
+/* The file itself, shown as it is written. Reading it is the point: a hidden profile is the thing
+   this is not. */
+.taste-file{margin:0;padding:12px 14px;border:1px solid #e4e7dd;border-radius:9px;background:#fbfcf8;font:11.5px/1.65 ui-monospace,Menlo,monospace;color:#4a4f42;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
+@media(max-width:650px){.taste-choices{grid-template-columns:1fr}}

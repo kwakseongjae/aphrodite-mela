@@ -7,9 +7,9 @@ const entries=helpItems.filter((item):item is HelpItem=>item!=='separator');
 
 test('help items keep Figma-like order with two separators',()=>{
   assert.deepEqual(helpItems.map(item=>item==='separator'?'separator':item.id),[
-    'commands','tour-start','agent','agent-connect','separator','brand-kit','release-notes','report-issue','separator','language-settings',
+    'commands','tour-start','agent','agent-connect','taste','separator','brand-kit','release-notes','report-issue','separator','language-settings',
   ]);
-  assert.equal(entries.length,8);
+  assert.equal(entries.length,9);
   assert.equal(helpItems.filter(item=>item==='separator').length,2);
 });
 
@@ -63,7 +63,7 @@ test('the home menu drops what needs a canvas and what has its own control',()=>
   assert.ok(!ids.includes('agent-connect'),'the connection is a top-row control, not a help entry');
   assert.ok(!ids.includes('language-settings'),'language is a top-row control too');
   assert.ok(!ids.includes('agent'),'the assembly console describes a page home does not have');
-  assert.deepEqual(ids.filter(id=>id!=='separator'),['brand-kit','release-notes','report-issue'],'only what works from home');
+  assert.deepEqual(ids.filter(id=>id!=='separator'),['taste','brand-kit','release-notes','report-issue'],'only what works from home — taste is a file, not a canvas');
   const html=helpMenuHtml('ko',homeHelpItems,'folio-menu');
   assert.match(html,/<div class="folio-menu"/,'it wears the chrome the home screen already uses');
   assert.doesNotMatch(html,/data-action="commands"/);

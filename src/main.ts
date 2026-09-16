@@ -76,6 +76,7 @@ import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
 import {referencesPanelHtml,POSTER_PREFIX,type Reference,type ReferenceScope} from './design/references';
+import {deriveTaste,renderTaste,parseTaste,mergeTaste,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -113,6 +114,71 @@ let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
 let references:Reference[]=[];
 let referenceScope:ReferenceScope='all';
 const posterCache=new Map<string,string>();
+/* taste.md — off unless the person turns it on. The file is the record; this only reads and writes it.
+   Kept beside the archive because they are the same promise: your own words, in a file you can edit. */
+async function readTaste():Promise<{markdown:string;taste:Taste}>{
+  if(!nativeDesktop)return {markdown:'',taste:EMPTY_TASTE};
+  try{
+    const got=await invoke<{markdown:string}>('taste_read',{project:undefined});
+    return {markdown:got.markdown,taste:got.markdown?parseTaste(got.markdown):EMPTY_TASTE};
+  }catch{return {markdown:'',taste:EMPTY_TASTE};}
+}
+function tasteSignals(){
+  const projects=library.entries.map(e=>({
+    id:e.project.id,
+    brief:e.project.brief,
+    systemName:e.project.system?.name,
+    font:e.project.system?.font,
+    variants:e.project.pages.flatMap(pg=>pg.blocks.filter(b=>b.variant).map(b=>`${b.kind}:${b.variant}`)),
+  }));
+  const runs=assemblyRun?[{
+    id:assemblyRun.id,
+    intent:assemblyRun.intent,
+    vibeWrote:assemblyRun.events.filter(e=>e.kind==='vibe:receipt')
+      .flatMap(e=>((e.details.changedFields as {nodeId:string;field:string}[]|undefined)??[]).map(c=>`${c.nodeId}:${c.field}`)),
+    personRewrote:assemblyRun.events.filter(e=>e.kind==='agent:edit'||e.kind==='edit')
+      .map(e=>`${String(e.details.blockId??'')}:${String(e.details.field??'')}`),
+    discarded:assemblyRun.events.filter(e=>e.kind==='proposal:discarded').length,
+    accepted:assemblyRun.events.filter(e=>e.kind==='proposal:accepted').length,
+  }]:[];
+  return {projects,runs};
+}
+async function setTasteConsent(next:TasteConsent){
+  const today=new Date().toISOString().slice(0,10);
+  if(next==='off'){
+    try{await invoke('taste_forget',{project:undefined});}catch(error){toast(String(error));return;}
+    toast(ui('Forgotten. Nothing is being recorded.','지웠습니다. 이제 아무것도 기록하지 않습니다.'));
+    tasteModal();return;
+  }
+  const {taste:onFile}=await readTaste();
+  const since=onFile.since||today;
+  const {projects,runs}=tasteSignals();
+  const derived=deriveTaste(projects,runs,next,since,today);
+  const merged=onFile.consent==='off'?derived:mergeTaste(derived,onFile,onFile);
+  try{await invoke('taste_write',{project:undefined,markdown:renderTaste(merged)});}
+  catch(error){toast(String(error));return;}
+  toast(ui('Written to taste.md. Open it any time; delete any line.','taste.md에 적었습니다. 언제든 열어 보고, 아무 줄이나 지우세요.'));
+  tasteModal();
+}
+async function tasteModal(){
+  const {markdown,taste}=await readTaste();
+  const t=(en:string,ko:string)=>ui(en,ko);
+  const choice=(id:TasteConsent,en:string,ko:string,whatEn:string,whatKo:string)=>
+    `<button type="button" class="taste-choice" data-action="taste-consent" data-consent="${id}" aria-pressed="${taste.consent===id}"><strong>${t(en,ko)}</strong><small>${t(whatEn,whatKo)}</small></button>`;
+  const body=markdown
+    ? `<pre class="taste-file">${esc(markdown)}</pre>`
+    : `<p class="panel-description">${t('Nothing is recorded. Turning this on writes a file you can read and edit — every line carries a count and where it came from.','아무것도 기록하지 않고 있습니다. 켜면 읽고 고칠 수 있는 파일을 씁니다 — 모든 줄에 횟수와 출처가 붙습니다.')}</p>`;
+  showModal(t('What Aphrodite remembers about your taste','취향에 대해 기억하는 것'),
+    t('Off by default. What it keeps is a Markdown file on this Mac, never sent anywhere and never in an export unless you put it there.','기본은 꺼짐입니다. 기록은 이 Mac의 마크다운 파일이고, 어디로도 보내지 않으며 내보내기에도 넣지 않습니다.'),
+    `<div class="taste-choices">
+      ${choice('off','Off','끄기','Nothing is derived or kept.','아무것도 만들지 않고 남기지 않습니다.')}
+      ${choice('project','This project','이 프로젝트','Observed and used inside one project.','한 프로젝트 안에서만 관찰하고 씁니다.')}
+      ${choice('global','All projects','모든 프로젝트','Collected in one file and used everywhere.','한 파일에 모아 모든 곳에서 씁니다.')}
+    </div>
+    ${body}
+    ${markdown?`<div class="modal-actions"><button type="button" class="secondary-button" data-action="taste-forget">${t('Forget all of it','전부 잊기')}</button></div>`:''}`);
+}
+
 async function loadReferences(force=false){
   if(!nativeDesktop)return;
   if(references.length&&!force)return;
@@ -1020,6 +1086,9 @@ async function action(el: HTMLElement) {
     case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){toast(String(error));}break;
     case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)toast(uiLanguage==='ko'?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
     case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();toast(ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
+    case 'taste': await tasteModal(); break;
+    case 'taste-consent': await setTasteConsent((el.dataset.consent as TasteConsent)??'off'); break;
+    case 'taste-forget': await setTasteConsent('off'); break;
     case 'reference-scope': referenceScope=(el.dataset.scope as ReferenceScope)??'all'; refreshLibraryPanel(); break;
     case 'reference-add-image': pickFile('image/png,image/jpeg,image/webp',async file=>{
       if(file.size>8_000_000)throw new Error(ui('Pick an image under 8 MB.','8MB 이하 이미지를 골라주세요.'));
