@@ -184,6 +184,27 @@ export const tools = [
     body: args => ({url: args.url ?? '', title: args.title ?? '', note: args.note ?? '', tags: args.tags ?? [], scope: args.scope ?? 'project'}),
   },
   {
+    name: 'aphrodite_forget_reference',
+    title: 'Take something back out of the reference archive',
+    description: [
+      'Removes one entry by its id, which you get from aphrodite_list_references.',
+      '',
+      'Use it to undo something you filed — a page that turned out to be the wrong one, a note you meant to write differently. Do not tidy up entries the person put there themselves; the archive is theirs.',
+      'Removing is a change, so it needs the door open.',
+      '',
+      'Example: {"id": "3fc91b608b8b93c4"}',
+    ].join('\n'),
+    annotations: {title: 'Take something back out of the reference archive', ...WRITE},
+    inputSchema: {
+      type: 'object',
+      properties: {id: {type: 'string', description: 'The 16-character id from aphrodite_list_references.'}},
+      required: ['id'],
+      additionalProperties: false,
+    },
+    route: {method: 'POST', path: '/agent/unkeep'},
+    body: args => ({id: args.id}),
+  },
+  {
     name: 'aphrodite_list_images',
     title: 'List the local picture library',
     description: [

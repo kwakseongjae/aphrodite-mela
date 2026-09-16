@@ -108,3 +108,15 @@ test('keep defaults to this project, and tags are cleaned at the edge',()=>{
   assert.equal(command.tags[0],'a');
   assert.equal(command.tags[2].length,40);
 });
+
+test('unkeep needs a real id, not a guess',()=>{
+  assert.ok('error' in parseAgentCommand('unkeep',{}));
+  assert.ok('error' in parseAgentCommand('unkeep',{id:'../../etc'}));
+  assert.ok('error' in parseAgentCommand('unkeep',{id:'short'}));
+  assert.ok('command' in parseAgentCommand('unkeep',{id:'3fc91b608b8b93c4'}));
+});
+
+test('taking something out of the archive is a write, like putting it in',()=>{
+  assert.equal(isWrite('unkeep'),true);
+  assert.equal(isRead('unkeep'),false);
+});

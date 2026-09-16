@@ -24,6 +24,7 @@ export type AgentCommand=
   |{kind:'references'}
   |{kind:'taste'}
   |{kind:'keep';url?:string;title?:string;note?:string;tags?:string[];scope?:'project'|'global'}
+  |{kind:'unkeep';id:string}
   |{kind:'end'};
 
 export const libraryActions=['list','delete','import'] as const;
@@ -119,6 +120,13 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       const tags=rawTags.filter((t):t is string=>typeof t==='string').map(t=>t.trim().slice(0,40)).filter(Boolean).slice(0,12);
       const scope=p.scope==='global'?'global' as const:'project' as const;
       return {command:{kind:'keep',url,title,note,tags,scope}};
+    }
+    /* Putting something in and never being able to take it out leaves an agent's mistakes in the
+       person's archive forever. Removing is a write, like keeping. */
+    case 'unkeep':{
+      const id=str(p.id,64);
+      if(!id||!/^[0-9a-f]{16}$/.test(id))return {error:'unkeep needs the 16-character reference "id" from /agent/references'};
+      return {command:{kind:'unkeep',id}};
     }
     case 'library':{
       const action=(str(p.action,10)??'list') as LibraryAction;

@@ -1694,6 +1694,18 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
           return {kept};
         }catch(error){return {error:String(error)};}
       }
+      case 'unkeep':{
+        if(!nativeDesktop)return {error:'the reference archive is desktop only'};
+        await loadReferences(true);
+        const hit=references.find(r=>r.id===c.id);
+        if(!hit)return {error:`no reference with id ${c.id}`};
+        const scope=hit.scope==='project'?project.id:undefined;
+        try{await invoke('references_delete',{id:c.id,project:scope});}catch(error){return {error:String(error)};}
+        await loadReferences(true);
+        if(tab==='archive')refreshLibraryPanel();
+        recordRun('agent:unkeep',{id:c.id});
+        return {removed:c.id};
+      }
       case 'library':{
         if(!nativeDesktop)return {error:'the image library is desktop only'};
         const scope=c.scope==='project'?project.id:undefined;

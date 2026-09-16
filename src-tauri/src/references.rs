@@ -229,7 +229,9 @@ pub fn references_add(app: AppHandle, item: Value, project: Option<String>) -> R
     } else if !poster.is_empty() {
         poster.clone()
     } else {
-        content_id(format!("{title}{note}{}", now_iso()).as_bytes())
+        // The stamp is only good to the second, so two notes written in the same second collided and
+        // the later one replaced the earlier. The count of what is already filed separates them.
+        content_id(format!("{title}{note}{}{}", now_iso(), read_index(&dir).len()).as_bytes())
     };
 
     let entry = json!({

@@ -21,7 +21,7 @@ export const readKinds = ['state', 'contract', 'tokens', 'components', 'images',
  * app rate-limits the asking so a prompt can never become a nag, and the answer is always a click.
  */
 export const askKinds = ['guide', 'connect'] as const;
-export const writeKinds = ['apply', 'system', 'export', 'edit', 'act', 'click', 'type', 'key', 'command', 'library', 'ui', 'keep'] as const;
+export const writeKinds = ['apply', 'system', 'export', 'edit', 'act', 'click', 'type', 'key', 'command', 'library', 'ui', 'keep', 'unkeep'] as const;
 
 /** The person's own hold expires quickly — one keystroke should not lock an agent out for a minute. */
 export const HUMAN_IDLE_MS = 5_000;
