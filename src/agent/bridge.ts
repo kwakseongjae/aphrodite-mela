@@ -138,18 +138,28 @@ export function isHumanHatch(e:{key:string;code?:string;metaKey:boolean;shiftKey
 }
 
 /** Curl examples shown in the console so a shell-capable agent can start immediately. */
-export function bridgeExamples(base:string,token:string):string{
-  const auth=`-H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json'`;
+/**
+ * Copy-paste lines for the channel, written so the screen never holds the secret. The token rotates
+ * every launch and is loopback-only, but it was rendered in full in the agent console — where a
+ * demo, a stream or a screenshot carries it out of the room. These read it out of the endpoint file
+ * at run time instead, which is what docs/AGENT-CHANNEL.md already told people to do.
+ */
+export function bridgeExamples(base:string,endpointFile:string):string{
+  const auth="-H \"Authorization: Bearer $T\" -H 'Content-Type: application/json'";
   return [
-    `curl -s ${base}/agent/state ${auth}`,
-    `curl -s -X POST ${base}/agent/command ${auth} -d '{"query":"hero 추가"}'`,
-    `curl -s -X POST ${base}/agent/act ${auth} -d '{"action":"add","data":{"kind":"cta"}}'`,
-    `curl -s -X POST ${base}/agent/click ${auth} -d '{"selector":".space-frame.active [data-kind=hero]"}'`,
-    `curl -s -X POST ${base}/agent/edit ${auth} -d '{"field":"title","text":"빛으로 완성하는 공간"}'`,
-    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"list"}'`,
-    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"import","scope":"project","name":"hero","base64":"<png bytes>"}'`,
-    `curl -s -X POST ${base}/agent/library ${auth} -d '{"action":"delete","id":"0123456789abcdef"}'`,
-    `curl -s -X POST ${base}/agent/key ${auth} -d '{"key":"1","shift":true}'`,
-    `curl -s -X POST ${base}/agent/end ${auth}`,
+    `E='${endpointFile}'`,
+    `B=$(python3 -c "import json;print(json.load(open('$E'))['base'])")`,
+    `T=$(python3 -c "import json;print(json.load(open('$E'))['token'])")`,
+    '',
+    `curl -s $B/agent/state ${auth}`,
+    `curl -s -X POST $B/agent/command ${auth} -d '{"query":"hero 추가"}'`,
+    `curl -s -X POST $B/agent/act ${auth} -d '{"action":"add","data":{"kind":"cta"}}'`,
+    `curl -s -X POST $B/agent/click ${auth} -d '{"selector":".space-frame.active [data-kind=hero]"}'`,
+    `curl -s -X POST $B/agent/edit ${auth} -d '{"field":"title","text":"빛으로 완성하는 공간"}'`,
+    `curl -s -X POST $B/agent/library ${auth} -d '{"action":"list"}'`,
+    `curl -s -X POST $B/agent/library ${auth} -d '{"action":"import","scope":"project","name":"hero","base64":"<png bytes>"}'`,
+    `curl -s -X POST $B/agent/library ${auth} -d '{"action":"delete","id":"0123456789abcdef"}'`,
+    `curl -s -X POST $B/agent/key ${auth} -d '{"key":"1","shift":true}'`,
+    `curl -s -X POST $B/agent/end ${auth}`,
   ].join('\n');
 }

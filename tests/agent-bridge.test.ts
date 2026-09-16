@@ -25,10 +25,17 @@ test('the only human key while locked is ⌘⇧A',()=>{
   assert.equal(isHumanHatch({key:'Escape',code:'Escape',metaKey:false,shiftKey:false}),false);
 });
 
-test('bridge examples carry the base url and token',()=>{
-  const text=bridgeExamples('http://127.0.0.1:4321','abc');
-  assert.match(text,/http:\/\/127\.0\.0\.1:4321\/agent\/state/);
-  assert.match(text,/Bearer abc/);
+/* The agent console printed these lines with the live token inside them, so any demo, stream or
+   screenshot of that panel carried a working credential out of the room. The lines now read the
+   token out of the endpoint file at run time — the same recipe docs/AGENT-CHANNEL.md gives. */
+test('bridge examples reach the channel without ever printing the token',()=>{
+  const secret='s3cret-token-value';
+  const text=bridgeExamples('http://127.0.0.1:4321','/Users/someone/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json');
+  assert.ok(!text.includes(secret),'no caller secret can reach the screen: the function is not given one');
+  assert.doesNotMatch(text,/Bearer [A-Za-z0-9]{8}/,'nothing that looks like a literal token is rendered');
+  assert.match(text,/agent-endpoint\.json/,'it says where the token lives');
+  assert.match(text,/Bearer \$T/,'the shell reads the token at run time');
+  assert.match(text,/\$B\/agent\/state/);
   assert.match(text,/\/agent\/end/);
 });
 
