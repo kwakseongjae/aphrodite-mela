@@ -22,6 +22,7 @@ export type AgentCommand=
   |{kind:'edit';field:EditableField;text:string;blockId?:string}
   |{kind:'library';action:LibraryAction;id?:string;name?:string;base64?:string;scope?:'project'|'global'}
   |{kind:'references'}
+  |{kind:'taste'}
   |{kind:'keep';url?:string;title?:string;note?:string;tags?:string[];scope?:'project'|'global'}
   |{kind:'end'};
 
@@ -105,6 +106,7 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       return {command:{kind:'command',query:query.trim()}};
     }
     case 'references': return {command:{kind:'references'}};
+    case 'taste': return {command:{kind:'taste'}};
     /* Keeping what an agent found is a write: the archive is the person's, and something arriving in
        it without their say-so is exactly what the door is for. */
     case 'keep':{

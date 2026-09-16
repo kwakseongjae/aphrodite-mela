@@ -226,3 +226,44 @@ export function mergeTaste(derived: Taste, onFile: Taste, lastDerived: Taste): T
   }
   return merged;
 }
+
+// ── Using it ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The order the three directions are offered in — and which one is deliberately not their usual.
+ *
+ * This is the rule the whole feature stands or falls on. A taste file that narrows what someone is
+ * shown turns a design tool into a mirror: they see what they already like, and the third idea they
+ * would have chosen never appears. So taste may reorder, and it may *never* remove. One direction is
+ * always marked as the one that goes against the profile, and the app says so on the label.
+ *
+ * With no taste — the default — the order is left exactly as it came.
+ */
+export type Direction = {variant: string; name: string};
+export type OrderedDirection = Direction & {familiar: boolean; against: boolean};
+
+export function orderDirections<T extends Direction>(
+  directions: readonly T[],
+  taste: Taste,
+): (T & {familiar: boolean; against: boolean})[] {
+  const plain = directions.map(d => ({...d, familiar: false, against: false}));
+  if (taste.consent === 'off' || !taste.chosen.length || plain.length < 2) return plain;
+
+  // A direction is familiar when its variant is named in something they have chosen before.
+  const mentions = (variant: string): number =>
+    taste.chosen.filter(line => line.text.toLowerCase().includes(variant.toLowerCase())).reduce((sum, l) => sum + l.count, 0);
+  const scored = plain.map(d => ({d, score: mentions(d.variant)}));
+  if (scored.every(s => s.score === 0)) return plain; // nothing to say; leave it alone
+
+  const sorted = [...scored].sort((a, b) => b.score - a.score);
+  const out = sorted.map(s => ({...s.d, familiar: s.score > 0, against: false}));
+  // The least familiar one is the one we point at, even when it is merely less familiar.
+  out[out.length - 1].against = true;
+  out[out.length - 1].familiar = false;
+  return out;
+}
+
+/** The label the app puts on the odd one out, in the person's language. */
+export function againstLabel(ko: boolean): string {
+  return ko ? '평소 고르시던 것과 다른 쪽' : 'Not the one you usually pick';
+}

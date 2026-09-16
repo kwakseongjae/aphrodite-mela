@@ -38,7 +38,7 @@ test('annotations say honestly what each tool does',()=>{
     if(a.readOnlyHint)assert.equal(a.destructiveHint,false,`${tool.name} cannot be both read-only and destructive`);
   }
   const reads=tools.filter(t=>t.annotations.readOnlyHint).map(t=>t.name).sort();
-  assert.deepEqual(reads,['aphrodite_get_contract','aphrodite_get_render','aphrodite_get_tokens','aphrodite_guide','aphrodite_list_components','aphrodite_list_images','aphrodite_list_references']);
+  assert.deepEqual(reads,['aphrodite_get_contract','aphrodite_get_render','aphrodite_get_taste','aphrodite_get_tokens','aphrodite_guide','aphrodite_list_components','aphrodite_list_images','aphrodite_list_references']);
   assert.deepEqual(tools.filter(t=>t.annotations.destructiveHint).map(t=>t.name),['aphrodite_delete_image']);
 });
 

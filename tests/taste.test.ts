@@ -102,3 +102,39 @@ test('a long evidence list stays readable and keeps its count',()=>{
   assert.equal(back.chosen[0].count,15,'the count survives the round trip');
   assert.equal(back.chosen[0].evidence.length,4,'only the shown ids come back, and that is honest');
 });
+
+import {orderDirections,againstLabel} from '../src/design/taste';
+
+const three=[{variant:'split',name:'Editorial balance'},{variant:'image-left',name:'Visual first'},{variant:'stacked',name:'A bigger statement'}];
+const withChosen=(...texts:string[])=>({...EMPTY,consent:'global' as const,
+  chosen:texts.map((text,i)=>({text,count:i===0?6:2,evidence:['p1']}))});
+
+/**
+ * The rule the feature stands or falls on: taste may reorder what someone is offered, and may never
+ * remove anything. A tool that only shows you what you already like is a mirror, not a workbench.
+ */
+test('taste reorders the directions but never drops one',()=>{
+  const out=orderDirections(three,withChosen('hero:stacked — used in 6 projects'));
+  assert.equal(out.length,3,'all three are still offered');
+  assert.deepEqual(out.map(d=>d.variant).sort(),three.map(d=>d.variant).sort());
+  assert.equal(out[0].variant,'stacked','the familiar one leads');
+});
+
+test('one direction is always marked as the one that goes against the profile',()=>{
+  const out=orderDirections(three,withChosen('hero:stacked — used in 6 projects','hero:split — used in 2 projects'));
+  assert.equal(out.filter(d=>d.against).length,1,'exactly one, always');
+  assert.equal(out.at(-1)!.against,true,'and it is the least familiar');
+  assert.equal(out.at(-1)!.familiar,false,'it is not claimed to be familiar as well');
+});
+
+test('with no consent, or nothing recognised, the order is left alone',()=>{
+  assert.deepEqual(orderDirections(three,EMPTY).map(d=>d.variant),three.map(d=>d.variant));
+  assert.deepEqual(orderDirections(three,EMPTY).filter(d=>d.against).length,0,'nothing is singled out for no reason');
+  const unrelated=withChosen('Atelier — 14 of 17 projects');
+  assert.deepEqual(orderDirections(three,unrelated).map(d=>d.variant),three.map(d=>d.variant));
+});
+
+test('the odd one out is labelled in the person\'s language',()=>{
+  assert.match(againstLabel(true),/평소/);
+  assert.match(againstLabel(false),/usually/);
+});

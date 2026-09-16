@@ -14,7 +14,7 @@ export type Holder = {label: string; since: number};
 export type Authority = {mode: Mode; holder: Holder | null; now: number};
 export type Verdict = {allow: true; hold: Holder | null} | {allow: false; status: 403 | 409 | 423; error: string};
 
-export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render', 'references'] as const;
+export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render', 'references', 'taste'] as const;
 /**
  * Commands that neither read the design nor change it: they ask the person something. Asking is
  * always allowed — an agent that cannot even say "may I?" would be worse than one that can — but the

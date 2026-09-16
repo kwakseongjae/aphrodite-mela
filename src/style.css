@@ -377,3 +377,6 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
    this is not. */
 .taste-file{margin:0;padding:12px 14px;border:1px solid #e4e7dd;border-radius:9px;background:#fbfcf8;font:11.5px/1.65 ui-monospace,Menlo,monospace;color:#4a4f42;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
 @media(max-width:650px){.taste-choices{grid-template-columns:1fr}}
+/* The direction we deliberately put last. Said out loud, because a nudge nobody can see is just
+   a hidden hand on the scale. */
+.direction-against{display:block;margin-top:5px;font:italic 11.5px/1.4 Georgia,serif;color:#8f753b}

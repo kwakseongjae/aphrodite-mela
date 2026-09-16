@@ -142,6 +142,21 @@ export const tools = [
     route: {method: 'GET', path: '/agent/references'},
   },
   {
+    name: 'aphrodite_get_taste',
+    title: 'Read what the app has observed about their taste',
+    description: [
+      'The taste file: what this person keeps choosing, each line with a count and the evidence behind it. Returns `consent: "off"` and nothing else when they have not turned it on, which is the default.',
+      '',
+      'Use it to choose defaults — a starting font, an order to propose things in. Never use it to narrow what you offer: showing someone only what they already like is the failure mode this whole feature is built around, so keep offering the thing they would not have picked, and say that is what it is.',
+      'When consent is off, work from your own judgement. Do not ask them to turn it on.',
+      '',
+      'Example: {}',
+    ].join('\n'),
+    annotations: {title: 'Read what the app has observed about their taste', ...READ},
+    inputSchema: {type: 'object', properties: {}, additionalProperties: false},
+    route: {method: 'GET', path: '/agent/taste'},
+  },
+  {
     name: 'aphrodite_keep_reference',
     title: 'Keep something in the reference archive',
     description: [
