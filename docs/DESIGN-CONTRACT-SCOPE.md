@@ -154,3 +154,29 @@ muted를 #8b95a1로 지정      → 55,808 픽셀이 (87,89,83) 등에서 (139,1
 - 토큰 7개 각각: 값을 바꾸면 렌더된 페이지가 바뀌는지 — `aphrodite_get_render`로 전후 이미지를 비교한다(이제 에이전트가 볼 수 있다).
 - 임포트: 토스 DESIGN.md를 넣으면 `surface #f2f4f6` · `border #e5e8eb` · `muted #8b95a1`이 실제로 적용되는지. 코퍼스 440개가 회귀 픽스처가 된다.
 - 하드코딩 0: 렌더러에 남은 색 상수를 세는 테스트.
+
+
+## 계약이 실제로 담는 것 — 2026-09-16 갱신
+
+이 문서 첫머리의 "다섯이다"는 **낡았다.** `src/design/tokens.ts`의 `semanticTokens`가 여섯을 더 들고 있다.
+
+```
+primary · background · foreground · radius · font        (다섯)
+surface · line · muted · danger · success · warning      (여섯, semanticTokens)
+```
+
+**열하나다.** 코퍼스에서 가장 흔했던 셋 — muted(63%)·border(60%)·surface(49%) — 은 전부 들어와 있고, danger·success도 있다. 위의 ❌ 표는 그 시점의 사실이지 지금의 사실이 아니다.
+
+### 그런데 내보내기가 넷만 담고 있었다
+
+앱은 열하나를 해석해서 칠하는데, **핸드오프의 `tokens.json`은 primary·background·foreground·radius 넷뿐이었다.** 내보낸 폴더를 받은 사람은 페이지가 쓰는 색의 절반 이상을 HTML에서 거꾸로 추측해야 했다. 이건 이 제품의 약속 — "승인한 것을 그대로 짓게 한다" — 이 조용히 깨지던 자리다.
+
+이제 `tokensJson()`이 **해석된 의미 토큰 전부 + 서체 + 타입 스케일**을 DTCG 모양으로 담는다. 기본값도 **적는다** — `danger`를 비워 두는 건 중립이 아니라 그 결정을 남의 상수로 되돌려 보내는 것이고, 그게 애초에 이 토큰들이 생긴 이유다.
+
+### 아직 없는 것
+
+| 역할 | 코퍼스 | 판단 |
+|---|---:|---|
+| `link` | 12% | 넣을 만하다. 다음 |
+| `on-primary` | 17% | `onColor()`로 계산 중 — 명시적으로 받을지는 별개 판단 |
+| `primary-hover` | 2% | 근거 약함. 안 넣는다 |

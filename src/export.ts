@@ -5,6 +5,7 @@ import { type Project, isApproved, type DesignSystem } from './model';
 import { pageHtml } from './render';
 import { sceneManifest } from './components';
 import {designMarkdown} from './design/contract';
+import {tokensJson} from './design/tokens';
 export {designMarkdown};
 import { patternSpecs } from './patterns';
 import { sourceFiles } from './source-export';
@@ -78,7 +79,7 @@ export async function exportBundle(p: Project, resolveLocal?: (id: string) => Pr
     'CAPABILITIES.json': strToU8(JSON.stringify(capabilityReport(p), null, 2)),
     'PATTERNS.json': strToU8(JSON.stringify(patternSpecs, null, 2)),
     'VIBE.json': strToU8(JSON.stringify({schema:'aphrodite.vibe-receipts/1',note:'Latest fill receipt per page, not a complete provenance ledger or proof of current content. Generated mock copy requires review.',pages:p.pages.map(page=>({pageId:page.id,receipt:page.vibeReceipt??null}))},null,2)),
-    'tokens.json': strToU8(JSON.stringify({ color: { primary: { $type: 'color', $value: p.system.accent }, background: { $type: 'color', $value: p.system.background }, foreground: { $type: 'color', $value: p.system.foreground } }, radius: { $type: 'dimension', $value: `${p.system.radius}px` } }, null, 2)),
+    'tokens.json': strToU8(JSON.stringify(tokensJson(p.system), null, 2)),
     'ASSETS.md': strToU8('Reference photography from Unsplash.\n\ninterior.jpg: image CDN identifier photo-1600210492486-724fe5c67fb0\nchair.jpg: image CDN identifier photo-1592078615290-033ee584e267\nliving.jpg: image CDN identifier photo-1490312278390-ab64016e0aa9\n\nSource URLs: https://images.unsplash.com/photo-1600210492486-724fe5c67fb0 ; https://images.unsplash.com/photo-1592078615290-033ee584e267 ; https://images.unsplash.com/photo-1490312278390-ab64016e0aa9\nLicense reference: https://unsplash.com/license . Photographer and release metadata have not been verified; review before publishing. User uploads require user-supplied rights. Bundled generated assets, when present, are documented separately in GENERATED-ASSETS.md; this stock-image list does not describe them.\n'),
     'README.md': strToU8('Read PROMPT.md for the selected page entry (it may be page-3.html, not index.html), then open that HTML file in a browser. Check CAPABILITIES.json for runtime boundaries. All stock assets are bundled locally; uploaded raster images are embedded. Give PROMPT.md + DESIGN.md + these HTML files to your coding agent. Import project.aphrodite.json back into Aphrodite to continue editing. Other pages are page-2.html etc.; cross-page navigation is not wired.\n'),
   };

@@ -117,3 +117,61 @@ export const tokenSynonyms: Record<SemanticToken, readonly string[]> = {
   warning: ['warning', 'warning amber', 'caution', 'attention'],
 };
 
+
+/**
+ * `tokens.json` — the colour and type half of the build contract, in DTCG shape.
+ *
+ * This used to be four values written inline at the export: primary, background, foreground and a
+ * radius. The app had six more that it resolves and actually paints with — a quiet surface, a rule,
+ * muted text, and the three states — and a type scale, and none of them travelled. So whoever picked
+ * up the handoff got a contract that did not describe the page they had been handed, and had to
+ * guess the same constants back out of the HTML.
+ *
+ * Defaults are included rather than omitted. A contract that says nothing about `danger` is not
+ * "unopinionated": it just moves the decision back into someone else's constants, which is the
+ * problem this set exists to solve.
+ */
+export function tokensJson(system: {
+  accent: string;
+  background: string;
+  foreground: string;
+  radius: number;
+  font: 'serif' | 'sans';
+  headingFamily?: string;
+  bodyFamily?: string;
+  type?: TypeScale;
+} & Partial<Record<SemanticToken, string>>): Record<string, unknown> {
+  const semantic = resolveTokens(system);
+  const colour = (value: string) => ({$type: 'color', $value: value});
+  const color: Record<string, unknown> = {
+    primary: colour(system.accent),
+    background: colour(system.background),
+    foreground: colour(system.foreground),
+  };
+  for (const name of semanticTokens) color[name] = colour(semantic[name]);
+
+  const font: Record<string, unknown> = {
+    heading: {$type: 'fontFamily', $value: system.headingFamily ?? (system.font === 'serif' ? 'Georgia, serif' : 'Inter, system-ui, sans-serif')},
+    body: {$type: 'fontFamily', $value: system.bodyFamily ?? 'Inter, system-ui, sans-serif'},
+  };
+  const type: Record<string, unknown> = {};
+  for (const role of typeRoles) {
+    const spec = system.type?.[role];
+    if (!spec) continue;
+    const entry: Record<string, unknown> = {};
+    if (spec.family) entry.fontFamily = {$type: 'fontFamily', $value: spec.family};
+    if (spec.size !== undefined) entry.fontSize = {$type: 'dimension', $value: `${spec.size}px`};
+    if (spec.weight !== undefined) entry.fontWeight = {$type: 'fontWeight', $value: spec.weight};
+    if (spec.lineHeight !== undefined) entry.lineHeight = {$type: 'number', $value: spec.lineHeight};
+    if (Object.keys(entry).length) type[role] = entry;
+  }
+
+  const out: Record<string, unknown> = {
+    $schema: 'https://tr.designtokens.org/format/',
+    color,
+    radius: {$type: 'dimension', $value: `${system.radius}px`},
+    font,
+  };
+  if (Object.keys(type).length) out.type = type;
+  return out;
+}
