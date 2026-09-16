@@ -1,0 +1,55 @@
+name: Checks
+
+# Tests only ever ran when a tag was pushed, which means a broken commit sat on main until
+# release day and the tag had to be moved. Everything that can be checked without a signing
+# certificate runs here, on every push and every pull request.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["site/**", "docs/**", "**/*.md"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      # Type check and bundle. `npm run build` is `tsc --noEmit` then vite, so a type error
+      # fails here rather than at release time.
+      - name: Build the frontend
+        run: npm run build
+
+      # The crate's build script wants the sidecar to exist before cargo runs, and it must be
+      # built for the target cargo is about to use.
+      - name: Build the Vision sidecar
+        env:
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+        run: node scripts/build-vision.mjs
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
