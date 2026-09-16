@@ -60,3 +60,26 @@ test('nothing else paints white text without saying what it sits on',()=>{
   // Only the caption does, and only because a rule above covers the case where there is no photo.
   assert.deepEqual(whites,['.image-caption']);
 });
+
+/**
+ * Every hero variant has to say what its text sits on. Four of them put the copy on the paper and
+ * inherit; the ones that put it over a picture have to light it themselves.
+ */
+test('a hero that puts its copy over the picture lights the copy itself',()=>{
+  const overlay=[...css.matchAll(/\.site-hero\[data-variant="([^"]+)"\] \.hero-media\{([^}]*position:absolute[^}]*)\}/g)].map(m=>m[1]);
+  for(const variant of overlay){
+    const scoped=new RegExp(`\\.site-hero\\[data-variant="${variant}"\\][^{]*\\.hero-copy[^{]*\\{[^}]*color:var\\(--paper\\)`);
+    assert.match(css,scoped,`${variant} lays copy over the picture without saying what colour it becomes`);
+    assert.match(css,new RegExp(`\\[data-variant="${variant}"\\][^{]*::before\\{[^}]*linear-gradient`),`${variant} has no scrim, so the copy depends on the picture being dark`);
+  }
+});
+
+test('the hero variants a person can pick all exist in the stylesheet',async()=>{
+  const {patternVariants}=await import('../src/patterns');
+  const declared=patternVariants('hero');
+  assert.ok(declared.length>=9,`${declared.length} hero variants`);
+  for(const variant of declared){
+    if(variant==='split')continue; // the base layout, styled by .site-hero itself
+    assert.match(css,new RegExp(`\\.site-hero\\[data-variant="${variant}"\\]`),`${variant} is offered but never styled`);
+  }
+});

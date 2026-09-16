@@ -48,3 +48,64 @@
 .site-cta[data-variant="split"]{flex-direction:column;align-items:flex-start;padding:56px 12%;text-align:left;background:transparent;border-top:1px solid color-mix(in srgb,var(--ink) 12%,transparent)}.site-cta[data-variant="split"] h2{font-size:38px}.site-cta[data-variant="split"] p{max-width:480px}
 .site-footer[data-variant="columns"]{align-items:flex-start;flex-wrap:wrap}.site-footer .footer-columns{display:flex;gap:22px;font-size:9px}.site-footer[data-variant="minimal"]{justify-content:center;text-align:center;flex-direction:column;gap:8px;border-top:0;padding:20px 5%}.site-footer[data-variant="minimal"] p{display:none}
 @container(max-width:500px){.site-features[data-variant="numbered"] .feature-columns article{grid-template-columns:36px 1fr}.site-features[data-variant="numbered"] .feature-columns p{grid-column:2}.site-products[data-variant="masonry"] .product-grid{grid-template-columns:1fr}.site-products[data-variant="masonry"] .product-grid article:nth-child(3n+1){grid-row:auto}.site-cta[data-variant="banner"]{margin:0 4% 24px;padding:24px}}
+
+/* Five more ways a hero can be composed. Layout only: the markup is the same, so a person can change
+   their mind without losing their words. Each one says what its text sits on — the lesson from a
+   banner button and a caption that could not be read. */
+
+/* Copy over the picture, with a scrim so it reads whether there is a photograph or a placeholder. */
+.site-hero[data-variant="full-bleed"]{grid-template-columns:1fr;position:relative;min-height:clamp(420px,40cqw,620px)}
+.site-hero[data-variant="full-bleed"] .hero-media{position:absolute;inset:0}
+.site-hero[data-variant="full-bleed"] .hero-copy{position:relative;z-index:1;align-self:end;padding:clamp(30px,4cqw,64px) 8%;--button-face:var(--paper);--button-text:var(--ink)}
+.site-hero[data-variant="full-bleed"] .hero-copy::before{content:"";position:absolute;inset:-60% 0 0;background:linear-gradient(transparent,color-mix(in srgb,var(--ink) 78%,transparent));z-index:-1}
+.site-hero[data-variant="full-bleed"] .hero-copy h1,.site-hero[data-variant="full-bleed"] .hero-copy .eyebrow{color:var(--paper)}
+.site-hero[data-variant="full-bleed"] .hero-copy p{color:var(--paper);opacity:.86}
+.site-hero[data-variant="full-bleed"] .hero-footnote{color:var(--paper);opacity:.7}
+.site-hero[data-variant="full-bleed"] .image-caption{display:none}
+
+/* Type alone, centred. No picture at all: for a brand whose first impression is a sentence. */
+.site-hero[data-variant="centered"]{grid-template-columns:1fr;min-height:clamp(340px,32cqw,520px);align-items:center}
+.site-hero[data-variant="centered"] .hero-media{display:none}
+.site-hero[data-variant="centered"] .hero-copy{text-align:center;padding:clamp(48px,6cqw,96px) 14%;max-width:900px;margin:0 auto}
+.site-hero[data-variant="centered"] .hero-copy h1{font-size:clamp(34px,5.2cqw,76px);letter-spacing:-.04em;line-height:1.06}
+.site-hero[data-variant="centered"] .hero-copy p{margin-left:auto;margin-right:auto;max-width:46ch}
+.site-hero[data-variant="centered"] .hero-footnote{justify-content:center}
+
+/* The copy card steps over the edge of the picture, the way an editorial spread does. The copy comes
+   first in the markup, so it is the picture that slides up behind it — pulling the copy up would only
+   pull it over the section above. */
+.site-hero[data-variant="offset"]{grid-template-columns:1fr;position:relative;padding-bottom:clamp(28px,3cqw,56px)}
+.site-hero[data-variant="offset"] .hero-copy{position:relative;z-index:1;margin:0 40% 0 6%;padding:clamp(24px,3cqw,44px);background:var(--paper);border:1px solid var(--line,#dfe3eb)}
+.site-hero[data-variant="offset"] .hero-media{min-height:clamp(260px,30cqw,460px);margin:clamp(-96px,-8cqw,-48px) 0 0 22%}
+.site-hero[data-variant="offset"] .hero-copy h1{font-size:clamp(28px,3.8cqw,56px)}
+
+/* Copy above, a pair of panes below. The markup carries one picture, so the second pane is drawn the
+   same way an empty slot is — hatched, not a flat grey nobody can read as intentional. */
+.site-hero[data-variant="duo"]{grid-template-columns:1fr;gap:0}
+.site-hero[data-variant="duo"] .hero-copy{padding:clamp(40px,4.5cqw,72px) 8% clamp(24px,2.5cqw,36px);max-width:760px}
+.site-hero[data-variant="duo"] .hero-media{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:clamp(220px,24cqw,380px);margin:0 5% clamp(28px,3cqw,48px);background:none}
+.site-hero[data-variant="duo"] .hero-media>*{position:relative;inset:auto;height:100%;border-radius:var(--radius)}
+.site-hero[data-variant="duo"] .hero-media::after{content:"";border-radius:var(--radius);background:repeating-linear-gradient(135deg,#e9e7df,#e9e7df 1px,#eeece5 1px,#eeece5 10px)}
+.site-hero[data-variant="duo"] .image-caption{display:none}
+
+/* The quietest one: a line, a link, nothing else. */
+.site-hero[data-variant="quiet"]{grid-template-columns:1fr;min-height:0}
+.site-hero[data-variant="quiet"] .hero-media{display:none}
+.site-hero[data-variant="quiet"] .hero-copy{padding:clamp(56px,6cqw,110px) 8% clamp(40px,4cqw,72px);max-width:820px}
+.site-hero[data-variant="quiet"] .hero-copy h1{font-size:clamp(26px,3.2cqw,46px);line-height:1.25;letter-spacing:-.02em}
+.site-hero[data-variant="quiet"] .hero-copy p{max-width:52ch}
+.site-hero[data-variant="quiet"] .site-button{background:none;--button-face:transparent;--button-text:var(--ink);border-bottom:1px solid var(--ink);border-radius:0;padding:6px 0;min-height:0;gap:14px}
+.site-hero[data-variant="quiet"] .hero-footnote{display:none}
+
+@container (max-width:500px){
+  /* On a phone every one of them becomes a column; only the scrim and the overlap need saying. */
+  .site-hero[data-variant="full-bleed"]{min-height:420px}
+  .site-hero[data-variant="full-bleed"] .hero-copy{padding:28px 7%}
+  .site-hero[data-variant="centered"] .hero-copy{padding:44px 7%}
+  .site-hero[data-variant="offset"] .hero-copy{margin:0 12% 0 5%;padding:20px}
+  .site-hero[data-variant="offset"] .hero-media{margin:-32px 0 0 10%;min-height:220px}
+  /* Stacked, each pane keeps its own height: the container's min-height would be split between them. */
+  .site-hero[data-variant="duo"] .hero-media{grid-template-columns:1fr;min-height:0}
+  .site-hero[data-variant="duo"] .hero-media>*,.site-hero[data-variant="duo"] .hero-media::after{min-height:190px}
+  .site-hero[data-variant="quiet"] .hero-copy{padding:44px 7% 36px}
+}
