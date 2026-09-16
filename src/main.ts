@@ -51,6 +51,7 @@ import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {shouldCheck,shouldOffer,updateNoticeHtml,progressLabel,koParticle,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
+import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
 import {parseOps,SELECTION,type Op} from './agent/ops';
@@ -1309,6 +1310,11 @@ function runOp(page:Page,op:Op):string|undefined{
     const block=find(op.block_id);
     if(!block)return op.block_id===SELECTION?'nothing is selected. Pass a block_id from the contract, or ask the person to select something.':`no component ${op.block_id} on this page.`;
     if(op.fields.description!==undefined&&block.kind!=='products')return 'description belongs to a collection component; this one is a '+block.kind+'.';
+    if(op.variant!==undefined){
+      const variants=patternVariants(block.kind);
+      if(!variants.includes(op.variant))return unknownValue('variant',op.variant,variants,`This is a ${block.kind}.`);
+      block.variant=op.variant;
+    }
     for(const [field,text] of Object.entries(op.fields))(block as unknown as Record<string,string>)[field]=text;
     return undefined;
   }

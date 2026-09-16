@@ -17,7 +17,7 @@ import {framePresets, type FramePreset} from '../editor/space';
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame';
 export type Op =
   | {op: 'add'; component_kind: string; variant?: string; before_block_id?: string; content?: Partial<Record<EditableField, string>>}
-  | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>}
+  | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string}
   | {op: 'move'; block_id: string; direction: 'up' | 'down'}
   | {op: 'delete'; block_id: string}
   | {op: 'frame'; page_id?: string; preset: FramePreset};
@@ -113,9 +113,19 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
     case 'update': {
       const target = blockId(o.block_id, where);
       if ('error' in target) return target;
-      const fields = contentFields(o.fields, `${where}.fields`);
+      // A variant is a layout, not copy, so it has its own key — but changing one used to mean
+      // adding a replacement and deleting the original, which throws the block id away and puts
+      // the person's words at risk. The kind it belongs to decides which names are legal, and
+      // only the app knows the kind, so the check happens where the block is found.
+      const variant = o.variant === undefined ? undefined : str(o.variant, 60) ?? '';
+      // An update with neither key is worth naming as such; the shape complaint from contentFields
+      // would only mention the words and leave the person looking for the wrong mistake.
+      if (o.fields === undefined && variant === undefined) {
+        return {error: `${where} changes nothing: pass fields to change the words, variant to change the layout, or both.`};
+      }
+      const fields = o.fields === undefined ? {fields: {}} : contentFields(o.fields, `${where}.fields`);
       if ('error' in fields) return fields;
-      return {op: {op: 'update', block_id: target.id, fields: fields.fields}};
+      return {op: {op: 'update', block_id: target.id, fields: fields.fields, ...(variant === undefined ? {} : {variant})}};
     }
     case 'move': {
       const target = blockId(o.block_id, where);

@@ -73,3 +73,26 @@ test('the whole batch is refused when one op is wrong, so nothing half-applies',
   const error=bad({ops:[{op:'add',component_kind:'hero'},{op:'add',component_kind:'nope'}]});
   assert.match(error,/ops\[1\]/,'the error points at which one');
 });
+
+/* A model asked to restyle a component had to add a replacement and delete the original, because
+   update only took copy. That throws away the block id and puts the person's words through a round
+   trip for what is a change of layout. Found in evaluation run 4. */
+test('update changes the layout as well as the words',()=>{
+  const one=(op:Record<string,unknown>)=>parseOps({ops:[op]});
+  const restyle=one({op:'update',block_id:'selection',variant:'editorial-wide'});
+  assert.ok(!('error' in restyle),JSON.stringify(restyle));
+  assert.deepEqual((restyle as {ops:unknown[]}).ops[0],{op:'update',block_id:'selection',fields:{},variant:'editorial-wide'});
+
+  const both=one({op:'update',block_id:'selection',variant:'stacked',fields:{title:'빛으로 완성하는 공간'}});
+  assert.deepEqual((both as {ops:unknown[]}).ops[0],{op:'update',block_id:'selection',fields:{title:'빛으로 완성하는 공간'},variant:'stacked'});
+
+  // An update that would do nothing is a mistake worth naming rather than a silent no-op.
+  const empty=one({op:'update',block_id:'selection'}) as {error:string};
+  assert.match(empty.error,/changes nothing/);
+  assert.match(empty.error,/variant/,'and it says what the other key is for');
+
+  // The kind decides which names are legal, and only the app knows the kind, so parsing keeps the
+  // string and the check happens where the block is.
+  const anything=one({op:'update',block_id:'selection',variant:'not-a-real-variant'});
+  assert.ok(!('error' in anything),'parsing does not guess the kind');
+});

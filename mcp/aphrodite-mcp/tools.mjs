@@ -171,11 +171,11 @@ export const tools = [
             properties: {
               op: {type: 'string', enum: ['add', 'update', 'move', 'delete', 'frame']},
               component_kind: {type: 'string', description: 'add: the kind to place, from aphrodite_list_components.'},
-              variant: {type: 'string', description: 'add: a variant that kind accepts.'},
+              variant: {type: 'string', description: 'add/update: a variant that kind accepts. On update it changes the layout and keeps the words — you do not delete and re-add to restyle a component.'},
               before_block_id: {type: 'string', description: 'add: place it before this component instead of at the end.'},
               content: {type: 'object', description: 'add: initial copy — title, text, label, eyebrow, description.'},
               block_id: {type: 'string', description: 'update/move/delete: which component, or "selection".'},
-              fields: {type: 'object', description: 'update: the copy to set — title, text, label, eyebrow, description.'},
+              fields: {type: 'object', description: 'update: the copy to set — title, text, label, eyebrow, description. Optional when you are only changing the variant.'},
               direction: {type: 'string', enum: ['up', 'down'], description: 'move: which way in the page order.'},
               preset: {type: 'string', enum: ['desktop', 'tablet', 'mobile', 'custom'], description: 'frame: the size to give the page.'},
               page_id: {type: 'string', description: 'frame: which page to resize. Defaults to the one being edited.'},
