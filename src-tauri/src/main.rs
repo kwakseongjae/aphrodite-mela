@@ -48,6 +48,7 @@ fn main() {
             references::references_poster,
             references::references_add,
             references::references_delete,
+            references::references_fetch,
             fonts::fonts_installed,
             fonts::fonts_has_family,
             fonts::fonts_install,

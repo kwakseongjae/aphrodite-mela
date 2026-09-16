@@ -10,7 +10,7 @@
 //! at, never as a command to follow. The tool descriptions say so too.
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -242,7 +242,7 @@ pub fn references_add(app: AppHandle, item: Value, project: Option<String>) -> R
         "tags": clean_tags(item.get("tags")),
         "addedAt": now_iso(),
         "addedBy": clamp(item.get("addedBy"), 80),
-        "alive": true,
+        "alive": item.get("alive").and_then(Value::as_bool).unwrap_or(true),
     });
 
     let mut entries = read_index(&dir);
@@ -285,9 +285,192 @@ pub fn references_delete(app: AppHandle, id: String, project: Option<String>) ->
     Ok(json!({"removed": id}))
 }
 
+// ── Looking a link up ────────────────────────────────────────────────────────────────────────────
+// The webview has no network — its CSP is `connect-src 'self' ipc:` — so a link's title and picture
+// are fetched here, the way a typeface is. https only, a hard cap on what is read, no scripts run
+// and no page kept. The og:image is stored as bytes so the card survives the link dying.
+
+const MAX_PAGE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_OG_BYTES: u64 = 8 * 1024 * 1024;
+
+fn http() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(8))
+        .build()
+}
+
+/// The first `<meta property="og:image" content="…">` (or name=, or twitter:image) in a document.
+pub(crate) fn meta_content(html: &str, keys: &[&str]) -> Option<String> {
+    let lower = html.to_lowercase();
+    for tag_start in lower.match_indices("<meta").map(|(i, _)| i) {
+        let end = lower[tag_start..].find('>').map(|i| tag_start + i)?;
+        let tag = &html[tag_start..end];
+        let low = &lower[tag_start..end];
+        let names_it = keys.iter().any(|key| {
+            let needle = format!("\"{key}\"");
+            low.contains(&needle) || low.contains(&format!("'{key}'")) || low.contains(&format!("={key} ")) || low.ends_with(&format!("={key}"))
+        });
+        if !names_it {
+            continue;
+        }
+        if let Some(value) = attribute(tag, "content") {
+            if !value.trim().is_empty() {
+                return Some(value.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// One attribute out of a tag, quoted either way. Deliberately small: this reads two attributes off
+/// a handful of meta tags, it is not a parser and must not grow into one.
+pub(crate) fn attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_lowercase();
+    let at = lower.find(&format!("{name}="))?;
+    let rest = &tag[at + name.len() + 1..];
+    let quote = rest.chars().next()?;
+    if quote == '"' || quote == '\'' {
+        let end = rest[1..].find(quote)? + 1;
+        Some(unescape_entities(&rest[1..end]))
+    } else {
+        let end = rest.find([' ', '>']).unwrap_or(rest.len());
+        Some(unescape_entities(&rest[..end]))
+    }
+}
+
+/// The five entities that actually turn up in a page title.
+pub(crate) fn unescape_entities(text: &str) -> String {
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+/// The document title, when there is one.
+pub(crate) fn page_title(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    let open = lower.find("<title")?;
+    let start = lower[open..].find('>')? + open + 1;
+    let end = lower[start..].find("</title>")? + start;
+    let text = unescape_entities(html[start..end].trim());
+    (!text.is_empty()).then_some(text)
+}
+
+/// Resolves an og:image that was written relative to the page.
+pub(crate) fn absolute(page: &str, candidate: &str) -> Option<String> {
+    if candidate.starts_with("https://") || candidate.starts_with("http://") {
+        return Some(candidate.to_string());
+    }
+    let scheme_end = page.find("://")? + 3;
+    let host_end = page[scheme_end..].find('/').map(|i| scheme_end + i).unwrap_or(page.len());
+    let origin = &page[..host_end];
+    if let Some(rest) = candidate.strip_prefix("//") {
+        return Some(format!("{}://{rest}", &page[..scheme_end - 3]));
+    }
+    if candidate.starts_with('/') {
+        return Some(format!("{origin}{candidate}"));
+    }
+    let dir = page.rfind('/').filter(|i| *i >= host_end).map(|i| &page[..i]).unwrap_or(origin);
+    Some(format!("{dir}/{candidate}"))
+}
+
+/// Reads a page for its title and its picture. Returns what it found; the caller decides what to
+/// keep. Nothing is written here.
+#[tauri::command]
+pub fn references_fetch(url: String) -> Result<Value, String> {
+    if !url.starts_with("https://") {
+        return Err("only https addresses are looked up".into());
+    }
+    if !safe_url(&url) {
+        return Err("that address cannot be looked up".into());
+    }
+    let response = http()
+        .get(&url)
+        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
+        .set("Accept", "text/html,application/xhtml+xml")
+        .timeout(std::time::Duration::from_secs(15))
+        .call()
+        .map_err(|e| format!("could not reach that address: {e}"))?;
+    let mut body = Vec::new();
+    std::io::Read::take(response.into_reader(), MAX_PAGE_BYTES)
+        .read_to_end(&mut body)
+        .map_err(|e| e.to_string())?;
+    let html = String::from_utf8_lossy(&body);
+
+    let title: String = page_title(&html).unwrap_or_default().chars().take(MAX_TITLE).collect();
+    let mut poster = String::new();
+    if let Some(candidate) = meta_content(&html, &["og:image", "twitter:image"]) {
+        if let Some(image_url) = absolute(&url, &candidate) {
+            if safe_url(&image_url) {
+                // A picture that will not load is not a failure to look a link up.
+                if let Ok(image) = http()
+                    .get(&image_url)
+                    .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
+                    .timeout(std::time::Duration::from_secs(20))
+                    .call()
+                {
+                    let mut bytes = Vec::new();
+                    if std::io::Read::take(image.into_reader(), MAX_OG_BYTES)
+                        .read_to_end(&mut bytes)
+                        .is_ok()
+                        && sniff(&bytes).is_some()
+                    {
+                        poster = base64_encode(&bytes);
+                    }
+                }
+            }
+        }
+    }
+    Ok(json!({"url": url, "title": title, "poster": poster}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    const PAGE: &str = r#"<!doctype html><html><head>
+        <meta charset="utf-8">
+        <title>  Dezeen &amp; lighting  </title>
+        <meta name="description" content="not this one">
+        <meta property="og:image" content="/media/hero.jpg">
+        <meta name="twitter:image" content="https://cdn.example.com/other.jpg">
+      </head><body>…</body></html>"#;
+
+    #[test]
+    fn a_page_gives_up_its_title_and_its_picture() {
+        assert_eq!(page_title(PAGE).as_deref(), Some("Dezeen & lighting"), "trimmed and unescaped");
+        assert_eq!(meta_content(PAGE, &["og:image", "twitter:image"]).as_deref(), Some("/media/hero.jpg"),
+            "og:image wins because it comes first");
+        assert_eq!(meta_content(PAGE, &["og:video"]), None, "a tag that is not there is not invented");
+    }
+
+    #[test]
+    fn a_picture_written_relative_to_the_page_is_resolved() {
+        let page = "https://www.dezeen.com/2026/lighting/index.html";
+        assert_eq!(absolute(page, "https://cdn.x/a.jpg").as_deref(), Some("https://cdn.x/a.jpg"));
+        assert_eq!(absolute(page, "/media/hero.jpg").as_deref(), Some("https://www.dezeen.com/media/hero.jpg"));
+        assert_eq!(absolute(page, "hero.jpg").as_deref(), Some("https://www.dezeen.com/2026/lighting/hero.jpg"));
+        assert_eq!(absolute(page, "//cdn.x/a.jpg").as_deref(), Some("https://cdn.x/a.jpg"));
+        assert_eq!(absolute("https://dezeen.com", "/a.jpg").as_deref(), Some("https://dezeen.com/a.jpg"),
+            "a bare origin has no path to strip");
+    }
+
+    #[test]
+    fn a_page_without_the_tags_is_not_an_error() {
+        assert_eq!(page_title("<html><body>hello</body></html>"), None);
+        assert_eq!(meta_content("<html></html>", &["og:image"]), None);
+        assert_eq!(page_title("<title></title>"), None, "an empty title is no title");
+    }
+
+    #[test]
+    fn attributes_are_read_whichever_quotes_a_page_used() {
+        assert_eq!(attribute(r#"<meta content="a b">"#, "content").as_deref(), Some("a b"));
+        assert_eq!(attribute("<meta content='a b'>", "content").as_deref(), Some("a b"));
+        assert_eq!(attribute("<meta content=ab ", "content").as_deref(), Some("ab"), "unquoted, as pages do");
+        assert_eq!(attribute(r#"<meta content="a &amp; b">"#, "content").as_deref(), Some("a & b"));
+    }
 
     #[test]
     fn only_addresses_a_browser_would_open_are_kept() {

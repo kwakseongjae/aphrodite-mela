@@ -119,7 +119,7 @@ Aphrodite is deliberately narrow: one screen, one direction, one contract. It is
 3. Launch it. First run offers English or Korean, a **sample project** (a small lighting brand with a desktop and a mobile frame) or a blank one, and a two-minute tour of the editor.
 4. Updates are not silent, and from v0.2.0 they install themselves. When a newer release exists a small card appears in the bottom-left corner with the version, what changed, and one button: **Install and restart** fetches it, checks its signature, puts it in place and reopens Aphrodite on the new version. The disk image is still one menu item away. The card can be dismissed for that version, or switched off entirely.
 
-**The only things Aphrodite sends over the network** are the version check above and a font file when you click Install in the typeface picker. Both go to GitHub and neither carries anything about you or your work. Your projects, images and text stay on this Mac.
+**Aphrodite reaches the network in exactly three places:** the version check above, which runs on its own at most every six hours and can be switched off; a font file when you click Install in the typeface picker; and **Look it up** on a saved reference, which reads that one page for its title and picture. The first two go to GitHub, the third to the address you typed, and only the last two happen because you pressed something. None of them carries anything about you or your work, and nothing else leaves — your projects, images and text stay on this Mac.
 
 Five minutes from there — reference → three directions → pick → Get Vibe → edit → approve → export — is walked through in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 

@@ -77,12 +77,13 @@ function cardHtml(entry: Reference, ko: boolean): string {
     .join('');
   return `<article class="reference-card${dead ? ' reference-gone' : ''}" data-reference-id="${esc(entry.id)}">
     <div class="reference-poster">${poster}${source ? `<span class="reference-source">${esc(source)}</span>` : ''}</div>
-    <h4>${esc(title)}</h4>
+    <h4 title="${esc(title)}">${esc(title)}</h4>
     ${entry.note && entry.title ? `<p class="reference-note">${esc(entry.note)}</p>` : ''}
     ${tags ? `<div class="reference-tags">${tags}</div>` : ''}
     <div class="reference-meta">${esc(addedLabel(entry, ko))}${dead ? ` · ${t('original gone', '원본 사라짐')}` : ''}</div>
     <div class="reference-actions">
       <button class="secondary-button" data-action="reference-promote" data-id="${esc(entry.id)}">${t('Analyse this', '이걸로 분석')}</button>
+      ${entry.url ? `<button class="secondary-button" data-action="reference-lookup" data-id="${esc(entry.id)}" title="${t('Fetch the title and picture from the page. This is the only moment Aphrodite reaches the network for a reference.', '페이지에서 제목과 그림을 가져옵니다. 레퍼런스 때문에 네트워크로 나가는 건 이때뿐입니다.')}">${t('Look it up', '가져오기')}</button>` : ''}
       ${entry.url ? `<button class="icon-button" data-action="reference-open" data-id="${esc(entry.id)}" aria-label="${t('Open the source', '출처 열기')}" title="${t('Open the source', '출처 열기')}">↗</button>` : ''}
       <button class="icon-button" data-action="reference-delete" data-id="${esc(entry.id)}" aria-label="${t('Remove', '삭제')}" title="${t('Remove', '삭제')}">×</button>
     </div>

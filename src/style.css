@@ -345,7 +345,9 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
    and a picture on its own does not say why it was kept. */
 .reference-cards{display:grid;gap:12px;margin-top:10px}
 .reference-card{display:grid;gap:6px;padding:10px;border:1px solid #e4e7dd;border-radius:10px;background:#fff}
-.reference-card h4{margin:0;font-size:12.5px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+/* A real page title runs long — GitHub's is a sentence — and left alone it eats the card. Two
+   lines, then an ellipsis; the whole title is in the tooltip and on the page itself. */
+.reference-card h4{margin:0;font-size:12.5px;font-weight:600;line-height:1.35;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* A fixed, shallow poster: the panel is a list to scan, not a gallery. Three cards fit where one
    full-bleed thumbnail did. */
 .reference-poster{position:relative;height:104px;border-radius:7px;overflow:hidden;background:#f2f3ee;display:grid;place-items:center}
@@ -353,7 +355,7 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 .reference-blank{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#8d9382}
 .reference-poster-missing::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,#eceee7 0 6px,#f5f6f1 6px 12px)}
 .reference-source{position:absolute;left:6px;bottom:6px;padding:2px 6px;border-radius:4px;background:#ffffffe8;font-size:9.5px;color:#5a604f}
-.reference-note{margin:0;font-size:11.5px;line-height:1.5;color:#6b7063;overflow-wrap:anywhere}
+.reference-note{margin:0;font-size:11.5px;line-height:1.5;color:#6b7063;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .reference-tags{display:flex;flex-wrap:wrap;gap:4px}
 .reference-tag{padding:1px 7px;border-radius:99px;background:#eef0e9;font-size:10px;color:#5a604f}
 .reference-meta{font-size:10px;color:#8d9382}

@@ -1047,6 +1047,23 @@ async function action(el: HTMLElement) {
       }catch(error){toast(String(error));}
       break;
     }
+    case 'reference-lookup': {
+      const hit=references.find(r=>r.id===el.dataset.id);
+      if(!hit?.url)break;
+      const scope=hit.scope==='project'?project.id:undefined;
+      toast(ui('Looking it up…','가져오는 중…'));
+      try{
+        const got=await invoke<{url:string;title:string;poster:string}>('references_fetch',{url:hit.url});
+        await invoke('references_add',{item:{kind:hit.kind,url:hit.url,title:got.title||hit.title,note:hit.note,tags:hit.tags,poster:got.poster||undefined,addedBy:hit.addedBy,alive:true},project:scope});
+        toast(got.poster?ui('Got the title and a picture','제목과 그림을 가져왔습니다'):ui('Got the title; the page offered no picture','제목만 가져왔습니다 — 페이지에 그림이 없습니다'));
+      }catch{
+        // The card stays: the point of keeping bytes is that a dead link still shows something.
+        await invoke('references_add',{item:{kind:hit.kind,url:hit.url,title:hit.title,note:hit.note,tags:hit.tags,addedBy:hit.addedBy,alive:false},project:scope}).catch(()=>{});
+        toast(ui('That address did not answer. The card is kept and marked.','주소가 답하지 않습니다. 카드는 남기고 표시해 둡니다.'));
+      }
+      await loadReferences(true);refreshLibraryPanel();
+      break;
+    }
     case 'reference-open': {
       const hit=references.find(r=>r.id===el.dataset.id);
       if(!hit?.url)break;
