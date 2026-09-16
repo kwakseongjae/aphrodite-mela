@@ -122,30 +122,26 @@ xcrun stapler validate Aphrodite_${V}_aarch64.dmg
 
 각 항목은 **통과 기준**이 있다. 기준이 없으면 봤다고 할 수 없다.
 
-**M1 클린 설치** — 새 macOS 사용자 계정(또는 두 번째 Mac). 이 계정에는 Aphrodite가 남긴 것이 하나도 없어야 한다.
+**M1 클린 설치** — 새 macOS 사용자 계정(또는 두 번째 Mac). 그 계정에 Aphrodite가 남긴 것이 하나도 없어야 한다. **스크립트가 그걸 먼저 확인하고, 아니면 거부한다** — 더러운 계정에서 돌린 검사는 아무것도 증명하지 않는다.
 
 ```sh
-# 1. 격리된 다운로드로 받아 Gatekeeper가 실제로 통과시키는지
-V=0.1.6   # 검증하는 버전
-cd ~/Downloads && curl -LO https://github.com/kwakseongjae/aphrodite-mela/releases/download/v$V/Aphrodite_${V}_aarch64.dmg
-xattr -w com.apple.quarantine "0083;$(printf %x $(date +%s));Safari;" Aphrodite_${V}_aarch64.dmg
-spctl -a -t open --context context:primary-signature -v Aphrodite_${V}_aarch64.dmg   # → accepted
-xcrun stapler validate Aphrodite_${V}_aarch64.dmg                                     # → validated
-# 2. 마운트 → 응용 프로그램으로 끌어다 놓기 → 더블클릭
+# 새 계정으로 로그인한 뒤 터미널에서 한 줄
+curl -fsSL https://raw.githubusercontent.com/kwakseongjae/aphrodite-mela/main/scripts/clean-install-check.sh | zsh -s -- 0.2.0
 ```
 
-통과 기준 — 하나라도 어긋나면 적어둔다:
+스크립트가 사람 없이 확인하는 것: 계정이 깨끗한지 · 격리된 다운로드 · Gatekeeper 통과 · 공증 티켓 · 이미지 안의 버전 · `agent-endpoint.json`이 생기고 mode 600인지 · **읽기 200 / 쓰기 423 / 틀린 토큰 401**. 실패하면 종료 코드가 0이 아니다.
+
+그리고 화면 앞에서만 알 수 있는 것을 물어본다 — 스크립트가 디스크 이미지를 마운트해 놓고 기다린다:
 
 | 볼 것 | 기준 |
 |---|---|
 | 첫 실행 | 경고 없이 열린다(우클릭 → 열기 필요 없음) |
 | 환영 시트 | 뜬다. 언어가 그 계정의 OS 언어를 따른다 |
-| **브랜드 킷 모달** | **열려 있지 않다** — 09-10에 한 번 관측된 뒤 재현 못 한 항목 |
+| **브랜드 킷 창** | **이미 열려 있지 않다** — 09-10에 한 번 관측된 뒤 재현 못 한 항목 |
 | 샘플 프로젝트 | 열리고, 편집되고, 저장된다 |
-| 채널 | `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json`이 생기고 권한이 `600` |
-| 연결 스위치 | **꺼짐**으로 시작한다. 켜기 전에는 쓰기가 423 |
+| 연결 스위치 | **꺼짐**으로 시작한다 |
+| 업데이트 카드 | 최신을 설치했으므로 **뜨지 않는다** |
 | 콜드 스타트 | 첫 페인트까지 2초 이내(M10) |
-| 업데이트 카드 | 최신 버전을 설치했으므로 **뜨지 않는다** |
 
 **M2 업데이트 카드** — 두 단계.
 (a) 게시 전: `package.json`을 임시로 `0.1.4`로 두고 로컬 `.app`을 빌드해 실행 → 카드가 **v0.1.5**를 권함 → 「받기」 → `~/Downloads`에 DMG, `koly` 검사 통과, 「열기」가 Finder에서 보여줌, 「이 버전 건너뛰기」 뒤엔 다시 안 뜸. (b) 게시 후: 실제 v0.1.5 설치본을 켜면 v0.2.0 카드가 뜸. `/releases/latest`는 draft를 건너뛰므로 **(b)는 게시 뒤에만 가능**하다.
