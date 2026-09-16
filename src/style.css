@@ -277,12 +277,15 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 .update-card[data-state="failed"] p{color:#9a4a2c}
 .update-close{position:absolute;top:8px;right:8px;width:24px;height:24px;color:#8e9a80}
 .update-close svg{width:14px;height:14px}
-.update-actions{display:flex;align-items:center;gap:8px}
+/* Three actions do not fit a 308px card in Korean: let the quiet two drop to their own line
+   together rather than each breaking mid-word. */
+.update-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px}
+.update-actions .primary-button{flex:0 0 auto}
 .update-actions .primary-button{height:32px;padding:0 13px;font-size:12.5px;gap:7px}
 .update-actions .primary-button svg{width:14px;height:14px}
 .update-actions .primary-button[disabled]{opacity:.75}
 .update-card[data-state="working"] .primary-button svg{animation:update-spin 1.1s linear infinite}
-.update-quiet{font-size:12px;color:#6a755e;padding:0 4px}
+.update-quiet{font-size:12px;color:#6a755e;padding:0 4px;white-space:nowrap}
 .update-quiet:hover{color:#243e2f;text-decoration:underline}
 .update-off{margin-top:10px;font-size:11px;color:#9aa48c}
 .update-off:hover{color:#6a755e;text-decoration:underline}
