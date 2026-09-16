@@ -1648,7 +1648,24 @@ async function boot(){
       await agentListening;
       try{agentEndpoint=await invoke<{port:number;token:string;file:string}>('agent_bridge_start');}catch{agentEndpoint=undefined;}
       const {getCurrentWindow}=await import('@tauri-apps/api/window');
-      await getCurrentWindow().onCloseRequested(async event=>{if(!lastSaved){event.preventDefault();try{await flushDisk();if(lastSaved)await getCurrentWindow().close();}catch{toast('저장 실패로 종료를 중지했습니다. Save project로 백업하세요.');}}});
+      /* Closing with work in hand: hold the window, write to disk, then go. destroy() rather than
+         close(), because close() asks again and lands back in this handler. Whatever happens the
+         person must be able to leave — a window that will not shut can only be force-quit, so a
+         failure says so and lets the second press through instead of holding on. */
+      let closing=false;
+      await getCurrentWindow().onCloseRequested(async event=>{
+        if(lastSaved||closing)return;
+        event.preventDefault();
+        try{
+          await flushDisk();
+          if(!lastSaved)throw new Error('the last write did not land');
+          closing=true;
+          await getCurrentWindow().destroy();
+        }catch(error){
+          closing=true;   // the next ⌘W leaves, saved or not: being stuck is worse than losing the last edit
+          toast(ui(`Could not save before closing — ${String(error)}. Press again to leave anyway, or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
+        }
+      });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
