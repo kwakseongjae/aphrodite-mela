@@ -80,38 +80,72 @@ fn dmg_name(version: &str) -> Option<String> {
     Some(format!("Aphrodite_{version}_{arch}.dmg"))
 }
 
-/// The first few plain lines of a release body, so the card can answer "what changed?" without
-/// sending the person to a browser. Markdown chrome is dropped rather than rendered: headings,
-/// bullets and emphasis become sentences, and anything that is not prose — code fences, tables,
-/// links to assets — is skipped. Bounded on both counts so a long release cannot fill the screen.
+/// What to show a person under "what changed". A release body is markdown written for the release
+/// page — wrapped at eighty columns, opening with headings and a download list — so reading it
+/// line by line produced fragments like "…the last one you install by" / "hand." and offered the
+/// name of a disk image as news. Paragraphs are rejoined, the sections that are paperwork rather
+/// than news are skipped, and what is left is bounded on both counts.
 fn release_summary(body: &str) -> Vec<String> {
+    // Sections that are paperwork rather than news. The document's own title is not one of them:
+    // "Aphrodite v0.2.0 — release notes" once matched "release notes" and swallowed the opening
+    // paragraph, which is the one sentence most worth showing.
+    const PAPERWORK: [&str; 3] = ["download", "known limits", "다운로드"];
     let mut out: Vec<String> = Vec::new();
+    let mut para = String::new();
     let mut fenced = false;
+    let mut skipping = false;
+
+    let mut flush = |para: &mut String, out: &mut Vec<String>| {
+        let text = para.trim().to_string();
+        para.clear();
+        if text.chars().count() < 3 || out.len() >= 3 {
+            return;
+        }
+        let text = if text.chars().count() > 120 {
+            let cut: String = text.chars().take(119).collect();
+            format!("{}…", cut.trim_end())
+        } else {
+            text
+        };
+        out.push(text);
+    };
+
     for raw in body.lines() {
         let line = raw.trim();
         if line.starts_with("```") {
             fenced = !fenced;
             continue;
         }
-        if fenced || line.is_empty() || line.starts_with('|') || line.starts_with('#') || line.starts_with('<') {
+        if fenced {
             continue;
         }
-        let line = line.trim_start_matches(['-', '*', '+']).trim();
-        let line: String = line.replace("**", "").replace('`', "");
-        if line.len() < 3 {
+        if let Some(heading) = line.strip_prefix('#') {
+            flush(&mut para, &mut out);
+            let name = heading.trim_start_matches('#').trim().to_lowercase();
+            // The title is the whole document, not a section: it never turns skipping on.
+            let title = raw.trim_start().starts_with("# ");
+            skipping = !title && PAPERWORK.iter().any(|p| name.contains(p));
             continue;
         }
-        let line = if line.chars().count() > 120 {
-            let cut: String = line.chars().take(119).collect();
-            format!("{}…", cut.trim_end())
-        } else {
-            line
-        };
-        out.push(line);
-        if out.len() == 3 {
-            break;
+        if line.is_empty() || line.starts_with('|') || line.starts_with('<') {
+            flush(&mut para, &mut out);
+            continue;
         }
+        if skipping || out.len() >= 3 {
+            continue;
+        }
+        // A bullet starts something new; a bare line continues the paragraph it is wrapped from.
+        let bullet = line.starts_with('-') || line.starts_with('*') || line.starts_with('+');
+        if bullet {
+            flush(&mut para, &mut out);
+        }
+        let text = line.trim_start_matches(['-', '*', '+']).trim().replace("**", "").replace('`', "");
+        if !para.is_empty() {
+            para.push(' ');
+        }
+        para.push_str(&text);
     }
+    flush(&mut para, &mut out);
     out
 }
 
@@ -270,14 +304,19 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_release_body_becomes_at_most_three_plain_lines() {
-        let body = "## What's new\n\n- **Updates** that install themselves\n- An agent can drive it through `MCP`\n\n```sh\nnot prose\n```\n- Fifty-eight section layouts\n- A fourth line nobody sees\n";
+    fn a_release_body_becomes_three_sentences_a_person_would_read() {
+        // Shaped like a real one: wrapped at eighty columns, download list before the news.
+        let body = "# Aphrodite v0.2.0 — release notes\n\nThe release that makes an agent a first-class way to use\nAphrodite, and the last one you install by hand.\n\n## Download\n\n- Apple Silicon: `Aphrodite_0.2.0_aarch64.dmg`\n- Signed with Developer ID.\n\n## What's new\n\n**Updates install themselves**\n- Install and restart fetches the new version and\n  reopens Aphrodite on it.\n- Fifty-eight ways to lay out a section.\n- A fourth line nobody sees.\n";
         let out = release_summary(body);
-        assert_eq!(out.len(), 3, "bounded, so a long release cannot fill the card");
-        assert_eq!(out[0], "Updates that install themselves", "markdown chrome is dropped, not rendered");
-        assert_eq!(out[1], "An agent can drive it through MCP");
-        assert_eq!(out[2], "Fifty-eight section layouts", "the code fence is skipped entirely");
-        assert!(release_summary("").is_empty(), "no body is no summary, not an empty line");
+        assert_eq!(out.len(), 3, "bounded: {out:?}");
+        assert_eq!(out[0], "The release that makes an agent a first-class way to use Aphrodite, and the last one you install by hand.",
+            "a wrapped paragraph is one sentence, not two fragments");
+        assert!(!out.iter().any(|l| l.contains(".dmg")), "a download list is paperwork, not news: {out:?}");
+        assert_eq!(out[1], "Updates install themselves");
+        assert_eq!(out[2], "Install and restart fetches the new version and reopens Aphrodite on it.");
+
+        assert!(release_summary("").is_empty(), "no body is no summary");
+        assert!(release_summary("## Download\n\n- only paperwork here\n").is_empty(), "nothing but paperwork says nothing");
         let long = format!("- {}", "가".repeat(400));
         assert!(release_summary(&long)[0].chars().count() <= 120, "one very long line cannot run away");
     }
