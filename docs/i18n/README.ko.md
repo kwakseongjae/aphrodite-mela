@@ -70,11 +70,13 @@ Aphrodite는 모델을 내장하지 않습니다. 이미 당신 기기에 있는
 
 | 에이전트 | 조작 방식 | 상태 |
 |---|---|:---:|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 셸 → 로컬 채널에 `curl`; 내보낸 계약을 읽음 | ✅ |
-| [Codex CLI](https://github.com/openai/codex) | 셸 → 채널; Codex의 **Run**은 `script/build_and_run.sh`를 사용 | ✅ |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP 서버** — `claude mcp add …`, 도구 11개; 내보낸 계약을 읽음 | ✅ |
+| [Codex CLI](https://github.com/openai/codex) | **MCP 서버** — `codex mcp add …`; Codex의 **Run**은 `script/build_and_run.sh`를 사용 | ✅ |
 | Astra · 컴퓨터 유즈 에이전트 | 에이전트 모드 전에는 화면과 포인터, 에이전트 모드 중에는 채널(셸) | ✅ |
 | Cursor, Copilot CLI, 셸이 있는 모든 CLI | 채널에 `curl`, 또는 내보낸 ZIP 열기 | ✅ |
 | 브라우저 하네스(CDP, Playwright) | 웹 빌드의 `window.aphroditeAgent.run()` | ✅ |
+
+셸만 있는 경우를 위한 로컬 채널(`curl`)도 그대로 있습니다 — [AGENT-CHANNEL.md](../AGENT-CHANNEL.md).
 
 에이전트용 계약 — 안정적인 `data-action` 이름, `#app[data-*]` 상태, 명령 팔레트, 위임 중 거부되는 동작 — 은 [COMPUTER-USE.md](../COMPUTER-USE.md)에, 채널 라우트(`state / command / act / click / edit / type / key / end`)는 [AGENT-CHANNEL.md](../AGENT-CHANNEL.md)에 있습니다.
 
@@ -135,6 +137,19 @@ Node 22.12+, Rust/Tauri 툴체인, macOS Swift 컴파일러(기기 내 OCR 사�
 
 ## 코딩 에이전트에서 Aphrodite 쓰기
 
+### MCP로 연결하기
+
+Claude Code를 이 저장소에서 쓸 때는 `.mcp.json`이 이미 있습니다 — 물어보면 승인하세요. 다른 곳에서, 그리고 Codex는:
+
+```sh
+claude mcp add --transport stdio aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+codex mcp add aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+```
+
+앱이 열려 있으면 읽기는 언제나 됩니다. 쓰기는 **연결 모드**가 필요하고, 이 스위치는 홈 상단 줄에서 사람만 켤 수 있습니다. 에이전트는 요청할 수 있고(`aphrodite_request_connection`) 사람이 한 번 눌러 허용합니다. 모든 쓰기는 영수증으로 남고 ⌘Z로 되돌아갑니다. 도구 11개의 목록은 [aphrodite-mcp/README.md](../../mcp/aphrodite-mcp/README.md)에 있습니다.
+
+### 또는 채널로 직접
+
 앱에서 에이전트 모드를 켭니다(독 → **에이전트**, 또는 `3` 키). 황금색 음영이 창을 사람에게서 잠그고, 앱은 `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json`에 로컬 포트와 베어러 토큰을 기록하며, 에이전트 콘솔에 바로 쓸 수 있는 curl 예시가 뜹니다.
 
 ```sh
@@ -194,6 +209,7 @@ Aphrodite는 한 사람이 에이전트 무리와 함께 공개적으로 만드�
 | [DEVELOPMENT.md](../DEVELOPMENT.md) | 툴체인, 스크립트, 테스트, 헤드리스 검증, 서명, 릴리스 절차 |
 | [COMPUTER-USE.md](../COMPUTER-USE.md) | UI를 조작하는 에이전트용 계약: 액션, 상태, 팔레트, 위임 규칙 |
 | [AGENT-CHANNEL.md](../AGENT-CHANNEL.md) | 로컬 채널과 `window.aphroditeAgent` |
+| [aphrodite-mcp/README.md](../../mcp/aphrodite-mcp/README.md) | MCP 서버: 연결 방법, 도구 목록, 하지 않는 일 |
 | [DEMO-ASTRA-5MIN.md](../DEMO-ASTRA-5MIN.md) | 컴퓨터 유즈 에이전트를 위한 5분 시연 대본 |
 | [APHRODITE-BRAND.md](../APHRODITE-BRAND.md) | Paper Muse — 스튜디오의 아이덴티티(앱 안 브랜드 리소스와 동일) |
 | [RELEASE-NOTES-v0.1.5.md](../RELEASE-NOTES-v0.1.5.md) | 릴리스별 변경 사항 |

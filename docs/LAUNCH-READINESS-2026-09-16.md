@@ -6,7 +6,7 @@
 
 **코드는 출시 가능하고, 출시를 막는 것은 코드가 아니다.**
 
-- v0.1.5 이후 **46 커밋 · 145 파일 · +9,346 줄**. 게이트는 전부 초록 — TS 321 / Rust 32 / `tsc` / `vite build`.
+- v0.1.5 이후 **46 커밋 · 145 파일 · +9,346 줄**. 게이트는 전부 초록 — TS 321 / Rust 32 / `tsc` / `vite build` (09-16 오후: TS 322 / Rust 31 — 죽은 코드 `urlencode`와 그것만을 위한 테스트가 같이 나갔다).
 - 막는 것은 세 가지 빚이다. (a) 이번 릴리즈의 얼굴인 **MCP 서버와 에이전트 연결이 README·랜딩·QUICKSTART·README.ko 어디에도 없다** — README 호환 표(74–75행)는 아직 "Shell → curl"이라고 적혀 있다. (b) **랜딩과 README 스크린샷이 9/10 21:40 것**(v0.1.2)이라 지금의 홈(워크스페이스·연결 토글)과 에디터 헤더와 다르다. (c) **릴리즈 빌드(.app)로 한 번도 돌려보지 않은 경로**가 셋 있다 — 설치된 앱을 상대로 한 MCP, v0.1.5 설치본에서 뜨는 업데이트 카드, 클린 설치 온보딩.
 - 버전은 **0.2.0을 권한다.** 도구 표면 17개 라우트·MCP 서버·워크스페이스·이미지 라이브러리·서체·업데이트 알림·섹션 변형 58개는 패치가 아니다. 업데이트 카드의 `is_newer`는 어느 쪽이든 처리한다.
 
@@ -14,7 +14,7 @@
 
 | 주제 | 내용 | 근거 |
 |---|---|---|
-| **에이전트 도구 표면** | 권한 판정을 앱 안에 두는 `judge()`, 부팅 때 켜지는 브리지, 의미 단위 라우트(`contract` `apply` `tokens` `components` `library` `render` `guide` `connect`), **의존성 없는 MCP 서버 10개 도구**, Codex 지원, 산문으로 주는 가이드, 연결 요청 + 사람이 누르는 허용, WebKit 오프스크린 렌더 | `src/agent/*`, `mcp/aphrodite-mcp/`, `.mcp.json`, 모델 인더루프 3회차 `AGENT-TOOL-EVAL.md` |
+| **에이전트 도구 표면** | 권한 판정을 앱 안에 두는 `judge()`, 부팅 때 켜지는 브리지, 의미 단위 라우트(`contract` `apply` `tokens` `components` `library` `render` `guide` `connect`), **의존성 없는 MCP 서버 11개 도구**, Codex 지원, 산문으로 주는 가이드, 연결 요청 + 사람이 누르는 허용, WebKit 오프스크린 렌더 | `src/agent/*`, `mcp/aphrodite-mcp/`, `.mcp.json`, 모델 인더루프 3회차 `AGENT-TOOL-EVAL.md` |
 | **디자인 계약** | 실린 사실 5 → 14, 시맨틱 토큰(DTCG), OmD 그래프 임포터, 디자인 시스템에 한국어 서체 | `DESIGN-CONTRACT-SCOPE.md`, `src/design/tokens.ts` `omd.ts` `contract.ts` |
 | **카탈로그** | 섹션 변형 **23 → 58**(35종 · 변형 143 · 조합 1,025), 앱 없이 도는 렌더 게이트, 변형 이름 변경 마이그레이션 | `CATALOG-EVIDENCE.md`, `scripts/variant-gate.mjs` |
 | **홈·워크스페이스** | 워크스페이스 북, 키 기반 재조정(깜빡임 없음), 사이드바 접기, 카드 메뉴, 연결 **스위치**, 헤더 위계, 토스트 스택 | `src/workspace/*`, `grid-sync.ts` |
@@ -101,9 +101,9 @@ xcrun stapler validate Aphrodite_${V}_aarch64.dmg
 | 게이트 | 명령 | 지금 | 기준 |
 |---|---|---|---|
 | TS 단위 | `npm test` | 321 / 321 | 전부 통과. 건너뜀은 `lab/` 없을 때 GLB 하나뿐 |
-| Rust 단위 | `cd src-tauri && cargo test` | 32 / 32 (+2 ignored = 네트워크) | 전부 통과, 경고 0 |
+| Rust 단위 | `cd src-tauri && cargo test` | 31 / 31 (+2 ignored = 네트워크) | 전부 통과, 경고 0 |
 | 타입·번들 | `npm run build` | 통과 | 메인 청크 크기를 릴리즈 노트에 적는다 |
-| MCP 적합성 | `npm run verify:mcp` | 9 / 9 | 도구 10개가 매니페스트와 일치 |
+| MCP 적합성 | `npm run verify:mcp` | 9 / 9 | 도구 11개가 매니페스트와 일치 |
 | 변형 렌더 | `node scripts/variant-gate.mjs` + `GATE_FRAME=390 …` | 58 변형 × 2폭, 넘침 0 | 14장을 **사람이** 본다. 10분 |
 
 ### B. 자동 — 앱이 떠 있어야
@@ -125,7 +125,7 @@ xcrun stapler validate Aphrodite_${V}_aarch64.dmg
 (a) 게시 전: `package.json`을 임시로 `0.1.4`로 두고 로컬 `.app`을 빌드해 실행 → 카드가 **v0.1.5**를 권함 → 「받기」 → `~/Downloads`에 DMG, `koly` 검사 통과, 「열기」가 Finder에서 보여줌, 「이 버전 건너뛰기」 뒤엔 다시 안 뜸. (b) 게시 후: 실제 v0.1.5 설치본을 켜면 v0.2.0 카드가 뜸. `/releases/latest`는 draft를 건너뛰므로 **(b)는 게시 뒤에만 가능**하다.
 
 **M3 설치된 앱을 상대로 MCP** — dev 서버를 끄고 `/Applications/Aphrodite.app`으로.
-다른 폴더에서 `claude mcp add --scope user aphrodite -- node <절대경로>/mcp/aphrodite-mcp/index.mjs` → Claude Code에서: 가이드 읽기 → 쓰기 시도가 **423** → 연결 요청 → 사람이 허용 → 3개 op `apply`가 **⌘Z 하나**로 되돌아감 → `render`가 이미지 블록으로 옴. Codex도 `codex mcp add`로 같은 열 가지. 기준: 도구 10개 전부 응답, 허용 전 423 · 후 200.
+다른 폴더에서 `claude mcp add --scope user aphrodite -- node <절대경로>/mcp/aphrodite-mcp/index.mjs` → Claude Code에서: 가이드 읽기 → 쓰기 시도가 **423** → 연결 요청 → 사람이 허용 → 3개 op `apply`가 **⌘Z 하나**로 되돌아감 → `render`가 이미지 블록으로 옴. Codex도 `codex mcp add`로 같은 열 가지. 기준: 도구 11개 전부 응답, 허용 전 423 · 후 200.
 
 **M4 컴퓨터 유즈 시연** — `DEMO-ASTRA-5MIN.md` 대본을 릴리즈 빌드에서 한 번. 헤더·독이 바뀐 뒤 아무도 안 돌렸다. T8의 눈 검사 셋도 여기서: 연결 배너 생김새와 「되돌리기」 / 연결 모드에서 **사람이 타이핑하면** 에이전트가 409 / 에이전트 모드 차폐가 예전 그대로.
 

@@ -71,11 +71,13 @@ Aphrodite does not ship a model. The agent already on your machine drives it —
 
 | Agent | How it drives Aphrodite | Status |
 |---|---|:---:|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Shell → `curl` the loopback channel; reads the exported contract | ✅ |
-| [Codex CLI](https://github.com/openai/codex) | Shell → channel; Codex's **Run** uses `script/build_and_run.sh` | ✅ |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP server** — `claude mcp add …`, eleven tools; reads the exported contract | ✅ |
+| [Codex CLI](https://github.com/openai/codex) | **MCP server** — `codex mcp add …`; Codex's **Run** uses `script/build_and_run.sh` | ✅ |
 | Astra / computer-use agents | Screen and pointer before Agent mode; channel (shell) during it | ✅ |
 | Cursor, Copilot CLI, any CLI with a shell | `curl` the channel, or open the export ZIP | ✅ |
 | Browser harnesses (CDP, Playwright) | `window.aphroditeAgent.run()` in the web build | ✅ |
+
+The direct loopback channel (`curl`) is still there for anything with only a shell — [docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md).
 
 The contract for agents — stable `data-action` names, `#app[data-*]` state, the command palette, and what is refused while delegated — lives in [docs/COMPUTER-USE.md](docs/COMPUTER-USE.md). The channel routes (`state / command / act / click / edit / type / key / end`) are in [docs/AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md).
 
@@ -136,6 +138,19 @@ Node 22.12+, the Rust/Tauri toolchain, and the macOS Swift compiler (for the on-
 
 ## Use Aphrodite from your coding agent
 
+### Connect with MCP
+
+Claude Code, from this repository: a `.mcp.json` is already here — approve it when prompted. From anywhere else, and for Codex:
+
+```sh
+claude mcp add --transport stdio aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+codex mcp add aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+```
+
+Reading works whenever the app is open. Writing needs **Connected mode** — the switch in the home top row, which only a person turns on; an agent may ask for it (`aphrodite_request_connection`) and the person allows with one click. Every write is receipted and ⌘Z takes it back. The eleven tools are listed in [mcp/aphrodite-mcp/README.md](mcp/aphrodite-mcp/README.md).
+
+### Or the direct channel
+
 Start Agent mode in the app (dock → **Agent**, or key `3`). A golden shield locks the window for people; the app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` with a loopback port and a bearer token, and the agent console shows ready-made curl lines.
 
 ```sh
@@ -195,6 +210,7 @@ Contributions are not being taken yet — the shape is still moving too fast —
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Toolchain, scripts, tests, headless verification, signing, release process |
 | [COMPUTER-USE.md](docs/COMPUTER-USE.md) | The contract for agents driving the UI: actions, state, palette, delegation rules |
 | [AGENT-CHANNEL.md](docs/AGENT-CHANNEL.md) | The loopback channel and `window.aphroditeAgent` |
+| [aphrodite-mcp/README.md](mcp/aphrodite-mcp/README.md) | The MCP server: connecting it, the tools, and what it will not do |
 | [DEMO-ASTRA-5MIN.md](docs/DEMO-ASTRA-5MIN.md) | A scripted five-minute demo for a computer-use agent |
 | [APHRODITE-BRAND.md](docs/APHRODITE-BRAND.md) | Paper Muse — the studio's own identity (also in-app as the Brand Kit) |
 | [RELEASE-NOTES-v0.1.5.md](docs/RELEASE-NOTES-v0.1.5.md) | What changed, release by release |

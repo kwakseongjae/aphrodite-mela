@@ -29,7 +29,17 @@ Where things live: projects and the per-project vault are under `~/Library/Appli
 | Handoff | Press `2` for Dev mode; copy markup or page HTML | Read-only inspect panel |
 | Approve & export | Click **Approve direction**, then **Export** → **Download handoff .zip** | `PROMPT.md`, `DESIGN.md`, `tokens.json`, HTML with your images, project file |
 
-## 4 · Shortcuts
+## 4 · Connect your agent
+
+Aphrodite ships an MCP server with no dependencies, so Claude Code or Codex can read the design and change it in place.
+
+- **Claude Code, from this repository.** A `.mcp.json` is already here; approve it when prompted.
+- **Anywhere else.** `claude mcp add --transport stdio aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs`
+- **Codex.** `codex mcp add aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs`
+
+Reading works whenever the app is open. Changing the design needs **Connected mode** — the switch in the home top row, which only you can turn on; an agent may ask for it and you allow with one click. Every edit is receipted, ⌘Z takes it back, and the permission is remembered for twelve hours. The eleven tools are listed in [aphrodite-mcp/README.md](../mcp/aphrodite-mcp/README.md).
+
+## 5 · Shortcuts
 
 | Keys | Action |
 |---|---|
@@ -42,7 +52,7 @@ Where things live: projects and the per-project vault are under `~/Library/Appli
 | ⌘Z · ⇧⌘Z | Undo · redo |
 | ⌘⇧A | End Agent mode (the only key that works while an agent holds the screen) |
 
-## 5 · Troubleshooting
+## 6 · Troubleshooting
 
 - **The download page offered an older version.** Reload; the landing pins the current release and only upgrades from GitHub's *latest* pointer. All builds are on the [releases page](https://github.com/kwakseongjae/aphrodite-mela/releases).
 - **"Aphrodite can't be opened."** Only unsigned test builds trigger this. Released DMGs are notarized; if you built from source, right-click → Open once.
