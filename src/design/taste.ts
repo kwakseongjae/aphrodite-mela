@@ -212,16 +212,29 @@ export function parseTaste(markdown: string): Taste {
  * the current file does not. We only know that by being handed the file as it stands now, so the
  * caller passes `onFile` (what they left) and `lastDerived` (what we produced last time).
  */
+/**
+ * What a line is *about*, ignoring the numbers in it.
+ *
+ * A line reads "Atelier — 14 of 17 projects", and the count changes every time a project is added.
+ * Matching on the whole sentence meant a line the person had struck out came back the moment its
+ * number moved, which is worse than never having honoured the deletion at all: it looks like the app
+ * is arguing with them.
+ */
+function subject(text: string): string {
+  return text.split(' — ')[0].trim().toLowerCase();
+}
+
 export function mergeTaste(derived: Taste, onFile: Taste, lastDerived: Taste): Taste {
   const merged: Taste = {...derived, chosen: [], corrected: [], rejected: [], said: []};
   for (const {key} of SECTIONS) {
-    const kept = new Set(onFile[key].map(l => l.text));
-    const offered = new Set(lastDerived[key].map(l => l.text));
-    const removed = new Set([...offered].filter(text => !kept.has(text)));
-    merged[key] = derived[key].filter(l => !removed.has(l.text));
+    const kept = new Set(onFile[key].map(l => subject(l.text)));
+    const offered = new Set(lastDerived[key].map(l => subject(l.text)));
+    const removed = new Set([...offered].filter(s => !kept.has(s)));
+    merged[key] = derived[key].filter(l => !removed.has(subject(l.text)));
     // Lines the person wrote themselves survive untouched, at the end.
     for (const line of onFile[key]) {
-      if (!merged[key].some(l => l.text === line.text) && !offered.has(line.text)) merged[key].push(line);
+      const own = subject(line.text);
+      if (!merged[key].some(l => subject(l.text) === own) && !offered.has(own)) merged[key].push(line);
     }
   }
   return merged;
@@ -245,13 +258,21 @@ export type OrderedDirection = Direction & {familiar: boolean; against: boolean}
 export function orderDirections<T extends Direction>(
   directions: readonly T[],
   taste: Taste,
+  kind = 'hero',
 ): (T & {familiar: boolean; against: boolean})[] {
   const plain = directions.map(d => ({...d, familiar: false, against: false}));
   if (taste.consent === 'off' || !taste.chosen.length || plain.length < 2) return plain;
 
-  // A direction is familiar when its variant is named in something they have chosen before.
-  const mentions = (variant: string): number =>
-    taste.chosen.filter(line => line.text.toLowerCase().includes(variant.toLowerCase())).reduce((sum, l) => sum + l.count, 0);
+  /* A direction is familiar when its variant is named in something they have chosen before — for
+     *this* component. Variant names repeat across kinds: `stacked` belongs to heroes, navigations
+     and footers, `split` to heroes and calls to action. Matching the bare word let a footer habit
+     reorder the three heroes, which is a recommendation drawn from the wrong evidence. */
+  const mentions = (variant: string): number => {
+    const named = `${kind}:${variant}`.toLowerCase();
+    return taste.chosen
+      .filter(line => line.text.toLowerCase().startsWith(named))
+      .reduce((sum, l) => sum + l.count, 0);
+  };
   const scored = plain.map(d => ({d, score: mentions(d.variant)}));
   if (scored.every(s => s.score === 0)) return plain; // nothing to say; leave it alone
 

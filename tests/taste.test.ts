@@ -109,6 +109,17 @@ const three=[{variant:'split',name:'Editorial balance'},{variant:'image-left',na
 const withChosen=(...texts:string[])=>({...EMPTY,consent:'global' as const,
   chosen:texts.map((text,i)=>({text,count:i===0?6:2,evidence:['p1']}))});
 
+/* Variant names repeat across kinds — `stacked` is a hero, a navigation and a footer. Evidence from
+   one component must not order another's. */
+test('a habit in another component does not reorder these directions',()=>{
+  const footerOnly=withChosen('footer:stacked — used in 6 projects','navigation:split — used in 4 projects');
+  const out=orderDirections(three,footerOnly);
+  assert.deepEqual(out.map(d=>d.variant),three.map(d=>d.variant),'nothing here is about heroes');
+  assert.equal(out.filter(d=>d.against).length,0);
+  const heroOnly=withChosen('hero:stacked — used in 6 projects');
+  assert.equal(orderDirections(three,heroOnly)[0].variant,'stacked','hero evidence does order heroes');
+});
+
 /**
  * The rule the feature stands or falls on: taste may reorder what someone is offered, and may never
  * remove anything. A tool that only shows you what you already like is a mirror, not a workbench.
@@ -137,4 +148,29 @@ test('with no consent, or nothing recognised, the order is left alone',()=>{
 test('the odd one out is labelled in the person\'s language',()=>{
   assert.match(againstLabel(true),/평소/);
   assert.match(againstLabel(false),/usually/);
+});
+
+/*
+ * The struck-out rule only works if we remember what we offered last time. Passing the file as both
+ * "what they left" and "what we offered" makes every deletion invisible — which is what the app did
+ * until this test existed: the unit test passed while the feature did nothing.
+ */
+test('without the previous derivation, a deletion cannot be seen — so it must be supplied',()=>{
+  const derived=deriveTaste(projects(),runs(),'global','','2026-09-16');
+  const onFile=parseTaste(renderTaste(derived));
+  const struck={...onFile,chosen:onFile.chosen.filter(l=>!l.text.startsWith('Atelier'))};
+  const wrong=mergeTaste(derived,struck,struck);
+  assert.ok(wrong.chosen.some(l=>l.text.startsWith('Atelier')),'this is the broken wiring, kept here as the contrast');
+  const right=mergeTaste(derived,struck,derived);
+  assert.ok(!right.chosen.some(l=>l.text.startsWith('Atelier')),'given what we offered, the deletion holds');
+});
+
+test('a new observation still arrives after a deletion',()=>{
+  const before=deriveTaste(projects(),[],'global','','2026-09-16');
+  const onFile=parseTaste(renderTaste(before));
+  const struck={...onFile,chosen:onFile.chosen.filter(l=>!l.text.startsWith('Atelier'))};
+  const later=deriveTaste([...projects(),{id:'p4',systemName:'Mono',font:'sans'},{id:'p5',systemName:'Mono',font:'sans'}],[],'global','','2026-09-17');
+  const merged=mergeTaste(later,struck,before);
+  assert.ok(merged.chosen.some(l=>l.text.startsWith('Mono')),'something we never offered before is not treated as struck out');
+  assert.ok(!merged.chosen.some(l=>l.text.startsWith('Atelier')),'and the deletion still holds');
 });

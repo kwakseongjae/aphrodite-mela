@@ -112,6 +112,9 @@ let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
 /* The reference archive. Held in memory only as a cache of what Rust has on disk; the folder is the
    truth, so every change reloads rather than patching this list. */
 let references:Reference[]=[];
+/** Which project the list above belongs to. Without this, opening a second project showed the
+    first one's archive until something happened to force a reload. */
+let referencesFor='';
 let referenceScope:ReferenceScope='all';
 const posterCache=new Map<string,string>();
 /* taste.md — off unless the person turns it on. The file is the record; this only reads and writes it.
@@ -124,6 +127,13 @@ async function readTaste():Promise<{markdown:string;taste:Taste}>{
     tasteFile=got.markdown?parseTaste(got.markdown):EMPTY_TASTE;
     return {markdown:got.markdown,taste:tasteFile};
   }catch{return {markdown:'',taste:EMPTY_TASTE};}
+}
+/** What we produced last time. Without it a line they struck out cannot be told from a new one. */
+async function readLastDerived():Promise<Taste>{
+  try{
+    const got=await invoke<{markdown:string}>('taste_read',{project:undefined,file:'taste.derived.json'});
+    return got.markdown?{...EMPTY_TASTE,...JSON.parse(got.markdown)}:EMPTY_TASTE;
+  }catch{return EMPTY_TASTE;}
 }
 function tasteSignals(){
   const projects=library.entries.map(e=>({
@@ -156,9 +166,13 @@ async function setTasteConsent(next:TasteConsent){
   const since=onFile.since||today;
   const {projects,runs}=tasteSignals();
   const derived=deriveTaste(projects,runs,next,since,today);
-  const merged=onFile.consent==='off'?derived:mergeTaste(derived,onFile,onFile);
-  try{await invoke('taste_write',{project:undefined,markdown:renderTaste(merged)});}
-  catch(error){toast(String(error));return;}
+  const lastDerived=await readLastDerived();
+  const merged=onFile.consent==='off'?derived:mergeTaste(derived,onFile,lastDerived);
+  try{
+    await invoke('taste_write',{project:undefined,markdown:renderTaste(merged)});
+    // Remember this derivation, so next time a missing line reads as a deletion rather than as news.
+    await invoke('taste_write',{project:undefined,file:'taste.derived.json',markdown:JSON.stringify(derived)});
+  }catch(error){toast(String(error));return;}
   toast(ui('Written to taste.md. Open it any time; delete any line.','taste.md에 적었습니다. 언제든 열어 보고, 아무 줄이나 지우세요.'));
   tasteModal();
 }
@@ -183,10 +197,10 @@ async function tasteModal(){
 
 async function loadReferences(force=false){
   if(!nativeDesktop)return;
-  if(references.length&&!force)return;
+  if(referencesFor===project.id&&!force)return;
   try{
     const got=await invoke<{entries:Reference[]}>('references_list',{project:project.id});
-    references=got.entries??[];
+    references=got.entries??[];referencesFor=project.id;
   }catch{/* the folder is the person's; an unreadable one is an empty archive, not an error */}
 }
 /** Posters come back as data URLs one at a time, the way local pictures do. */
