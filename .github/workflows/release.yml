@@ -73,6 +73,10 @@ jobs:
       # later, so make it first: on a fresh runner it is not there yet and cargo stops at
       # "resource path bin/aphrodite-vision-… doesn't exist".
       - name: Build the Vision sidecar
+        env:
+          # Without the triple the script names the file after the runner's own architecture, so
+          # the Intel job built an aarch64 sidecar and cargo still could not find its own.
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
         run: node scripts/build-vision.mjs
 
       - name: Run Rust tests
