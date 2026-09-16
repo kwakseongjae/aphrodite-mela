@@ -39,3 +39,22 @@ test('local brief composition is deterministic and produces distinct structures'
   assert.notDeepEqual(assemble('가구 쇼핑몰'), assemble('SaaS landing page'));
   assert.equal(makeBlock('hero').filled, false); assert.equal(makeBlock('hero', true).image, '/assets/interior.jpg');
 });
+
+/* Renaming a layout bricked every project that had saved it: the loader refused the whole file,
+   the home screen came back empty, and the app stopped before it could start the agent bridge.
+   A rename is a migration — and only a rename: an unknown variant is still refused. */
+test('a renamed layout opens under its new name, and only a rename is forgiven', () => {
+  const p = initialProject();
+  const cta = makeBlock('cta', true);
+  cta.variant = 'halves' as never;              // renamed to `panel` on 2026-09-16
+  cta.title = '사람이 쓴 제목';
+  currentPage(p).blocks.push(cta);
+  const back = parseProject(JSON.stringify(p)).pages[0].blocks.find(b => b.kind === 'cta')!;
+  assert.equal(back.variant, 'panel');
+  assert.equal(back.title, '사람이 쓴 제목');   // the words survive the rename
+  for (const variant of ['week', 'nope', 'bad" onclick="alert(1)']) {   // never renamed, still refused
+    const bad = initialProject();
+    currentPage(bad).blocks.push({ ...makeBlock('cta', true), variant: variant as never });
+    assert.throws(() => parseProject(JSON.stringify(bad)), /변형/, variant);
+  }
+});

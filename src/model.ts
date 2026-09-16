@@ -84,6 +84,11 @@ export function assemble(brief: string): BlockKind[] {
 export function safeImage(value: string) {
   return /^data:image\/(png|jpeg|webp);base64,[a-zA-Z0-9+/=]+$/.test(value) || /^\/assets\/(interior|chair|living)\.jpg$/.test(value) || value==='/assets/lighting-hero.png' || isSampleSrc(value) || isLocalRef(value) ? value : '';
 }
+/* Layouts that changed name. Kept small and explicit: each line is one rename we shipped, and
+   dropping a line would make every project saved before it unopenable. */
+const renamedVariants: Record<string, Record<string, string>> = {
+  cta: { halves: 'panel' },   // 2026-09-16 · collided with the `split` cta that was already there
+};
 export function parseProject(raw: string): Project {
   if (raw.length > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
@@ -126,6 +131,10 @@ export function parseProject(raw: string): Project {
       if(b.description!==undefined&&(b.kind!=='products'||!str(b.description,2000)))throw new Error('Invalid collection description');
       if(b.itemImages!==undefined&&(b.kind!=='products'||!Array.isArray(b.itemImages)||b.itemImages.length>30||!b.itemImages.every(image=>str(image,4_000_000)&&(image===''||!!safeImage(image)))))throw new Error('Invalid collection images');
       if ((b.provider!==undefined && !supportsProvider(b.provider,b.kind)) || (b.layout!==undefined && !validLayout(b.layout)) || (b.parentId!==undefined && !validId(b.parentId))) throw new Error('라이브러리 또는 레이아웃 설정이 올바르지 않습니다.');
+      // Renaming a layout is a migration, not a loosening: a name we retired is rewritten so the
+      // saved project still opens, while anything else unknown is still refused below — a button
+      // may not carry a calendar's variant, and a variant may not carry an onclick.
+      if (typeof b.variant === 'string' && renamedVariants[b.kind]?.[b.variant]) b.variant = renamedVariants[b.kind][b.variant];
       if ((b.variant !== undefined && !patternVariants(b.kind).includes(b.variant)) || (b.eyebrow !== undefined && !str(b.eyebrow, 200)) || (b.options !== undefined && !validOptions(b.options, b.kind))) throw new Error('컴포넌트 변형이 올바르지 않습니다.');
     }
     if (!validateTree(page.blocks)) throw new Error('프레임 중첩이 올바르지 않습니다 (순환/누락/깊이 초과).');
