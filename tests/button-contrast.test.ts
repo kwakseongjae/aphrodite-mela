@@ -83,3 +83,20 @@ test('the hero variants a person can pick all exist in the stylesheet',async()=>
     assert.match(css,new RegExp(`\\.site-hero\\[data-variant="${variant}"\\]`),`${variant} is offered but never styled`);
   }
 });
+
+/* A duplicate id slipped past every test once: renaming a new CTA variant collided with the
+   `split` that was already there, so the picker offered the same word twice and two rule sets
+   fought over it. Names are part of the contract — check them for all seven section kinds. */
+test('every section variant a person can pick is named once and styled',async()=>{
+  const {patternVariants}=await import('../src/patterns');
+  const selector:Record<string,string>={navigation:'nav',hero:'hero',features:'features',products:'products',testimonial:'testimonial',cta:'cta',footer:'footer'};
+  for(const kind of Object.keys(selector)){
+    const declared=patternVariants(kind);
+    assert.equal(new Set(declared).size,declared.length,`${kind} lists the same variant twice: ${declared.join(', ')}`);
+    assert.ok(declared.length>=8,`${kind} offers only ${declared.length} variants`);
+    for(const variant of declared){
+      if(variant==='default'||(kind==='hero'&&variant==='split'))continue; // the base layout, styled by the element itself
+      assert.match(css,new RegExp(`\\.site-${selector[kind]}\\[data-variant="${variant}"\\]`),`${kind}·${variant} is offered but never styled`);
+    }
+  }
+});
