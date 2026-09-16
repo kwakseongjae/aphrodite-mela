@@ -10,7 +10,7 @@
   <a href="docs/QUICKSTART.md">Quick start</a> ·
   <a href="docs/AGENT-CHANNEL.md">Agent channel</a> ·
   <a href="docs/COMPUTER-USE.md">Computer-use contract</a> ·
-  <a href="docs/RELEASE-NOTES-v0.1.5.md">Release notes</a>
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest">Release notes</a>
 </p>
 
 <p align="center">
@@ -213,7 +213,7 @@ Contributions are not being taken yet — the shape is still moving too fast —
 | [aphrodite-mcp/README.md](mcp/aphrodite-mcp/README.md) | The MCP server: connecting it, the tools, and what it will not do |
 | [DEMO-ASTRA-5MIN.md](docs/DEMO-ASTRA-5MIN.md) | A scripted five-minute demo for a computer-use agent |
 | [APHRODITE-BRAND.md](docs/APHRODITE-BRAND.md) | Paper Muse — the studio's own identity (also in-app as the Brand Kit) |
-| [RELEASE-NOTES-v0.1.5.md](docs/RELEASE-NOTES-v0.1.5.md) | What changed, release by release |
+| [docs/](docs/) · `RELEASE-NOTES-v*.md` | What changed, release by release |
 
 ---
 

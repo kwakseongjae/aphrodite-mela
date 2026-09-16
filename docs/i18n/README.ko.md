@@ -10,7 +10,7 @@
   <a href="../QUICKSTART.md">빠른 시작</a> ·
   <a href="../AGENT-CHANNEL.md">에이전트 채널</a> ·
   <a href="../COMPUTER-USE.md">컴퓨터 유즈 계약</a> ·
-  <a href="../RELEASE-NOTES-v0.1.5.md">릴리스 노트</a>
+  <a href="https://github.com/kwakseongjae/aphrodite-mela/releases/latest">릴리스 노트</a>
 </p>
 
 <p align="center">
@@ -212,7 +212,7 @@ Aphrodite는 한 사람이 에이전트 무리와 함께 공개적으로 만드�
 | [aphrodite-mcp/README.md](../../mcp/aphrodite-mcp/README.md) | MCP 서버: 연결 방법, 도구 목록, 하지 않는 일 |
 | [DEMO-ASTRA-5MIN.md](../DEMO-ASTRA-5MIN.md) | 컴퓨터 유즈 에이전트를 위한 5분 시연 대본 |
 | [APHRODITE-BRAND.md](../APHRODITE-BRAND.md) | Paper Muse — 스튜디오의 아이덴티티(앱 안 브랜드 리소스와 동일) |
-| [RELEASE-NOTES-v0.1.5.md](../RELEASE-NOTES-v0.1.5.md) | 릴리스별 변경 사항 |
+| [docs/](..) · `RELEASE-NOTES-v*.md` | 릴리스별 변경 사항 |
 
 ---
 

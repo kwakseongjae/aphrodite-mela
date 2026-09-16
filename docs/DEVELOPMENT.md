@@ -71,7 +71,7 @@ npx vite preview --port 4173 --strictPort --host 127.0.0.1 &
 ## Release
 
 1. Bump the version in five places: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` (the `aphrodite-mela` entry), `src-tauri/tauri.conf.json`, `site/script.js` (`VERSION`). The status bar reads it from `package.json` at build time; the landing pins its download buttons to a direct DMG URL and only upgrades from GitHub's *latest* pointer, never below the pin (GitHub's `/releases/latest` skips drafts, which once served an old build). Miss one and the app, the bundle and the download page disagree.
-2. Write `docs/RELEASE-NOTES-v<version>.md` and add a checkpoint to `docs/BETA-ROADMAP.md`.
+2. Write `docs/RELEASE-NOTES-v<version>.md` — CI reads this file into the GitHub release body **and** into `latest.json`, which is what the update card shows as "what changed", so it is not optional decoration. Both READMEs link to the releases page rather than a pinned file, so nothing else needs touching and add a checkpoint to `docs/BETA-ROADMAP.md`.
 3. Commit, tag `v<version>`, push both. `.github/workflows/release.yml` builds Apple Silicon and Intel, signs with the Developer ID, notarizes and staples the app and the DMG, and attaches both DMGs to a **draft** release.
 4. Publish: `gh release edit v<version> --draft=false --latest --title "Aphrodite v<version>" --notes-file docs/RELEASE-NOTES-v<version>.md`.
 5. Verify from a quarantined download: `xattr -w com.apple.quarantine …`, `spctl -a -t open --context context:primary-signature -v`, `xcrun stapler validate`, mount and read `CFBundleShortVersionString`.
