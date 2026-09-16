@@ -88,6 +88,7 @@ export function safeImage(value: string) {
    dropping a line would make every project saved before it unopenable. */
 const renamedVariants: Record<string, Record<string, string>> = {
   cta: { halves: 'panel' },   // 2026-09-16 · collided with the `split` cta that was already there
+  moacard: { cover: 'banner' }, // 2026-09-16 · a task card has no picture; what it does is run the tag to the edge
 };
 export function parseProject(raw: string): Project {
   if (raw.length > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.');

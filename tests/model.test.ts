@@ -58,3 +58,16 @@ test('a renamed layout opens under its new name, and only a rename is forgiven',
     assert.throws(() => parseProject(JSON.stringify(bad)), /변형/, variant);
   }
 });
+
+/*
+ * A name is a contract, and `cover` broke it: a task card has no picture, so the variant that
+ * promised one actually ran the project tag to the card's edge. It shipped in v0.2.2, so a project
+ * saved with it has to keep opening.
+ */
+test('a card saved as cover opens as banner',()=>{
+  const p=initialProject();
+  const page=p.pages[0];
+  page.blocks=[{...makeBlock('moacard',true),variant:'cover'}];
+  const back=parseProject(JSON.stringify(p));
+  assert.equal(back.pages[0].blocks[0].variant,'banner');
+});

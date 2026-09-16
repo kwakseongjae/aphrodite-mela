@@ -73,14 +73,15 @@
 [data-variant="split"].moa-toolbar .moa-heading>*:last-child{margin-left:auto}
 
 /* Card ─ compact: a lane that shows more of itself at once.
-   cover: the media first, for a board that is about pictures.
+   banner: the project tag runs to the card edge. It was called `cover` for one release, which
+   promised a picture a task card does not have — a name is a contract.
    bare: no box, for a list that is already ruled. */
 [data-variant="compact"].moa-card{min-height:0;padding:9px 10px}
 [data-variant="compact"].moa-card h4{font-size:13px;margin-bottom:4px}
-[data-variant="cover"].moa-card{padding:0;overflow:hidden}
-[data-variant="cover"].moa-card>*{padding-left:11px;padding-right:11px}
-[data-variant="cover"].moa-card>*:first-child{padding:0;margin:0 0 9px}
-[data-variant="cover"].moa-card>*:last-child{padding-bottom:11px}
+[data-variant="banner"].moa-card{padding:0;overflow:hidden}
+[data-variant="banner"].moa-card>*{padding-left:11px;padding-right:11px}
+[data-variant="banner"].moa-card>*:first-child{padding:0;margin:0 0 9px}
+[data-variant="banner"].moa-card>*:last-child{padding-bottom:11px}
 [data-variant="bare"].moa-card{border:0;border-radius:0;box-shadow:none;background:transparent;padding:10px 2px;min-height:0;border-bottom:1px solid #e9edf4}
 
 /* Detail ─ sheet: a panel that floats over the board.
