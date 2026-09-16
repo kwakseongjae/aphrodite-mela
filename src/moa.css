@@ -34,3 +34,57 @@
 .moa-check input{accent-color:var(--brand)}
 .moa-views button[aria-pressed=true],.moa-sidebar nav strong{color:var(--brand)}
 .moa-sidebar nav strong{background:color-mix(in srgb,var(--brand) 9%,white)}
+
+/* App recipe variants. Four shapes each, and the markup does not move — the same rule the section
+   expansion followed, for the same reason: someone who changes the layout must not lose the words
+   they wrote. An app screen is not one shape, and shipping one demo is not a vocabulary. */
+
+/* Sidebar ─ rail: icons only, for a shell that gives the content the width.
+   grouped: labelled sections, for an app with more than one area.
+   quiet: no chrome, for a shell that already has a border. */
+/* rail: the narrow sidebar. It was 68px and icon-only on paper, but the labels live in the same
+   text node as their glyph, and CSS cannot split a text node — at 68px every label wrapped into a
+   column of single syllables. A variant that cannot be read is not a variant, so rail is as narrow
+   as it can be while its words still fit on their line, and anything longer is cut with an ellipsis
+   rather than stacked. */
+[data-variant="rail"].moa-sidebar{width:152px;padding:20px 10px}
+[data-variant="rail"].moa-sidebar .moa-logo{margin-bottom:20px;font-size:18px;gap:7px}
+[data-variant="rail"].moa-sidebar *{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-variant="rail"].moa-sidebar .moa-team{flex-direction:column;align-items:flex-start;gap:3px;padding:8px 9px;font-size:11px;margin-bottom:14px}
+[data-variant="rail"].moa-sidebar nav{gap:3px;margin-bottom:22px}
+[data-variant="rail"].moa-sidebar nav>*{padding:8px 9px;font-size:12px}
+[data-variant="grouped"].moa-sidebar nav{gap:2px;padding-top:10px;border-top:1px solid #e6eaf0}
+[data-variant="grouped"].moa-sidebar nav>*{padding:9px 12px;border-radius:6px}
+[data-variant="grouped"].moa-sidebar nav strong{background:#eef3fb;color:#1c4fbd}
+[data-variant="grouped"].moa-sidebar .moa-team{border:0;background:#eef2f8;margin-bottom:14px}
+[data-variant="quiet"].moa-sidebar{background:transparent;border-right:0;padding-left:0}
+[data-variant="quiet"].moa-sidebar .moa-team{border:0;padding-left:0}
+[data-variant="quiet"].moa-sidebar nav strong{background:transparent;color:#152039;font-weight:700}
+
+/* Toolbar ─ stacked: the title above its controls, for a narrow shell.
+   dense: one line, for a screen that is mostly table.
+   split: title left, controls hard right. */
+[data-variant="stacked"].moa-toolbar .moa-heading{flex-direction:column;align-items:flex-start;gap:10px;padding:16px 0}
+[data-variant="stacked"].moa-toolbar .moa-breadcrumb{flex-wrap:wrap;min-height:0;padding:12px 0}
+[data-variant="dense"].moa-toolbar .moa-heading{padding:10px 0;gap:6px}
+[data-variant="dense"].moa-toolbar .moa-breadcrumb{min-height:42px}
+[data-variant="dense"].moa-toolbar h1{font-size:18px}
+[data-variant="split"].moa-toolbar .moa-heading{justify-content:space-between}
+[data-variant="split"].moa-toolbar .moa-heading>*:last-child{margin-left:auto}
+
+/* Card ─ compact: a lane that shows more of itself at once.
+   cover: the media first, for a board that is about pictures.
+   bare: no box, for a list that is already ruled. */
+[data-variant="compact"].moa-card{min-height:0;padding:9px 10px}
+[data-variant="compact"].moa-card h4{font-size:13px;margin-bottom:4px}
+[data-variant="cover"].moa-card{padding:0;overflow:hidden}
+[data-variant="cover"].moa-card>*{padding-left:11px;padding-right:11px}
+[data-variant="cover"].moa-card>*:first-child{padding:0;margin:0 0 9px}
+[data-variant="cover"].moa-card>*:last-child{padding-bottom:11px}
+[data-variant="bare"].moa-card{border:0;border-radius:0;box-shadow:none;background:transparent;padding:10px 2px;min-height:0;border-bottom:1px solid #e9edf4}
+
+/* Detail ─ sheet: a panel that floats over the board.
+   plain: no border, for a shell that is already two columns. */
+[data-variant="sheet"].moa-detail{margin:10px;border:1px solid #e5eaf2;border-radius:12px;box-shadow:0 18px 44px -24px #19304d40;min-height:0}
+[data-variant="plain"].moa-detail{border-left:0;background:transparent;padding-left:6px}
+

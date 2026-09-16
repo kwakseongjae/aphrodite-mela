@@ -100,3 +100,21 @@ test('every section variant a person can pick is named once and styled',async()=
     }
   }
 });
+
+/* The same contract, for the app recipes. They shipped as one shape each — a single demo, not a
+   vocabulary — so an app screen could only ever look one way. Now that they have variants, the
+   picker must not offer one that nothing paints. */
+test('every app recipe variant a person can pick is named once and styled',async()=>{
+  const {patternVariants}=await import('../src/patterns');
+  const moa=readFileSync(new URL('../src/moa.css',import.meta.url),'utf8');
+  const selector:Record<string,string>={moasidebar:'sidebar',moatoolbar:'toolbar',moacard:'card',moadetail:'detail'};
+  for(const kind of Object.keys(selector)){
+    const declared=patternVariants(kind);
+    assert.equal(new Set(declared).size,declared.length,`${kind} lists the same variant twice: ${declared.join(', ')}`);
+    assert.ok(declared.length>=3,`${kind} offers only ${declared.length} variants — one shape is a demo, not a catalogue`);
+    for(const variant of declared){
+      if(variant==='default')continue; // the base layout, styled by the class itself
+      assert.match(moa,new RegExp(`\\[data-variant="${variant}"\\]\\.moa-${selector[kind]}`),`${kind}·${variant} is offered but never styled`);
+    }
+  }
+});

@@ -14,18 +14,23 @@ import {rm} from 'node:fs/promises';
 const OUT=process.env.GATE_OUT||'/private/tmp/claude-501/-Users-kwakseongjae-Desktop-projects-aphrodite-mela/c5bc87cf-268b-4dec-a461-59e658cf97bd/scratchpad';
 const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const KINDS=['navigation','hero','features','products','testimonial','cta','footer'];
+/* App recipes only make sense inside their shell: a card outside a lane stretches to the page and
+   every variant looks the same, which is a harness that passes things nobody could see. Each
+   variant gets its own real workspace, and the shot shows them stacked. */
+const APP_KINDS=['moasidebar','moatoolbar','moacard','moadetail'];
 const FRAME=Number(process.env.GATE_FRAME||0);
 /* Hold the container width in CSS rather than trusting the window: a tall headless window does
    not lay out at the width you asked for, and the phone shot silently came back at ~490px. */
 const SHOTS=FRAME?[{container:FRAME,height:12000,loose:true}]:[{container:1440,height:7000},{container:390,height:12000}];
 
-await writeFile('/tmp/gate-entry.ts',`export {pageHtml} from '${resolve('src/render.ts')}';\nexport {initialProject,makeBlock} from '${resolve('src/model.ts')}';\nexport {patternVariants} from '${resolve('src/patterns.ts')}';\n`);
+await writeFile('/tmp/gate-entry.ts',`export {pageHtml} from '${resolve('src/render.ts')}';\nexport {moaPage} from '${resolve('src/moa.ts')}';
+export {initialProject,makeBlock} from '${resolve('src/model.ts')}';\nexport {patternVariants} from '${resolve('src/patterns.ts')}';\n`);
 const bundled=await build({entryPoints:['/tmp/gate-entry.ts'],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent',plugins:[{
   name:'raw-assets',setup(b){
     b.onResolve({filter:/\?raw$/},a=>({path:resolve(a.resolveDir,a.path.slice(0,-4)),namespace:'raw'}));
     b.onLoad({filter:/.*/,namespace:'raw'},async a=>({contents:await readFile(a.path,'utf8'),loader:'text'}));
   }}]});
-const {pageHtml,initialProject,makeBlock,patternVariants}=await import('data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].contents).toString('base64'));
+const {pageHtml,initialProject,makeBlock,patternVariants,moaPage}=await import('data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].contents).toString('base64'));
 
 await mkdir(OUT,{recursive:true});
 
@@ -66,7 +71,26 @@ const wanted=process.argv.slice(2).length?process.argv.slice(2):KINDS;
 for(const kind of wanted){
   const project=initialProject();
   const page=project.pages[0];
-  page.blocks=patternVariants(kind).map(variant=>{
+  if(APP_KINDS.includes(kind)){
+    page.blocks=[];
+    for(const variant of patternVariants(kind)){
+      const shell=moaPage();
+      const idOf=new Map();
+      for(const b of shell.blocks){
+        // A suffix, not a prefix: the app derives a visible task code from the first characters of
+        // an id, and a prefix made every shot read MOA-DEFAUL.
+        const fresh=`${b.id}-${variant}`;idOf.set(b.id,fresh);
+      }
+      for(const b of shell.blocks){
+        b.id=idOf.get(b.id);
+        if(b.parentId)b.parentId=idOf.get(b.parentId);
+        if(b.kind===kind){b.variant=variant;if(b.kind==='moatoolbar')b.title=`${kind} · ${variant}`;}
+      }
+      const root=shell.blocks.find(b=>!b.parentId);
+      if(root)root.title=`${kind} · ${variant}`;
+      page.blocks.push(...shell.blocks);
+    }
+  }else page.blocks=patternVariants(kind).map(variant=>{
     const b=makeBlock(kind,true);   // real copy and a real item count, or multi-column variants cannot be judged
     b.variant=variant;
     if('title' in b&&typeof b.title==='string')b.title=`${kind} · ${variant}`;
