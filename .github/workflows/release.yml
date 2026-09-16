@@ -69,6 +69,12 @@ jobs:
 
       # The Rust half — the bridge's route table, the vault's pruning, the updater's version
       # comparison and its disk-image check — was only ever verified on the author's Mac.
+      # The crate's build script wants the Vision sidecar to exist, and tauri-action builds it
+      # later, so make it first: on a fresh runner it is not there yet and cargo stops at
+      # "resource path bin/aphrodite-vision-… doesn't exist".
+      - name: Build the Vision sidecar
+        run: node scripts/build-vision.mjs
+
       - name: Run Rust tests
         working-directory: src-tauri
         run: cargo test --target ${{ matrix.target }}
