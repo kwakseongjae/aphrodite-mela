@@ -67,3 +67,44 @@ test('a poster is requested through the app, never as a file path',()=>{
   assert.match(html,new RegExp(`src="${posterRef('ab12cd34ef567890')}"`));
   assert.doesNotMatch(html,/file:|\.\.\//);
 });
+
+import {parseAgentCommand} from '../src/agent/bridge';
+import {isRead,isWrite,gateFor} from '../src/agent/authority';
+
+/**
+ * Reading the archive is a read — an agent must be able to see what was kept without the door being
+ * opened. Putting something *into* it is a write, because the archive is the person's.
+ */
+test('looking is a read, keeping is a write',()=>{
+  assert.equal(isRead('references'),true);
+  assert.equal(isWrite('references'),false);
+  assert.equal(isWrite('keep'),true);
+  assert.equal(isRead('keep'),false);
+  assert.equal(gateFor({kind:'keep'}),'keep');
+});
+
+test('keep takes an address, a title or a note, and refuses nothing at all',()=>{
+  const bad=parseAgentCommand('keep',{});
+  assert.match('error' in bad?bad.error:'',/something to keep/);
+  const ok=parseAgentCommand('keep',{url:'https://example.com',tags:['a','b']});
+  assert.ok('command' in ok);
+  const noted=parseAgentCommand('keep',{note:'the grid breathes'});
+  assert.ok('command' in noted,'a note with no address is still worth keeping');
+});
+
+test('an address a browser would not open is refused',()=>{
+  for(const url of ['javascript:alert(1)','file:///etc/passwd','ftp://x/y']){
+    const out=parseAgentCommand('keep',{url});
+    assert.ok('error' in out,`${url} should be refused`);
+  }
+});
+
+test('keep defaults to this project, and tags are cleaned at the edge',()=>{
+  const out=parseAgentCommand('keep',{url:'https://example.com',tags:['  a  ','','b','x'.repeat(90),...Array.from({length:30},(_,i)=>`t${i}`)]});
+  assert.ok('command' in out);
+  const command=out.command as {scope:string;tags:string[]};
+  assert.equal(command.scope,'project','an agent keeps things with the project unless it says otherwise');
+  assert.equal(command.tags.length,12);
+  assert.equal(command.tags[0],'a');
+  assert.equal(command.tags[2].length,40);
+});

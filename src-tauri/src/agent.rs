@@ -87,6 +87,8 @@ pub const ROUTES: &[&str] = &[
     "POST /agent/command",
     "POST /agent/edit",
     "POST /agent/library",
+    "GET /agent/references",
+    "POST /agent/keep",
     "POST /agent/end",
 ];
 
@@ -207,6 +209,8 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                 (Method::Post, "/agent/command") => "command",
                 (Method::Post, "/agent/edit") => "edit",
                 (Method::Post, "/agent/library") => "library",
+                (Method::Get, "/agent/references") => "references",
+                (Method::Post, "/agent/keep") => "keep",
                 (Method::Post, "/agent/end") => "end",
                 _ => {
                     respond(

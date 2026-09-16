@@ -21,6 +21,8 @@ export type AgentCommand=
   |{kind:'command';query:string}
   |{kind:'edit';field:EditableField;text:string;blockId?:string}
   |{kind:'library';action:LibraryAction;id?:string;name?:string;base64?:string;scope?:'project'|'global'}
+  |{kind:'references'}
+  |{kind:'keep';url?:string;title?:string;note?:string;tags?:string[];scope?:'project'|'global'}
   |{kind:'end'};
 
 export const libraryActions=['list','delete','import'] as const;
@@ -101,6 +103,20 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       const query=str(p.query,200);
       if(!query||!query.trim())return {error:'command needs "query" (palette search text)'};
       return {command:{kind:'command',query:query.trim()}};
+    }
+    case 'references': return {command:{kind:'references'}};
+    /* Keeping what an agent found is a write: the archive is the person's, and something arriving in
+       it without their say-so is exactly what the door is for. */
+    case 'keep':{
+      const url=str(p.url,2000)??'';
+      const title=str(p.title,300)??'';
+      const note=str(p.note,4000)??'';
+      if(url&&!/^https?:\/\//i.test(url))return {error:'keep needs an http or https "url", or no url at all'};
+      if(!url&&!title&&!note)return {error:'keep needs a "url", a "title" or a "note" — something to keep'};
+      const rawTags=Array.isArray(p.tags)?p.tags:[];
+      const tags=rawTags.filter((t):t is string=>typeof t==='string').map(t=>t.trim().slice(0,40)).filter(Boolean).slice(0,12);
+      const scope=p.scope==='global'?'global' as const:'project' as const;
+      return {command:{kind:'keep',url,title,note,tags,scope}};
     }
     case 'library':{
       const action=(str(p.action,10)??'list') as LibraryAction;

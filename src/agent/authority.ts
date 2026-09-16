@@ -14,14 +14,14 @@ export type Holder = {label: string; since: number};
 export type Authority = {mode: Mode; holder: Holder | null; now: number};
 export type Verdict = {allow: true; hold: Holder | null} | {allow: false; status: 403 | 409 | 423; error: string};
 
-export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render'] as const;
+export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render', 'references'] as const;
 /**
  * Commands that neither read the design nor change it: they ask the person something. Asking is
  * always allowed — an agent that cannot even say "may I?" would be worse than one that can — but the
  * app rate-limits the asking so a prompt can never become a nag, and the answer is always a click.
  */
 export const askKinds = ['guide', 'connect'] as const;
-export const writeKinds = ['apply', 'system', 'export', 'edit', 'act', 'click', 'type', 'key', 'command', 'library', 'ui'] as const;
+export const writeKinds = ['apply', 'system', 'export', 'edit', 'act', 'click', 'type', 'key', 'command', 'library', 'ui', 'keep'] as const;
 
 /** The person's own hold expires quickly — one keystroke should not lock an agent out for a minute. */
 export const HUMAN_IDLE_MS = 5_000;
