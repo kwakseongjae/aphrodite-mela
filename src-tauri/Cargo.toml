@@ -1,6 +1,6 @@
 [package]
 name = "aphrodite-mela"
-version = "0.2.1"
+version = "0.2.2"
 description = "A computer-use friendly design workbench"
 edition = "2021"
 
