@@ -83,7 +83,7 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
       ? `<button class="primary-button" data-action="update-open">${icon('arrow-up-right')}<span>${t('Open it','열기')}</span></button>`
       : `<button class="primary-button" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install and restart','설치하고 재시작')}</span></button>`;
   const menu=working?''
-    : `<details class="update-more"><summary aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('more-horizontal')}</summary><div class="update-menu" role="menu">`
+    : `<details class="update-more"><summary aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('ellipsis')}</summary><div class="update-menu" role="menu">`
       +(info.notes?`<button data-action="update-notes">${t('Release notes','릴리즈 노트')}</button>`:'')
       +`<button data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`
       +`<button data-action="update-dismiss">${t('Skip this version','이 버전 건너뛰기')}</button>`
