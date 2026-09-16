@@ -14,19 +14,20 @@ import {componentKinds} from './contract';
 import {patternVariants} from '../patterns';
 import {framePresets, type FramePreset} from '../editor/space';
 
-export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame';
+export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page';
 export type Op =
   | {op: 'add'; component_kind: string; variant?: string; before_block_id?: string; content?: Partial<Record<EditableField, string>>}
   | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string}
   | {op: 'move'; block_id: string; direction: 'up' | 'down'}
   | {op: 'delete'; block_id: string}
-  | {op: 'frame'; page_id?: string; preset: FramePreset};
+  | {op: 'frame'; page_id?: string; preset: FramePreset}
+  | {op: 'page'; name: string; preset?: FramePreset; page_id?: string};
 
 export const MAX_OPS = 40;
 export const MAX_TEXT = 4_000;
 /** The person's current selection, usable anywhere a block_id is. */
 export const SELECTION = 'selection';
-export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame'];
+export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame', 'page'];
 
 /**
  * The control a person would reach for to do the same thing as each op — a button with a data-action,
@@ -42,6 +43,7 @@ export const opControl: Record<OpKind, OpControl> = {
   update: {kind: 'attribute', name: 'data-field'},
   move: {kind: 'action', name: 'move-up'},
   delete: {kind: 'action', name: 'delete-block'},
+  page: {kind: 'action', name: 'new-frame'},
   frame: {kind: 'attribute', name: 'data-frame-preset'},
 };
 
@@ -138,6 +140,26 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
       const target = blockId(o.block_id, where);
       if ('error' in target) return target;
       return {op: {op: 'delete', block_id: target.id}};
+    }
+    /* Making a page had no operation at all, so an agent wanting a mobile frame had to run the
+       palette's sample-page command and empty it out — thirty-three turns, and a page left named
+       "Pointer lab". A page is a noun the surface should have. */
+    case 'page': {
+      const name = str(o.name, 60);
+      if (!name) return {error: `${where}.name is required: give the page a name, for example "Mobile".`};
+      const op: Op = {op: 'page', name};
+      if (o.preset !== undefined) {
+        const preset = str(o.preset, 20) ?? '';
+        const presets = framePresets.map(p => p.id);
+        if (!presets.includes(preset as FramePreset)) return {error: unknownValue(`${where}.preset`, preset, presets)};
+        op.preset = preset as FramePreset;
+      }
+      if (o.page_id !== undefined) {
+        const page = str(o.page_id, 200);
+        if (!page || !ID.test(page)) return {error: `${where}.page_id "${String(o.page_id)}" is not an id. Take one from aphrodite_get_contract, or leave it out to make a new page.`};
+        op.page_id = page;
+      }
+      return {op};
     }
     case 'frame': {
       const preset = str(o.preset, 20) ?? '';

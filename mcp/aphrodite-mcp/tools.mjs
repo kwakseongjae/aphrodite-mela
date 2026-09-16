@@ -148,7 +148,7 @@ export const tools = [
     name: 'aphrodite_apply_edits',
     title: 'Change the design',
     description: [
-      'Change a page with a list of operations that land together: add, update, move, delete a component, or resize a page frame.',
+      'Change a page with a list of operations that land together: add, update, move, delete a component, resize a page frame, or make and name a page (`page`, which inherits the design system).',
       '',
       'Send everything one change needs in a single call. The whole list lands as one undo step and one receipt, so the person can take back your work in one press — and if any operation is wrong, none of them are applied and the reply says which one failed.',
       'Target a component by block_id from aphrodite_get_contract, or by the literal "selection" for whatever the person has selected.',
@@ -169,7 +169,8 @@ export const tools = [
           items: {
             type: 'object',
             properties: {
-              op: {type: 'string', enum: ['add', 'update', 'move', 'delete', 'frame']},
+              op: {type: 'string', enum: ['add', 'update', 'move', 'delete', 'frame', 'page']},
+              name: {type: 'string', description: 'page: what to call it, for example "Mobile".'},
               component_kind: {type: 'string', description: 'add: the kind to place, from aphrodite_list_components.'},
               variant: {type: 'string', description: 'add/update: a variant that kind accepts. On update it changes the layout and keeps the words — you do not delete and re-add to restyle a component.'},
               before_block_id: {type: 'string', description: 'add: place it before this component instead of at the end.'},
@@ -177,8 +178,8 @@ export const tools = [
               block_id: {type: 'string', description: 'update/move/delete: which component, or "selection".'},
               fields: {type: 'object', description: 'update: the copy to set — title, text, label, eyebrow, description. Optional when you are only changing the variant.'},
               direction: {type: 'string', enum: ['up', 'down'], description: 'move: which way in the page order.'},
-              preset: {type: 'string', enum: ['desktop', 'tablet', 'mobile', 'custom'], description: 'frame: the size to give the page.'},
-              page_id: {type: 'string', description: 'frame: which page to resize. Defaults to the one being edited.'},
+              preset: {type: 'string', enum: ['desktop', 'tablet', 'mobile', 'custom'], description: 'frame/page: the size to give the page.'},
+              page_id: {type: 'string', description: 'frame: which page to resize. page: which page to rename — leave it out to make a new one. Defaults to the one being edited.'},
             },
             required: ['op'],
           },

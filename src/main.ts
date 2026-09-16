@@ -1334,6 +1334,24 @@ function runOp(page:Page,op:Op):string|undefined{
     if(selected===block.id)selected='';
     return undefined;
   }
+  if(op.op==='page'){
+    // With a page_id it renames one; without, it makes one. Either way the design system carries
+    // over untouched, because a page is a frame on the same space, not a new project.
+    if(op.page_id!==undefined){
+      const target=project.pages.find(p=>p.id===op.page_id);
+      if(!target)return `no page ${op.page_id}. Take an id from the contract.`;
+      target.name=op.name;
+      if(op.preset!==undefined){ensureSpace(project);const f=project.space!.frames[target.id];if(f)f.preset=op.preset;}
+      return undefined;
+    }
+    if(project.pages.length>=30)return 'this project already has 30 pages, which is the limit.';
+    ensureSpace(project);
+    const created:Page={id:uid(),name:op.name,blocks:[]};
+    project.pages.push(created);
+    project.space!.frames[created.id]=nextFramePosition(project.space!,op.preset??'desktop',framePresets.find(p=>p.id===(op.preset??'desktop'))?.width??1200);
+    project.activePageId=created.id;
+    return undefined;
+  }
   ensureSpace(project);
   const frame=project.space!.frames[op.page_id??page.id];
   if(!frame)return `no page ${op.page_id} to resize.`;
@@ -1350,10 +1368,14 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
   const selectedBefore=selected;
   let failure:{index:number;error:string}|undefined;
   commit(()=>{
-    const target=project.pages.find(p=>p.id===page.id)!;
+    let target=project.pages.find(p=>p.id===page.id)!;
     for(const [index,op] of ops.entries()){
       const error=runOp(target,op);
       if(error){failure={index,error};break;}
+      /* Making a page moves the batch onto it, the way a person making a frame lands inside it.
+         Without this, "make a mobile page and put a hero on it" quietly puts the hero back on the
+         page they started from. */
+      if(op.op==='page'&&op.page_id===undefined)target=currentPage(project);
     }
     // Nothing half-applied: put the project back and let commit see no change at all.
     if(failure){project=JSON.parse(snapshot) as Project;selected=selectedBefore;}
