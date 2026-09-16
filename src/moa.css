@@ -1,27 +1,46 @@
-[data-app-frame]{font-family:Arial,"Apple SD Gothic Neo",sans-serif;color:#17223b;box-sizing:border-box}
+/* The app recipe paints from the design contract, like everything else.
+   It used to carry sixty-seven hard-coded colours and read only `--brand`, so changing the design
+   system left the whole app screen untouched — a blue-and-grey SaaS board sitting inside whatever
+   brand you had chosen. Worse than off-brand: on a dark system the headings and the figures went
+   dark-on-dark and could not be read at all.
+   Four layers are derived here, in the contract's own terms, so they move in the right direction on
+   a light system and a dark one alike:
+     ground  the board behind the cards — paper, nudged toward ink
+     face    a card, a panel — paper itself, so it lifts off the ground either way
+     line    a rule — ink at low strength over paper
+     quiet   secondary text — ink at about half
+   Status colours come from the contract's own danger/success/warning. */
+[data-app-frame="app-shell"],[data-app-frame]{
+  --moa-ground:color-mix(in srgb,var(--ink,#152039) 5%,var(--paper,#fff));
+  --moa-face:var(--paper,#fff);
+  --moa-line:color-mix(in srgb,var(--ink,#152039) 13%,var(--paper,#fff));
+  --moa-quiet:color-mix(in srgb,var(--ink,#152039) 55%,var(--paper,#fff));
+  --moa-wash:color-mix(in srgb,var(--brand,#2763ec) 12%,var(--paper,#fff));
+}
+[data-app-frame]{font-family:Arial,"Apple SD Gothic Neo",sans-serif;color:var(--ink,var(--ink,#152039));box-sizing:border-box}
 .design-page [data-app-frame]{border:0;border-radius:0}
-.design-page [data-app-frame="app-lane"]{background:#f4f6f8;border-radius:10px}
-[data-app-frame="app-shell"]{display:grid!important;grid-template-columns:190px minmax(0,1fr) 280px!important;gap:0!important;padding:0!important;background:#fff;min-height:820px!important;container-type:inline-size}
+.design-page [data-app-frame="app-lane"]{background:var(--moa-ground);border-radius:10px}
+[data-app-frame="app-shell"]{display:grid!important;grid-template-columns:190px minmax(0,1fr) 280px!important;gap:0!important;padding:0!important;background:var(--moa-face);min-height:820px!important;container-type:inline-size}
 [data-app-frame="app-main"]{display:block!important;padding:0!important;min-height:0!important}
 [data-app-frame="app-board"]{display:grid!important;grid-template-columns:repeat(5,minmax(145px,1fr))!important;gap:8px!important;padding:0 20px 24px!important;min-height:510px!important;overflow-x:auto}
-[data-app-frame="app-lane"]{display:flex!important;flex-direction:column;gap:10px!important;padding:10px 7px!important;background:#f4f6f8;border-radius:10px;min-height:510px!important}
+[data-app-frame="app-lane"]{display:flex!important;flex-direction:column;gap:10px!important;padding:10px 7px!important;background:var(--moa-ground);border-radius:10px;min-height:510px!important}
 .moa-lane-title{font-size:13px;margin:4px 4px 10px;font-weight:700}
-.moa-sidebar{height:100%;min-height:820px;box-sizing:border-box;padding:24px 14px;background:#f8fafc;border-right:1px solid #e6eaf0;display:flex;flex-direction:column;font-size:13px}
-.moa-logo{display:flex;align-items:center;gap:10px;font-size:24px;font-weight:800;margin-bottom:30px}.moa-logo>span{color:var(--brand,#326dff);font-size:30px}
-.moa-team{display:flex;gap:10px;border:1px solid #e2e7ef;border-radius:8px;padding:12px;margin-bottom:20px}.moa-team>span{margin-left:auto}
-.moa-sidebar nav{display:grid;gap:6px;margin-bottom:35px}.moa-sidebar nav>*{padding:12px;border-radius:8px}.moa-sidebar nav strong{background:#e8f0ff;color:#2763ec}.moa-sidebar p{font-size:12px;margin:13px 6px}.moa-sidebar small{color:#75819a;font-size:11px}.moa-sidebar footer{margin-top:auto;padding-top:60px}
-.moa-toolbar{padding:0 20px 10px}.moa-breadcrumb{display:flex;align-items:center;gap:12px;min-height:60px;border-bottom:1px solid #e9edf4;font-size:12px;color:#718098}.moa-breadcrumb b{color:#17223b}.moa-breadcrumb label{margin-left:auto;display:flex;align-items:center;gap:6px;background:#f7f9fc;border:1px solid #e3e8f1;border-radius:7px;padding:7px 10px}.moa-breadcrumb input{width:120px;border:0;background:transparent;font:12px Arial;outline-offset:4px}
-.moa-heading{display:flex;align-items:center;gap:8px;padding:22px 0}.moa-heading>div{margin-right:auto}.moa-heading h1{font:700 25px Arial,"Apple SD Gothic Neo",sans-serif;margin:0 0 8px;letter-spacing:-.8px}.moa-heading p{margin:0;font-size:12px;color:#748198}
-.moa-avatar{display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:#dce8ff;color:#3461b9;font:11px Arial;font-style:normal;flex-shrink:0}.moa-avatar.violet{background:#e8ddff;color:#6945a5}
-.moa-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:18px}.moa-views{display:flex;padding:3px;background:#f2f5fa;border:1px solid #e5eaf2;border-radius:8px}.moa-views button{padding:8px 20px;background:transparent;border:0;border-radius:6px;color:#63718a;font:12px Arial;cursor:pointer}.moa-views button[aria-pressed=true]{background:#fff;color:#2763ec;box-shadow:0 1px 5px #21395c15}.moa-controls label{font-size:12px}.moa-controls select,.moa-property select{padding:8px;border:1px solid #e1e7ef;border-radius:7px;background:#fff;color:#243552;font:12px Arial}
-.moa-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.moa-stats>div{padding:14px;border:1px solid #e3e8f0;border-radius:9px;font-size:12px}.moa-stats strong{display:block;font-size:25px;margin:8px 0 0 15px}.moa-dot{display:inline-block;width:8px;height:8px;background:#397bff;border-radius:50%;margin-right:7px}.moa-dot.d1{background:#f6c343}.moa-dot.d2{background:#3abc8b}.moa-results{font-size:10px;color:#7b879c;margin:10px 0 0;min-height:12px}
-.moa-card{display:block;text-align:left;width:100%;border:1px solid #e2e7ef;border-radius:10px;background:white;padding:12px 10px;box-shadow:0 2px 7px #19304d03;color:#152039;cursor:pointer;font-family:inherit;box-sizing:border-box;min-height:188px}
-.moa-card[aria-pressed=true]{border-color:#3572ff;outline:1px solid #3572ff;background:#f8fbff}.moa-card h3{font-size:13px;line-height:1.6;margin:10px 0 6px;letter-spacing:-.4px}.moa-card p{font-size:11px;line-height:1.7;color:#6d7890;margin:0 0 12px;min-height:55px}.moa-card small{font-size:10px;color:#72809a}.moa-card>div{display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-top:8px}.moa-card-status{display:block;margin-top:8px}.moa-tag{display:inline-block;font-size:10px;padding:4px 6px;border-radius:5px}.moa-tag.purple{background:#eee5ff;color:#8453de}.moa-tag.green{background:#dcf8e9;color:#229d71}.moa-tag.orange{background:#fff0dd;color:#dc781c}
-.moa-detail{padding:22px;border-left:1px solid #e5eaf2;box-sizing:border-box;min-height:820px;background:#fff}.moa-detail-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;color:#778399}.moa-detail-top button{border:0;background:none;font-size:24px;color:#7c889f;cursor:pointer}.moa-detail h2{font:700 21px Arial,"Apple SD Gothic Neo",sans-serif;line-height:1.5;margin:12px 0 6px}.moa-task-id{display:block;color:#8893a7;margin-bottom:25px}.moa-property{display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:10px;margin:12px 0}.moa-detail h4{font-size:12px;margin:25px 0 12px;padding-top:20px;border-top:1px solid #e7ebf1}.moa-description{font-size:12px;color:#66748d;line-height:1.9}.moa-check{display:flex;align-items:center;gap:8px;font-size:12px;margin:12px 0}.moa-check input{width:17px;height:17px;accent-color:#3475ff}.moa-session-note{display:block;margin-top:28px;font-size:10px;color:#8994a8}
+.moa-sidebar{height:100%;min-height:820px;box-sizing:border-box;padding:24px 14px;background:var(--moa-ground);border-right:1px solid var(--moa-line);display:flex;flex-direction:column;font-size:13px}
+.moa-logo{display:flex;align-items:center;gap:10px;font-size:24px;font-weight:800;margin-bottom:30px}.moa-logo>span{color:var(--brand,var(--brand,#2763ec));font-size:30px}
+.moa-team{display:flex;gap:10px;border:1px solid var(--moa-line);border-radius:8px;padding:12px;margin-bottom:20px}.moa-team>span{margin-left:auto}
+.moa-sidebar nav{display:grid;gap:6px;margin-bottom:35px}.moa-sidebar nav>*{padding:12px;border-radius:8px}.moa-sidebar nav strong{background:var(--moa-wash);color:var(--brand,#2763ec)}.moa-sidebar p{font-size:12px;margin:13px 6px}.moa-sidebar small{color:var(--moa-quiet);font-size:11px}.moa-sidebar footer{margin-top:auto;padding-top:60px}
+.moa-toolbar{padding:0 20px 10px}.moa-breadcrumb{display:flex;align-items:center;gap:12px;min-height:60px;border-bottom:1px solid var(--moa-line);font-size:12px;color:var(--moa-quiet)}.moa-breadcrumb b{color:var(--ink,var(--ink,#152039))}.moa-breadcrumb label{margin-left:auto;display:flex;align-items:center;gap:6px;background:var(--moa-ground);border:1px solid var(--moa-line);border-radius:7px;padding:7px 10px}.moa-breadcrumb input{width:120px;border:0;background:transparent;font:12px Arial;outline-offset:4px}
+.moa-heading{display:flex;align-items:center;gap:8px;padding:22px 0}.moa-heading>div{margin-right:auto}.moa-heading h1{font:700 25px Arial,"Apple SD Gothic Neo",sans-serif;margin:0 0 8px;letter-spacing:-.8px}.moa-heading p{margin:0;font-size:12px;color:var(--moa-quiet)}
+.moa-avatar{display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:50%;background:var(--moa-wash);color:var(--brand,#2763ec);font:11px Arial;font-style:normal;flex-shrink:0}.moa-avatar.violet{background:var(--moa-wash);color:var(--brand,#2763ec)}
+.moa-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:18px}.moa-views{display:flex;padding:3px;background:var(--moa-ground);border:1px solid var(--moa-line);border-radius:8px}.moa-views button{padding:8px 20px;background:transparent;border:0;border-radius:6px;color:var(--moa-quiet);font:12px Arial;cursor:pointer}.moa-views button[aria-pressed=true]{background:var(--moa-face);color:var(--brand,#2763ec);box-shadow:0 1px 5px color-mix(in srgb,var(--ink,#152039) 9%,transparent)}.moa-controls label{font-size:12px}.moa-controls select,.moa-property select{padding:8px;border:1px solid var(--moa-line);border-radius:7px;background:var(--moa-face);color:var(--ink,#152039);font:12px Arial}
+.moa-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.moa-stats>div{padding:14px;border:1px solid var(--moa-line);border-radius:9px;font-size:12px}.moa-stats strong{display:block;font-size:25px;margin:8px 0 0 15px}.moa-dot{display:inline-block;width:8px;height:8px;background:var(--brand,#2763ec);border-radius:50%;margin-right:7px}.moa-dot.d1{background:var(--warning,#a76600)}.moa-dot.d2{background:var(--success,#187345)}.moa-results{font-size:10px;color:var(--moa-quiet);margin:10px 0 0;min-height:12px}
+.moa-card{display:block;text-align:left;width:100%;border:1px solid var(--moa-line);border-radius:10px;background:var(--moa-face);padding:12px 10px;box-shadow:0 2px 7px color-mix(in srgb,var(--ink,#152039) 4%,transparent);color:var(--ink,#152039);cursor:pointer;font-family:inherit;box-sizing:border-box;min-height:188px}
+.moa-card[aria-pressed=true]{border-color:var(--brand,#2763ec);outline:1px solid var(--brand,#2763ec);background:var(--moa-wash)}.moa-card h3{font-size:13px;line-height:1.6;margin:10px 0 6px;letter-spacing:-.4px}.moa-card p{font-size:11px;line-height:1.7;color:var(--moa-quiet);margin:0 0 12px;min-height:55px}.moa-card small{font-size:10px;color:var(--moa-quiet)}.moa-card>div{display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-top:8px}.moa-card-status{display:block;margin-top:8px}.moa-tag{display:inline-block;font-size:10px;padding:4px 6px;border-radius:5px}.moa-tag.purple{background:var(--moa-wash);color:var(--brand,#2763ec)}.moa-tag.green{background:color-mix(in srgb,var(--success,#187345) 12%,var(--paper,#fff));color:var(--success,#187345)}.moa-tag.orange{background:color-mix(in srgb,var(--warning,#a76600) 14%,var(--paper,#fff));color:var(--warning,#a76600)}
+.moa-detail{padding:22px;border-left:1px solid var(--moa-line);box-sizing:border-box;min-height:820px;background:var(--moa-face)}.moa-detail-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;color:var(--moa-quiet)}.moa-detail-top button{border:0;background:none;font-size:24px;color:var(--moa-quiet);cursor:pointer}.moa-detail h2{font:700 21px Arial,"Apple SD Gothic Neo",sans-serif;line-height:1.5;margin:12px 0 6px}.moa-task-id{display:block;color:var(--moa-quiet);margin-bottom:25px}.moa-property{display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:10px;margin:12px 0}.moa-detail h4{font-size:12px;margin:25px 0 12px;padding-top:20px;border-top:1px solid var(--moa-line)}.moa-description{font-size:12px;color:var(--moa-quiet);line-height:1.9}.moa-check{display:flex;align-items:center;gap:8px;font-size:12px;margin:12px 0}.moa-check input{width:17px;height:17px;accent-color:var(--brand,#2763ec)}.moa-session-note{display:block;margin-top:28px;font-size:10px;color:var(--moa-quiet)}
 [data-app-frame="app-shell"][data-view="list"] [data-app-frame="app-board"]{grid-template-columns:1fr!important}[data-view="list"] [data-app-frame="app-lane"]{min-height:0!important}[data-view="list"] .moa-card{min-height:0}[data-view="list"] .moa-card p{min-height:0}
 [data-app-frame="app-shell"] [hidden]{display:none!important}
 [data-detail-open="false"]>.layout-item:last-child{display:none}[data-app-frame="app-shell"][data-detail-open="false"]{grid-template-columns:190px minmax(0,1fr)!important}
-@media(max-width:1100px){[data-app-frame="app-shell"]{grid-template-columns:170px minmax(0,1fr)!important;position:relative!important}[data-app-frame="app-shell"]>.layout-item:last-child{position:absolute!important;right:0;top:60px;width:280px!important;z-index:3;box-shadow:-12px 0 40px #1c325c18}.moa-detail{min-height:740px}.moa-sidebar{padding:20px 12px}}
+@media(max-width:1100px){[data-app-frame="app-shell"]{grid-template-columns:170px minmax(0,1fr)!important;position:relative!important}[data-app-frame="app-shell"]>.layout-item:last-child{position:absolute!important;right:0;top:60px;width:280px!important;z-index:3;box-shadow:-12px 0 40px color-mix(in srgb,var(--ink,#152039) 10%,transparent)}.moa-detail{min-height:740px}.moa-sidebar{padding:20px 12px}}
 @media(max-width:650px){[data-app-frame="app-shell"],[data-app-frame="app-shell"][data-detail-open="false"]{grid-template-columns:minmax(0,1fr)!important}[data-app-frame="app-shell"]>.layout-item:first-child{display:none}[data-app-frame="app-shell"] .layout-item{width:100%!important}[data-app-frame="app-shell"]>.layout-item:last-child{width:min(320px,100%)!important}.moa-toolbar{padding:0 14px 10px}.moa-breadcrumb{gap:8px}.moa-breadcrumb input{width:85px}.moa-heading h1{font-size:21px}.moa-stats>div{padding:10px}.moa-views button{padding:8px 14px}}
 .design-page [data-app-frame="app-board"]{display:grid!important;grid-template-columns:repeat(5,minmax(145px,1fr))!important}
 .design-page [data-app-frame="app-main"]{display:block!important}
@@ -30,10 +49,10 @@
 .design-page.moa-desktop [data-app-frame="app-shell"]{grid-template-columns:190px minmax(0,1fr) 280px!important}
 .design-page.moa-desktop [data-app-frame="app-shell"]>.layout-item{position:relative!important;display:block!important;width:100%!important;top:auto!important;right:auto!important;box-shadow:none}
 .design-page.moa-desktop .block-wrap:not(.selected)>.editor-frame-name{display:none}
-.moa-card[aria-pressed=true]{border-color:var(--brand);outline-color:var(--brand);background:color-mix(in srgb,var(--brand) 3%,white)}
+.moa-card[aria-pressed=true]{border-color:var(--brand);outline-color:var(--brand);background:color-mix(in srgb,var(--brand) 5%,var(--moa-face))}
 .moa-check input{accent-color:var(--brand)}
 .moa-views button[aria-pressed=true],.moa-sidebar nav strong{color:var(--brand)}
-.moa-sidebar nav strong{background:color-mix(in srgb,var(--brand) 9%,white)}
+.moa-sidebar nav strong{background:color-mix(in srgb,var(--brand) 12%,var(--moa-face))}
 
 /* App recipe variants. Four shapes each, and the markup does not move — the same rule the section
    expansion followed, for the same reason: someone who changes the layout must not lose the words
@@ -53,13 +72,13 @@
 [data-variant="rail"].moa-sidebar .moa-team{flex-direction:column;align-items:flex-start;gap:3px;padding:8px 9px;font-size:11px;margin-bottom:14px}
 [data-variant="rail"].moa-sidebar nav{gap:3px;margin-bottom:22px}
 [data-variant="rail"].moa-sidebar nav>*{padding:8px 9px;font-size:12px}
-[data-variant="grouped"].moa-sidebar nav{gap:2px;padding-top:10px;border-top:1px solid #e6eaf0}
+[data-variant="grouped"].moa-sidebar nav{gap:2px;padding-top:10px;border-top:1px solid var(--moa-line)}
 [data-variant="grouped"].moa-sidebar nav>*{padding:9px 12px;border-radius:6px}
-[data-variant="grouped"].moa-sidebar nav strong{background:#eef3fb;color:#1c4fbd}
-[data-variant="grouped"].moa-sidebar .moa-team{border:0;background:#eef2f8;margin-bottom:14px}
+[data-variant="grouped"].moa-sidebar nav strong{background:var(--moa-wash);color:var(--brand,#2763ec)}
+[data-variant="grouped"].moa-sidebar .moa-team{border:0;background:var(--moa-ground);margin-bottom:14px}
 [data-variant="quiet"].moa-sidebar{background:transparent;border-right:0;padding-left:0}
 [data-variant="quiet"].moa-sidebar .moa-team{border:0;padding-left:0}
-[data-variant="quiet"].moa-sidebar nav strong{background:transparent;color:#152039;font-weight:700}
+[data-variant="quiet"].moa-sidebar nav strong{background:transparent;color:var(--ink,#152039);font-weight:700}
 
 /* Toolbar ─ stacked: the title above its controls, for a narrow shell.
    dense: one line, for a screen that is mostly table.
@@ -82,10 +101,10 @@
 [data-variant="banner"].moa-card>*{padding-left:11px;padding-right:11px}
 [data-variant="banner"].moa-card>*:first-child{padding:0;margin:0 0 9px}
 [data-variant="banner"].moa-card>*:last-child{padding-bottom:11px}
-[data-variant="bare"].moa-card{border:0;border-radius:0;box-shadow:none;background:transparent;padding:10px 2px;min-height:0;border-bottom:1px solid #e9edf4}
+[data-variant="bare"].moa-card{border:0;border-radius:0;box-shadow:none;background:transparent;padding:10px 2px;min-height:0;border-bottom:1px solid var(--moa-line)}
 
 /* Detail ─ sheet: a panel that floats over the board.
    plain: no border, for a shell that is already two columns. */
-[data-variant="sheet"].moa-detail{margin:10px;border:1px solid #e5eaf2;border-radius:12px;box-shadow:0 18px 44px -24px #19304d40;min-height:0}
+[data-variant="sheet"].moa-detail{margin:10px;border:1px solid var(--moa-line);border-radius:12px;box-shadow:0 18px 44px -24px color-mix(in srgb,var(--ink,#152039) 25%,transparent);min-height:0}
 [data-variant="plain"].moa-detail{border-left:0;background:transparent;padding-left:6px}
 
