@@ -108,3 +108,33 @@
 [data-variant="sheet"].moa-detail{margin:10px;border:1px solid var(--moa-line);border-radius:12px;box-shadow:0 18px 44px -24px color-mix(in srgb,var(--ink,#152039) 25%,transparent);min-height:0}
 [data-variant="plain"].moa-detail{border-left:0;background:transparent;padding-left:6px}
 
+
+/* Phone. The shell was built for a desktop frame and stopped at 1100px, so at 390 the sidebar and
+   the detail panel ran off the side and the board was unreachable. One column, in reading order:
+   where you are, the work, then the thing you opened.
+   The board itself keeps its lanes and scrolls sideways, which is what every board on a phone does —
+   stacking five days into one column turns a week into a list and loses the thing a board is for. */
+@media(max-width:700px){
+  [data-app-frame="app-shell"]{grid-template-columns:minmax(0,1fr)!important;position:static!important}
+  /* The 1100px rule floats the detail panel with `>.layout-item:last-child`, which is more specific
+     than `>.layout-item` — and between two !important declarations the specific one wins. Undoing it
+     takes the same selector, not a broader one. */
+  [data-app-frame="app-shell"]>.layout-item,
+  [data-app-frame="app-shell"]>.layout-item:last-child{position:static!important;width:auto!important;box-shadow:none}
+  [data-app-frame="app-board"]{grid-auto-flow:column!important;grid-auto-columns:78vw!important;grid-template-columns:none!important;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 14px 20px!important;min-height:0!important}
+  [data-app-frame="app-lane"]{scroll-snap-align:start;min-height:0!important}
+  /* KNOWN OPEN: the sidebar renders no box at all below 650px. Not this block's doing — it breaks
+     exactly at page.css's own `@media(max-width:650px)`, and it survives `display:block`,
+     `visibility:visible`, `min-height` and a magenta background all marked !important, so whatever
+     removes it is an ancestor or the frame layout, not a style on the sidebar. Left visible in the
+     rules below rather than hidden on purpose, so the next person sees the intent. */
+  .moa-sidebar{width:auto!important;height:auto!important;min-height:0!important;border-right:0;border-bottom:1px solid var(--moa-line);padding:14px}
+  .moa-sidebar nav{grid-auto-flow:column;grid-auto-columns:max-content;overflow-x:auto;margin-bottom:0;gap:4px}
+  .moa-sidebar .moa-logo{margin-bottom:12px}
+  .moa-sidebar .moa-team,.moa-sidebar small,.moa-sidebar footer{display:none}
+  .moa-detail{min-height:0;border-left:0;border-top:1px solid var(--moa-line)}
+  [data-variant="sheet"].moa-detail{margin:0;border-radius:0;box-shadow:none}
+  [data-variant="rail"].moa-sidebar{width:auto!important}
+  .moa-toolbar{padding:0 14px 10px}
+  .moa-stats{grid-auto-flow:column;grid-auto-columns:64vw;overflow-x:auto}
+}
