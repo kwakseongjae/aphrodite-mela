@@ -52,7 +52,11 @@ P0 합계 **약 하루** + CI 25분.
 - **연결 모드의 기억 기간을 정한다.** `src/main.ts:141` 주석은 "세션 한정"이라는데, 코드는 `localStorage`에 12시간(`CONNECT_HOURS`)을 기억해 **재시작해도 쓰기 권한이 살아 있다** — 오늘 실제로 그랬다. 쓰기 권한이 실행을 넘어 살아남는 건 보안 결정이라 사람이 정해야 한다. 권고: 12시간을 유지하되 스위치 옆과 `AGENT-CHANNEL.md`에 "12시간 동안"이라고 적는다. 반대라면 `rememberConnect`를 지운다. **S.**
 - **T6 컴퓨터 유즈 회귀 게이트** `scripts/verify-computer-use.mjs` — `DEMO-ASTRA-5MIN.md`의 curl 줄(`click` `command` `edit` `key`)을 문서에서 뽑아 전부 2xx인지 본다. 브리지가 부팅 때 켜지므로 이제 사람 클릭 없이 돈다. 지금은 헤더·독이 바뀌었는데 시연 대본이 그대로 도는지 아무도 확인하지 않았다. **2h.**
 - **`cargo test`가 CI에 없다.** `release.yml`은 `npm test`만 돈다. Rust 32개는 로컬에서만 검증된다. 단계 하나 추가. **S.**
-- **메인 번들 2,416 kB (gzip 661).** 09-10에는 1,302 kB였다. 절반이 `src/generated/library-runtime.js`(1.3 MB) — 공식 컴포넌트 프리뷰 iframe용 React 런타임인데 `?raw`로 메인 청크에 박혀 있다. 프리뷰를 처음 열 때만 읽게 바꾸면 첫 페인트가 절반이 된다. 구형 Mac의 콜드 스타트에 걸린다. **M.**
+- **메인 번들 2,416 kB (gzip 661).** 09-10에는 1,302 kB였다. 절반이 `src/generated/library-runtime.js`(1.3 MB) — 공식 컴포넌트(MUI·shadcn·SEED·Astryx) 프리뷰 iframe용 React 런타임인데 `?raw`로 문자열이 되어 메인 청크에 박혀 있다. **대부분의 세션은 이걸 한 번도 안 쓴다**(프로바이더가 `own`이면 안 부른다).
+
+  게으른 로딩이 간단하지 않은 이유: `libraryHtml`을 부르는 `blockHtml`이 **동기 함수**이고 렌더 루프·내보내기·테스트 전부가 동기로 부른다. 비동기로 바꾸면 호출부가 전부 바뀐다. 할 거면 이 순서다 — (1) `libraryHtml`을 런타임 문자열을 **인자로 받게** 바꾸고, (2) 앱은 첫 프로바이더 블록을 만났을 때 `import('./generated/library-runtime.js?raw')`로 한 번 받아 캐시하고, (3) 내보내기는 지금처럼 동기로 박아 넣는다(내보낸 HTML은 자립해야 하므로). 규모 M.
+
+  **먼저 잴 것**: 릴리즈 빌드의 콜드 스타트(M10). 로컬 앱이라 네트워크가 없고 2.4 MB 파싱은 M1에서 수십 ms다. 2초를 넘지 않으면 이 항목은 P2로 내린다. **재보지 않고 최적화하지 않는다.**
 - **git 로컬 정리.** `.git`의 팩이 2.0 GB인데 그중 **1.96 GB가 중단된 푸시가 남긴 `tmp_pack_*` 넷**이다(`git count-objects -v`: `size-garbage 1955584`). 도달 가능한 히스토리에는 20 MB 넘는 blob이 하나도 없다. `rm .git/objects/pack/tmp_pack_* && git gc`. CI엔 영향 없고 로컬 clone/푸시 속도의 문제. **5m.**
 - **브랜드 킷 모달 미해명** — M1에서 재현되면 그때 잡고, 안 되면 항목을 닫는다.
 
