@@ -52,18 +52,25 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | `POST /agent/edit` | `{"field":"title","text":"…","blockId":"optional"}` | Sets `title / text / label / eyebrow / description` on the selected block (or `blockId`) through the normal commit (undoable, receipted). | 쓰기 |
 | `POST /agent/type` | `{"selector":"input[name=name]","text":"…","submit":true}` | Fills a form control that is currently in the DOM (dialog forms) and optionally submits its form. | 쓰기 |
 | `POST /agent/key` | `{"key":"1","shift":true}` (`code`·`meta`·`ctrl`·`alt`도 받는다) | Synthesises a key press on the document (`"Escape"`, `"k"` with `meta`, `"1"` with `shift` = fit all). | 쓰기 |
-| `POST /agent/library` | `{"action":"list\|delete\|import","scope":"project\|global","id":…,"name":…,"base64":…}` | 로컬 그림 보관함. 언제나 `{ok, dir, images:[{id, scope, name, width, height, mime}]}`를 돌려준다. `delete`는 16자리 `id`, `import`는 `name`과 base64 바이트. 데스크톱 전용. | `list`는 **읽기**, `import`·`delete`는 쓰기 |
+| `POST /agent/library` | `{"action":"list\|delete\|import","scope":"project\|global","id":…,"name":…,"base64":…}` | 그림 보관함. `list`는 **앱이 들고 있는 사진 50장(`scope:"sample"`, id `sample:desk-lamp`)과 로컬 폴더의 것을 함께** 돌려준다 — `{ok, dir, images:[{id, scope, name, width, height, mime}]}`. 샘플은 읽기 전용이라 `delete`·`import`는 로컬 것에만 해당하고, `delete`는 16자리 id를 요구한다. 이 id를 그대로 `apply`의 `update.image`에 넣으면 사진이 붙는다. | 읽기(list) / 쓰기 |
 | `POST /agent/end` | — | Ends Agent mode from the agent side (`ended-by-agent`). `{ok, ended:true}`. 평소(design)에는 끝낼 것이 없어 **409**. | 모드가 켜져 있을 때만 |
 
-`apply`가 받는 op는 다섯 가지다 (`src/agent/ops.ts`):
+`apply`가 받는 op는 여섯 가지다 (`src/agent/ops.ts`):
 
 | op | 필드 |
 |---|---|
 | `add` | `component_kind`(필수), `variant`, `before_block_id`, `content` |
-| `update` | `block_id`(필수), `fields` |
+| `update` | `block_id`(필수), 그리고 **`fields`(말)·`variant`(배치)·`image`(사진) 중 하나 이상** |
 | `move` | `block_id`, `direction`: `up` 또는 `down` |
 | `delete` | `block_id` |
 | `frame` | `preset`: `desktop`·`tablet`·`mobile`·`custom`, `page_id` |
+| `page` | `name`(필수), `preset`, `page_id` — id를 주면 이름을 바꾸고, 없으면 새로 만든다 |
+
+**컴포넌트를 다시 꾸미겠다고 지우고 새로 넣지 않는다.** `update`의 `variant`가 배치를 바꾸면서 쓴 글과 블록 id를 지킨다. 유효한 이름은 그 컴포넌트의 kind가 정하므로, 틀리면 그 kind가 받는 변형을 전부 나열해 돌려준다.
+
+`image`는 `aphrodite_list_images`가 준 id다 — 앱이 들고 있는 사진 50장은 `sample:desk-lamp` 꼴이고, 로컬 폴더의 것은 그냥 id다. `""`이면 칸을 비운다. 히어로와 컬렉션에만 붙는다.
+
+`page`로 만든 페이지는 **그 배치의 나머지 op이 향하는 곳이 된다** — 사람이 새 프레임을 만들면 그 안에 들어가는 것과 같다. 디자인 시스템은 그대로 이어받는다.
 
 `content`와 `fields`의 키는 `title`·`text`·`label`·`eyebrow`·`description`. `block_id` 자리에는 리터럴 `"selection"`을 쓸 수 있다 — 사람이 지금 고른 것이 곧 공유 포인터다. 한 번에 op 40개까지, 문자열 하나는 4,000자까지. 페이지를 고르는 열쇠는 `apply`만 `page_id`(`pageId`도 받는다)이고, `contract`와 `render`는 `pageId`다.
 
