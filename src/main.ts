@@ -120,6 +120,8 @@ const posterCache=new Map<string,string>();
 /* taste.md — off unless the person turns it on. The file is the record; this only reads and writes it.
    Kept beside the archive because they are the same promise: your own words, in a file you can edit. */
 let tasteFile:Taste=EMPTY_TASTE;
+/** Fields this person has rewritten, so one edit is one receipt rather than one per keystroke. */
+const personEdited=new Set<string>();
 async function readTaste():Promise<{markdown:string;taste:Taste}>{
   if(!nativeDesktop)return {markdown:'',taste:EMPTY_TASTE};
   try{
@@ -143,16 +145,28 @@ function tasteSignals(){
     font:e.project.system?.font,
     variants:e.project.pages.flatMap(pg=>pg.blocks.filter(b=>b.variant).map(b=>`${b.kind}:${b.variant}`)),
   }));
-  const runs=assemblyRun?[{
-    id:assemblyRun.id,
-    intent:assemblyRun.intent,
-    vibeWrote:assemblyRun.events.filter(e=>e.kind==='vibe:receipt')
+  /* Every run we still have, not only the one open right now. Taste is a habit, and a habit needs
+     more than one sitting to show — reading a single run is why `Corrected` was always empty. */
+  const stored:AssemblyRun[]=[];
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key?.startsWith('aphrodite-assembly-run:'))continue;
+      const raw=localStorage.getItem(key);
+      if(raw)stored.push(JSON.parse(raw) as AssemblyRun);
+    }
+  }catch{/* unreadable storage is no history, not an error */}
+  if(assemblyRun&&!stored.some(r=>r.id===assemblyRun!.id))stored.push(assemblyRun);
+  const runs=stored.map(run=>({
+    id:run.id,
+    intent:run.intent,
+    vibeWrote:(run.events??[]).filter(e=>e.kind==='vibe:receipt')
       .flatMap(e=>((e.details.changedFields as {nodeId:string;field:string}[]|undefined)??[]).map(c=>`${c.nodeId}:${c.field}`)),
-    personRewrote:assemblyRun.events.filter(e=>e.kind==='agent:edit'||e.kind==='edit')
+    personRewrote:(run.events??[]).filter(e=>e.kind==='person:edit')
       .map(e=>`${String(e.details.blockId??'')}:${String(e.details.field??'')}`),
-    discarded:assemblyRun.events.filter(e=>e.kind==='proposal:discarded').length,
-    accepted:assemblyRun.events.filter(e=>e.kind==='proposal:accepted').length,
-  }]:[];
+    discarded:(run.events??[]).filter(e=>e.kind==='proposal:discarded').length,
+    accepted:(run.events??[]).filter(e=>e.kind==='proposal:accepted').length,
+  }));
   return {projects,runs};
 }
 async function setTasteConsent(next:TasteConsent){
@@ -1324,6 +1338,13 @@ document.addEventListener('change', e => {
     const value=target.value.slice(0,key==='eyebrow'?200:key==='description'?2000:20000);
     if (b[key] === value) return;
     commit(() => { b[key] = value; b.filled = true; }, false);
+    /* A person rewriting a field left no trace at all, so the taste file's sharpest section —
+       what the machine wrote and the person changed — could never fill. One receipt per field per
+       run: the count that matters is how many runs it happened in, not how many keystrokes. */
+    /* `e.isTrusted` is the whole guard. The channel's `type` route sets the value and dispatches an
+       input event through this same handler, so without it an agent editing a field would be filed
+       as the person correcting the machine — the taste file would end up describing the agent. */
+    if(e.isTrusted&&!personEdited.has(`${b.id}:${key}`)){personEdited.add(`${b.id}:${key}`);recordRun('person:edit',{blockId:b.id,field:key});}
     // Keep the inspector's DOM stable on blur so the user's next click is not lost.
     const wrap = document.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`)!;
     if(b.kind==='frame'){
