@@ -10,6 +10,18 @@ mod workspace;
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            // A relaunch after an update starts us from the old process, and macOS does not hand
+            // that child the front. The window came back behind everything — on a second display it
+            // was never painted at all, so the app looked like it had opened blank. Whoever started
+            // us, a window a person just asked for belongs in front.
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         .manage(agent::AgentBridge::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
