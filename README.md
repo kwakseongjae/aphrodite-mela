@@ -117,7 +117,7 @@ Aphrodite is deliberately narrow: one screen, one direction, one contract. It is
 1. Download the DMG for your Mac from the [latest release](https://github.com/kwakseongjae/aphrodite-mela/releases/latest) — Apple Silicon (`_aarch64.dmg`) or Intel (`_x64.dmg`). Signed with a Developer ID and notarized; macOS 13 or later.
 2. Open the DMG and drag **Aphrodite** into **Applications**.
 3. Launch it. First run offers English or Korean, a **sample project** (a small lighting brand with a desktop and a mobile frame) or a blank one, and a two-minute tour of the editor.
-4. Updates are not silent. When a newer release exists, a small card appears in the bottom-left corner; clicking it downloads that release's DMG to your Downloads folder and you install it the same way. The card can be dismissed for that version, or switched off entirely.
+4. Updates are not silent, and from v0.2.0 they install themselves. When a newer release exists a small card appears in the bottom-left corner with the version, what changed, and one button: **Install and restart** fetches it, checks its signature, puts it in place and reopens Aphrodite on the new version. The disk image is still one menu item away. The card can be dismissed for that version, or switched off entirely.
 
 **The only things Aphrodite sends over the network** are the version check above and a font file when you click Install in the typeface picker. Both go to GitHub and neither carries anything about you or your work. Your projects, images and text stay on this Mac.
 
