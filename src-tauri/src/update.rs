@@ -80,8 +80,44 @@ pub fn update_check() -> Result<Value, String> {
         "name": name,
         "url": url,
         "size": size,
-        "notes": release["html_url"].as_str().unwrap_or("")
+        "notes": release["html_url"].as_str().unwrap_or(""),
+        "summary": release_summary(release["body"].as_str().unwrap_or(""))
     }))
+}
+
+/// The first few plain lines of a release body, so the card can answer "what changed?" without
+/// sending the person to a browser. Markdown chrome is dropped rather than rendered: headings,
+/// bullets and emphasis become sentences, and anything that is not prose — code fences, tables,
+/// links to assets — is skipped. Bounded on both counts so a long release cannot fill the screen.
+fn release_summary(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut fenced = false;
+    for raw in body.lines() {
+        let line = raw.trim();
+        if line.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced || line.is_empty() || line.starts_with('|') || line.starts_with('#') || line.starts_with('<') {
+            continue;
+        }
+        let line = line.trim_start_matches(['-', '*', '+']).trim();
+        let line: String = line.replace("**", "").replace('`', "");
+        if line.len() < 3 {
+            continue;
+        }
+        let line = if line.chars().count() > 120 {
+            let cut: String = line.chars().take(119).collect();
+            format!("{}…", cut.trim_end())
+        } else {
+            line
+        };
+        out.push(line);
+        if out.len() == 3 {
+            break;
+        }
+    }
+    out
 }
 
 /// Downloads the release disk image into ~/Downloads. Only a github.com release URL is accepted and
@@ -238,6 +274,19 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_release_body_becomes_at_most_three_plain_lines() {
+        let body = "## What's new\n\n- **Updates** that install themselves\n- An agent can drive it through `MCP`\n\n```sh\nnot prose\n```\n- Fifty-eight section layouts\n- A fourth line nobody sees\n";
+        let out = release_summary(body);
+        assert_eq!(out.len(), 3, "bounded, so a long release cannot fill the card");
+        assert_eq!(out[0], "Updates that install themselves", "markdown chrome is dropped, not rendered");
+        assert_eq!(out[1], "An agent can drive it through MCP");
+        assert_eq!(out[2], "Fifty-eight section layouts", "the code fence is skipped entirely");
+        assert!(release_summary("").is_empty(), "no body is no summary, not an empty line");
+        let long = format!("- {}", "가".repeat(400));
+        assert!(release_summary(&long)[0].chars().count() <= 120, "one very long line cannot run away");
+    }
+
     use super::*;
 
     #[test]

@@ -31,27 +31,41 @@ test('sizes read the way a person expects',()=>{
   assert.equal(formatSize(undefined),'');
 });
 
-test('the card says what it is about and offers the right action for its state',()=>{
-  const waiting=updateNoticeHtml(offer,'offer','ko');
-  assert.match(waiting,/0\.1\.6/);
-  assert.match(waiting,/현재 0\.1\.5/);
-  assert.match(waiting,/data-action="update-download"/);
-  assert.match(waiting,/data-action="update-dismiss"/);
-  assert.match(waiting,/data-action="update-never"/);
-  assert.match(waiting,/data-action="update-notes"/);
+test('one card, four states, and never more than one thing to press',()=>{
+  const info={current:'0.1.5',latest:'0.1.6',newer:true,url:'https://example.com/a.dmg',name:'a.dmg',size:31_094_147,
+              notes:'https://example.com/notes',summary:['Updates that install themselves','Fifty-eight section layouts']};
+  const buttons=(html:string)=>[...html.matchAll(/data-action="([a-z-]+)"/g)].map(m=>m[1]);
+  const offer=updateNoticeHtml(info,'offer','ko');
+  assert.match(offer,/<strong>0\.1\.6<\/strong>/,'the version is the headline, not a sentence');
+  assert.ok(offer.includes('새 버전'));
+  // Exactly one thing to press, and the rest live behind the dots where they cannot compete.
+  const visible=buttons(offer.split('<details class="update-more"')[0]);
+  assert.deepEqual(visible,['update-dismiss','update-install'],'close and install, nothing else');
+  for(const hidden of ['update-notes','update-download','update-never'])assert.ok(buttons(offer).includes(hidden),`${hidden} is in the menu`);
 
-  const busy=updateNoticeHtml(offer,'working','en');
-  assert.match(busy,/disabled/);
-  assert.doesNotMatch(busy,/data-action="update-download"/,'no second download while one is running');
+  const working=updateNoticeHtml(info,'working','ko','42%');
+  assert.match(working,/update-bar/,'progress is a bar, not a sentence');
+  assert.ok(working.includes('42%'));
+  assert.equal(buttons(working).filter(b=>b!=='update-install').length,0,'nothing to press or dismiss mid-download');
+  assert.doesNotMatch(working,/update-more/,'the menu is gone while it works');
 
-  const done=updateNoticeHtml(offer,'ready','en');
-  assert.match(done,/data-action="update-open"/);
-  assert.match(done,/data-action="update-reveal"/);
-  assert.match(done,/Downloads folder/);
+  const installing=updateNoticeHtml(info,'installing','ko');
+  assert.ok(installing.includes('스스로 다시 열립니다'));
+  const failed=updateNoticeHtml(info,'failed','en','Network unreachable');
+  assert.ok(failed.includes('Network unreachable')&&failed.includes('Try again'));
+});
 
-  const broken=updateNoticeHtml(offer,'failed','en','the network went away');
-  assert.match(broken,/the network went away/);
-  assert.match(broken,/Try again/);
+test('what changed is answered in the card, not in a browser',()=>{
+  const summary=['Updates that install themselves','An agent can drive it through MCP','Fifty-eight section layouts'];
+  const info={current:'0.1.5',latest:'0.1.6',newer:true,url:'u',name:'n',summary};
+  const html=updateNoticeHtml(info,'offer','ko');
+  for(const line of summary)assert.ok(html.includes(line),line);
+  assert.match(html,/<details class="update-summary"/,'folded away until asked for');
+  assert.doesNotMatch(html,/ open>/,'and folded by default');
+  assert.doesNotMatch(updateNoticeHtml({...info,summary:undefined},'offer','ko'),/update-summary/,'no notes, no empty section');
+  assert.doesNotMatch(updateNoticeHtml(info,'working','ko','9%'),/update-summary/,'not while it downloads');
+  const nasty={...info,summary:['<img src=x onerror="alert(1)">']};
+  assert.doesNotMatch(updateNoticeHtml(nasty,'offer','en'),/<img/,'a release body is text, not markup');
 });
 
 test('a failure message is escaped rather than pasted into the page',()=>{
@@ -66,11 +80,11 @@ test('a release with no notes link offers no notes button',()=>{
   assert.doesNotMatch(updateNoticeHtml({...offer,notes:undefined},'offer','en'),/update-notes/);
 });
 
-test('the Korean subject particle follows how the last digit is read aloud',()=>{
-  const cases:[string,string][]=[['0.1.0','이'],['0.1.1','이'],['0.1.2','가'],['0.1.3','이'],['0.1.4','가'],['0.1.5','가'],['0.1.6','이'],['0.1.7','이'],['0.1.8','이'],['0.1.9','가'],['1.2.10','이']];
-  for(const [version,particle] of cases)assert.equal(koParticle(version),particle,version);
-  assert.match(updateNoticeHtml({...offer,latest:'0.1.5'},'offer','ko'),/0\.1\.5가 나왔습니다/);
-  assert.match(updateNoticeHtml({...offer,latest:'0.1.6'},'offer','ko'),/0\.1\.6이 나왔습니다/);
+test('a version number takes the particle its last digit calls for',()=>{
+  for(const [version,subject,topic] of [['0.1.6','이','은'],['0.1.5','가','는'],['0.2.0','이','은'],['1.0.2','가','는'],['0.1.9','가','는'],['0.1.3','이','은']] as const){
+    assert.equal(koParticle(version),subject,`${version}${subject}`);
+    assert.equal(koParticle(version,'은는'),topic,`${version}${topic}`);
+  }
 });
 
 /* The owner asked for the update everyone else ships: fetch it, put it in place, come back on the

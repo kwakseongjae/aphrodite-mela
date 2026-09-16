@@ -49,7 +49,7 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
-import {shouldCheck,shouldOffer,updateNoticeHtml,progressLabel,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
+import {shouldCheck,shouldOffer,updateNoticeHtml,progressLabel,koParticle,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -989,7 +989,7 @@ async function action(el: HTMLElement) {
     case 'update-open': if(updateFile)try{await invoke('update_open',{path:updateFile});}catch(error){toast(String(error));}break;
     case 'update-reveal': if(updateFile)try{await invoke('update_reveal',{path:updateFile});}catch(error){toast(String(error));}break;
     case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){toast(String(error));}break;
-    case 'update-dismiss': try{if(updateInfo?.latest)localStorage.setItem(SKIP_KEY,updateInfo.latest);}catch{/* not remembered */}closeUpdate();break;
+    case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)toast(uiLanguage==='ko'?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
     case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();toast(ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
     case 'local-scope': localScope=(el.dataset.scope as LocalScope)??'all';refreshLibraryPanel();break;
     case 'local-delete': {const id=el.dataset.id!;const image=readableImages(localLibrary).find(i=>i.id===id);if(!image)break;
