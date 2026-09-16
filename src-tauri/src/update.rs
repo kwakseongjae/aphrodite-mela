@@ -95,7 +95,7 @@ fn release_summary(body: &str) -> Vec<String> {
     let mut fenced = false;
     let mut skipping = false;
 
-    let mut flush = |para: &mut String, out: &mut Vec<String>| {
+    let flush = |para: &mut String, out: &mut Vec<String>| {
         let text = para.trim().to_string();
         para.clear();
         if text.chars().count() < 3 || out.len() >= 3 {
@@ -326,17 +326,33 @@ mod tests {
     /// a disk image. This reads what CI actually puts in latest.json.
     #[test]
     fn the_notes_we_ship_read_as_sentences() {
-        let notes = include_str!("../../docs/RELEASE-NOTES-v0.2.0.md");
-        let out = release_summary(notes);
-        assert_eq!(out.len(), 3, "{out:?}");
-        for line in &out {
-            assert!(line.chars().count() > 20, "a fragment, not a sentence: {line:?}");
-            assert!(!line.contains(".dmg"), "a file name is not news: {line:?}");
-            assert!(!line.ends_with(" by") && !line.ends_with(" the") && !line.ends_with(" and"),
-                "cut mid-clause, which is how a wrapped paragraph breaks: {line:?}");
-            assert!(!line.starts_with('#') && !line.contains("**"), "markdown reached the card: {line:?}");
+        // Every notes file we ship, not one pinned example: the card reads whichever release is
+        // newest, so a summary only has to break once, in the release nobody checked.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs");
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .expect("docs/")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                    n.starts_with("RELEASE-NOTES-v") && n.ends_with(".md") && !n.contains("v0.1.")
+                })
+            })
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no release notes found in {dir:?}");
+        for file in files {
+            let notes = std::fs::read_to_string(&file).expect("notes");
+            let out = release_summary(&notes);
+            let who = file.file_name().unwrap().to_string_lossy().to_string();
+            assert_eq!(out.len(), 3, "{who}: {out:?}");
+            for line in &out {
+                assert!(line.chars().count() > 20, "{who}: a fragment, not a sentence: {line:?}");
+                assert!(!line.contains(".dmg"), "{who}: a file name is not news: {line:?}");
+                assert!(!line.ends_with(" by") && !line.ends_with(" the") && !line.ends_with(" and"),
+                    "{who}: cut mid-clause, which is how a wrapped paragraph breaks: {line:?}");
+                assert!(!line.starts_with('#') && !line.contains("**"), "{who}: markdown reached the card: {line:?}");
+            }
         }
-        assert!(out[0].contains("agent"), "the opening sentence is the one worth showing: {:?}", out[0]);
     }
 
     use super::*;
@@ -430,3 +446,4 @@ mod tests {
         assert!(!looks_like_dmg(&[]));
     }
 }
+

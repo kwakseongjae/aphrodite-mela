@@ -3,7 +3,7 @@
   var REPO = 'kwakseongjae/aphrodite-mela';
   // Pinned floor: a real, signed DMG that downloads even if the GitHub API is rate-limited or a newer
   // release is still a draft (GitHub's /releases/latest skips drafts). latestRelease() upgrades this.
-  var VERSION = '0.2.0';
+  var VERSION = '0.2.1';
   var DL = 'https://github.com/' + REPO + '/releases/download/v' + VERSION + '/';
   var PIN_ARM = DL + 'Aphrodite_' + VERSION + '_aarch64.dmg';
   var PIN_INTEL = DL + 'Aphrodite_' + VERSION + '_x64.dmg';
