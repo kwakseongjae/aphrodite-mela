@@ -30,24 +30,6 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     false
 }
 
-/// The disk image built for this machine's architecture.
-fn wanted_asset(assets: &[Value]) -> Option<(String, String, u64)> {
-    let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
-    let pick = |needle: &str| {
-        assets.iter().find(|a| {
-            a["name"]
-                .as_str()
-                .map(|n| n.ends_with(".dmg") && n.contains(needle))
-                .unwrap_or(false)
-        })
-    };
-    let asset = pick(arch).or_else(|| pick(".dmg"))?;
-    Some((
-        asset["name"].as_str()?.to_string(),
-        asset["browser_download_url"].as_str()?.to_string(),
-        asset["size"].as_u64().unwrap_or(0),
-    ))
-}
 
 /// Asks GitHub for the newest published release. Never errors loudly: a machine that is offline or
 /// rate-limited simply reports that there is nothing newer. Off the main thread: a slow network
@@ -56,21 +38,22 @@ fn wanted_asset(assets: &[Value]) -> Option<(String, String, u64)> {
 pub fn update_check() -> Result<Value, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let quiet = json!({"current": current, "newer": false});
-    let body = match fetch_text(&format!("https://api.github.com/repos/{REPO}/releases/latest")) {
+    // The updater's own manifest, not the API. /releases/latest/download/… is a plain file, so a
+    // shared address — an office, a cafe — cannot spend the hour's sixty API calls and leave
+    // everyone in the building unable to hear about a new version.
+    let body = match fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json")) {
         Ok(text) => text,
         Err(_) => return Ok(quiet),
     };
-    let release: Value = match serde_json::from_str(&body) {
+    let manifest: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
         Err(_) => return Ok(quiet),
     };
-    let tag = release["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+    let tag = manifest["version"].as_str().unwrap_or("").trim_start_matches('v').to_string();
     if tag.is_empty() || !is_newer(&tag, &current) {
         return Ok(json!({"current": current, "latest": tag, "newer": false}));
     }
-    let empty: Vec<Value> = Vec::new();
-    let assets = release["assets"].as_array().unwrap_or(&empty);
-    let Some((name, url, size)) = wanted_asset(assets) else {
+    let Some(name) = dmg_name(&tag) else {
         return Ok(json!({"current": current, "latest": tag, "newer": false}));
     };
     Ok(json!({
@@ -78,11 +61,23 @@ pub fn update_check() -> Result<Value, String> {
         "latest": tag,
         "newer": true,
         "name": name,
-        "url": url,
-        "size": size,
-        "notes": release["html_url"].as_str().unwrap_or(""),
-        "summary": release_summary(release["body"].as_str().unwrap_or(""))
+        "url": format!("https://github.com/{REPO}/releases/download/v{tag}/{name}"),
+        "notes": format!("https://github.com/{REPO}/releases/tag/v{tag}"),
+        "summary": release_summary(manifest["notes"].as_str().unwrap_or(""))
     }))
+}
+
+/// The disk image this Mac would want, named the way the release names it. Kept as a fallback for
+/// anyone who would rather install by hand; the updater itself takes the tarball from the manifest.
+fn dmg_name(version: &str) -> Option<String> {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else {
+        return None;
+    };
+    Some(format!("Aphrodite_{version}_{arch}.dmg"))
 }
 
 /// The first few plain lines of a release body, so the card can answer "what changed?" without
@@ -310,35 +305,29 @@ mod tests {
     }
 
     #[test]
-    fn the_asset_for_this_architecture_is_chosen() {
-        let assets = vec![
-            json!({"name": "Aphrodite_0.1.6_x64.dmg", "browser_download_url": "https://example.com/x64", "size": 10}),
-            json!({"name": "Aphrodite_0.1.6_aarch64.dmg", "browser_download_url": "https://example.com/arm", "size": 20}),
-            json!({"name": "notes.txt", "browser_download_url": "https://example.com/txt", "size": 1}),
-        ];
-        let (name, url, size) = wanted_asset(&assets).expect("an asset");
-        if cfg!(target_arch = "aarch64") {
-            assert_eq!((name.as_str(), url.as_str(), size), ("Aphrodite_0.1.6_aarch64.dmg", "https://example.com/arm", 20));
-        } else {
-            assert_eq!((name.as_str(), url.as_str(), size), ("Aphrodite_0.1.6_x64.dmg", "https://example.com/x64", 10));
-        }
-        assert!(wanted_asset(&[json!({"name": "notes.txt"})]).is_none(), "no disk image, no offer");
-        assert!(wanted_asset(&[]).is_none());
+    fn the_disk_image_is_named_for_this_architecture() {
+        let name = dmg_name("0.2.0").expect("this machine has a disk image");
+        assert!(name.starts_with("Aphrodite_0.2.0_"), "{name}");
+        assert!(name.ends_with(".dmg"), "{name}");
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(name, "Aphrodite_0.2.0_aarch64.dmg");
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(name, "Aphrodite_0.2.0_x64.dmg");
     }
 
-    /// Hits the real release feed, so it is not part of the offline suite. Run it with
-    /// `cargo test -- --ignored` to confirm TLS, redirects and the feed's shape still line up.
+    /// Hits the real manifest, so it is not part of the offline suite. Run it with
+    /// `cargo test -- --ignored` to confirm TLS, redirects and the manifest's shape still line up.
+    /// This is a plain file rather than the API, so it costs nobody their hourly quota.
     #[test]
     #[ignore]
-    fn live_release_feed_parses() {
-        let body = fetch_text(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
-            .expect("the release feed answers");
-        let release: Value = serde_json::from_str(&body).expect("valid json");
-        let tag = release["tag_name"].as_str().expect("a tag");
-        assert!(tag.starts_with('v'), "{tag}");
-        let assets = release["assets"].as_array().expect("assets");
-        let (name, url, size) = wanted_asset(assets).expect("a disk image for this machine");
-        assert!(name.ends_with(".dmg") && url.starts_with("https://github.com/") && size > 1_000_000);
+    fn live_release_manifest_parses() {
+        let body = fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json"))
+            .expect("the manifest answers");
+        let manifest: Value = serde_json::from_str(&body).expect("valid json");
+        let version = manifest["version"].as_str().expect("a version");
+        assert!(version.chars().next().is_some_and(|c| c.is_ascii_digit()), "{version}");
+        assert!(manifest["platforms"].as_object().is_some_and(|p| !p.is_empty()), "platforms");
+        assert!(!release_summary(manifest["notes"].as_str().unwrap_or("")).is_empty(), "notes carry something to show");
     }
 
     #[test]

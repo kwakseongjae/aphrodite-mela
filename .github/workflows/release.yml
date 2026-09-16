@@ -72,6 +72,18 @@ jobs:
       # exist in the signed one.
       # Tauri treats a *defined but empty* APPLE_* variable as a real setting, so each
       # signing path is its own step and only defines the variables it uses.
+      # The release body is also what lands in latest.json, which is what the app reads to say
+      # "what changed". A generic sentence there means the card has nothing to show.
+      - name: Read the release notes
+        id: notes
+        run: |
+          FILE="docs/RELEASE-NOTES-${TAG}.md"
+          if [ -f "$FILE" ]; then
+            { echo "body<<APHRODITE_EOF"; cat "$FILE"; echo "APHRODITE_EOF"; } >> "$GITHUB_OUTPUT"
+          else
+            { echo "body<<APHRODITE_EOF"; echo "Aphrodite ${TAG} for macOS. Download, drag Aphrodite to Applications, open it."; echo "APHRODITE_EOF"; } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Detect signing secrets
         id: signing
         env:
@@ -106,7 +118,7 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
@@ -128,7 +140,7 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
@@ -176,7 +188,7 @@ jobs:
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
-          releaseBody: "Aphrodite for macOS (Apple Silicon and Intel). Unsigned test build: right-click the app and choose Open on first launch."
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: true
           includeUpdaterJson: true
