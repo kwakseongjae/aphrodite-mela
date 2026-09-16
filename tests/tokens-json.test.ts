@@ -52,3 +52,20 @@ test('the typefaces travel, and the scale only when there is one',()=>{
   assert.equal(scaled.type.heading.fontWeight.$value,400);
   assert.equal(scaled.type.heading.lineHeight.$value,1.05);
 });
+
+/**
+ * The same invariant as the colours: what we hand over has to be what the page is painted with.
+ * Written by hand, this said `Inter, system-ui, sans-serif` while the renderer used Arial with
+ * Pretendard and Noto Sans KR behind it — so the export named a typeface the app never touches and
+ * dropped every Korean fallback.
+ */
+test('the typeface stack handed over is the one the page paints with',async()=>{
+  const {fontStack}=await import('../src/design/fonts');
+  const s=system();
+  const out=tokensJson(s) as Record<string,any>;
+  assert.equal(out.font.heading.$value,fontStack({family:s.headingFamily,category:s.font}));
+  assert.equal(out.font.body.$value,fontStack({family:s.bodyFamily,category:'sans'}));
+  assert.match(out.font.body.$value,/Noto Sans KR|Pretendard/,'the Korean fallbacks travel');
+  const named=tokensJson({...s,headingFamily:'Nanum Myeongjo'}) as Record<string,any>;
+  assert.match(named.font.heading.$value,/^'Nanum Myeongjo',/,'a chosen family leads its own stack');
+});

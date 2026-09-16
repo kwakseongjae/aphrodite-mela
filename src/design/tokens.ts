@@ -1,3 +1,4 @@
+import {fontStack} from './fonts';
 /**
  * The semantic half of the design contract.
  *
@@ -150,9 +151,13 @@ export function tokensJson(system: {
   };
   for (const name of semanticTokens) color[name] = colour(semantic[name]);
 
+  /* The same stack the renderer paints with, not a plausible-looking one. Written by hand first,
+     this said `Inter, system-ui, sans-serif` while the page used Arial with Pretendard and Noto Sans
+     KR behind it — so the handoff told a builder to use a typeface the app never touches, and threw
+     away every Korean fallback on the way out. */
   const font: Record<string, unknown> = {
-    heading: {$type: 'fontFamily', $value: system.headingFamily ?? (system.font === 'serif' ? 'Georgia, serif' : 'Inter, system-ui, sans-serif')},
-    body: {$type: 'fontFamily', $value: system.bodyFamily ?? 'Inter, system-ui, sans-serif'},
+    heading: {$type: 'fontFamily', $value: fontStack({family: system.headingFamily, category: system.font})},
+    body: {$type: 'fontFamily', $value: fontStack({family: system.bodyFamily, category: 'sans'})},
   };
   const type: Record<string, unknown> = {};
   for (const role of typeRoles) {
