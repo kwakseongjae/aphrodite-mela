@@ -90,7 +90,7 @@ export function judge(kind: string, caller: string, a: Authority): Verdict {
     return {
       allow: false,
       status: 423,
-      error: 'writing is off. Ask the person to turn on Connected mode (Help → Agent connection), or to start Agent mode to hand the screen over. Reading works without either.',
+      error: 'writing is off. Ask the person to turn on Connected mode — the switch in the home top row, or Help → Agent connection with a project open — or to start Agent mode to hand the screen over. Reading works without either.',
     };
   }
   const who = normalizeCaller(caller);
