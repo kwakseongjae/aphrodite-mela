@@ -17,7 +17,7 @@ import {framePresets, type FramePreset} from '../editor/space';
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page';
 export type Op =
   | {op: 'add'; component_kind: string; variant?: string; before_block_id?: string; content?: Partial<Record<EditableField, string>>}
-  | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string}
+  | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string; image?: string}
   | {op: 'move'; block_id: string; direction: 'up' | 'down'}
   | {op: 'delete'; block_id: string}
   | {op: 'frame'; page_id?: string; preset: FramePreset}
@@ -122,12 +122,16 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
       const variant = o.variant === undefined ? undefined : str(o.variant, 60) ?? '';
       // An update with neither key is worth naming as such; the shape complaint from contentFields
       // would only mention the words and leave the person looking for the wrong mistake.
-      if (o.fields === undefined && variant === undefined) {
-        return {error: `${where} changes nothing: pass fields to change the words, variant to change the layout, or both.`};
+      /* A picture is neither copy nor layout, so it gets its own key. The id comes from
+         aphrodite_list_images — `sample:desk-lamp` for one the app ships with, or a library id —
+         and "" clears the slot. Whether it names something real is the app's to say. */
+      const image = o.image === undefined ? undefined : str(o.image, 300) ?? '';
+      if (o.fields === undefined && variant === undefined && image === undefined) {
+        return {error: `${where} changes nothing: pass fields to change the words, variant to change the layout, image to change the picture, or any combination.`};
       }
       const fields = o.fields === undefined ? {fields: {}} : contentFields(o.fields, `${where}.fields`);
       if ('error' in fields) return fields;
-      return {op: {op: 'update', block_id: target.id, fields: fields.fields, ...(variant === undefined ? {} : {variant})}};
+      return {op: {op: 'update', block_id: target.id, fields: fields.fields, ...(variant === undefined ? {} : {variant}), ...(image === undefined ? {} : {image})}};
     }
     case 'move': {
       const target = blockId(o.block_id, where);

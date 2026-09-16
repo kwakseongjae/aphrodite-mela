@@ -128,7 +128,7 @@ export const tools = [
     name: 'aphrodite_list_images',
     title: 'List the local picture library',
     description: [
-      'The pictures on this Mac that the project can use, with the id to reference each one, its size and whether it belongs to this project or is shared across all of them.',
+      'The pictures the project can use — the fifty the app ships with (scope `sample`) and whatever is in the local folder — with the id to reference each one, its size and whether it belongs to this project or is shared across all of them.',
       '',
       'Use it to find real imagery before adding a component that needs a picture; reference one as "local:<id>".',
       'Reading the list is always allowed, even when editing is not.',
@@ -148,7 +148,7 @@ export const tools = [
     name: 'aphrodite_apply_edits',
     title: 'Change the design',
     description: [
-      'Change a page with a list of operations that land together: add, update, move, delete a component, resize a page frame, or make and name a page (`page`, which inherits the design system).',
+      'Change a page with a list of operations that land together: add, update, move, delete a component, resize a page frame, or make and name a page (`page`, which inherits the design system). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle or re-illustrate it.',
       '',
       'Send everything one change needs in a single call. The whole list lands as one undo step and one receipt, so the person can take back your work in one press — and if any operation is wrong, none of them are applied and the reply says which one failed.',
       'Target a component by block_id from aphrodite_get_contract, or by the literal "selection" for whatever the person has selected.',
@@ -171,6 +171,7 @@ export const tools = [
             properties: {
               op: {type: 'string', enum: ['add', 'update', 'move', 'delete', 'frame', 'page']},
               name: {type: 'string', description: 'page: what to call it, for example "Mobile".'},
+              image: {type: 'string', description: 'update: the picture for a hero or a collection — an id from aphrodite_list_images ("sample:desk-lamp" for one the app ships with), or "" to clear it.'},
               component_kind: {type: 'string', description: 'add: the kind to place, from aphrodite_list_components.'},
               variant: {type: 'string', description: 'add/update: a variant that kind accepts. On update it changes the layout and keeps the words — you do not delete and re-add to restyle a component.'},
               before_block_id: {type: 'string', description: 'add: place it before this component instead of at the end.'},

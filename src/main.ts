@@ -3,7 +3,7 @@ import { createIcons } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project } from './model';
+import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -58,7 +58,7 @@ import {parseOps,SELECTION,type Op} from './agent/ops';
 import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
-import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
+import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
 import {sanitizeFamily,fontStack,freeFonts,fontsFor,licenseNote,type FreeFont} from './design/fonts';
 import {localRef,parseLocalRef,localRefsIn,dataUrl,cachedLocal,cacheLocal,forgetLocal,hydrateLocalImages,readableImages,isWide,inScope,type LocalLibrary,type LocalImage,type LocalScope} from './design/local-images';
 import {syncKeyedChildren} from './workspace/grid-sync';
@@ -1280,6 +1280,23 @@ window.addEventListener('resize',()=>positionTour());
 document.addEventListener('toggle',e=>{const el=e.target as HTMLElement;if(el?.classList?.contains('folio-ws'))placeWorkspaceMenu();else if(el?.classList?.contains('folio-more'))placeCardMenu(el as HTMLDetailsElement);else if(el?.classList?.contains('help-fab'))helpOpen=(el as HTMLDetailsElement).open;},{capture:true});
 window.addEventListener('resize',()=>placeWorkspaceMenu());
 /* ---- Agent channel: commands arrive over the loopback bridge (desktop) or window.aphroditeAgent (browser) ---- */
+/** Turns /assets/… references into data URLs so a render carries its pictures with it. */
+async function inlineAssets(html:string):Promise<string>{
+  const paths=[...new Set([...html.matchAll(/["'(](\/assets\/[A-Za-z0-9._\/-]+)["')]/g)].map(m=>m[1]))];
+  const seen=new Map<string,string>();
+  await Promise.all(paths.map(async path=>{
+    try{
+      const response=await fetch(path);
+      if(!response.ok)return;
+      const blob=await response.blob();
+      const data=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(r.error);r.readAsDataURL(blob);});
+      seen.set(path,data);
+    }catch{/* a picture that will not load stays a broken picture, which is the truth */}
+  }));
+  let out=html;
+  for(const [path,data] of seen)out=out.split(path).join(data);
+  return out;
+}
 function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
@@ -1310,6 +1327,16 @@ function runOp(page:Page,op:Op):string|undefined{
     const block=find(op.block_id);
     if(!block)return op.block_id===SELECTION?'nothing is selected. Pass a block_id from the contract, or ask the person to select something.':`no component ${op.block_id} on this page.`;
     if(op.fields.description!==undefined&&block.kind!=='products')return 'description belongs to a collection component; this one is a '+block.kind+'.';
+    if(op.image!==undefined){
+      if(!['hero','products'].includes(block.kind))return `a picture belongs to a hero or a collection; this one is a ${block.kind}.`;
+      if(op.image===''){block.image='';}
+      else{
+        // `sample:desk-lamp` names one the app ships with; anything else must be a library id.
+        const src=op.image.startsWith('sample:')?sampleSrc(op.image.slice('sample:'.length)):localRef(op.image);
+        if(!safeImage(src))return unknownValue('image',op.image,['sample:<id> from aphrodite_list_images','a library id from aphrodite_list_images','"" to clear it']);
+        block.image=src;
+      }
+    }
     if(op.variant!==undefined){
       const variants=patternVariants(block.kind);
       if(!variants.includes(op.variant))return unknownValue('variant',op.variant,variants,`This is a ${block.kind}.`);
@@ -1405,7 +1432,11 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       // A render is a viewport, not a whole page: a caller that wants more of a long page asks for
       // a taller one. The default is a shape a phone or a laptop actually has.
       const height=c.height??Math.round(width*1.6);
-      const png=await invoke<string>('render_page',{html:pageHtml(project,page),width,height});
+      /* The render is served from the loopback bridge, which answers /assets/ with a 401 — so a
+         picture that is perfectly fine on the person's screen came back to an agent as a broken
+         image, and an agent checking its own work would go and "fix" something that was never
+         wrong. Fetch what the page points at and inline it, for this render only. */
+      const png=await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
@@ -1430,7 +1461,15 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope});}
         // Listing is a read: it must not redraw the screen under the person's hands.
         if(c.action==='list'){await loadLocalLibrary(true);}else{forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();}
-        return {ok:true,dir:localLibrary?.dir??'',images:readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime}))};
+        /* The fifty photographs the app ships with are in the person's picker but were invisible
+           here, so an agent asked to place a picture could only see whatever happened to be in the
+           local folder — two demo files, in the run that found this. They are read-only and carry
+           a `sample:` id rather than a file id, which is also what `add`/`update` accept as image. */
+        return {ok:true,dir:localLibrary?.dir??'',
+          images:[
+            ...readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime})),
+            ...sampleImages.map(sm=>({id:`sample:${sm.id}`,scope:'sample' as const,name:uiLanguage==='ko'?sm.ko:sm.en,category:sm.category,wide:sm.wide,mime:'image/webp'})),
+          ]};
       }
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
       case 'ui':{

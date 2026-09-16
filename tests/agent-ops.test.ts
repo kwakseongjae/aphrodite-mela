@@ -142,3 +142,22 @@ test('a batch that makes a page carries on inside it',()=>{
   // guarantee is that the two arrive together in one batch, so one undo takes both back.
   assert.equal(ops.length,2);
 });
+
+/* Asked to illustrate a hero, a model could see two files in a folder and none of the fifty
+   photographs the app ships with — and even with a picture in mind, no operation could place one.
+   A picture is neither copy nor layout, so update carries it under its own key. */
+test('update carries a picture, by an id the list gives out',()=>{
+  const one=(op:Record<string,unknown>)=>parseOps({ops:[op]});
+  const sample=one({op:'update',block_id:'selection',image:'sample:desk-lamp'}) as {ops:unknown[]};
+  assert.deepEqual(sample.ops[0],{op:'update',block_id:'selection',fields:{},image:'sample:desk-lamp'});
+
+  const cleared=one({op:'update',block_id:'selection',image:''}) as {ops:unknown[]};
+  assert.deepEqual(cleared.ops[0],{op:'update',block_id:'selection',fields:{},image:''},'"" clears the slot');
+
+  const all=one({op:'update',block_id:'selection',image:'sample:desk-lamp',variant:'stacked',fields:{title:'빛'}}) as {ops:unknown[]};
+  assert.deepEqual(all.ops[0],{op:'update',block_id:'selection',fields:{title:'빛'},variant:'stacked',image:'sample:desk-lamp'},
+    'words, layout and picture in one operation');
+
+  assert.match((one({op:'update',block_id:'selection'}) as {error:string}).error,/image to change the picture/,
+    'the empty update names all three things it could have carried');
+});
