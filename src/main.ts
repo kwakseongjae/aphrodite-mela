@@ -75,6 +75,7 @@ import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFra
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
+import {referencesPanelHtml,POSTER_PREFIX,type Reference,type ReferenceScope} from './design/references';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
@@ -106,7 +107,32 @@ const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-red
 let project: Project = initialProject();
 try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
-let tab: 'components' | 'layers' | 'assets' = 'components';
+let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
+/* The reference archive. Held in memory only as a cache of what Rust has on disk; the folder is the
+   truth, so every change reloads rather than patching this list. */
+let references:Reference[]=[];
+let referenceScope:ReferenceScope='all';
+const posterCache=new Map<string,string>();
+async function loadReferences(force=false){
+  if(!nativeDesktop)return;
+  if(references.length&&!force)return;
+  try{
+    const got=await invoke<{entries:Reference[]}>('references_list',{project:project.id});
+    references=got.entries??[];
+  }catch{/* the folder is the person's; an unreadable one is an empty archive, not an error */}
+}
+/** Posters come back as data URLs one at a time, the way local pictures do. */
+function hydratePosters(root:ParentNode){
+  for(const img of Array.from(root.querySelectorAll<HTMLImageElement>(`img[src^="${POSTER_PREFIX}"]`))){
+    const id=(img.getAttribute('src')??'').slice(POSTER_PREFIX.length);
+    const hit=posterCache.get(id);
+    if(hit){img.src=hit;continue;}
+    img.removeAttribute('src');
+    invoke<{src:string}>('references_poster',{id,project:project.id})
+      .then(got=>{posterCache.set(id,got.src);img.src=got.src;})
+      .catch(()=>{img.closest('.reference-poster')?.classList.add('reference-poster-missing');});
+  }
+}
 let device: 'desktop' | 'mobile' = 'desktop';
 let query = '';
 let undoStack: string[] = [], redoStack: string[] = [];
@@ -442,6 +468,7 @@ function refreshLibraryPanel(){
   if(!host)return;
   host.innerHTML=libraryHtml();hydrateIcons();bindDragAndDrop();
   hydrateLocalImages(host,resolveLocal);
+  if(tab==='archive')hydratePosters(host);
 }
 function hubRefresh(){
   const grid=document.querySelector('#project-grid');
@@ -483,7 +510,7 @@ function render() {
       </div>
       <div class="section-label">${ui("PAGES","페이지")} <button class="tiny-button" data-action="add-page" aria-label="${ui("Add page","페이지 추가")}">${icon('plus')}</button></div>
       <div class="pages-list">${project.pages.map(p => `<div class="page-row ${p.id === page.id ? 'active' : ''}"><button data-action="page" data-nav="fit" data-id="${esc(p.id)}">${icon('file')}<span>${esc(p.name)}</span>${p.id === page.id ? `<small>${ui('Editing','편집 중')}</small>` : ''}</button>${p.id === page.id ? iconButton('page-menu', 'ellipsis', 'Page options') : ''}</div>`).join('')}</div>
-      <div class="library-tabs" role="tablist" aria-label="Library view">${(['components', 'layers', 'assets'] as const).map(t => `<button role="tab" aria-selected="${t === tab}" class="${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
+      <div class="library-tabs" role="tablist" aria-label="Library view">${(['components', 'layers', 'assets', 'archive'] as const).map(t => `<button role="tab" aria-selected="${t === tab}" class="${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
       <div class="library-content">${libraryHtml()}</div>
       <button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>
       <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>${ui('Made for you. And your agent.','당신과 에이전트를 위해.')}</strong><span>${ui('Same canvas. Shared direction.','같은 캔버스. 공유된 방향.')}</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
@@ -535,6 +562,7 @@ function render() {
   disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
 }
 function libraryHtml() {
+  if (tab === 'archive') return referencesPanelHtml(references, referenceScope, uiLanguage === 'ko', nativeDesktop);
   if (tab === 'layers') return `<div class="panel-description">화면 순서대로 쌓이는 구성 요소입니다.</div><div class="layer-list">${currentPage(project).blocks.map(b => `<button class="layer ${b.id === selected ? 'selected' : ''}" data-action="select" data-id="${b.id}" data-layer-id="${b.id}" title="${ui('Drag grip to reorder · Alt + arrows','핸들을 드래그해 순서 변경 · Alt + 방향키')}"><span data-layer-grip aria-hidden="true">${icon('grip-vertical')}</span>${icon(catalog.find(c => c.kind === b.kind)!.icon)}<span>${catalog.find(c => c.kind === b.kind)!.name}</span></button>`).join('') || `<p class="empty-state">${ui('Add your first component.','첫 컴포넌트를 추가하세요.')}</p>`}</div>`;
   if (tab === 'assets') {
     const mine=readableImages(localLibrary);
@@ -848,7 +876,7 @@ async function action(el: HTMLElement) {
     case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
     case 'undo': history('undo'); break;
     case 'redo': history('redo'); break;
-    case 'tab': tab = el.dataset.tab as typeof tab; render(); break;
+    case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await loadReferences(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
@@ -992,6 +1020,48 @@ async function action(el: HTMLElement) {
     case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){toast(String(error));}break;
     case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)toast(uiLanguage==='ko'?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
     case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();toast(ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
+    case 'reference-scope': referenceScope=(el.dataset.scope as ReferenceScope)??'all'; refreshLibraryPanel(); break;
+    case 'reference-add-image': pickFile('image/png,image/jpeg,image/webp',async file=>{
+      if(file.size>8_000_000)throw new Error(ui('Pick an image under 8 MB.','8MB 이하 이미지를 골라주세요.'));
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
+      const scope=el.dataset.scope==='project'?project.id:undefined;
+      await invoke('references_add',{item:{kind:'image',title:file.name.replace(/\.[^.]+$/,''),poster:btoa(binary),addedBy:'human'},project:scope});
+      await loadReferences(true);refreshLibraryPanel();
+      toast(ui('Kept in the archive','아카이브에 넣었습니다'));
+    });break;
+    case 'reference-add-link': {
+      showModal(ui('Keep a reference','레퍼런스 넣기'),ui('The address, and a line about why it is here. Nothing is fetched yet — this saves what you typed.','주소와, 왜 넣는지 한 줄. 아직 아무것도 가져오지 않습니다 — 적은 것만 저장합니다.'),
+        `<form id="reference-form"><label class="form-label">${ui('Address','주소')}<input name="url" type="url" placeholder="https://" required></label><label class="form-label">${ui('Title','제목')}<input name="title" type="text"></label><label class="form-label">${ui('Why it is here','왜 넣는지')}<textarea name="note" rows="3"></textarea></label><label class="form-label">${ui('Tags, separated by commas','태그, 쉼표로 구분')}<input name="tags" type="text"></label><div class="modal-actions"><button type="submit" class="primary-button">${ui('Keep it','넣기')}</button></div></form>`);
+      break;
+    }
+    case 'reference-promote': {
+      const hit=references.find(r=>r.id===el.dataset.id);
+      if(!hit)break;
+      if(!hit.poster){toast(ui('That reference has no picture to analyse yet.','그 레퍼런스에는 아직 분석할 그림이 없습니다.'));break;}
+      try{
+        const got=await invoke<{src:string}>('references_poster',{id:hit.poster,project:project.id});
+        // Keeping and using are separate: the archive holds it, this puts one on the analysis slot.
+        commit(()=>{project.reference=got.src;});
+        referenceModal();
+      }catch(error){toast(String(error));}
+      break;
+    }
+    case 'reference-open': {
+      const hit=references.find(r=>r.id===el.dataset.id);
+      if(!hit?.url)break;
+      try{await invoke('open_external',{url:hit.url});}catch(error){toast(String(error));}
+      break;
+    }
+    case 'reference-delete': {
+      const id=el.dataset.id;if(!id)break;
+      const hit=references.find(r=>r.id===id);
+      const scope=hit?.scope==='project'?project.id:undefined;
+      try{await invoke('references_delete',{id,project:scope});}catch(error){toast(String(error));break;}
+      await loadReferences(true);refreshLibraryPanel();
+      toast(ui('Removed from the archive','아카이브에서 뺐습니다'));
+      break;
+    }
     case 'local-scope': localScope=(el.dataset.scope as LocalScope)??'all';refreshLibraryPanel();break;
     case 'local-delete': {const id=el.dataset.id!;const image=readableImages(localLibrary).find(i=>i.id===id);if(!image)break;
       showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
@@ -1192,6 +1262,17 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('submit', async e => {
   e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
+  if(form.id==='reference-form'){
+    const url=String(data.get('url')??'').trim();
+    if(!/^https?:\/\//i.test(url)){toast(ui('An address has to start with http or https.','주소는 http 또는 https로 시작해야 합니다.'));return;}
+    const tags=String(data.get('tags')??'').split(',').map(t=>t.trim()).filter(Boolean).slice(0,12);
+    try{
+      await invoke('references_add',{item:{kind:'link',url,title:String(data.get('title')??'').trim(),note:String(data.get('note')??'').trim(),tags,addedBy:'human'},project:project.id});
+    }catch(error){toast(String(error));return;}
+    await loadReferences(true);closeModal();refreshLibraryPanel();
+    toast(ui('Kept in the archive','아카이브에 넣었습니다'));
+    return;
+  }
   if(form.id==='workspace-form'){
     const id=form.dataset.id??'';
     const name=String(data.get('name')??'').trim().slice(0,60);

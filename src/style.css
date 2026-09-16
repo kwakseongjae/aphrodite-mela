@@ -340,3 +340,26 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 .token-inherited code{color:#a7b096;font-style:italic}
 .token-inherited input[type=color]{opacity:.75}
 .token-note{font-size:10px;line-height:1.7;color:#8b977e;margin:8px 0 2px}
+
+/* The reference archive. Cards, not tiles: a saved thing carries a title, a source and a reason,
+   and a picture on its own does not say why it was kept. */
+.reference-cards{display:grid;gap:12px;margin-top:10px}
+.reference-card{display:grid;gap:6px;padding:10px;border:1px solid #e4e7dd;border-radius:10px;background:#fff}
+.reference-card h4{margin:0;font-size:12.5px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+/* A fixed, shallow poster: the panel is a list to scan, not a gallery. Three cards fit where one
+   full-bleed thumbnail did. */
+.reference-poster{position:relative;height:104px;border-radius:7px;overflow:hidden;background:#f2f3ee;display:grid;place-items:center}
+.reference-poster img{width:100%;height:100%;object-fit:cover;display:block}
+.reference-blank{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#8d9382}
+.reference-poster-missing::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,#eceee7 0 6px,#f5f6f1 6px 12px)}
+.reference-source{position:absolute;left:6px;bottom:6px;padding:2px 6px;border-radius:4px;background:#ffffffe8;font-size:9.5px;color:#5a604f}
+.reference-note{margin:0;font-size:11.5px;line-height:1.5;color:#6b7063;overflow-wrap:anywhere}
+.reference-tags{display:flex;flex-wrap:wrap;gap:4px}
+.reference-tag{padding:1px 7px;border-radius:99px;background:#eef0e9;font-size:10px;color:#5a604f}
+.reference-meta{font-size:10px;color:#8d9382}
+.reference-actions{display:flex;align-items:center;gap:6px;margin-top:2px}
+.reference-actions .secondary-button{height:26px;padding:0 10px;font-size:11px}
+.reference-actions .icon-button{width:26px;height:26px;font-size:13px;line-height:1}
+/* A dead link keeps its card — the poster is why we saved the bytes — but stops pretending. */
+.reference-gone{opacity:.62}
+.reference-gone .reference-source::after{content:" ·";}

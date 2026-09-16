@@ -3,6 +3,7 @@ mod agent;
 mod fonts;
 mod image_library;
 mod reference;
+mod references;
 mod snapshot;
 mod update;
 mod vault;
@@ -43,6 +44,10 @@ fn main() {
             image_library::image_library_import,
             image_library::image_library_reveal,
             image_library::image_library_delete,
+            references::references_list,
+            references::references_poster,
+            references::references_add,
+            references::references_delete,
             fonts::fonts_installed,
             fonts::fonts_has_family,
             fonts::fonts_install,

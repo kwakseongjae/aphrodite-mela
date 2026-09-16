@@ -23,7 +23,7 @@ pub struct LibraryImage {
 }
 
 /// A project id is a scope, not a path: only these characters are allowed and they never nest.
-fn safe_scope(scope: &str) -> Option<String> {
+pub(crate) fn safe_scope(scope: &str) -> Option<String> {
     if scope.is_empty() || scope.len() > 200 || !scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return None;
     }
@@ -68,7 +68,7 @@ fn scan(dir: &Path, scope: &str, seen: &mut Vec<String>, out: &mut Vec<LibraryIm
 
 /// 64-bit FNV-1a over the whole file, rendered as 16 hex characters. Content addressing only,
 /// never a security boundary: the bytes are already on this machine.
-fn content_id(bytes: &[u8]) -> String {
+pub(crate) fn content_id(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         hash ^= *b as u64;
@@ -78,7 +78,7 @@ fn content_id(bytes: &[u8]) -> String {
 }
 
 /// Recognises the three formats the app renders, by magic bytes rather than by file extension.
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniff(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
         return Some("image/png");
     }
@@ -155,7 +155,7 @@ fn dimensions(mime: &str, bytes: &[u8]) -> (u32, u32) {
     size.unwrap_or((0, 0))
 }
 
-fn extension(mime: &str) -> &'static str {
+pub(crate) fn extension(mime: &str) -> &'static str {
     match mime {
         "image/png" => "png",
         "image/jpeg" => "jpg",
@@ -290,7 +290,7 @@ pub fn image_library_reveal(app: AppHandle, project: Option<String>) -> Result<S
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
@@ -303,7 +303,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let mut buf = 0u32;
     let mut bits = 0u32;
     let mut out = Vec::with_capacity(text.len() / 4 * 3);
