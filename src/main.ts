@@ -49,7 +49,7 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
-import {shouldCheck,shouldOffer,updateNoticeHtml,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
+import {shouldCheck,shouldOffer,updateNoticeHtml,progressLabel,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -955,6 +955,28 @@ async function action(el: HTMLElement) {
         await loadFonts(true);fontBusy='';fontPickerModal();
         toast(`${font.family} · ${ui('installed','설치했습니다')} · ${licenseNote(font,uiLanguage).slice(0,60)}`);
       }catch(error){fontBusy='';fontPickerModal();toast(String(error));}
+      break;
+    }
+    /* The update people expect: fetch it, put it in place, and come back on the new version.
+       Detection stays with update_check — it knows the size and the notes — and only the install
+       is the plugin's. If the plugin cannot do it (an older release published no manifest, or the
+       app is not where it can write itself), the disk image is still one button away. */
+    case 'update-install': {
+      if(updateState==='working'||updateState==='installing')break;
+      updateState='working';updateDetail='';paintUpdate();
+      try{
+        const {check}=await import('@tauri-apps/plugin-updater');
+        const found=await check();
+        if(!found){updateState='failed';updateDetail=ui('This version cannot install itself. Use the disk image.','이 버전은 스스로 설치할 수 없습니다. 디스크 이미지로 받아주세요.');paintUpdate();break;}
+        let total=0,got=0;
+        await found.downloadAndInstall(event=>{
+          if(event.event==='Started')total=event.data.contentLength??0;
+          else if(event.event==='Progress'){got+=event.data.chunkLength??0;const label=progressLabel(got,total,uiLanguage==='ko'?'ko':'en');if(label!==updateDetail){updateDetail=label;paintUpdate();}}
+          else if(event.event==='Finished'){updateState='installing';updateDetail='';paintUpdate();}
+        });
+        const {relaunch}=await import('@tauri-apps/plugin-process');
+        await relaunch();
+      }catch(error){updateState='failed';updateDetail=String(error);paintUpdate();}
       break;
     }
     case 'update-download': {

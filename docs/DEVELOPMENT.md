@@ -76,6 +76,8 @@ npx vite preview --port 4173 --strictPort --host 127.0.0.1 &
 4. Publish: `gh release edit v<version> --draft=false --latest --title "Aphrodite v<version>" --notes-file docs/RELEASE-NOTES-v<version>.md`.
 5. Verify from a quarantined download: `xattr -w com.apple.quarantine …`, `spctl -a -t open --context context:primary-signature -v`, `xcrun stapler validate`, mount and read `CFBundleShortVersionString`.
 
+The app updates itself. `tauri-plugin-updater` reads `latest.json` from the newest GitHub release; CI writes and signs that file (`includeUpdaterJson: true`) with `TAURI_SIGNING_PRIVATE_KEY`, a minisign key made by `tauri signer generate`. The public half lives in `tauri.conf.json`; the private half is a repository secret and a copy sits in `~/.aphrodite-updater/` on the owner's Mac. **Lose the private key and no shipped app can ever update itself again** — a new key means everyone reinstalls by hand. Releases must keep bundling `app` as well as `dmg`, because the updater downloads the `.app.tar.gz`, not the disk image. A version published before the updater existed cannot update itself: v0.1.5 users install v0.2.0 from the DMG once, and updates are automatic from there.
+
 Signing secrets are stored once with `scripts/apple-signing-secrets.sh` (Developer ID `.p12` filtered to the one identity, team ID, notarization Apple ID + app-specific password); the workflow keeps signed and unsigned paths as separate steps because empty secrets are still defined env vars. The Vision helper is a Tauri sidecar (`bundle.externalBin`) so it gets the hardened runtime notarization requires. The DMG background lives in `src-tauri/dmg/` as a 1x + 2x TIFF.
 
 ## Working with agents on this repo

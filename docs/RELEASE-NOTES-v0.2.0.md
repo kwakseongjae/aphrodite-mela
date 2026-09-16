@@ -40,8 +40,10 @@
 - A local image library on this Mac — a project scope and a shared scope, with deletion — that the person or their agent fills. Exports carry uploads in `assets/uploads/` with `UPLOADS.md`.
 - A catalogue of freely licensed font families with one-click local install.
 
-**Updates**
-- When a newer version exists, a small card in the bottom-left corner says so. Click it to download the DMG for your Mac; the file is checked before it is offered. "Skip this version" is remembered.
+**Updates that install themselves**
+- When a newer version exists, a small card in the bottom-left corner says so. **Install and restart** fetches it, puts it in place and reopens Aphrodite on the new version — no dragging to Applications. The download is signed, and the app checks that signature before it installs anything.
+- The disk image is still one button away for anyone who would rather do it by hand, and "Skip this version" is remembered.
+- This is the last release you install by hand: v0.1.5 has no updater, so v0.2.0 comes from the DMG once, and every version after it arrives on its own.
 
 ## Known limits
 

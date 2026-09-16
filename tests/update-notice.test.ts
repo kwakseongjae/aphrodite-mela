@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,koParticle,CHECK_INTERVAL,type UpdateInfo} from '../src/update-notice';
+import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,koParticle,CHECK_INTERVAL,type UpdateInfo,progressLabel} from '../src/update-notice';
 
 const offer:UpdateInfo={current:'0.1.5',latest:'0.1.6',newer:true,name:'Aphrodite_0.1.6_aarch64.dmg',url:'https://github.com/kwakseongjae/aphrodite-mela/releases/download/v0.1.6/Aphrodite_0.1.6_aarch64.dmg',size:12_600_000,notes:'https://github.com/kwakseongjae/aphrodite-mela/releases/tag/v0.1.6'};
 
@@ -71,4 +71,30 @@ test('the Korean subject particle follows how the last digit is read aloud',()=>
   for(const [version,particle] of cases)assert.equal(koParticle(version),particle,version);
   assert.match(updateNoticeHtml({...offer,latest:'0.1.5'},'offer','ko'),/0\.1\.5가 나왔습니다/);
   assert.match(updateNoticeHtml({...offer,latest:'0.1.6'},'offer','ko'),/0\.1\.6이 나왔습니다/);
+});
+
+/* The owner asked for the update everyone else ships: fetch it, put it in place, come back on the
+   new version. The card leads with that and keeps the disk image for when the plugin cannot run —
+   an older release that published no manifest, or an app that cannot write over itself. */
+test('the card leads with installing in place and keeps the disk image behind it',()=>{
+  const info={current:'0.1.5',latest:'0.2.0',newer:true,url:'https://example.com/a.dmg',name:'a.dmg',size:24_000_000,notes:'https://example.com/notes'};
+  for(const [lang,install,fallback] of [['en','Install and restart','Download the disk image'],['ko','설치하고 재시작','디스크 이미지로 받기']] as const){
+    const html=updateNoticeHtml(info,'offer',lang);
+    assert.match(html,/data-action="update-install"/);
+    assert.ok(html.includes(install),`${lang} offers to install in place`);
+    assert.match(html,/data-action="update-download"/);
+    assert.ok(html.includes(fallback),`${lang} still offers the disk image`);
+  }
+  const installing=updateNoticeHtml(info,'installing','ko');
+  assert.ok(installing.includes('스스로 다시 열립니다'),'it says the app will come back by itself');
+  assert.doesNotMatch(installing,/data-action="update-install"/,'nothing to press while it installs');
+});
+
+test('progress is only claimed when the size is known',()=>{
+  assert.equal(progressLabel(0,1000,'ko'),'','nothing yet is not 0%');
+  assert.equal(progressLabel(500,0,'ko'),'','a download with no declared size never guesses');
+  assert.equal(progressLabel(500,undefined,'en'),'');
+  assert.equal(progressLabel(1,1000,'ko'),'1%','a first chunk rounds up, never to nothing');
+  assert.equal(progressLabel(500,1000,'en'),'50%');
+  assert.equal(progressLabel(1200,1000,'en'),'100%','it never promises more than done');
 });

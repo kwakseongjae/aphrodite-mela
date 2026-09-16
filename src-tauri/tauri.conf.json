@@ -59,6 +59,19 @@
     },
     "externalBin": [
       "bin/aphrodite-vision"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBQ0M2ODRDRUY2NDgwOApSV1FJU1BiT2hNYXNEOW0vWm9ERFZrRzl1bXlPSkZDWG9BQkZTQ1hYS00wSUlZNkZZdVRWQkJYdwo=",
+      "endpoints": [
+        "https://github.com/kwakseongjae/aphrodite-mela/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

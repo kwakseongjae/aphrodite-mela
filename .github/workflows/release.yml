@@ -12,6 +12,9 @@ name: Release macOS build
 #   APPLE_ID                     Apple ID e-mail used for notarization
 #   APPLE_PASSWORD               app-specific password for that Apple ID
 #   APPLE_TEAM_ID                e.g. YWQQFQM38J
+#   TAURI_SIGNING_PRIVATE_KEY    minisign private key for the in-place updater (tauri signer generate);
+#                                without it the build still ships, but latest.json is unsigned and
+#                                installed apps cannot update themselves.
 #   or, instead of APPLE_ID/APPLE_PASSWORD: APPLE_API_ISSUER, APPLE_API_KEY (key id) and
 #   APPLE_API_KEY_CONTENT (base64 of the AuthKey .p8) — set by `scripts/apple-signing-secrets.sh --api-key`
 
@@ -98,13 +101,16 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
           releaseDraft: true
           prerelease: false
-          args: --target ${{ matrix.target }} --bundles dmg
+          includeUpdaterJson: true
+          args: --target ${{ matrix.target }} --bundles dmg,app
 
       - name: Build and publish release (signed, notarized with Apple ID)
         if: steps.signing.outputs.mode == 'appleid'
@@ -117,13 +123,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: "Aphrodite for macOS. Apple Silicon: Aphrodite_<version>_aarch64.dmg · Intel: Aphrodite_<version>_x64.dmg. Download, drag Aphrodite to Applications, open it."
           releaseDraft: true
           prerelease: false
-          args: --target ${{ matrix.target }} --bundles dmg
+          includeUpdaterJson: true
+          args: --target ${{ matrix.target }} --bundles dmg,app
 
       # tauri-action notarizes and staples the .app, but not the .dmg container. Gatekeeper
       # evaluates the DMG first when a user double-clicks the download, so notarize + staple it
@@ -162,10 +171,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: "Aphrodite for macOS (Apple Silicon and Intel). Unsigned test build: right-click the app and choose Open on first launch."
           releaseDraft: true
           prerelease: true
-          args: --target ${{ matrix.target }} --bundles dmg
+          includeUpdaterJson: true
+          args: --target ${{ matrix.target }} --bundles dmg,app
