@@ -65,6 +65,18 @@ export function leaseHeld(a: Authority): Holder | null {
 }
 
 /** The whole permission rule, in one place. `hold` is the holder to keep after the command runs. */
+/**
+ * What an agent needs to know about the door, in words that cannot be mistaken for something else.
+ * The screen has two unrelated "modes": the editor's own tab (design · dev · agent, a DOM attribute
+ * computer-use scripts read) and this one, which decides whether writing is allowed at all. They
+ * share the word `design`, so the permission gets its own two fields rather than a word both answer.
+ * `writes` describes the door, not this caller's turn: it can be open and a single write still wait
+ * on whoever holds the lease.
+ */
+export function connectionState(mode: Mode): {connection: Mode; writes: 'on' | 'off'} {
+  return {connection: mode, writes: mode === 'design' ? 'off' : 'on'};
+}
+
 export function judge(kind: string, caller: string, a: Authority): Verdict {
   if (isRead(kind) || isAsk(kind)) return {allow: true, hold: a.holder};
   if (kind === 'end') {

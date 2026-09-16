@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -109,4 +109,20 @@ test('asking is always allowed, and never takes the screen',()=>{
   assert.equal(isAsk('connect'),true);
   assert.equal(isAsk('apply'),false);
   assert.equal(isWrite('connect'),false,'asking to connect is not itself a change');
+});
+
+/* Dogfooding the release build caught this: the app was connected, the banner said so, writes
+   returned 200 — and `/agent/state` answered `mode: design`, because that field is the editor's
+   own tab and the two concepts share a word. An agent that reads state first would have asked a
+   person to open a door that was already open. */
+test('the state tells an agent about the door, in a word the editor tab cannot shadow',()=>{
+  assert.deepEqual(connectionState('design'),{connection:'design',writes:'off'});
+  assert.deepEqual(connectionState('connected'),{connection:'connected',writes:'on'});
+  assert.deepEqual(connectionState('delegated'),{connection:'delegated',writes:'on'});
+  // The editor tab is also called `design`; merging must not let it answer the permission question.
+  const dataset={mode:'design',page:'Home'} as Record<string,string>;
+  const state:Record<string,string>={...dataset,...connectionState('connected')};
+  assert.equal(state.mode,'design','the editor tab survives');
+  assert.equal(state.connection,'connected');
+  assert.equal(state.writes,'on');
 });
