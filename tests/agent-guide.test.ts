@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {playbook,guideFor,considerAsk,connectUntil,connectActive,connectRemaining,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
+import {playbook,guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
 
 const NOW=1_700_000_000_000;
 const status=(over:Partial<GuideStatus>={}):GuideStatus=>({mode:'design',holder:null,projectName:'빛공방',pageCount:2,approved:false,canWrite:false,askedRecently:false,...over});
@@ -72,4 +72,14 @@ test('an allowed connection is remembered for a working day, then lapses',()=>{
   assert.match(connectRemaining(String(until),NOW,true),/12시간 남음/);
   assert.match(connectRemaining(String(until),until-60*60*1000,false),/about 1h left/);
   assert.equal(connectRemaining(String(until),until+1,true),'','a lapsed one says nothing');
+});
+
+test('the switch says how long the permission still has to run',()=>{
+  assert.equal(connectLeftLabel(connectUntil(NOW)-NOW,false),'for 12 hours · 12 h left','a fresh allow shows the whole span');
+  assert.equal(connectLeftLabel(3*60*60*1000+59*60*1000,true),'12시간 동안 · 3시간 남음','hours round down: never promise more time than is left');
+  assert.equal(connectLeftLabel(60*60*1000-1,false),'for 12 hours · 59 min left','under an hour it counts in minutes');
+  assert.equal(connectLeftLabel(30*1000,true),'12시간 동안 · 1분 미만 남음');
+  assert.equal(connectLeftLabel(30*1000,false),'for 12 hours · under a minute left');
+  assert.equal(connectLeftLabel(0,false),'','a lapsed one says nothing');
+  assert.equal(connectLeftLabel(Number('not a time')-NOW,true),'','nor does an unreadable one');
 });

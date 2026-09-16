@@ -52,18 +52,6 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
     png
 }
 
-/// Percent-encodes for a data URL. Only the characters that would end the URL or confuse the parser.
-fn urlencode(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len() + 64);
-    for byte in raw.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => out.push(*byte as char),
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
-}
-
 #[cfg(target_os = "macos")]
 fn snapshot(window: &tauri::WebviewWindow, width: f64, height: f64) -> Result<String, String> {
     use block2::RcBlock;
@@ -149,14 +137,6 @@ mod tests {
         assert_eq!(clamp(99_999.0, MIN_WIDTH, MAX_WIDTH), MAX_WIDTH);
         assert_eq!(clamp(f64::NAN, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
         assert_eq!(clamp(f64::INFINITY, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
-    }
-
-    #[test]
-    fn the_page_survives_becoming_a_url() {
-        assert_eq!(urlencode("<h1>hi</h1>"), "%3Ch1%3Ehi%3C%2Fh1%3E");
-        assert_eq!(urlencode("빛"), "%EB%B9%9B", "Hangul travels as utf-8 bytes");
-        assert!(!urlencode("a#b&c?d").contains('#'), "nothing that would cut the url short survives");
-        assert!(!urlencode("a#b&c?d").contains('&'));
     }
 
     #[test]

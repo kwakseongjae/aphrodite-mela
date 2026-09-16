@@ -54,7 +54,7 @@ import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
 import {parseOps,SELECTION,type Op} from './agent/ops';
-import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
+import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,type SampleCategory} from './design/sample-images';
@@ -138,10 +138,13 @@ async function checkForUpdate(){
     updateInfo=info;updateState='offer';updateDetail='';updateFile='';paintUpdate();
   }catch{/* offline, rate limited, or GitHub unreachable */}
 }
-/* Connected mode: the person keeps the screen and an agent may edit alongside them. Session-only —
-   a standing write permission should not outlive the launch that granted it. */
+/* Connected mode: the person keeps the screen and an agent may edit alongside them. The allow lasts
+   CONNECT_HOURS (12) and is remembered across relaunches; the switch ends it early. */
 let connectMode=false;try{connectMode=connectActive(localStorage.getItem(CONNECT_KEY),Date.now());}catch{}
 function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,String(connectUntil(Date.now())));else localStorage.removeItem(CONNECT_KEY);}catch{/* not remembered; it still holds for this launch */}}
+/** How much of the 12 hours is left, in the person's language. Read at paint time so it counts down as
+ *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
+function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
@@ -298,7 +301,8 @@ function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
   slot.innerHTML=bannersHtml();
-  document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?homeCopy[uiLanguage].agentOn:homeCopy[uiLanguage].agentOff;});
+  const left=connectLeftText(),copy=homeCopy[uiLanguage];
+  document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
 }
 
@@ -312,8 +316,8 @@ function askBannerHtml(){
 function connectBannerHtml(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
-  const holder=lease&&lease.label!==HUMAN?lease.label:'';
-  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder||ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span><span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
+  const holder=lease&&lease.label!==HUMAN?lease.label:'',left=connectLeftText();
+  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder||ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
 }
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
@@ -458,7 +462,7 @@ function hubRefresh(){
 function render() {
   disposePointerEditor?.();
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode)}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,connectLeftText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};

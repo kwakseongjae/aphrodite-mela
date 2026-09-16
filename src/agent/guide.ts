@@ -122,3 +122,21 @@ export function connectRemaining(stored: string | null, now: number, ko: boolean
   const hours = Math.max(1, Math.round((Number(stored) - now) / (60 * 60 * 1000)));
   return ko ? `약 ${hours}시간 남음` : `about ${hours}h left`;
 }
+
+/**
+ * The switch's own words: how long a connection lasts, and how much of that is left. Pure and given
+ * the remaining milliseconds rather than the clock, so both the tooltip and the visible label say the
+ * same thing and the rounding can be tested. Hours round down — it must never promise more time than
+ * it has — and anything lapsed or unreadable says nothing rather than a number nobody can trust.
+ */
+export function connectLeftLabel(remaining: number, ko: boolean): string {
+  if (!Number.isFinite(remaining) || remaining <= 0) return '';
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor(remaining / (60 * 1000));
+  const left = hours >= 1
+    ? (ko ? `${hours}시간 남음` : `${hours} h left`)
+    : minutes >= 1
+      ? (ko ? `${minutes}분 남음` : `${minutes} min left`)
+      : (ko ? '1분 미만 남음' : 'under a minute left');
+  return ko ? `${CONNECT_HOURS}시간 동안 · ${left}` : `for ${CONNECT_HOURS} hours · ${left}`;
+}
