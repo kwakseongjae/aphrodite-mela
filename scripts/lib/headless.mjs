@@ -7,7 +7,9 @@
  * exercise the code that tells the two apart.
  */
 import {spawn} from 'node:child_process';
-import {rmSync} from 'node:fs';
+import {rmSync, existsSync, statSync, readdirSync} from 'node:fs';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VITE = new URL('../../node_modules/.bin/vite', import.meta.url).pathname;
@@ -83,7 +85,41 @@ export async function openPage(url, {cdp = 9340, profile = '/tmp/aphrodite-page-
   }
 }
 
+/**
+ * `vite preview` serves `dist/`, not the working tree.
+ *
+ * So a gate tests whichever bundle was built last, and says nothing about the code you just wrote.
+ * Today that produced two checks failing against a feature that was present in src and absent from a
+ * bundle four hours old — and the more dangerous direction is the quiet one, where a gate passes
+ * because the bundle still contains the behaviour the source no longer has.
+ *
+ * Rebuilding only when something is actually newer keeps the usual run fast.
+ */
+function newestUnder(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, {withFileTypes: true})) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestUnder(path));
+    else newest = Math.max(newest, statSync(path).mtimeMs);
+  }
+  return newest;
+}
+
+function buildIfStale() {
+  const built = existsSync('dist/index.html') ? statSync('dist/index.html').mtimeMs : 0;
+  const sources = Math.max(
+    newestUnder('src'),
+    existsSync('index.html') ? statSync('index.html').mtimeMs : 0,
+    existsSync('vite.config.ts') ? statSync('vite.config.ts').mtimeMs : 0,
+  );
+  if (built >= sources) return;
+  process.stderr.write('  … dist is older than src, rebuilding before the gate runs\n');
+  const out = spawnSync('npx', ['vite', 'build'], {stdio: 'inherit'});
+  if (out.status !== 0) throw new Error('the bundle failed to build, so the gate would have tested a stale one');
+}
+
 export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodite-harness-profile'} = {}) {
+  buildIfStale();
   blankProfile(profile);
   const kids = [];
   const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });
