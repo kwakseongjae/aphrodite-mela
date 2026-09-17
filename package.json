@@ -18,7 +18,8 @@
     "verify:poster": "node scripts/verify-poster.mjs",
     "verify:download": "node scripts/verify-download.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs",
-    "verify:disk": "node scripts/verify-disk.mjs"
+    "verify:disk": "node scripts/verify-disk.mjs",
+    "verify:workspaces": "node scripts/verify-workspaces.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.5.4",

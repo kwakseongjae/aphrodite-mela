@@ -1,3 +1,14 @@
+/**
+ * A record, not a gate.
+ *
+ * This reads a handoff ZIP that a person exported through the editor by hand in September and
+ * asserts what was in it. It imports nothing from src/, so it would pass unchanged if the export
+ * feature were deleted tomorrow — it proves what that build produced on that day, which is worth
+ * keeping and is not coverage.
+ *
+ * Deliberately absent from package.json for that reason. Run it by hand when re-checking an old
+ * artifact; do not add it to a release checklist expecting it to catch a regression.
+ */
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {unzipSync,strFromU8} from 'fflate';
