@@ -27,10 +27,21 @@ const urls = [
   `https://github.com/${REPO}/releases/download/v${floor}/Aphrodite_${floor}_aarch64.dmg`,
   `https://github.com/${REPO}/releases/download/v${floor}/Aphrodite_${floor}_x64.dmg`,
 ];
+/* Right after publishing, an asset can 404 for a few seconds while the CDN catches up. A gate that
+   goes red on that teaches people to ignore it, so give it three tries before believing the answer. */
+async function reachable(url) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await fetch(url, {method: 'HEAD', redirect: 'follow'});
+    if (response.ok) return response.status;
+    if (attempt < 3) await new Promise(done => setTimeout(done, 4000));
+    else return response.status;
+  }
+}
 for (const url of urls) {
-  const response = await fetch(url, {method: 'HEAD', redirect: 'follow'});
-  console.log(`  ${response.status}  ${url.split('/').pop()}`);
-  assert.ok(response.ok, `the pinned floor does not download: ${url}\n  Set VERSION in site/script.js to the last PUBLISHED release.`);
+  const status = await reachable(url);
+  console.log(`  ${status}  ${url.split('/').pop()}`);
+  assert.ok(status >= 200 && status < 400,
+    `the pinned floor does not download: ${url}\n  Set VERSION in site/script.js to the last PUBLISHED release.`);
 }
 
 if (floor === app) {
