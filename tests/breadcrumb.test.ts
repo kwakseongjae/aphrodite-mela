@@ -85,3 +85,25 @@ test('the notice offers looking again before starting fresh', () => {
   );
   assert.match(html, /old folder untouched/, 'it says starting fresh does not delete the old one');
 });
+
+/* localStorage does not follow the data directory — it lives under ~/Library/WebKit — so two app
+   instances pointed at different HOMEs share this note. Comparing paths is what keeps one
+   instance's empty first launch from raising an alarm about the other one's folder. */
+test('a breadcrumb from a different store is not this store going missing', () => {
+  const elsewhere = crumbFor('/tmp/other-home/store', 12, 5, new Date('2026-09-17T00:00:00Z'));
+  assert.equal(
+    storeVanished({data: null, path: '/Users/x/store'}, elsewhere),
+    undefined,
+    'a different path is a different instance, not a vanished folder',
+  );
+  assert.deepEqual(
+    storeVanished({data: null, path: '/tmp/other-home/store'}, elsewhere),
+    elsewhere,
+    'the same path with nothing at it is the case worth raising',
+  );
+});
+
+test('a caller that reports no path still gets the old behaviour', () => {
+  const had = crumbFor('/Users/x/store', 317, 18, new Date('2026-09-17T00:00:00Z'));
+  assert.deepEqual(storeVanished({data: null}, had), had);
+});

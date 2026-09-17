@@ -174,6 +174,20 @@ check('the previous revision is exactly one behind, when there is one', () => {
   }
 });
 
+/**
+ * The app says whether it thinks its store went missing, so this does not have to be read off a
+ * screenshot. `missing` is not a gate failure — it is the correct answer when a folder really has
+ * moved — but it does mean the envelope checks above were reading a store the app has disowned, so
+ * it is called out rather than passed over.
+ */
+check('the app reports whether its store is where it left it', () => {
+  if (state.store === undefined) throw new Error('no store field — this build predates it');
+  if (!['ok', 'missing'].includes(state.store)) throw new Error(`store reads "${state.store}"`);
+  if (state.store === 'missing') {
+    notes.push('NOTE: the app reports its store as missing — the folder it saved into has moved');
+  }
+});
+
 check('the lock file is present, because the rotation depends on it', () => {
   if (!existsSync(join(STORE, 'workspace.lock'))) {
     throw new Error('no workspace.lock — concurrent writers would race the revision check');

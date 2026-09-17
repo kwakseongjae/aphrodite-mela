@@ -66,11 +66,18 @@ export function writeBreadcrumb(storage: Slot, crumb: Breadcrumb): void {
  * Returns the breadcrumb, because the notice wants to say what it remembers.
  */
 export function storeVanished(
-  disk: {data: string | null},
+  disk: {data: string | null; path?: string},
   crumb: Breadcrumb | undefined,
 ): Breadcrumb | undefined {
   if (disk.data !== null) return undefined;
   if (!crumb || crumb.entries < 1) return undefined;
+  // The folder going missing leaves `app_data_dir()` unchanged — the path still resolves, there is
+  // just nothing at it — so the paths matching is what "this is the store I remember" means. A
+  // different path is a different instance, and localStorage does not follow the data directory
+  // (it lives under ~/Library/WebKit), so a second app run against another HOME shares this note.
+  // Without the comparison that instance's empty first launch would raise an alarm about a folder
+  // that was never its own.
+  if (disk.path !== undefined && crumb.path !== disk.path) return undefined;
   return crumb;
 }
 

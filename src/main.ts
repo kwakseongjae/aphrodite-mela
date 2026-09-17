@@ -255,6 +255,9 @@ function syncStateAttributes(){
   const block=page?.blocks.find(b=>b.id===selected);
   const state:Record<string,string>={
     screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
+    /* So the folder-missing state is answerable without a screenshot: a gate, or an agent asked why
+       the app looks empty, can read this instead of guessing from an empty project list. */
+    store:vanished?'missing':'ok',
     project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),panelLeft:panels.left,panelRight:panels.right,onboarding:onboarding.welcomed?(onboarding.toured?'done':'tour-pending'):'welcome-pending',frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
@@ -1847,6 +1850,10 @@ async function boot(){
          is the only thing that can tell them apart, because `workspace_read` answers both the same
          way. When it says we had something here, hold off writing and say so. */
       vanished=storeVanished(stored,readBreadcrumb(localStorage));
+      /* Opening a store tells us as much as saving to one does, and someone who reads their projects
+         for a week without editing anything would otherwise leave no trace at all — the folder could
+         then go missing with nothing left to say it had ever been there. */
+      if(stored.data!==null)writeBreadcrumb(localStorage,crumbFor(stored.path,stored.revision,library.entries.length,new Date()));
       if(stored.data===null&&!startupError&&!vanished){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.
