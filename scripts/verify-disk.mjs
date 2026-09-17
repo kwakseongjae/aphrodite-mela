@@ -168,18 +168,59 @@ check('the lock file is present, because the rotation depends on it', () => {
  */
 const doorOpen = state.writes === 'on';
 
-check('a real edit lands on disk and moves the revision', async () => {
+/** The library as the file has it, plus the entry we are about to nudge. */
+function entries() {
+  return JSON.parse(readEnvelope('library.json').value.data).entries ?? [];
+}
+function pinnedOf(id) {
+  return entries().find(e => e.project?.id === id)?.pinned;
+}
+
+/**
+ * Pinning is the smallest real write there is: one boolean on one entry, reachable from the home
+ * screen, and reversible. An `edit` would have been the obvious choice and is the wrong one — it
+ * needs a project open and a block selected, and its field vocabulary is
+ * title|text|label|eyebrow|description, so it says nothing about the library file at all.
+ *
+ * The assertion is deliberately on the bytes rather than on the reply. The bridge answering "ok"
+ * only proves the app accepted the command; the whole question here is whether it reached disk.
+ */
+check('a real change reaches the bytes on disk, and the revision moves with it', async () => {
   if (!doorOpen) throw new Error('SKIP');
+  const list = entries();
+  const target = list.find(e => e.project?.id);
+  if (!target) throw new Error('SKIP:EMPTY');
+
+  const id = target.project.id;
   const before = readEnvelope('library.json').value.revision;
-  const out = await agent('edit', {method: 'POST', body: {field: 'name', text: `disk gate ${Date.now()}`}});
-  if (out?.error) throw new Error(`the edit was refused: ${out.error}`);
-  // The queue is serial and async; give it a beat to reach the file.
-  await new Promise(r => setTimeout(r, 1200));
-  const after = readEnvelope('library.json').value.revision;
-  if (after <= before) {
-    throw new Error(`revision stayed at ${after} after an accepted edit — the queue never reached disk`);
+  const wasPinned = pinnedOf(id);
+
+  const out = await agent('act', {method: 'POST', body: {action: 'hub-pin', data: {id}}});
+  if (out?.error) throw new Error(`the change was refused: ${out.error}`);
+
+  // The queue is serial and async, so the file lags the reply. Poll rather than guess a delay.
+  let after = before;
+  for (let i = 0; i < 25 && after === before; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    after = readEnvelope('library.json').value.revision;
   }
-  notes.push(`write path moved ${before} → ${after}`);
+  if (after === before) {
+    throw new Error(`revision stayed at ${before} after an accepted change — the queue never reached disk`);
+  }
+  if (pinnedOf(id) === wasPinned) {
+    throw new Error('the revision moved but the value did not — something else wrote, not this change');
+  }
+  notes.push(`write path moved revision ${before} → ${after} and flipped pinned on ${id.slice(0, 8)}`);
+
+  // Put it back. A gate that leaves the person's library changed is a gate they will stop running.
+  await agent('act', {method: 'POST', body: {action: 'hub-pin', data: {id}}});
+  for (let i = 0; i < 25 && pinnedOf(id) !== wasPinned; i++) {
+    await new Promise(r => setTimeout(r, 200));
+  }
+  if (pinnedOf(id) !== wasPinned) {
+    throw new Error(`could not restore pinned=${wasPinned} on ${id} — please check that project`);
+  }
+  notes.push('and put it back');
 });
 
 // ---------------------------------------------------------------------- run
@@ -194,6 +235,11 @@ for (const [name, fn] of checks) {
     if (error.message === 'SKIP') {
       skipped += 1;
       console.log(`  SKIP  ${name}`);
+      continue;
+    }
+    if (error.message === 'SKIP:EMPTY') {
+      skipped += 1;
+      console.log(`  SKIP  ${name}\n        no project in this library to nudge — make one, then run again`);
       continue;
     }
     failed += 1;
