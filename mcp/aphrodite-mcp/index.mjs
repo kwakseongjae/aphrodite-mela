@@ -18,7 +18,17 @@ import {toolManifest, toolByName} from './tools.mjs';
 import {promptManifest, promptByName} from './prompts.mjs';
 
 const NAME = 'aphrodite';
-const VERSION = '0.1.5';
+/* Read, not written down. This was a hard-coded '0.1.5' through nine releases — a sixth version site
+   nobody knew to bump, and a client shows it in its server list. The one place the version lives is
+   package.json; if that cannot be read the server still starts, because a wrong number in a label is
+   not a reason to refuse an agent. */
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 /** Protocol versions this server is happy to speak; the newest is offered when a client asks for one we do not know. */
 const KNOWN_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const ENDPOINT_FILE = join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
