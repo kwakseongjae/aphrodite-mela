@@ -67,3 +67,26 @@ test('exportBundle writes upload files, rewrites HTML, lists usages, and keeps p
     assert.equal(JSON.parse(json).reference,JPEG);
   }finally{globalThis.fetch=originalFetch;}
 });
+
+/**
+ * The vendor runtime is a lazy chunk now, and a provider block rendered before it arrives draws a
+ * frame that says "loading". That frame must never reach a handoff: the exported HTML is opened on
+ * somebody else's machine, where nothing is going to finish loading on its behalf.
+ */
+test('an export never ships the placeholder a lazy chunk leaves behind',async()=>{
+  const p=initialProject();
+  // The sample project points at bundled photographs the export would try to fetch; this test is
+  // about the vendor runtime, so give it a page that needs nothing off disk.
+  for(const page of p.pages)for(const b of page.blocks){b.image='';b.itemImages=[];}
+  p.reference=undefined;
+  const block=makeBlock('button',true);
+  (block as unknown as {provider:string}).provider='mui';
+  p.pages[0].blocks.push(block);
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async()=>({ok:false} as Response);
+  let files;
+  try{files=unzipSync(await exportBundle(p));}finally{globalThis.fetch=originalFetch;}
+  const html=Object.entries(files).filter(([name])=>name.endsWith('.html')).map(([,bytes])=>strFromU8(bytes)).join('');
+  assert.doesNotMatch(html,/official-pending/,'the runtime had not arrived when the pages were rendered');
+  assert.match(html,/official-component official-action/,'the real component is in the bundle');
+});

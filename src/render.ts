@@ -19,6 +19,8 @@ import {fontStack} from './design/fonts';
 import {componentProject} from './design/component-theme';
 import {demoAnchor} from './design/demo-anchor';
 export {esc} from './html';
+// The vendor runtime is a lazy chunk; anything that needs complete markup waits for it through here.
+export {loadLibraryRuntime, libraryRuntimeReady, needsLibraryRuntime} from './library-render';
 export function blockHtml(b: Block, p?: Project, blocks?:Block[]): string {
   if(p&&b.theme){const scoped=componentProject(b,p);return `<div data-theme-mode="${b.theme.mode}" style="${esc(themeVars(scoped))}">${blockHtml({...b,theme:undefined},scoped,blocks)}</div>`;}
   const identity = componentIdentity(b);

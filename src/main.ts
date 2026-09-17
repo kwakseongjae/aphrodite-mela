@@ -78,6 +78,7 @@ import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFra
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
+import {libraryRuntimeReady,loadLibraryRuntime,needsLibraryRuntime} from './library-render';
 import {referencesPanelHtml,POSTER_PREFIX,type Reference,type ReferenceScope} from './design/references';
 import {fitWithin,worthShrinking,base64Of} from './design/downscale';
 import {deriveTaste,renderTaste,parseTaste,mergeTaste,orderDirections,againstLabel,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
@@ -589,6 +590,10 @@ function hubRefresh(){
 }
 function render() {
   disposePointerEditor?.();
+  /* The official-library runtime is a lazy chunk now. Ask for it the moment a page needs one, and
+     draw again when it lands — until then those blocks show a frame that says it is coming. The
+     check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
+  if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
   if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,connectLeftText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);

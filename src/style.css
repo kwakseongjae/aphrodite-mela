@@ -380,3 +380,8 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 /* The direction we deliberately put last. Said out loud, because a nudge nobody can see is just
    a hidden hand on the scale. */
 .direction-against{display:block;margin-top:5px;font:italic 11.5px/1.4 Georgia,serif;color:#8f753b}
+
+/* A provider preview whose runtime has not arrived yet. Says what it is waiting for: an empty box
+   in its place reads as a component that failed rather than one that is still coming. */
+.official-pending{display:grid;place-items:center;min-height:110px;border:1px dashed var(--border,#dfe3d6);border-radius:9px;background:repeating-linear-gradient(45deg,#f7f8f4 0 8px,#fbfcf8 8px 16px)}
+.official-pending-note{font:11px ui-monospace,Menlo,monospace;color:#8d9382;letter-spacing:.04em;text-transform:uppercase}

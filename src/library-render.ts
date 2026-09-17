@@ -1,9 +1,51 @@
 import type { Block, Project } from './model';
-import runtime from './generated/library-runtime.js?raw';
-import vendorCss from './generated/library-runtime.css?raw';
 import {onColor} from './design/contrast';
+
+/**
+ * The official-library runtime is fetched when something actually needs it.
+ *
+ * It is React plus four vendor stylesheets — 1,330 kB of script and 408 kB of css — and it was
+ * imported as a raw string at the top of this file, so it sat in the main chunk and was parsed on
+ * every launch. Three quarters of the bundle, for a preview most sessions never open: a project
+ * whose blocks are all `own` never touches a line of it.
+ *
+ * `libraryHtml` stays synchronous, because the render loop, the export and the tests all call it
+ * that way and making it async would ripple through every one of them. Instead the bytes live in a
+ * cache this module fills on request, and a call that arrives before they land gets a quiet frame
+ * that says so rather than a broken one.
+ */
+let runtime: string | undefined;
+let vendorCss: string | undefined;
+let arriving: Promise<void> | undefined;
+
+export function libraryRuntimeReady(): boolean {
+  return runtime !== undefined;
+}
+
+/** Fetches it once; every later caller waits on the same promise. */
+export function loadLibraryRuntime(): Promise<void> {
+  if (runtime !== undefined) return Promise.resolve();
+  arriving ??= Promise.all([
+    import('./generated/library-runtime.js?raw'),
+    import('./generated/library-runtime.css?raw'),
+  ]).then(([js, css]) => {
+    runtime = (js as {default: string}).default;
+    vendorCss = (css as {default: string}).default;
+  });
+  return arriving;
+}
+
+/** True when this project has anything the runtime is needed for. */
+export function needsLibraryRuntime(p: {pages: {blocks: {provider?: string}[]}[]}): boolean {
+  return p.pages.some(page => page.blocks.some(b => b.provider !== undefined && b.provider !== 'own'));
+}
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function libraryHtml(b:Block,p?:Project):string {
+  if(runtime===undefined||vendorCss===undefined){
+    // Not here yet. Say so plainly rather than draw an empty box someone reads as a broken component.
+    void loadLibraryRuntime();
+    return `<section class="official-component official-pending" data-provider="${escape(b.provider??'')}"><div class="official-pending-note">${escape(b.provider??'')} · loading</div></section>`;
+  }
   // Provider styles share the bundle; explicitly own the adapted button's resting colors.
   const css=vendorCss;
   const scopedCss=b.provider!=='shadcn'?'':b.kind==='button'?`#root button{color:${b.variant==='outline'||b.variant==='ghost'?'var(--ink)':'var(--on-brand)'};background:${b.variant==='outline'||b.variant==='ghost'?'var(--paper)':'var(--brand)'};border:${b.variant==='outline'?'1px solid var(--ink)':'0'}}`:b.kind==='input'||b.kind==='textarea'?`#root input,#root textarea{color:var(--ink);background:${b.variant==='filled'?'#f4f4f5':'var(--paper)'};border:1px solid ${b.options?.state==='error'?'#dc2626':'#d4d4d8'}}`:b.kind==='notice'?`#root [role="alert"]{background:var(--paper);color:${b.variant==='error'?'#dc2626':'var(--ink)'}}`:b.kind==='cards'?`#root .bg-card{background:var(--paper);color:var(--ink)}`:b.kind==='table'?`#root table{color:var(--ink)}`:b.kind==='badge'?`#root .bg-primary{background:var(--brand);color:var(--on-brand)}`:b.kind==='pagination'||b.kind==='breadcrumb'?`#root a{color:var(--ink)}`:'';

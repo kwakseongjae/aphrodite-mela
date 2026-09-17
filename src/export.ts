@@ -3,6 +3,7 @@ import {localRefsIn,extensionFor,LOCAL_PREFIX} from './design/local-images';
 import {sampleImages} from './design/sample-images';
 import { type Project, isApproved, type DesignSystem } from './model';
 import { pageHtml } from './render';
+import { loadLibraryRuntime } from './library-render';
 import { sceneManifest } from './components';
 import {designMarkdown} from './design/contract';
 import {tokensJson} from './design/tokens';
@@ -71,6 +72,10 @@ function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[
   }).join('\n');
 }
 export async function exportBundle(p: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
+  // The exported HTML has to stand alone on someone else's machine, so the vendor runtime must be
+  // here before a single page is rendered — a lazy chunk that has not arrived would ship a
+  // placeholder into the handoff.
+  await loadLibraryRuntime();
   const files: Record<string, Uint8Array> = {
     'DESIGN.md': strToU8(designMarkdown(p)),
     'PROMPT.md': strToU8(buildPrompt(p)),

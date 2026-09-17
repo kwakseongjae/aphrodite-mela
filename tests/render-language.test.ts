@@ -12,7 +12,11 @@ const result=await build({entryPoints:['src/render.ts'],bundle:true,write:false,
   b.onLoad({filter:/.*/,namespace:'raw'},async a=>({contents:await readFile(a.path,'utf8'),loader:'text'}));
  }
 }]});
-const {blockHtml,pageHtml}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].contents).toString('base64'));
+const {blockHtml,pageHtml,loadLibraryRuntime}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].contents).toString('base64'));
+/* The vendor runtime is a lazy chunk now, and a provider block rendered before it lands draws a
+   frame that says so. These tests are about what the runtime produces, so wait for it — the same
+   thing the app and the export do. */
+await loadLibraryRuntime();
 test('MUI input and cards receive reviewed surface and heading tokens with no data mutation',()=>{
  const p=initialProject();p.system.background='#faf8f3';p.system.foreground='#292d27';p.system.font='serif';
  for(const kind of ['input','cards'] as const){const b=makeBlock(kind);b.provider='mui';const before=JSON.stringify(b),html=blockHtml(b,p);
