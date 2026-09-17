@@ -10,6 +10,7 @@ import {spawn} from 'node:child_process';
 import {rmSync} from 'node:fs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const VITE = new URL('../../node_modules/.bin/vite', import.meta.url).pathname;
 
 /**
  * Start every run from a blank browser.
@@ -87,7 +88,10 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
   const kids = [];
   const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });
   try {
-    kids.push(spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', String(port)], {stdio: 'ignore'}));
+    // The binary directly, not through npx. `close()` kills the pid it spawned, and npx is a wrapper
+    // that forwards nothing: killing it orphaned the real vite child, so every gate run left a
+    // preview server holding its port. Seven of them were alive before this was noticed.
+    kids.push(spawn(VITE, ['preview', '--host', '127.0.0.1', '--port', String(port)], {stdio: 'ignore'}));
     await waitFor(() => fetch(`http://127.0.0.1:${port}/`).then(r => r.ok), 'the preview server');
     kids.push(spawn(CHROME, [
       '--headless=new', '--disable-gpu', `--remote-debugging-port=${cdp}`,
