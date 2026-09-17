@@ -17,7 +17,19 @@ concurrency:
 
 jobs:
   checks:
-    runs-on: macos-14
+    # Two runners, because tauri.conf.json promises macOS 13 and nothing was testing that promise.
+    # macos-13 is also the only Intel image GitHub offers — 14 and 15 are Apple Silicon — so this one
+    # entry covers both gaps at once: the oldest OS we claim, on the architecture we cross-build for
+    # but had never executed. fail-fast is off so a break on one is not hidden by the other.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triple: aarch64-apple-darwin
+          - os: macos-13
+            triple: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +59,9 @@ jobs:
       # built for the target cargo is about to use.
       - name: Build the Vision sidecar
         env:
-          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+          # Follows the runner rather than being written down: on the Intel image a sidecar built for
+          # aarch64 is one cargo cannot link against, and the failure reads as a build-script bug.
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.triple }}
         run: node scripts/build-vision.mjs
 
       - name: Run Rust tests
