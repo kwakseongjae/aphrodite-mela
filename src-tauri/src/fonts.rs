@@ -162,13 +162,33 @@ pub fn fonts_has_family(family: String) -> Result<bool, String> {
         .unwrap_or(false))
 }
 
+/// The one host a typeface may come from.
+///
+/// The catalogue in `src/design/fonts.ts` builds every URL as `https://github.com/<repo>/raw/…`, so
+/// in practice this has always been GitHub. It was enforced by that convention rather than here,
+/// and the convention is in the half of the app that does not touch the network. The README tells
+/// people that a font file is one of exactly three things this app ever fetches, and where it goes;
+/// a promise about the network belongs at the boundary that reaches it.
+///
+/// Matched on the host, not with `starts_with` on the whole string: `https://github.com.evil.test/`
+/// passes a prefix test and is not GitHub.
+pub(crate) fn font_source(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // A userinfo section (`user@host`) would move the real host past the split above.
+    if host.contains('@') {
+        return false;
+    }
+    host.eq_ignore_ascii_case("github.com")
+}
+
 /// Downloads one font file and writes it into the user's font folder. The caller has already shown
 /// the licence; this only accepts https, a known font extension, and a real font header. Runs off
 /// the main thread so a slow download cannot freeze the window.
 #[tauri::command(async)]
 pub fn fonts_install(url: String, family: String, file_name: String) -> Result<Value, String> {
-    if !url.starts_with("https://") {
-        return Err("fonts install only over https".into());
+    if !font_source(&url) {
+        return Err("fonts are installed from github.com only".into());
     }
     let safe_name: String = file_name
         .chars()
@@ -243,6 +263,21 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The README promises a font file is fetched from GitHub. Prefix matching would let
+    /// `https://github.com.evil.test/` through, and a userinfo section hides the real host behind an
+    /// `@`, so both are checked rather than assumed.
+    #[test]
+    fn a_typeface_comes_from_github_or_nowhere() {
+        assert!(font_source("https://github.com/orioncactus/pretendard/raw/main/a.otf"));
+        assert!(font_source("https://GitHub.com/x/y/raw/main/a.ttf"), "host compare is case-insensitive");
+        assert!(!font_source("http://github.com/x/y.ttf"), "https only");
+        assert!(!font_source("https://github.com.evil.test/x.ttf"), "prefix match is not a host match");
+        assert!(!font_source("https://evil.test/github.com/x.ttf"));
+        assert!(!font_source("https://github.com@evil.test/x.ttf"), "userinfo does not name the host");
+        assert!(!font_source("https://raw.githubusercontent.com/x/y.ttf"), "the catalogue does not use this host");
+        assert!(!font_source("file:///etc/passwd"));
+    }
 
     /// A minimal TrueType file carrying a `name` table with one family entry.
     fn font_with_family(family: &str) -> Vec<u8> {
