@@ -52,7 +52,7 @@ import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorksp
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
-import {shouldCheck,shouldOffer,updateNoticeHtml,progressLabel,koParticle,SKIP_KEY,CHECKED_KEY,OFF_KEY,type UpdateInfo,type NoticeState} from './update-notice';
+import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
@@ -117,6 +117,14 @@ let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '
 let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
 /* The reference archive and taste.md, with every dependency they have on the editor written down
    rather than reached for. See src/workspace/archive.ts. */
+/* The update card, with what it needs from the editor written down. See src/editor/updates.ts. */
+const updates=createUpdates({
+  desktop:nativeDesktop,
+  korean:()=>uiLanguage==='ko',
+  ui,
+  toast,
+  hydrateIcons:()=>hydrateIcons(),
+});
 const archive=createArchive({
   project:()=>project,
   library:()=>library,
@@ -137,29 +145,6 @@ let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
 let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDebounce=0;
-const updateRoot=document.createElement('div');updateRoot.className='update-layer';updateRoot.hidden=true;document.body.append(updateRoot);
-let updateInfo:UpdateInfo|undefined,updateState:NoticeState='offer',updateDetail='',updateFile='';
-function paintUpdate(){
-  if(!updateInfo){updateRoot.hidden=true;updateRoot.innerHTML='';return;}
-  updateRoot.hidden=false;updateRoot.innerHTML=updateNoticeHtml(updateInfo,updateState,uiLanguage==='ko'?'ko':'en',updateDetail);hydrateIcons();
-}
-function closeUpdate(){updateInfo=undefined;updateDetail='';paintUpdate();}
-/** Asks the release feed, at most every few hours and only in the desktop app. Silence on failure:
- *  an offline Mac must not be nagged about a version it could not look up. */
-async function checkForUpdate(){
-  if(!nativeDesktop)return;
-  let skipped:string|null=null;
-  try{
-    if(!shouldCheck(Date.now(),localStorage.getItem(CHECKED_KEY),localStorage.getItem(OFF_KEY)))return;
-    skipped=localStorage.getItem(SKIP_KEY);
-  }catch{/* storage unavailable: ask once rather than never */}
-  try{
-    const info=await invoke<UpdateInfo>('update_check');
-    try{localStorage.setItem(CHECKED_KEY,String(Date.now()));}catch{/* nothing to remember it with */}
-    if(!shouldOffer(info,skipped))return;
-    updateInfo=info;updateState='offer';updateDetail='';updateFile='';paintUpdate();
-  }catch{/* offline, rate limited, or GitHub unreachable */}
-}
 /* Connected mode: the person keeps the screen and an agent may edit alongside them. The allow lasts
    CONNECT_HOURS (12) and is remembered across relaunches; the switch ends it early. */
 let connectMode=false;try{connectMode=connectActive(localStorage.getItem(CONNECT_KEY),Date.now());}catch{}
@@ -823,6 +808,7 @@ async function action(el: HTMLElement) {
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
      editor's business, not the archive's. */
+  if(act&&await updates.handle(act))return;
   if(act&&await archive.handle(act,el,pickFile,src=>{commit(()=>{project.reference=src;});referenceModal();}))return;
   switch (act) {
     case 'language-settings':showModal(ui('Language / 언어','Language / 언어'),ui('Interface and content are separate preferences.','앱 조작 언어와 콘텐츠 언어는 별개의 설정입니다.'),languageSettingsHtml(uiLanguage,screen==='editor'?(project.contentLanguage??'en'):undefined));break;
@@ -840,7 +826,7 @@ async function action(el: HTMLElement) {
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
-    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();paintUpdate();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
+    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();updates.paint();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
     case 'dock-select': dockTool='select';dockGroupOpen='';selected='';render();break;
@@ -994,36 +980,6 @@ async function action(el: HTMLElement) {
        Detection stays with update_check — it knows the size and the notes — and only the install
        is the plugin's. If the plugin cannot do it (an older release published no manifest, or the
        app is not where it can write itself), the disk image is still one button away. */
-    case 'update-install': {
-      if(updateState==='working'||updateState==='installing')break;
-      updateState='working';updateDetail='';paintUpdate();
-      try{
-        const {check}=await import('@tauri-apps/plugin-updater');
-        const found=await check();
-        if(!found){updateState='failed';updateDetail=ui('This version cannot install itself. Use the disk image.','이 버전은 스스로 설치할 수 없습니다. 디스크 이미지로 받아주세요.');paintUpdate();break;}
-        let total=0,got=0;
-        await found.downloadAndInstall(event=>{
-          if(event.event==='Started')total=event.data.contentLength??0;
-          else if(event.event==='Progress'){got+=event.data.chunkLength??0;const label=progressLabel(got,total,uiLanguage==='ko'?'ko':'en');if(label!==updateDetail){updateDetail=label;paintUpdate();}}
-          else if(event.event==='Finished'){updateState='installing';updateDetail='';paintUpdate();}
-        });
-        const {relaunch}=await import('@tauri-apps/plugin-process');
-        await relaunch();
-      }catch(error){updateState='failed';updateDetail=String(error);paintUpdate();}
-      break;
-    }
-    case 'update-download': {
-      if(!updateInfo?.url||!updateInfo.name||updateState==='working')break;
-      updateState='working';updateDetail='';paintUpdate();
-      try{const got=await invoke<{path:string}>('update_download',{url:updateInfo.url,name:updateInfo.name});updateFile=got.path;updateState='ready';}
-      catch(error){updateState='failed';updateDetail=String(error);}
-      paintUpdate();break;
-    }
-    case 'update-open': if(updateFile)try{await invoke('update_open',{path:updateFile});}catch(error){toast(String(error));}break;
-    case 'update-reveal': if(updateFile)try{await invoke('update_reveal',{path:updateFile});}catch(error){toast(String(error));}break;
-    case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){toast(String(error));}break;
-    case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)toast(uiLanguage==='ko'?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
-    case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();toast(ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
     case 'local-scope': localScope=(el.dataset.scope as LocalScope)??'all';refreshLibraryPanel();break;
     case 'local-delete': {const id=el.dataset.id!;const image=readableImages(localLibrary).find(i=>i.id===id);if(!image)break;
       showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
@@ -1873,7 +1829,7 @@ async function boot(){
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
-  if(nativeDesktop){void loadLocalLibrary();void checkForUpdate();}
+  if(nativeDesktop){void loadLocalLibrary();void updates.check();}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();
