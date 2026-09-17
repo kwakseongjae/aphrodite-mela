@@ -18,9 +18,11 @@ use crate::image_library::{base64_decode, base64_encode, content_id, extension, 
 
 const FOLDER: &str = "references";
 const INDEX: &str = "index.json";
-/// A poster is a thumbnail, not an archive of the page. Anything larger is refused rather than
-/// silently shrunk, so nobody discovers later that their picture was replaced.
-const MAX_POSTER_BYTES: usize = 8 * 1024 * 1024;
+/// A poster is a card image and the seed for the on-device analysis, not an archive of the original.
+/// The app shrinks a picture to a 1600px long edge before it gets here, so anything past this is
+/// either a format the canvas could not decode or something that does not belong in a card — refused
+/// rather than silently shrunk, so nobody discovers later that their picture was replaced.
+const MAX_POSTER_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ENTRIES: usize = 2000;
 const MAX_TITLE: usize = 300;
 const MAX_NOTE: usize = 4000;
@@ -293,7 +295,9 @@ pub fn references_delete(app: AppHandle, id: String, project: Option<String>) ->
 // and no page kept. The og:image is stored as bytes so the card survives the link dying.
 
 const MAX_PAGE_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_OG_BYTES: u64 = 8 * 1024 * 1024;
+/// An og:image is a social preview; sites publish them at a few hundred kilobytes. Four megabytes is
+/// already generous, and the read stops there rather than pulling a whole photograph down a link.
+const MAX_OG_BYTES: u64 = 4 * 1024 * 1024;
 
 fn http() -> ureq::Agent {
     ureq::AgentBuilder::new()

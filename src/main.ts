@@ -79,6 +79,7 @@ import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
 import {referencesPanelHtml,POSTER_PREFIX,type Reference,type ReferenceScope} from './design/references';
+import {fitWithin,worthShrinking,base64Of} from './design/downscale';
 import {deriveTaste,renderTaste,parseTaste,mergeTaste,orderDirections,againstLabel,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
 import './workspace/home.css';
 import {invoke,isTauri} from '@tauri-apps/api/core';
@@ -894,6 +895,32 @@ function pickFile(accept: string, handler: (file: File) => Promise<void>) {
   document.querySelector('[data-upload]')?.remove(); document.body.append(input);
   input.addEventListener('change', async () => { try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
 }
+/**
+ * A picture on its way into the archive, cut down to what a card and the analysis actually need.
+ * A phone photograph stored whole crossed the bridge as eleven megabytes of base64 the first time
+ * its card was drawn; capped at a 1600px long edge it is a few hundred kilobytes and still carries
+ * legible text for the on-device reader.
+ */
+async function posterFrom(file: File): Promise<string> {
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  const raw=()=>{let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary);};
+  try{
+    const bitmap=await createImageBitmap(new Blob([bytes],{type:file.type}));
+    if(!worthShrinking(bytes.length,bitmap.width,bitmap.height)){bitmap.close();return raw();}
+    const {width,height}=fitWithin(bitmap.width,bitmap.height);
+    if(!width||!height){bitmap.close();return raw();}
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const context=canvas.getContext('2d');
+    if(!context){bitmap.close();return raw();}
+    context.drawImage(bitmap,0,0,width,height);
+    bitmap.close();
+    // JPEG, because a photograph is what this usually is and a lossless copy of one is the problem.
+    return base64Of(canvas.toDataURL('image/jpeg',0.88));
+  }catch{
+    // A format the canvas cannot decode is still a picture the person chose: keep it whole.
+    return raw();
+  }
+}
 async function readImage(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000) throw new Error('2MB 이하 PNG, JPG, WebP 이미지를 선택해주세요.');
   const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
@@ -1125,11 +1152,9 @@ async function action(el: HTMLElement) {
     case 'taste-forget': await setTasteConsent('off'); break;
     case 'reference-scope': referenceScope=(el.dataset.scope as ReferenceScope)??'all'; refreshLibraryPanel(); break;
     case 'reference-add-image': pickFile('image/png,image/jpeg,image/webp',async file=>{
-      if(file.size>8_000_000)throw new Error(ui('Pick an image under 8 MB.','8MB 이하 이미지를 골라주세요.'));
-      const bytes=new Uint8Array(await file.arrayBuffer());
-      let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
+      if(file.size>16_000_000)throw new Error(ui('Pick an image under 16 MB.','16MB 이하 이미지를 골라주세요.'));
       const scope=el.dataset.scope==='project'?project.id:undefined;
-      await invoke('references_add',{item:{kind:'image',title:file.name.replace(/\.[^.]+$/,''),poster:btoa(binary),addedBy:'human'},project:scope});
+      await invoke('references_add',{item:{kind:'image',title:file.name.replace(/\.[^.]+$/,''),poster:await posterFrom(file),addedBy:'human'},project:scope});
       await loadReferences(true);refreshLibraryPanel();
       toast(ui('Kept in the archive','아카이브에 넣었습니다'));
     });break;
