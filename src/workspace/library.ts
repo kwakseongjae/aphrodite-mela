@@ -60,6 +60,21 @@ export function visibleEntries(library:Library,filter:LibraryFilter,query:string
 export function moveEntries(library:Library,fromWorkspaceId:string,toWorkspaceId:string):Library{
   return {version:1,entries:library.entries.map(e=>entryWorkspace(e)===fromWorkspaceId?{...e,workspaceId:toWorkspaceId}:e)};
 }
+/**
+ * One project to another workspace.
+ *
+ * `moveEntries` empties a whole workspace into a sibling, which is what deleting one needs. This is
+ * the other shape — the person picked a single card and said where it belongs — and until now there
+ * was no way to ask for it, so a project's workspace was fixed from the moment it was made unless
+ * you deleted the workspace around it.
+ *
+ * Unknown ids leave the library untouched rather than throwing: the menu is built from the same
+ * book that is being read here, so a mismatch means something went stale, and dropping a click is a
+ * better answer than losing the entry.
+ */
+export function moveEntry(library:Library,projectId:string,toWorkspaceId:string):Library{
+  return {version:1,entries:library.entries.map(e=>e.project.id===projectId?{...e,workspaceId:toWorkspaceId}:e)};
+}
 export function workspaceCounts(library:Library):Record<string,number>{
   const counts:Record<string,number>={};
   for(const e of library.entries){if(e.archived)continue;const id=entryWorkspace(e);counts[id]=(counts[id]??0)+1;}

@@ -170,3 +170,18 @@
 .folio-top .folio-lang>summary:hover,.folio-top .folio-lang[open]>summary,.folio-top button[data-action="hub-theme"]:hover{border-color:#d5d1c5;color:var(--ink)}
 .folio-help>summary{border-color:transparent;color:var(--muted)}
 .folio-help>summary:hover,.folio-help[open]>summary{border-color:#d5d1c5;color:var(--ink);background:transparent}
+
+/* The "move to" group inside a project's ··· menu. A labelled run of destinations rather than a
+   nested submenu: at most twenty workspaces, and a submenu inside a <details> is a keyboard trap
+   that buys nothing. The rule above it separates it from the verbs without drawing a box. */
+.folio-menu-group{display:flex;flex-direction:column;border-top:1px solid currentColor;margin-top:4px;padding-top:4px}
+.folio-menu-group{border-top-color:color-mix(in srgb,currentColor 18%,transparent)}
+.folio-menu-label{padding:6px 10px 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.6}
+.folio-menu-empty{padding:4px 10px 8px;font-size:11px;opacity:.55}
+
+/* The vanished-store notice reuses .folio-warning's ground but needs room for a path and two
+   buttons, which the one-line warning was never laid out for. */
+.disk-vanished{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.disk-vanished p{margin:6px 0}
+.disk-vanished code{display:block;margin:6px 0;padding:6px 8px;font-size:11px;word-break:break-all;background:color-mix(in srgb,currentColor 8%,transparent);border-radius:3px}
+.disk-vanished .folio-warning-actions{display:flex;gap:4px;flex-shrink:0;align-items:center}

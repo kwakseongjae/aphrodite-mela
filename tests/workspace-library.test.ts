@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject} from '../src/model';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,entryFor,moveEntries,workspaceCounts,LIBRARY_KEY,LEGACY_KEY} from '../src/workspace/library';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,entryFor,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY} from '../src/workspace/library';
 import {DEFAULT_WORKSPACE_ID} from '../src/workspace/workspaces';
 function memory(){const values=new Map<string,string>();return {values,getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>{values.set(k,v);}};}
 test('legacy migration preserves original bytes and edits are isolated',()=>{const s=memory(),p=initialProject(),raw=JSON.stringify(p);s.setItem(LEGACY_KEY,raw);const lib=readLibrary(s);assert.equal(s.getItem(LIBRARY_KEY),null);const copy=cloneProject(p);copy.pages[0].name='Independent';const next=upsertProject(lib,copy);writeLibrary(s,next);assert.equal(s.getItem(LEGACY_KEY),raw);assert.equal(readLibrary(s).entries.length,2);assert.notEqual(lib.entries[0].project.pages[0].name,'Independent');assert.notEqual(copy.id,p.id);assert.equal(copy.approvedFingerprint,undefined);});
@@ -71,3 +71,36 @@ test('readLibrary rejects a malformed workspaceId and accepts a valid one',()=>{
   assert.equal(readLibrary(s).entries[0].workspaceId,undefined);
 });
 
+
+/* Until moveEntry existed, a project's workspace was decided when it was made and the only way to
+   change it was to delete the workspace around it — moveEntries, the bulk form, was reachable from
+   exactly one place for exactly that reason. These two are different shapes and both are needed. */
+test('one project moves without taking its neighbours along',()=>{
+  const a=initialProject();a.name='Stays';
+  const b=initialProject();b.name='Goes';
+  let lib=upsertProject({version:1,entries:[]},a,undefined,'personal');
+  lib=upsertProject(lib,b,undefined,'personal');
+  const moved=moveEntry(lib,b.id,'studio');
+  assert.equal(moved.entries.find(e=>e.project.id===b.id)?.workspaceId,'studio');
+  assert.equal(moved.entries.find(e=>e.project.id===a.id)?.workspaceId,'personal','the neighbour did not move');
+  assert.equal(moved.entries.length,2,'nothing was dropped');
+  assert.equal(visibleEntries(moved,'recent','','studio').length,1);
+  assert.equal(visibleEntries(moved,'recent','','personal').length,1);
+});
+
+test('moving a project the library does not have changes nothing',()=>{
+  const lib=upsertProject({version:1,entries:[]},initialProject(),undefined,'personal');
+  const after=moveEntry(lib,'no-such-id','studio');
+  assert.deepEqual(after.entries,lib.entries,'a stale click is dropped, not thrown');
+});
+
+test('moving one project does not disturb the counts of other workspaces',()=>{
+  const a=initialProject(),b=initialProject(),c=initialProject();
+  let lib=upsertProject({version:1,entries:[]},a,undefined,'personal');
+  lib=upsertProject(lib,b,undefined,'personal');
+  lib=upsertProject(lib,c,undefined,'studio');
+  const before=workspaceCounts(lib);
+  assert.equal(before.personal,2);assert.equal(before.studio,1);
+  const after=workspaceCounts(moveEntry(lib,a.id,'studio'));
+  assert.equal(after.personal,1);assert.equal(after.studio,2);
+});
