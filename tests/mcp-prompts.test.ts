@@ -2,7 +2,6 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error — the MCP server is plain ESM, deliberately dependency-free
 import {prompts,promptManifest,promptByName} from '../mcp/aphrodite-mcp/prompts.mjs';
-// @ts-expect-error — same
 import {tools} from '../mcp/aphrodite-mcp/tools.mjs';
 
 type Prompt={name:string;title:string;description:string;arguments:{name:string;required:boolean}[];build:(a?:Record<string,string>)=>{role:string;content:{type:string;text:string}}[]};
