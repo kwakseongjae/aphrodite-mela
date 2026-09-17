@@ -19,9 +19,18 @@ const KINDS=['navigation','hero','features','products','testimonial','cta','foot
    variant gets its own real workspace, and the shot shows them stacked. */
 const APP_KINDS=['moasidebar','moatoolbar','moacard','moadetail'];
 const FRAME=Number(process.env.GATE_FRAME||0);
-/* Hold the container width in CSS rather than trusting the window: a tall headless window does
-   not lay out at the width you asked for, and the phone shot silently came back at ~490px. */
-const SHOTS=FRAME?[{container:FRAME,height:12000,loose:true}]:[{container:1440,height:7000},{container:390,height:12000}];
+/* The phone shot is taken at a real 390-wide window now.
+   It used to pin the container in CSS on a wide canvas, because a tall headless window once failed
+   to lay out at the width it was given. That is no longer true — measured at 300, 3000 and 12000
+   pixels tall, all three lay out at 390 — and the workaround had a hole in it: the viewport stayed
+   wide, so `@media` never fired and every phone breakpoint in the stylesheet went untested. A whole
+   evening went into a layout the gate had been silently skipping.
+   GATE_FRAME keeps the old trick on purpose: to see what escapes a frame you need canvas beside it,
+   which a real 390 window cannot give you. That shot says so, because in it media queries do not
+   apply. */
+const SHOTS=FRAME
+  ?[{container:FRAME,height:12000,loose:true}]
+  :[{container:1440,height:7000},{container:390,height:12000,viewport:true}];
 
 await writeFile('/tmp/gate-entry.ts',`export {pageHtml} from '${resolve('src/render.ts')}';\nexport {moaPage} from '${resolve('src/moa.ts')}';
 export {initialProject,makeBlock} from '${resolve('src/model.ts')}';\nexport {patternVariants} from '${resolve('src/patterns.ts')}';\n`);
@@ -102,13 +111,16 @@ for(const kind of wanted){
   /* GATE_FRAME=390: hold the container at phone width on a wide canvas with the page's own
      overflow:hidden lifted, so anything that sticks out is visible instead of quietly cropped. */
   await writeFile(file,html);
-  for(const {container,height,loose} of SHOTS){
+  for(const {container,height,loose,viewport} of SHOTS){
     const png=`${OUT}/gate-${kind}-${loose?'overflow':container}.png`;
     const shot=`${OUT}/shot-${kind}-${container}.html`;
-    await writeFile(shot,html.replace('</head>',`<style>main.design-page{width:${container}px${loose?';overflow:visible;outline:2px solid #e11':''}}body{width:${container+(loose?container:30)}px;background:#fff}</style></head>`));
+    // A real viewport needs no CSS of ours: the window is the width, so the page's own breakpoints
+    // apply exactly as they do for a person.
+    const style=viewport?'':`<style>main.design-page{width:${container}px${loose?';overflow:visible;outline:2px solid #e11':''}}body{width:${container+(loose?container:30)}px;background:#fff}</style>`;
+    await writeFile(shot,style?html.replace('</head>',`${style}</head>`):html);
     await rm(png,{force:true});
-    await shoot(shot,png,container+(loose?container:30),height);
+    await shoot(shot,png,viewport?container:container+(loose?container:30),height);
   }
-  if(FRAME)await report(kind);
+  if(FRAME){await report(kind);console.log('  (this shot pins the container on a wide canvas, so @media does not apply in it)');}
   console.log(`${kind}: ${page.blocks.length} variants → gate-${kind}-{1440,390}.png`);
 }
