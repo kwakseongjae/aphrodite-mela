@@ -65,7 +65,9 @@ check('every tool is named, described and annotated honestly', async () => {
     assert.equal(typeof tool.annotations.readOnlyHint, 'boolean', `${tool.name} says whether it writes`);
   }
   const reads = manifest.filter(t => t.annotations.readOnlyHint).map(t => t.name);
-  assert.deepEqual(reads.sort(), ['aphrodite_get_contract', 'aphrodite_get_render', 'aphrodite_get_tokens', 'aphrodite_guide', 'aphrodite_list_components', 'aphrodite_list_images']);
+  // An exact list, not a count: the point is to catch a tool that writes but claims it only reads.
+  // Adding a read-only tool is meant to be a deliberate edit here.
+  assert.deepEqual(reads.sort(), ['aphrodite_get_contract', 'aphrodite_get_render', 'aphrodite_get_taste', 'aphrodite_get_tokens', 'aphrodite_guide', 'aphrodite_list_components', 'aphrodite_list_images', 'aphrodite_list_references']);
   const destructive = manifest.filter(t => t.annotations.destructiveHint).map(t => t.name);
   assert.deepEqual(destructive, ['aphrodite_delete_image'], 'deleting a picture is the only destructive tool');
 });

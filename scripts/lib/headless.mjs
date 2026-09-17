@@ -7,8 +7,24 @@
  * exercise the code that tells the two apart.
  */
 import {spawn} from 'node:child_process';
+import {rmSync} from 'node:fs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+/**
+ * Start every run from a blank browser.
+ *
+ * The profile directory is a fixed path per gate, so without this Chrome keeps the previous run's
+ * localStorage and the gate slowly drifts: a check that asserts "a blank start has no projects"
+ * passes once and then fails forever after, and — worse — a check can start passing for a reason
+ * the previous run created. A gate that only holds on a fresh machine is not a gate.
+ *
+ * Guarded to paths under /tmp so a mistyped profile can never delete someone's work.
+ */
+function blankProfile(profile) {
+  if (!profile.startsWith('/tmp/')) throw new Error(`refusing to wipe a profile outside /tmp: ${profile}`);
+  rmSync(profile, {recursive: true, force: true});
+}
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export async function waitFor(fn, what, tries = 60) {
@@ -27,6 +43,7 @@ export async function waitFor(fn, what, tries = 60) {
  * use for.
  */
 export async function openPage(url, {cdp = 9340, profile = '/tmp/aphrodite-page-profile'} = {}) {
+  blankProfile(profile);
   const kids = [];
   const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });
   try {
@@ -66,6 +83,7 @@ export async function openPage(url, {cdp = 9340, profile = '/tmp/aphrodite-page-
 }
 
 export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodite-harness-profile'} = {}) {
+  blankProfile(profile);
   const kids = [];
   const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });
   try {
