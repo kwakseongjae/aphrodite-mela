@@ -17,7 +17,8 @@
     "verify:contract": "node scripts/verify-system-export.mjs",
     "verify:poster": "node scripts/verify-poster.mjs",
     "verify:download": "node scripts/verify-download.mjs",
-    "verify:mcp": "node scripts/verify-mcp.mjs"
+    "verify:mcp": "node scripts/verify-mcp.mjs",
+    "verify:disk": "node scripts/verify-disk.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.5.4",
