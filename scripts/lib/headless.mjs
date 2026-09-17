@@ -19,6 +19,52 @@ export async function waitFor(fn, what, tries = 60) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
+/**
+ * A headless Chrome pointed at one page, with `evaluate` that waits for promises.
+ *
+ * `openApp` builds the whole app rig on top of this. Anything that only needs a browser — a module
+ * bundled into a scratch page, say — takes this instead of standing up a preview server it has no
+ * use for.
+ */
+export async function openPage(url, {cdp = 9340, profile = '/tmp/aphrodite-page-profile'} = {}) {
+  const kids = [];
+  const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });
+  try {
+    kids.push(spawn(CHROME, [
+      '--headless=new', '--disable-gpu', `--remote-debugging-port=${cdp}`,
+      `--user-data-dir=${profile}`, '--no-first-run', url,
+    ], {stdio: 'ignore'}));
+    const target = await waitFor(async () => {
+      const list = await fetch(`http://127.0.0.1:${cdp}/json/list`).then(r => r.json());
+      return list.find(t => t.type === 'page');
+    }, 'the page target');
+    const ws = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+    let id = 0;
+    const pending = new Map();
+    ws.onmessage = event => {
+      const msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
+      if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
+    };
+    const send = (method, params = {}) => new Promise(resolve => {
+      const mine = ++id;
+      pending.set(mine, resolve);
+      ws.send(JSON.stringify({id: mine, method, params}));
+    });
+    const evaluate = async expression => {
+      const message = await send('Runtime.evaluate', {expression, awaitPromise: true, returnByValue: true});
+      const thrown = message.result?.exceptionDetails;
+      if (thrown) throw new Error(thrown.exception?.description ?? thrown.text);
+      return message.result?.result?.value;
+    };
+    await waitFor(() => evaluate('document.readyState === "complete"'), 'the page to load');
+    return {evaluate, close};
+  } catch (error) {
+    close();
+    throw error;
+  }
+}
+
 export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodite-harness-profile'} = {}) {
   const kids = [];
   const close = () => kids.forEach(k => { try { k.kill('SIGKILL'); } catch {} });

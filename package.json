@@ -15,6 +15,7 @@
     "verify:tools": "node scripts/verify-agent-tools.mjs",
     "verify:demo": "node scripts/verify-computer-use.mjs",
     "verify:contract": "node scripts/verify-system-export.mjs",
+    "verify:poster": "node scripts/verify-poster.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs"
   },
   "dependencies": {

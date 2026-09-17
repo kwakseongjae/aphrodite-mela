@@ -16,7 +16,7 @@ import type {Project} from '../model';
 import type {AssemblyRun} from '../agent/run';
 import {POSTER_PREFIX, type Reference, type ReferenceScope} from '../design/references';
 import {deriveTaste, renderTaste, parseTaste, mergeTaste, EMPTY as EMPTY_TASTE, type Taste, type TasteConsent} from '../design/taste';
-import {fitWithin, worthShrinking, base64Of} from '../design/downscale';
+import {shrinkToPoster} from '../design/downscale';
 
 /** Everything the archive needs from the app around it, and nothing else. */
 export type ArchiveHost = {
@@ -165,24 +165,7 @@ export function createArchive(host: ArchiveHost) {
    * legible text for the on-device reader.
    */
   async function posterFrom(file: File): Promise<string> {
-    const bytes=new Uint8Array(await file.arrayBuffer());
-    const raw=()=>{let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary);};
-    try{
-      const bitmap=await createImageBitmap(new Blob([bytes],{type:file.type}));
-      if(!worthShrinking(bytes.length,bitmap.width,bitmap.height)){bitmap.close();return raw();}
-      const {width,height}=fitWithin(bitmap.width,bitmap.height);
-      if(!width||!height){bitmap.close();return raw();}
-      const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
-      const context=canvas.getContext('2d');
-      if(!context){bitmap.close();return raw();}
-      context.drawImage(bitmap,0,0,width,height);
-      bitmap.close();
-      // JPEG, because a photograph is what this usually is and a lossless copy of one is the problem.
-      return base64Of(canvas.toDataURL('image/jpeg',0.88));
-    }catch{
-      // A format the canvas cannot decode is still a picture the person chose: keep it whole.
-      return raw();
-    }
+    return shrinkToPoster(new Uint8Array(await file.arrayBuffer()), file.type);
   }
 
   /** The `reference-*` and `taste-*` actions. Returns false for anything that is not ours. */
