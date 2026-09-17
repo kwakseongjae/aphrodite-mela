@@ -70,7 +70,7 @@ Aphrodite는 모델을 내장하지 않습니다. 이미 당신 기기에 있는
 
 | 에이전트 | 조작 방식 | 상태 |
 |---|---|:---:|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP 서버** — `claude mcp add …`, 도구 11개; 내보낸 계약을 읽음 | ✅ |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP 서버** — `claude mcp add …`, 도구 17개와 슬래시 커맨드 넷(`/shape` `/handoff` `/restyle` `/critique`); 내보낸 계약을 읽음 | ✅ |
 | [Codex CLI](https://github.com/openai/codex) | **MCP 서버** — `codex mcp add …`; Codex의 **Run**은 `script/build_and_run.sh`를 사용 | ✅ |
 | Astra · 컴퓨터 유즈 에이전트 | 에이전트 모드 전에는 화면과 포인터, 에이전트 모드 중에는 채널(셸) | ✅ |
 | Cursor, Copilot CLI, 셸이 있는 모든 CLI | 채널에 `curl`, 또는 내보낸 ZIP 열기 | ✅ |

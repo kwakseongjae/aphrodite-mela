@@ -15,6 +15,7 @@ import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {toolManifest, toolByName} from './tools.mjs';
+import {promptManifest, promptByName} from './prompts.mjs';
 
 const NAME = 'aphrodite';
 const VERSION = '0.1.5';
@@ -102,7 +103,7 @@ async function handle(message) {
       const version = KNOWN_VERSIONS.includes(asked) ? asked : KNOWN_VERSIONS[0];
       return reply(id, {
         protocolVersion: version,
-        capabilities: {tools: {listChanged: false}},
+        capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}},
         serverInfo: {name: NAME, version: VERSION},
         instructions: [
           'Aphrodite is a local design workbench. Read the design contract before changing anything, and send a whole change as one aphrodite_apply_edits call so the person can undo it in one press.',
@@ -118,6 +119,13 @@ async function handle(message) {
       return reply(id, {});
     case 'tools/list':
       return reply(id, {tools: toolManifest()});
+    case 'prompts/list':
+      return reply(id, {prompts: promptManifest()});
+    case 'prompts/get': {
+      const prompt = promptByName[params?.name];
+      if (!prompt) return fail(id, -32602, `Unknown prompt: ${params?.name}`);
+      return reply(id, {description: prompt.description, messages: prompt.build(params?.arguments ?? {})});
+    }
     case 'tools/call': {
       const {isError, text, image} = await callTool(params?.name, params?.arguments);
       // A picture goes back as a picture: a model cannot read a page from base64 in a text block.
@@ -147,4 +155,4 @@ lines.on('line', line => {
   });
 });
 lines.on('close', () => process.exit(0));
-log(`ready · ${toolManifest().length} tools · app endpoint ${ENDPOINT_FILE}`);
+log(`ready · ${toolManifest().length} tools · ${promptManifest().length} prompts · app endpoint ${ENDPOINT_FILE}`);

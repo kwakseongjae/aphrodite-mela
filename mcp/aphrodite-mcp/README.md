@@ -63,3 +63,18 @@ Open Aphrodite first: the server reads `~/Library/Application Support/studio.aph
 ```sh
 node scripts/verify-mcp.mjs     # protocol, tool manifest, and a live call if the app is open
 ```
+
+## Slash commands
+
+The server also offers four prompts, which arrive in Claude Code as slash commands. A tool is what an
+agent reaches for; a prompt is what you ask for by name.
+
+| | What it does | Takes |
+|---|---|---|
+| `shape` | Turns a brief into a page, and stops before approving it | a brief |
+| `handoff` | Reads the build contract and implements it, saying so when it is still a draft | where to build |
+| `restyle` | Repaints the project with another design system and reports what actually changed | a system |
+| `critique` | Says what is wrong with the open page, against the contract rather than taste | — |
+
+Each one names the tools to use and, more usefully, where to stop: none of them can approve a
+direction, because that is a click only a person makes.

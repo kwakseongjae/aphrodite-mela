@@ -71,7 +71,7 @@ Aphrodite does not ship a model. The agent already on your machine drives it —
 
 | Agent | How it drives Aphrodite | Status |
 |---|---|:---:|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP server** — `claude mcp add …`, eleven tools; reads the exported contract | ✅ |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **MCP server** — `claude mcp add …`, 17 tools and four slash commands (`/shape` `/handoff` `/restyle` `/critique`); reads the exported contract | ✅ |
 | [Codex CLI](https://github.com/openai/codex) | **MCP server** — `codex mcp add …`; Codex's **Run** uses `script/build_and_run.sh` | ✅ |
 | Astra / computer-use agents | Screen and pointer before Agent mode; channel (shell) during it | ✅ |
 | Cursor, Copilot CLI, any CLI with a shell | `curl` the channel, or open the export ZIP | ✅ |
