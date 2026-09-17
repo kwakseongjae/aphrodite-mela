@@ -31,7 +31,10 @@ const VERSION = (() => {
 })();
 /** Protocol versions this server is happy to speak; the newest is offered when a client asks for one we do not know. */
 const KNOWN_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
-const ENDPOINT_FILE = join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
+/* The override exists so a harness can point this at a file it controls, and so a second app
+   running under another HOME (a sandbox instance) can be reached without editing this line. */
+const ENDPOINT_FILE = process.env.APHRODITE_ENDPOINT_FILE
+  || join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
 const NOT_RUNNING = 'Aphrodite is not running. Ask the person to open the app, then try again.';
 
 const log = message => process.stderr.write(`[aphrodite-mcp] ${message}\n`);
@@ -39,11 +42,35 @@ const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const reply = (id, result) => send({jsonrpc: '2.0', id, result});
 const fail = (id, code, message) => send({jsonrpc: '2.0', id, error: {code, message}});
 
-/** Where the app is listening, read fresh each time: the port and token change every launch. */
+/**
+ * Is the process that wrote the endpoint file still here?
+ *
+ * Signal 0 checks for existence without delivering anything. EPERM means it exists and is not ours,
+ * which still counts as alive. A file from before this field existed has no pid, and an old app is
+ * not a dead one — say alive and let the connection decide.
+ */
+function ownerAlive(pid) {
+  if (typeof pid !== 'number') return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/**
+ * Where the app is listening, read fresh each time: the port and token change every launch.
+ *
+ * Nothing deletes this file when the app exits, so it routinely outlives the app it describes.
+ * Checking the owner costs nothing and turns "the request timed out" into "the app is not running",
+ * which is the difference between a person debugging their network and a person opening the app.
+ */
 function endpoint() {
   try {
     const parsed = JSON.parse(readFileSync(ENDPOINT_FILE, 'utf8'));
     if (!parsed?.base || !parsed?.token) return undefined;
+    if (!ownerAlive(parsed.pid)) return undefined;
     return parsed;
   } catch {
     return undefined;

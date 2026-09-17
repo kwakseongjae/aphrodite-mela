@@ -125,10 +125,21 @@ fn write_endpoint_file(app: &AppHandle, port: u16, token: &str) -> Result<String
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    // The pid is here so a reader can tell a live endpoint from a leftover one.
+    //
+    // Nothing deletes this file. A crash, a force-quit, or a plain Cmd-Q all leave it behind
+    // advertising a port that now belongs to nobody, and a reader that trusts it spends a timeout
+    // finding out — or worse, reaches whatever else the OS has since handed that port to. Removing
+    // it on exit would not fix that, because the case it misses is exactly the case that leaves it:
+    // the app going away without running its teardown.
+    //
+    // A pid is checkable without a network call and survives a crash. It is not proof — pids are
+    // recycled — so it is a cheap first filter and the connection is still the real test.
     let body = json!({
         "schema": "aphrodite.agent-endpoint/1",
         "port": port,
         "token": token,
+        "pid": std::process::id(),
         "base": format!("http://127.0.0.1:{port}"),
         "startedAt": started
     });
@@ -307,6 +318,28 @@ pub fn agent_bridge_info(bridge: State<'_, AgentBridge>) -> Result<Value, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The endpoint file is the only thing standing between an agent and the right port, and nothing
+    /// deletes it when the app goes away. A reader that cannot tell a live file from a leftover one
+    /// spends a timeout finding out, so the pid is part of the contract, not a nicety.
+    #[test]
+    fn the_endpoint_file_names_the_process_that_owns_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent-endpoint.json");
+        let body = json!({
+            "schema": "aphrodite.agent-endpoint/1",
+            "port": 51234u16,
+            "token": "t",
+            "pid": std::process::id(),
+            "base": "http://127.0.0.1:51234",
+            "startedAt": 0
+        });
+        std::fs::write(&path, body.to_string()).unwrap();
+        let read: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(read["pid"].as_u64(), Some(std::process::id() as u64));
+        assert!(read["pid"].is_u64(), "a reader checks this without a network call");
+        assert_eq!(read["schema"], "aphrodite.agent-endpoint/1");
+    }
 
     fn header(name: &str, value: &str) -> Header {
         Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("header")

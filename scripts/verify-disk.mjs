@@ -59,6 +59,26 @@ try {
 }
 
 /**
+ * Nothing deletes this file on exit, so it outlives the app that wrote it. The pid tells us that
+ * before we spend a timeout on it. Files written before the field existed have no pid; an old app is
+ * not a dead one, so those fall through to the connection attempt below.
+ */
+if (typeof endpoint.pid === 'number') {
+  let alive = true;
+  try {
+    process.kill(endpoint.pid, 0);
+  } catch (error) {
+    alive = error.code === 'EPERM';
+  }
+  if (!alive) {
+    cannotVerify(
+      `The endpoint file names pid ${endpoint.pid}, which is gone.`,
+      'It is left over from an app that has exited. Start the app and retry.',
+    );
+  }
+}
+
+/**
  * The app does not remove this file when it exits, so a stale one advertises a dead port. Finding
  * that out here — rather than as a confusing ECONNREFUSED inside a check — is the difference
  * between "the app is not running" and "the disk path is broken".

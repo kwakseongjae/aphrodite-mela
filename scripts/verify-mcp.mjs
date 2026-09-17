@@ -10,6 +10,10 @@
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {createInterface} from 'node:readline';
+import {writeFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {createServer} from 'node:http';
+import {join} from 'node:path';
 
 const server = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {stdio: ['pipe', 'pipe', 'pipe']});
 const lines = createInterface({input: server.stdout});
@@ -105,6 +109,65 @@ check('with the app closed it says so in one sentence, not a stack trace', async
   } else {
     const contract = JSON.parse(text);
     assert.equal(contract.schema, 'aphrodite.contract/1', 'the app is running, so a real contract came back');
+  }
+});
+
+/**
+ * Nothing deletes agent-endpoint.json when the app exits, so a file naming a dead process is the
+ * normal state of a Mac where the app has been closed. The port in it does not stay unused: the OS
+ * hands it out again, and the next thing to get it is some unrelated local server.
+ *
+ * So the stale file here names a dead pid AND a port that is genuinely listening — something that is
+ * not Aphrodite. Trusting the file means talking to that stranger and reporting whatever it says.
+ * Checking the owner first means saying "not running", which is the truth.
+ *
+ * Pointing it at a merely-closed port would not test anything: the fetch would fail and the catch
+ * would say "not running" for the wrong reason, and the check would pass with the pid logic deleted.
+ * It did, when this was first written.
+ */
+check('a leftover endpoint file is not trusted, even when its port now answers', async () => {
+  const dead = spawn('sh', ['-c', 'exit 0']);
+  await new Promise(resolve => dead.on('exit', resolve));
+
+  // The stranger that inherited the port. It answers plausibly, which is the whole danger.
+  const stranger = createServer((_, response) => {
+    response.writeHead(200, {'Content-Type': 'application/json'});
+    response.end(JSON.stringify({schema: 'something.else/1', hello: 'not aphrodite'}));
+  });
+  await new Promise(resolve => stranger.listen(0, '127.0.0.1', resolve));
+  const port = stranger.address().port;
+
+  const stalePath = join(tmpdir(), `aphrodite-stale-${process.pid}.json`);
+  writeFileSync(stalePath, JSON.stringify({
+    schema: 'aphrodite.agent-endpoint/1',
+    port,
+    token: 'x'.repeat(48),
+    pid: dead.pid,
+    base: `http://127.0.0.1:${port}`,
+  }));
+
+  const alt = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: {...process.env, APHRODITE_ENDPOINT_FILE: stalePath},
+  });
+  try {
+    const out = createInterface({input: alt.stdout});
+    const answer = new Promise((resolve, reject) => {
+      out.on('line', line => { try { const m = JSON.parse(line); if (m.id === 1) resolve(m); } catch {} });
+      setTimeout(() => reject(new Error('the stale-endpoint server never answered')), 8000);
+    });
+    alt.stdin.write(`${JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'aphrodite_get_contract', arguments: {}}})}\n`);
+    const {result} = await answer;
+    assert.equal(result.isError, true, 'a dead owner is an error, not an answer');
+    assert.match(
+      result.content[0].text,
+      /not running/,
+      'it must refuse on the dead pid, not report what the stranger on that port said',
+    );
+  } finally {
+    alt.kill('SIGKILL');
+    stranger.close();
+    rmSync(stalePath, {force: true});
   }
 });
 
