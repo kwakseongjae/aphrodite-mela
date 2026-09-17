@@ -25,6 +25,9 @@ import {pointerLabPage} from './editor/pointer-lab';
 import {moaPage} from './moa';
 import './moa.css';
 import { buildPrompt, designMarkdown, exportBundle, fileName, saveFile } from './export';
+import { tokensJson } from './design/tokens';
+import { sceneManifest } from './components';
+import type { DesignSystem } from './model';
 import './style.css';
 import './page.css';
 import './reference.css';
@@ -1729,6 +1732,52 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         const result=await runAgentCommand(c.action,c.payload,who);
         commandCaller='';
         return result;
+      }
+      case 'system':{
+        let next:DesignSystem|undefined;
+        if(c.id){
+          const hit=systems.find(sy=>sy.id===c.id);
+          if(!hit)return {error:`no built-in system "${c.id}". Choose one of: ${systems.map(sy=>sy.id).join(', ')}`};
+          next={...hit};
+        }
+        if(c.markdown){
+          try{next=importDesignMarkdown(c.markdown,c.name||'Imported',next??project.system);}
+          catch(error){return {error:String(error instanceof Error?error.message:error)};}
+        }
+        if(c.tokens){
+          // The same guard the file import uses: anything that is not a colour is dropped, not trusted.
+          const merged={...(next??project.system),...c.tokens} as DesignSystem;
+          const cleaned=parseProject(JSON.stringify({...project,system:merged}));
+          next=cleaned.system;
+        }
+        if(!next)return {error:'system changed nothing'};
+        const before=project.system.name;
+        commit(()=>{project.system=next!;});
+        recordRun('agent:system',{from:before,to:next.name});
+        render();
+        return {system:{id:next.id,name:next.name,accent:next.accent,background:next.background,foreground:next.foreground,radius:next.radius,font:next.font}};
+      }
+      case 'export':{
+        if(c.format==='files'){
+          if(!nativeDesktop)return {error:'writing the bundle is desktop only; ask for the contract instead'};
+          try{
+            const bytes=await exportBundle(project,resolveLocalBytes);
+            const saved=await saveFile(fileName(project,'zip'),bytes,'application/zip');
+            if(!saved)return {error:'the person cancelled the save'};
+            recordRun('agent:export',{format:'files'});
+            return {saved:fileName(project,'zip'),approved:isApproved(project)};
+          }catch(error){return {error:String(error)};}
+        }
+        /* The words, not a zip an agent cannot open: the same four documents the bundle carries. */
+        recordRun('agent:export',{format:'contract'});
+        return {
+          approved:isApproved(project),
+          note:isApproved(project)?'Approved for this exact composition.':'DRAFT — the person has not approved this composition. Say so if you build from it.',
+          prompt:buildPrompt(project),
+          design:designMarkdown(project),
+          tokens:tokensJson(project.system),
+          scene:sceneManifest(project),
+        };
       }
       case 'apply':{
         const parsed=parseOps({ops:c.ops,page_id:c.pageId});

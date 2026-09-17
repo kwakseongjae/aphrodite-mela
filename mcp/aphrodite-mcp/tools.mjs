@@ -205,6 +205,51 @@ export const tools = [
     body: args => ({id: args.id}),
   },
   {
+    name: 'aphrodite_set_design_system',
+    title: 'Change the design system',
+    description: [
+      'Repaints the whole project from one of the built-in systems (`mui`, `shadcn`, `seed`, `astryx`, `atelier`, `karrot`, `toss`, `mono`), from a DESIGN.md you pass as `markdown`, or from loose `tokens` such as `{"accent": "#344e41"}`.',
+      '',
+      'This is the largest single edit there is — every block on every page repaints — and it lands as one change with one undo. Read aphrodite_get_contract first so you know what you are replacing.',
+      'Anything in `tokens` that is not a real colour is dropped rather than trusted.',
+      'Changing the design needs the door open.',
+      '',
+      'Example: {"id": "toss"}',
+    ].join('\n'),
+    annotations: {title: 'Change the design system', ...WRITE},
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {type: 'string', description: 'A built-in system id.'},
+        markdown: {type: 'string', description: 'A DESIGN.md to import, up to 200KB.'},
+        name: {type: 'string', description: 'What to call an imported system.'},
+        tokens: {type: 'object', description: 'Individual tokens to override, e.g. accent, background, foreground, radius, font, surface, line, muted, danger, success, warning.'},
+      },
+      additionalProperties: false,
+    },
+    route: {method: 'POST', path: '/agent/system'},
+    body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens}),
+  },
+  {
+    name: 'aphrodite_export_contract',
+    title: 'Read the build contract',
+    description: [
+      'The four documents a build needs, as text you can act on: PROMPT.md, DESIGN.md, tokens.json and the SCENE manifest. Pass `{"format": "files"}` instead to write the whole bundle to disk as a zip, which opens the person\'s save dialog.',
+      '',
+      'Use it when you are about to build what they shaped. The answer says whether the composition was approved — if it says DRAFT, say so rather than building as though it were settled. Approving is a human click and nothing here can do it.',
+      '',
+      'Example: {}',
+    ].join('\n'),
+    annotations: {title: 'Read the build contract', ...WRITE},
+    inputSchema: {
+      type: 'object',
+      properties: {format: {type: 'string', enum: ['contract', 'files'], description: 'contract = the documents as text (the default). files = write the zip.'}},
+      additionalProperties: false,
+    },
+    route: {method: 'POST', path: '/agent/export'},
+    body: args => ({format: args.format ?? 'contract'}),
+  },
+  {
     name: 'aphrodite_list_images',
     title: 'List the local picture library',
     description: [

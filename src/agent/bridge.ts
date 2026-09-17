@@ -25,6 +25,8 @@ export type AgentCommand=
   |{kind:'taste'}
   |{kind:'keep';url?:string;title?:string;note?:string;tags?:string[];scope?:'project'|'global'}
   |{kind:'unkeep';id:string}
+  |{kind:'system';id?:string;markdown?:string;name?:string;tokens?:Record<string,unknown>}
+  |{kind:'export';format?:'contract'|'files'}
   |{kind:'end'};
 
 export const libraryActions=['list','delete','import'] as const;
@@ -127,6 +129,40 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       const id=str(p.id,64);
       if(!id||!/^[0-9a-f]{16}$/.test(id))return {error:'unkeep needs the 16-character reference "id" from /agent/references'};
       return {command:{kind:'unkeep',id}};
+    }
+    /* Changing the design system is the biggest single edit there is — every block on every page
+       repaints — so it is one command with one undo, like `apply`. */
+    case 'system':{
+      const id=str(p.id,40),markdown=str(p.markdown,200_000),name=str(p.name,80);
+      const tokens=p.tokens&&typeof p.tokens==='object'&&!Array.isArray(p.tokens)?p.tokens as Record<string,unknown>:undefined;
+      /* Oversized strings are refused rather than clamped — half a DESIGN.md is not a design system —
+         so say which it was. Answering "you sent nothing" to someone who sent 300 KB makes them
+         send it again. */
+      if(typeof p.markdown==='string'&&markdown===undefined)return {error:'that DESIGN.md is over 200KB; send a smaller one rather than a truncated one'};
+      if(!id&&!markdown&&!tokens)return {error:'system needs a built-in "id", a DESIGN.md in "markdown", or "tokens" to change'};
+      /* Name the token that is wrong. The app refuses the whole system if any value is malformed —
+         which is right, half a palette is not a palette — but "the format is wrong" without saying
+         which field sends the caller round the loop guessing. */
+      if(tokens){
+        const colours=['accent','background','foreground','surface','line','muted','danger','success','warning'];
+        for(const [key,value] of Object.entries(tokens)){
+          if(colours.includes(key)&&!(typeof value==='string'&&/^#[0-9a-fA-F]{6}$/.test(value)))
+            return {error:`"${key}" has to be a six-digit hex colour like "#344e41", not ${JSON.stringify(value)}`};
+          if(key==='radius'&&!(typeof value==='number'&&value>=0&&value<=64))
+            return {error:'"radius" has to be a number of pixels between 0 and 64'};
+          if(key==='font'&&value!=='serif'&&value!=='sans')
+            return {error:'"font" has to be "serif" or "sans"'};
+        }
+      }
+      if(id&&!/^[a-z0-9-]{1,40}$/.test(id))return {error:'a system id is lowercase letters, digits and hyphens'};
+      return {command:{kind:'system',id,markdown,name,tokens}};
+    }
+    /* The contract by default, because an agent reading it needs the words, not a zip it cannot
+       open. `files` writes the bundle the person would have downloaded. */
+    case 'export':{
+      const format=p.format===undefined?'contract':p.format==='contract'||p.format==='files'?p.format:undefined;
+      if(!format)return {error:'export format must be "contract" or "files"'};
+      return {command:{kind:'export',format}};
     }
     case 'library':{
       const action=(str(p.action,10)??'list') as LibraryAction;
