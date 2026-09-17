@@ -13,7 +13,9 @@ import {openPage, sleep} from './lib/headless.mjs';
 
 const out = resolve(process.argv[2] ?? 'lab/landing-shots');
 mkdirSync(out, {recursive: true});
-const page = `file://${resolve('site/index.html')}`;
+// A URL argument shoots the live site instead of the working copy, which is how you check that what
+// was pushed is what is being served.
+const page = process.argv[3] ?? `file://${resolve('site/index.html')}`;
 
 const {evaluate, send, close} = await openPage(page, {cdp: 9351, profile: '/tmp/aphrodite-shot'});
 try {
@@ -24,9 +26,20 @@ try {
     await send('Emulation.setDeviceMetricsOverride', {
       width: 1440, height: 900, deviceScaleFactor: 2, mobile: false,
     });
-    await evaluate(`(() => { try { localStorage.setItem('aphrodite.lang', ${JSON.stringify(lang)}); } catch {} })()`);
-    await evaluate('location.reload()');
-    await sleep(1500);
+    /* Pinning localStorage and reloading looked like it worked and did not: on the live origin both
+       passes came back Korean, and the only reason it was caught is that the file was opened. The
+       page's own toggle is the thing a person uses, so use that and then check the result rather
+       than assume it. */
+    await sleep(600);
+    for (let tries = 0; tries < 3; tries++) {
+      const now = await evaluate(`document.documentElement.lang`);
+      if (now === lang) break;
+      await evaluate(`document.querySelector('[data-lang-toggle]').click()`);
+      await sleep(500);
+    }
+    const got = await evaluate(`document.documentElement.lang`);
+    if (got !== lang) throw new Error(`asked for ${lang}, the page is showing ${got}`);
+    await sleep(700);
     const {w, h} = JSON.parse(await evaluate(
       `JSON.stringify({w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight})`));
     await send('Emulation.setDeviceMetricsOverride', {
