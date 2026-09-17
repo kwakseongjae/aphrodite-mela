@@ -1,9 +1,14 @@
 /* Aphrodite landing — language toggle + latest-release download link. No build step. */
 (function () {
   var REPO = 'kwakseongjae/aphrodite-mela';
-  // Pinned floor: a real, signed DMG that downloads even if the GitHub API is rate-limited or a newer
-  // release is still a draft (GitHub's /releases/latest skips drafts). latestRelease() upgrades this.
-  var VERSION = '0.2.3';
+  // Pinned floor: the last release that is actually PUBLISHED, so the button downloads something
+  // even when the API is rate-limited. latestRelease() upgrades it the moment a newer one exists.
+  //
+  // It must lag the tag by one. latestRelease() refuses to go below the floor — that is what stops a
+  // stale "latest" downgrading the button — so a floor set to a release that is still a draft pins
+  // the page to a 404 for the whole notarization window. Bump this AFTER publishing, not with the
+  // other four version sites.
+  var VERSION = '0.2.2';
   var DL = 'https://github.com/' + REPO + '/releases/download/v' + VERSION + '/';
   var PIN_ARM = DL + 'Aphrodite_' + VERSION + '_aarch64.dmg';
   var PIN_INTEL = DL + 'Aphrodite_' + VERSION + '_x64.dmg';

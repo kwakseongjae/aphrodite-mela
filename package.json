@@ -16,6 +16,7 @@
     "verify:demo": "node scripts/verify-computer-use.mjs",
     "verify:contract": "node scripts/verify-system-export.mjs",
     "verify:poster": "node scripts/verify-poster.mjs",
+    "verify:download": "node scripts/verify-download.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs"
   },
   "dependencies": {
