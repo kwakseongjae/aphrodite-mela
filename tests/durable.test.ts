@@ -27,3 +27,12 @@ test('an overtaken write does not report saved on behalf of the newer one',async
   await q.flush();
   assert.deepEqual(states,[false,false,true],'one green at the end, not one per write');
 });
+
+/* The queue knows the acknowledged revision; anything recording where it saved needs that number
+   rather than the one the queue was constructed with, which goes stale on the first write. */
+test('the queue can be asked what revision it is at',async()=>{
+  const q=new DurableQueue(4,async(_d,rev)=>rev+1,()=>{});
+  assert.equal(q.at(),4,'before any write, the one it was given');
+  q.enqueue('a');await q.flush();
+  assert.equal(q.at(),5,'after a write, the one the writer acknowledged');
+});

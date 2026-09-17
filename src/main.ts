@@ -47,7 +47,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened} from './workspace/library';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -74,6 +74,7 @@ import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,type AgentCommand} from './agent/bridge';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
+import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
 import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
@@ -91,6 +92,10 @@ import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
+/* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
+   written to disk: stamping a fresh empty store over the situation is exactly what we are here to
+   stop, and it would erase the only evidence that anything was ever there. */
+let vanished:Breadcrumb|undefined;
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
@@ -302,7 +307,7 @@ function toggleNight(){
 }
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}`;}
+function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}`;}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
@@ -464,7 +469,7 @@ function hubRefresh(){
   const scoped=library.entries.filter(e=>(e.workspaceId??DEFAULT_WORKSPACE_ID)===ws);
   const counts={recent:scoped.filter(e=>!e.archived).length,pinned:scoped.filter(e=>!e.archived&&e.pinned).length,archived:scoped.filter(e=>e.archived).length};
   document.querySelectorAll<HTMLElement>('[data-action="hub-filter"]').forEach(b=>{const small=b.querySelector('small');const key=b.dataset.filter as keyof typeof counts;if(small&&key in counts)small.textContent=String(counts[key]);});
-  syncKeyedChildren(grid,projectCards(library,hubFilter,hubQuery,uiLanguage,hubView,ws),'data-project-id',hubCardCache);
+  syncKeyedChildren(grid,projectCards(library,hubFilter,hubQuery,uiLanguage,hubView,ws,workspaces),'data-project-id',hubCardCache);
   hydrateIcons();syncStateAttributes();
 }
 function render() {
@@ -848,6 +853,18 @@ async function action(el: HTMLElement) {
     case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
     case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});hubRefresh();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
+    /* One project to another workspace. The bulk move that already existed only runs when a whole
+       workspace is deleted, so until now a project's workspace was fixed from the moment it was made. */
+    case 'hub-move': {
+      const id=el.dataset.id!,to=el.dataset.workspace!;
+      const target=workspaces.workspaces.find(w=>w.id===to);
+      if(!target){toast(ui('That workspace is gone.','그 작업 공간이 없습니다.'));break;}
+      const name=library.entries.find(e=>e.project.id===id)?.project.name??'';
+      saveLibrary(moveEntry(library,id,to));
+      hubCardCache.clear();document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open]').forEach(d=>{d.open=false;});render();
+      toast(uiLanguage==='ko'?`'${name}' · ${target.name}${homeCopy.ko.movedTo}`:`${name} ${homeCopy.en.movedTo} ${target.name}`);
+      break;
+    }
     case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});hubRefresh();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
     case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy,undefined,entry.workspaceId??workspaces.activeId));hubRefresh();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Give it a name.','이름을 지어 주세요.'),'프로젝트 내용은 그대로 보존됩니다.',`<form id="hub-rename-form"><input type="hidden" name="projectId" value="${esc(entry.project.id)}"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(entry.project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form>`);break;}
@@ -1078,6 +1095,22 @@ async function action(el: HTMLElement) {
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': await reloadFromDisk(); break;
+    /* The only destructive door in the vanished-store notice. It does not delete anything — the old
+       folder stays wherever it was moved to — but it does write a new empty store, after which the
+       breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */
+    case 'disk-start-fresh': {
+      if(!vanished)break;
+      const old=vanished.path;
+      if(!confirm(ui(
+        `Start fresh? A new empty workspace will be saved. Your old folder is not deleted — it stays at ${old}.`,
+        `새로 시작할까요? 빈 작업 공간을 새로 저장합니다. 예전 폴더는 지우지 않습니다 — ${old} 에 그대로 있습니다.`,
+      )))break;
+      vanished=undefined;
+      if(diskQueue){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
+      render();
+      toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
+      break;
+    }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Project saved','프로젝트를 저장했습니다')); break;
     case 'import-project': await guardSwitch();pickFile('.json,application/json', async file => { if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); await guardSwitch();let loaded = parseProject(await file.text());if(library.entries.some(e=>e.project.id===loaded.id))loaded=cloneProject(loaded);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);toast(ui('Project imported · 기존 프로젝트는 보존됩니다.','프로젝트를 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('Room for something new.','새로운 것을 위한 자리.'), '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
@@ -1780,7 +1813,10 @@ installPatternRuntime(document);
 installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 function diskWarningHtml(){return `<div class="disk-warning" role="alert">${icon('circle-alert')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
-function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';
+  /* Only a save that actually landed is worth remembering, and it is written where the data folder
+     is not — so that if that folder ever goes missing, something outlives it that can say so. */
+  if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
@@ -1788,6 +1824,12 @@ async function reloadFromDisk(){
   storagePath=stored.path;
   if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
   diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;
+  /* Looking again is the first thing the notice offers, so it has to answer either way: the folder
+     is back and the banner goes, or it is still missing and we say that rather than appearing to
+     have done nothing. */
+  const stillGone=storeVanished(stored,readBreadcrumb(localStorage));
+  if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your projects are back.','찾았습니다. 프로젝트가 돌아왔습니다.'));}
+  else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
   const entry=library.entries.find(e=>e.project.id===project.id);
   if(entry&&screen==='editor')openProject(entry.project);else{screen='home';undoStack=[];redoStack=[];}
   render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
@@ -1801,7 +1843,11 @@ async function boot(){
       // Disk is authoritative. Only migrate the legacy browser store on first launch.
       if(stored.data!==null){library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});startupError='';}
       diskQueue=attachDiskQueue(stored.revision);
-      if(stored.data===null&&!startupError){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
+      /* An empty store is usually a first launch and sometimes a folder that moved. The breadcrumb
+         is the only thing that can tell them apart, because `workspace_read` answers both the same
+         way. When it says we had something here, hold off writing and say so. */
+      vanished=storeVanished(stored,readBreadcrumb(localStorage));
+      if(stored.data===null&&!startupError&&!vanished){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.
       // Writing still needs Connected mode or Agent mode — see src/agent/authority.ts.
