@@ -8,7 +8,7 @@
   // stale "latest" downgrading the button — so a floor set to a release that is still a draft pins
   // the page to a 404 for the whole notarization window. Bump this AFTER publishing, not with the
   // other four version sites.
-  var VERSION = '0.2.3';
+  var VERSION = '0.2.4';
   var DL = 'https://github.com/' + REPO + '/releases/download/v' + VERSION + '/';
   var PIN_ARM = DL + 'Aphrodite_' + VERSION + '_aarch64.dmg';
   var PIN_INTEL = DL + 'Aphrodite_' + VERSION + '_x64.dmg';
