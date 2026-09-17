@@ -78,7 +78,10 @@ export async function openPage(url, {cdp = 9340, profile = '/tmp/aphrodite-page-
       return message.result?.result?.value;
     };
     await waitFor(() => evaluate('document.readyState === "complete"'), 'the page to load');
-    return {evaluate, close};
+    // `send` goes out too: evaluate covers most of what a gate needs, but anything that is a CDP
+    // domain rather than page JS — capturing beyond the viewport, emulating a device — has no other
+    // way in.
+    return {evaluate, send, close};
   } catch (error) {
     close();
     throw error;

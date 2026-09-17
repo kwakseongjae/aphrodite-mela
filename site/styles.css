@@ -133,3 +133,34 @@ h1,h2,h3{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;margin:0
   .btn-primary{width:100%;justify-content:center}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
+
+/* what it remembers — the archive and taste.md.
+   Two panels rather than the six-up feature grid: there are two of them and each needs a paragraph,
+   so the grid's short-card rhythm would have stretched them across dead space. */
+.keeps{max-width:var(--max);margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,4vw,40px);border-top:1px solid var(--line)}
+.keeps-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.keeps-grid article{background:var(--paper);padding:30px 28px 32px}
+.keeps-grid h3{font-size:22px;line-height:1.2;margin-bottom:12px}
+.keeps-grid p{font-size:14.5px;line-height:1.75;color:var(--muted);margin:0}
+.keeps-note{margin-top:12px !important;font-size:13px !important;color:var(--gold-ink) !important}
+
+/* what leaves this Mac.
+   A ledger, not a feature card: three rows that each name a moment, a host and a reason. The host is
+   the column a sceptical reader scans, so it is monospaced and sits in the middle where it lines up. */
+.leaves{max-width:var(--max);margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,4vw,40px);border-top:1px solid var(--line)}
+/* One grid for the whole ledger, with each row a subgrid of it. Giving every <li> its own grid
+   looks right until you read down a column: the tracks are sized per row, so the reason text starts
+   at a different x on each line and the three hosts only line up by coincidence. */
+.leaves-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1.2fr)}
+.leaves-list li{display:grid;grid-column:1/-1;grid-template-columns:subgrid;gap:clamp(14px,3vw,36px);align-items:baseline;padding:20px 0;border-bottom:1px solid var(--line)}
+.leaves-when{font-size:16px;color:var(--ink)}
+.leaves-list code{font-family:var(--mono);font-size:13px;color:var(--gold-ink);background:var(--paper-2);padding:4px 9px;border-radius:5px;white-space:nowrap}
+.leaves-why{font-size:14px;line-height:1.7;color:var(--muted)}
+.leaves-close{margin-top:26px;font-size:15px;line-height:1.8;color:var(--muted);max-width:68ch}
+
+@media (max-width:860px){
+  .keeps-grid{grid-template-columns:1fr}
+  .leaves-list{grid-template-columns:1fr}
+  .leaves-list li{grid-template-columns:1fr;gap:6px}
+  .leaves-list code{justify-self:start}
+}
