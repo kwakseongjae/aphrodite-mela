@@ -128,3 +128,6 @@
 .modal.catalog-modal .explorer-grid[data-preview-size=control]:not([data-preview-kind=button]) .catalog-stage{padding:10px 14px 28px}
 .modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-card:only-child .explorer-preview{height:200px}
 .modal.catalog-modal .explorer-grid[data-preview-size=layout] .explorer-card:only-child .explorer-preview>.design-page{width:200%;transform:scale(.5);transform-origin:top left}
+.catalog-modal .explorer-grid[data-catalog-layout=gallery] .explorer-card footer{grid-template-rows:auto auto auto}
+.catalog-modal .explorer-grid[data-catalog-layout=gallery][data-preview-size=layout] .explorer-preview,.catalog-modal .explorer-grid[data-catalog-layout=gallery][data-preview-size=layout] .explorer-card .explorer-preview{height:260px;min-height:260px}
+.modal.catalog-modal .catalog-results:has([data-catalog-layout=gallery]) .catalog-results-heading p{display:block}

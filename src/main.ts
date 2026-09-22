@@ -56,7 +56,7 @@ import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
-import {designContract,designTokens,componentVocabulary} from './agent/contract';
+import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
 import {parseOps,SELECTION,type Op} from './agent/ops';
 import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
@@ -1469,10 +1469,17 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
   if(c.kind==='state')return agentState();
-  if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
-  if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
+  if(c.kind==='contract'){
+    if(screen!=='editor')return closedCanvas(project);
+    return {ok:true,screen:'editor',visible:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
+  }
+  if(c.kind==='tokens'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    return {ok:true,...designTokens(project,themeVars(project))};
+  }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='render'){
+    if(screen!=='editor')return closedRender();
     if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
     const page=c.pageId?project.pages.find(x=>x.id===c.pageId):currentPage(project);
     if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
@@ -1489,13 +1496,17 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
-  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed',screen:screen==='editor'?'editor':'home'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,agentMode(),askState,Date.now());
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
   }
   commandCaller=who;
+  if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
+    commandCaller='';
+    return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
+  }
   try{
     switch(c.kind){
       case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
