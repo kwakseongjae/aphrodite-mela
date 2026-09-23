@@ -22,6 +22,29 @@ export const MAX_PAGES = 8;
 export const MAX_BLOCKS = 60;
 const BRIEF_CHARS = 400;
 
+/** What the channel says when the window is the project list, not a canvas. */
+export const HOME_CANVAS_HINT = 'The window is on Home, the list of projects. Nothing here is on screen. Open a project before reading a page or asking for a picture of one.';
+
+/** A last project may still be in memory. It is named, and it is not the canvas. */
+export function closedCanvas(project: Project) {
+  return {
+    ok: true as const,
+    screen: 'home' as const,
+    visible: false as const,
+    hint: HOME_CANVAS_HINT,
+    last_project: {project_id: project.id, name: project.name},
+  };
+}
+
+/** A photograph of a page that is not on screen is the wrong picture. */
+export function closedRender() {
+  return {
+    error: 'the window is on Home, so there is no page on screen to photograph. Open a project first.',
+    screen: 'home' as const,
+    visible: false as const,
+  };
+}
+
 /** How an image is named without carrying it. `local:` and bundled paths are already short. */
 export function describeImage(value: string): string {
   if (!value) return '';

@@ -1,11 +1,15 @@
 /**
  * Update notice. The app checks its own release feed at most once every few hours, and when a newer
- * version exists it says so in a small card in the bottom-left corner. Clicking downloads that
- * release's disk image; the person still opens it and moves the app across, so nothing on this Mac
- * is replaced without them watching. Declining a version is remembered, so the card asks once.
+ * version exists it says so in a small card in the bottom-left corner. Install puts that version in
+ * place and then asks whether to restart. Declining a version is remembered, so the offer asks once.
  */
 export type UpdateInfo={current:string;latest?:string;newer:boolean;name?:string;url?:string;size?:number;notes?:string;summary?:string[]};
-export type NoticeState='offer'|'working'|'installing'|'ready'|'failed';
+export type NoticeState='offer'|'working'|'installing'|'restart'|'ready'|'failed';
+
+/** Progress ticks stay on the card that is already open. A new state still draws a new card. */
+export function keepsCard(previous:NoticeState|undefined,next:NoticeState):boolean{
+  return previous===next&&(next==='working'||next==='installing');
+}
 
 /** "받는 중 · 42%" — empty until the server says how big the download is, so it never guesses. */
 export function progressLabel(received:number,total:number|undefined,lang:'en'|'ko'):string{
@@ -60,8 +64,10 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
   /* One card, four states, and only ever one thing to press. Everything that is not "get this
      version" — the notes, the disk image, skipping, turning checks off — lives behind the dots, so
      the card never asks the person to choose between four things at once. */
+  const askRestart=state==='restart';
   const eyebrow=state==='failed'?t('Update','업데이트')
     :state==='ready'?t('Downloaded','받았습니다')
+    :askRestart?t('Installed','설치됨')
     :state==='installing'?t('Installing','설치하는 중')
     :working?t('Downloading','받는 중')
     :t('New version','새 버전');
@@ -69,20 +75,24 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
     ? esc(detail||t('The download did not finish.','다운로드를 끝내지 못했습니다.'))
     : state==='ready'
       ? t('Open it and drag Aphrodite to Applications.','열어서 Aphrodite를 응용 프로그램으로 옮기세요.')
+      : askRestart
+        ? t('The new version is in place. Restart now?','새 버전이 자리를 잡았습니다. 지금 다시 시작할까요?')
       : state==='installing'
-        ? t('Aphrodite will reopen on its own.','Aphrodite가 스스로 다시 열립니다.')
+        ? t('Putting the new version in place.','새 버전을 자리에 놓는 중.')
         : state==='working'
-          ? (detail?`${esc(detail)} · ${t('it reopens when this finishes','끝나면 스스로 다시 열립니다')}`:t('Starting…','시작하는 중…'))
-          : t('Install it and Aphrodite reopens on the new version.','설치하면 새 버전으로 다시 열립니다.');
+          ? (detail?esc(detail):t('Starting…','시작하는 중…'))
+          : t('Install it, then choose when to restart.','설치한 뒤, 다시 시작할지 고릅니다.');
   const bar=working
     ? `<div class="update-bar"${state==='installing'||!detail?' data-indeterminate="true"':''}><i style="width:${state==='installing'?'38%':detail||'6%'}"></i></div>`:'';
   const summary=!working&&state!=='ready'&&info.summary?.length
     ? `<details class="update-summary"${open?' open':''}><summary>${t('What changed','바뀐 것')}</summary><ul>${info.summary.slice(0,3).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></details>`:'';
   const action=working?''   // the bar is the state; a button that only repeats the eyebrow is noise
+    : askRestart
+      ? `<button class="primary-button" data-action="update-relaunch">${icon('rotate-cw')}<span>${t('Restart now','다시 시작')}</span></button>`
     : state==='ready'
       ? `<button class="primary-button" data-action="update-open">${icon('arrow-up-right')}<span>${t('Open it','열기')}</span></button>`
-      : `<button class="primary-button" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install and restart','설치하고 재시작')}</span></button>`;
-  const menu=working?''
+      : `<button class="primary-button" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install','설치하기')}</span></button>`;
+  const menu=working||askRestart?''
     : `<details class="update-more"><summary aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('ellipsis')}</summary><div class="update-menu" role="menu">`
       +(info.notes?`<button data-action="update-notes">${t('Release notes','릴리즈 노트')}</button>`:'')
       +`<button data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`
@@ -90,7 +100,7 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
       +`<button data-action="update-never">${t('Stop checking','업데이트 확인 끄기')}</button>`
       +`</div></details>`;
   return `<div class="update-card" role="status" aria-live="polite" data-state="${state}">`
-    +(working?'':`<button class="icon-button update-close" data-action="update-dismiss" aria-label="${t('Not now','나중에')}" title="${t('Not now','나중에')}">${icon('x')}</button>`)
+    +(working?'':`<button class="icon-button update-close" data-action="${askRestart?'update-later':'update-dismiss'}" aria-label="${askRestart?t('Later','나중에'):t('Not now','나중에')}" title="${askRestart?t('Later','나중에'):t('Not now','나중에')}">${icon('x')}</button>`)
     +`<span class="update-eyebrow">${eyebrow}</span>`
     +`<strong>${version}</strong>`
     +`<p>${line}</p>${bar}${summary}`

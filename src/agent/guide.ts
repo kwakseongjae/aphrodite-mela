@@ -13,6 +13,8 @@ export type GuideStatus = {
   approved: boolean;
   canWrite: boolean;
   askedRecently: boolean;
+  /** Omitted means the editor is open. Home is said explicitly. */
+  screen?: 'home' | 'editor';
 };
 
 /** The unchanging part: what this is and how to work with it. */
@@ -51,7 +53,9 @@ export function guideFor(status: GuideStatus): string {
     playbook,
     '',
     '## Right now',
-    `- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`,
+    ...(status.screen === 'home'
+      ? ['- The window is on Home, the list of projects. No page is open.']
+      : [`- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`]),
     `- Mode: ${status.mode}${status.holder ? ` · the screen is held by ${status.holder}` : ''}`,
   ];
   if (status.canWrite) {

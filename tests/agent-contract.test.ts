@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {designContract,designTokens,componentVocabulary,componentKinds,describeImage,MAX_BLOCKS} from '../src/agent/contract';
+import {designContract,designTokens,componentVocabulary,componentKinds,describeImage,MAX_BLOCKS,closedCanvas,closedRender} from '../src/agent/contract';
 import {initialProject,makeBlock,type Project} from '../src/model';
 
 function project():Project{
@@ -108,4 +108,17 @@ test('the component vocabulary lists every kind with its variants and providers'
   assert.ok(hero.name&&hero.description&&hero.group);
   assert.deepEqual(componentKinds().slice(0,3),['frame','navigation','hero']);
   assert.ok(componentKinds().length>10);
+});
+
+test('home does not hand over the project that happens to be in memory',()=>{
+  const p=project();
+  const closed=closedCanvas(p);
+  assert.equal(closed.screen,'home');
+  assert.equal(closed.visible,false);
+  assert.equal(closed.last_project.name,'빛공방');
+  assert.equal((closed as {pages?:unknown}).pages,undefined);
+  const picture=closedRender();
+  assert.equal(picture.visible,false);
+  assert.equal((picture as {png?:unknown}).png,undefined);
+  assert.match(picture.error,/Home/);
 });
