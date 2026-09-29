@@ -53,7 +53,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
@@ -71,7 +71,7 @@ import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock'
 import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
-import {parseAgentCommand,isHumanHatch,bridgeExamples,type AgentCommand} from './agent/bridge';
+import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -809,7 +809,13 @@ function compareModal() {
   comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
-async function action(el: HTMLElement) {
+/**
+ * `trusted` says the person started this with their own input (the click event's isTrusted). Only the
+ * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an agent's
+ * el.click() — leaves it false, and an approve* action then refuses to run.
+ */
+async function action(el: HTMLElement, trusted = false) {
+  if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
@@ -1086,9 +1092,15 @@ async function action(el: HTMLElement) {
     }); break;
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
-    case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
-    case 'approve-human-only': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
-    case 'approve-export': commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
+    // Reached only from the person's own click: humanOnlyBlocked() at the top of action() refuses the rest.
+    case 'approve':
+    case 'approve-export': {
+      const andExport = el.dataset.action === 'approve-export';
+      if (!andExport && isApproved(project)) { exportModal(); break; }
+      commit(() => { project.approvedFingerprint = fingerprint(project); });
+      if (andExport) exportModal(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
+      break;
+    }
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
@@ -1143,7 +1155,7 @@ document.addEventListener('click', e => {
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
@@ -1348,7 +1360,7 @@ async function inlineAssets(html:string):Promise<string>{
 }
 function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
 /**
  * One operation against a page. Returns an error string rather than throwing, so the batch can be
  * abandoned cleanly and nothing is left half-applied.
@@ -1460,12 +1472,19 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
   return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
 }
 
+/** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
+const agentLook={
+  click:(selector:string)=>{try{return actionUnder(document.querySelector<HTMLElement>(selector));}catch{return undefined;}},
+  palette:(query:string)=>{try{return filterCommands(commandTable(paletteContext()),query,uiLanguage)[0]?.action;}catch{return undefined;}},
+};
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
   const who=normalizeCaller(caller);
-  const verdict=judge(gateFor(c),who,currentAuthority());
+  // Approving is judged here, before the lease or anything else moves: every agent door (the loopback
+  // bridge, MCP, window.aphroditeAgent) arrives through this one function.
+  const verdict=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
   if(c.kind==='state')return agentState();
