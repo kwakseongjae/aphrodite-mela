@@ -34,10 +34,42 @@ export function isRead(kind: string): boolean {
 }
 
 /**
+ * Actions only the person may run. Approving a direction is their decision — the MCP server tells every
+ * client that no tool can do it — and this is where the promise is kept, whatever door a command came
+ * through. The list names the variants that exist; the prefix catches the next one (an "approve-and-…"
+ * shortcut) before anyone remembers to add it here.
+ */
+export const humanOnlyActions = ['approve', 'approve-human-only', 'approve-export'] as const;
+/** The gate's name for "this command would approve". It is not a command kind, so it can never be allowed. */
+export const HUMAN_ONLY_KIND = 'approve';
+export const HUMAN_ONLY_ERROR =
+  "approving a direction is the person's decision, and no agent command can make it. Tell them the composition is ready and let them press Approve direction themselves.";
+
+export function isHumanOnlyAction(action: unknown): boolean {
+  if (typeof action !== 'string') return false;
+  const a = action.trim().toLowerCase();
+  return (humanOnlyActions as readonly string[]).includes(a) || a.startsWith('approve');
+}
+
+/**
+ * The interface's own last line, for anything that reaches a button without passing the gate: a
+ * human-only action runs only from the person's own input (a trusted event — programmatic clicks,
+ * `el.click()` and buttons built in code are not), and not while an agent holds the screen.
+ */
+export function humanOnlyBlocked(action: string | undefined, origin: {trusted: boolean; agentHoldsScreen: boolean}): boolean {
+  if (!isHumanOnlyAction(action)) return false;
+  return !origin.trusted || origin.agentHoldsScreen;
+}
+
+/**
  * Some commands carry their own verb: `library` lists, imports or deletes. Listing is a read and must
  * not need the door opened, so the gate is asked about the narrower thing the command actually does.
+ * `reaches` is the data-action the command would end up running (see `reachedAction` in bridge.ts): a
+ * click is judged by the button it lands on and a palette query by the entry it picks, so approving
+ * cannot be smuggled in as a click, a command or an `act`.
  */
-export function gateFor(command: {kind: string; action?: string}): string {
+export function gateFor(command: {kind: string; action?: string}, reaches?: string): string {
+  if (isHumanOnlyAction(reaches) || (command.kind === 'act' && isHumanOnlyAction(command.action))) return HUMAN_ONLY_KIND;
   if (command.kind === 'library') return command.action === 'list' ? 'images' : 'library';
   return command.kind;
 }
@@ -78,6 +110,8 @@ export function connectionState(mode: Mode): {connection: Mode; writes: 'on' | '
 }
 
 export function judge(kind: string, caller: string, a: Authority): Verdict {
+  // Before anything else, and in every mode: not the open door, not a lease, not Agent mode.
+  if (kind === HUMAN_ONLY_KIND) return {allow: false, status: 403, error: HUMAN_ONLY_ERROR};
   if (isRead(kind) || isAsk(kind)) return {allow: true, hold: a.holder};
   if (kind === 'end') {
     return a.mode === 'design'

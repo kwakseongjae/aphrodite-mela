@@ -1,5 +1,6 @@
 import {esc} from '../html';
 import {fingerprint,type Project} from '../model';
+import {isHumanOnlyAction} from './authority';
 
 export const DELEGATION_KEY='aphrodite-delegation-v1';
 
@@ -79,7 +80,7 @@ export function endDelegation(d:Delegation,project:Project,outcome:Delegation['o
 
 export function isBlockedWhileDelegated(d:Delegation|undefined,action:string,data?:{id?:string;pageId?:string}):boolean{
   if(!isActive(d))return false;
-  if(action==='approve')return true;
+  if(isHumanOnlyAction(action))return true; // every approve variant, not only the one the banner names
   const frameId=d.scope.frameId;
   if(frameId){
     if(action==='page-delete'||action==='delete-page')return true;

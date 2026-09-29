@@ -194,6 +194,30 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
   }
 }
 
+/**
+ * What a click on `el` would run. The document click handler acts on the nearest [data-action]
+ * ancestor-or-self, so a selector that lands on the label inside Approve direction still approves.
+ */
+export function actionUnder(el:{closest(selector:string):unknown}|null|undefined):string|undefined{
+  const hit=el?.closest('[data-action]') as {dataset?:{action?:string}}|null|undefined;
+  return hit?.dataset?.action||undefined;
+}
+
+/**
+ * The data-action a command would end up running, so the gate judges the effect rather than the verb it
+ * arrived as. `look` answers from the live screen: what a selector lands on, which palette entry a query
+ * picks. `ui` is the MCP interface tool's door and is judged by the command inside it.
+ */
+export function reachedAction(c:AgentCommand,look:{click(selector:string):string|undefined;palette(query:string):string|undefined}):string|undefined{
+  switch(c.kind){
+    case 'act':return c.action;
+    case 'click':return look.click(c.selector);
+    case 'command':return look.palette(c.query);
+    case 'ui':{const inner=parseAgentCommand(c.action,c.payload);return 'error' in inner?undefined:reachedAction(inner.command,look);}
+    default:return undefined;
+  }
+}
+
 /** Keys the human may still press while locked: the hatch that ends Agent mode. */
 export function isHumanHatch(e:{key:string;code?:string;metaKey:boolean;shiftKey:boolean}):boolean{
   return e.metaKey&&e.shiftKey&&(e.code==='KeyA'||e.key.toLowerCase()==='a');
