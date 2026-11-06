@@ -13,6 +13,8 @@ import {unknownValue, missingField} from './errors';
 import {componentKinds} from './contract';
 import {patternVariants} from '../patterns';
 import {framePresets, type FramePreset} from '../editor/space';
+import type {PatchOp} from '../ledger/patch';
+import {MAX_REASON} from '../ledger/types';
 
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page';
 export type Op =
@@ -202,4 +204,132 @@ export function parseOps(payload: unknown): {ops: Op[]; pageId?: string} | {erro
     return {ops, pageId};
   }
   return {ops};
+}
+
+/* ---------- the patch: the ledger's own vocabulary, accepted back ----------
+
+   `aphrodite_get_changes` reports every change — a person's included — as the plain ops the ledger
+   records (src/ledger/patch.ts). An agent can send those same ops back in `patch`, which is how
+   a person's edit made on one copy is replayed onto another. They are checked for shape here and the
+   result is held to what a saved project must be (see runBatch), so a patch cannot say anything the
+   project model would refuse. Approving is not among the things it can say. */
+
+export const MAX_PATCH = 400;
+const PATCH_OPS = ['set', 'insert_page', 'remove_page', 'move_page', 'insert_block', 'remove_block', 'move_block'] as const;
+const SET_ON = ['project', 'system', 'page', 'block'] as const;
+const FIELD = /^[a-zA-Z][a-zA-Z0-9]{0,40}$/;
+const MAX_VALUE = 4_200_000;
+
+function omitted(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if ((value as {$omitted?: unknown}).$omitted !== undefined) return true;
+  return Object.values(value).some(omitted);
+}
+
+function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: string} {
+  const where = `patch[${index}]`;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {error: `${where} must be an object.`};
+  const o = raw as Record<string, unknown>;
+  const kind = str(o.op, 20);
+  if (!kind || !(PATCH_OPS as readonly string[]).includes(kind)) return {error: unknownValue(`${where}.op`, String(o.op ?? ''), PATCH_OPS)};
+  if (omitted(o)) return {error: `${where} carries a picture that aphrodite_get_changes left out ({"$omitted": …}). It cannot be replayed; set that picture with an update op and an image id instead.`};
+  if (JSON.stringify(o).length > MAX_VALUE) return {error: `${where} is larger than ${MAX_VALUE} characters.`};
+  const id = (key: string): string | {error: string} => {
+    const value = str(o[key], 200);
+    return value && ID.test(value) ? value : {error: `${where}.${key} must be an id from aphrodite_get_contract or aphrodite_get_changes.`};
+  };
+  const position = (): number | {error: string} => Number.isInteger(o.index) && (o.index as number) >= 0 ? o.index as number : {error: `${where}.index must be a whole number, 0 or more.`};
+  const object = (key: string): Record<string, unknown> | {error: string} => o[key] && typeof o[key] === 'object' && !Array.isArray(o[key]) ? o[key] as Record<string, unknown> : {error: `${where}.${key} must be an object.`};
+  const bad = (...xs: unknown[]) => xs.find(x => x && typeof x === 'object' && 'error' in (x as object)) as {error: string} | undefined;
+  switch (kind as typeof PATCH_OPS[number]) {
+    case 'set': {
+      const on = str(o.on, 20);
+      if (!on || !(SET_ON as readonly string[]).includes(on)) return {error: unknownValue(`${where}.on`, String(o.on ?? ''), SET_ON)};
+      const field = str(o.field, 41);
+      if (!field || !FIELD.test(field)) return {error: `${where}.field must name a field, for example "title".`};
+      if (on === 'project' && field === 'approvedFingerprint') return {error: `${where} sets the approval. Approving a direction is the person's decision, and no tool here can make it.`};
+      if (o.unset !== undefined && o.unset !== true) return {error: `${where}.unset is either true or left out.`};
+      if (o.unset === true && o.value !== undefined) return {error: `${where} has both value and unset; pick one.`};
+      if (o.unset !== true && o.value === undefined) return {error: `${where} needs a value, or "unset": true to clear the field.`};
+      const tail = o.unset === true ? {unset: true as const} : {value: o.value};
+      if (on === 'project') return {op: {op: 'set', on: 'project', field: field as never, ...tail}};
+      if (on === 'system') return {op: {op: 'set', on: 'system', field, ...tail}};
+      const page = id('page_id');
+      if (typeof page !== 'string') return page;
+      if (on === 'page') return {op: {op: 'set', on: 'page', page_id: page, field: field as never, ...tail}};
+      const block = id('block_id');
+      if (typeof block !== 'string') return block;
+      return {op: {op: 'set', on: 'block', page_id: page, block_id: block, field, ...tail}};
+    }
+    case 'insert_page': {
+      const index = position(), page = object('page'), err = bad(index, page);
+      if (err) return err;
+      return {op: {op: 'insert_page', index: index as number, page: page as never}};
+    }
+    case 'remove_page': {
+      const page = id('page_id');
+      return typeof page === 'string' ? {op: {op: 'remove_page', page_id: page}} : page;
+    }
+    case 'move_page': {
+      const page = id('page_id'), index = position(), err = bad(page, index);
+      if (err) return err;
+      return {op: {op: 'move_page', page_id: page as string, index: index as number}};
+    }
+    case 'insert_block': {
+      const page = id('page_id'), index = position(), block = object('block'), err = bad(page, index, block);
+      if (err) return err;
+      return {op: {op: 'insert_block', page_id: page as string, index: index as number, block: block as never}};
+    }
+    case 'remove_block': {
+      const page = id('page_id'), block = id('block_id'), err = bad(page, block);
+      if (err) return err;
+      return {op: {op: 'remove_block', page_id: page as string, block_id: block as string}};
+    }
+    case 'move_block': {
+      const page = id('page_id'), block = id('block_id'), index = position(), err = bad(page, block, index);
+      if (err) return err;
+      return {op: {op: 'move_block', page_id: page as string, block_id: block as string, index: index as number}};
+    }
+  }
+}
+
+export type Batch = {ops: Op[]; patch: PatchOp[]; pageId?: string; reason: string; baseRevision?: string};
+
+/**
+ * Validates everything `aphrodite_apply_edits` was sent, before a single thing is changed: the ops,
+ * the patch, the reason, and the revision the agent last read.
+ */
+export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const reason = typeof p.reason === 'string' ? p.reason.trim() : '';
+  if (!reason) return {error: missingField('reason', '"reason": "The first line now says what the shop sells, as the brief asks."') + ' The reason is shown to the person beside the change, so write it for them: one sentence on why.'};
+  if (reason.length > MAX_REASON) return {error: `reason is ${reason.length} characters; keep it under ${MAX_REASON}.`};
+  let baseRevision: string | undefined;
+  if (p.base_revision !== undefined) {
+    baseRevision = str(p.base_revision, 100);
+    if (!baseRevision) return {error: 'base_revision must be the revision string from aphrodite_get_contract or aphrodite_get_changes.'};
+  }
+  const hasOps = Array.isArray(p.ops) && p.ops.length > 0, hasPatch = Array.isArray(p.patch) && p.patch.length > 0;
+  if (!hasOps && !hasPatch) {
+    if (p.patch !== undefined && !Array.isArray(p.patch)) return {error: 'patch must be a list of ops, as aphrodite_get_changes returns them.'};
+    return {error: missingField('ops', '"ops": [{"op": "add", "component_kind": "hero"}]') + ' (Or "patch", for ops taken from aphrodite_get_changes.)'};
+  }
+  let ops: Op[] = [], pageId: string | undefined;
+  if (hasOps || p.page_id !== undefined) {
+    const parsed = parseOps({ops: hasOps ? p.ops : [{op: 'frame', preset: 'desktop'}], page_id: p.page_id});
+    if ('error' in parsed) return parsed;
+    ops = hasOps ? parsed.ops : [];
+    pageId = parsed.pageId;
+  }
+  const patch: PatchOp[] = [];
+  if (hasPatch) {
+    const list = p.patch as unknown[];
+    if (list.length > MAX_PATCH) return {error: `${list.length} patch ops is more than the ${MAX_PATCH} allowed in one call. Split it.`};
+    for (const [index, raw] of list.entries()) {
+      const parsed = parsePatchOne(raw, index);
+      if ('error' in parsed) return parsed;
+      patch.push(parsed.op);
+    }
+  }
+  return {batch: {ops, patch, ...(pageId ? {pageId} : {}), reason, ...(baseRevision ? {baseRevision} : {})}};
 }

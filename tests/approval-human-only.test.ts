@@ -198,3 +198,13 @@ test('the MCP interface tool and every bridge route funnel into runAgentCommand'
   assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(/);
   assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string\)=>runAgentCommand\(/);
 });
+
+test('the ledger\'s patch, accepted back through apply_edits, cannot set the approval either',async()=>{
+  const {parseBatch}=await import('../src/agent/ops');
+  for(const value of ['anything',null,{}]){
+    const parsed=parseBatch({reason:'Replaying a change.',patch:[{op:'set',on:'project',field:'approvedFingerprint',value}]});
+    assert.ok('error' in parsed,'a patch op that sets approvedFingerprint is refused before anything runs');
+  }
+  const unset=parseBatch({reason:'Replaying a change.',patch:[{op:'set',on:'project',field:'approvedFingerprint',unset:true}]});
+  assert.ok('error' in unset,'nor can a patch clear it');
+});

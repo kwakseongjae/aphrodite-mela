@@ -10,7 +10,9 @@ import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/
 import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
-import {pinShelf,preserveShelf,shelfPage} from './design/shelf';
+import {pinShelf,shelfPage} from './design/shelf';
+import {begin,end,newHistory,step} from './ledger/session';
+import type {Author} from './ledger/ledger';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -57,7 +59,9 @@ import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
-import {parseOps,SELECTION,type Op} from './agent/ops';
+import {parseBatch,type Batch} from './agent/ops';
+import {runBatch,type BatchResult} from './agent/apply';
+import {changesSince,designOf,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
@@ -143,7 +147,8 @@ const archive=createArchive({
 });
 let device: 'desktop' | 'mobile' = 'desktop';
 let query = '';
-let undoStack: string[] = [], redoStack: string[] = [];
+/** Undo, redo and the ledger's view of the last committed state (src/ledger/session.ts). */
+let edits = newHistory();
 let lastSaved = true;
 let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
@@ -210,17 +215,30 @@ async function showVault(refresh=true){
   showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
-function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
-function commit(change: () => void, updateUI = true,source='editor:change') {
-  const before = JSON.stringify(project),pageBefore=project.activePageId;
+function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';edits=newHistory();referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+/** Who an edit belongs to: the agent whose command is running, or the person at the screen. */
+function author():Author{return commandCaller?{kind:'agent',name:commandCaller}:{kind:'person',name:'you'};}
+/**
+ * Every edit passes through here. What changed is read off the project before and after (see
+ * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step.
+ */
+function commit(change: () => void, updateUI = true,source='editor:change',reason?:string) {
+  const who=author(),before = begin(project,edits,who),pageBefore=project.activePageId;
   change();
-  if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
+  const recorded=end(project,before,{author:who,source,reason},edits);
+  if (recorded) { persist();recordRun(source,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
 function history(direction: 'undo' | 'redo') {
-  const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
-  const snapshot = from.pop(); if (!snapshot) return;
-  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  const before=project;let done;
+  try{done=step(project,direction,edits,author());}
+  catch{
+    // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
+    (direction==='undo'?edits.undo:edits.redo).pop();
+    toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
+  }
+  if(!done)return;
+  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
@@ -264,13 +282,13 @@ function syncStateAttributes(){
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
     viewport:device==='mobile'?'mobile':'desktop',
     modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
-    undo:String(undoStack.length),redo:String(redoStack.length),mode:editorMode,
+    undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
   if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
 }
-function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
+function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:edits.undo.length>0,canRedo:edits.redo.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do on this page, in one list. Type to filter.','이 화면에서 할 수 있는 모든 일. 입력해서 걸러내세요.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
@@ -1358,118 +1376,37 @@ async function inlineAssets(html:string):Promise<string>{
   for(const [path,data] of seen)out=out.split(path).join(data);
   return out;
 }
-function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function agentState(){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
+/** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
+function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
+/** A change as an agent reads it from aphrodite_get_changes. */
+function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
 /**
- * One operation against a page. Returns an error string rather than throwing, so the batch can be
- * abandoned cleanly and nothing is left half-applied.
+ * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
+ * ledger, one undo step and one receipt, or none of it lands. A batch written against a revision the
+ * person has since changed is refused, with what changed, so the agent reads before it writes over.
  */
-function runOp(page:Page,op:Op):string|undefined{
-  const blocks=page.blocks;
-  const find=(id:string)=>blocks.find(b=>b.id===(id===SELECTION?selected:id));
-  if(op.op==='add'){
-    if(blocks.length>=100)return 'this page already has 100 components, which is the limit.';
-    const kind=op.component_kind as BlockKind;
-    const block=makeBlock(kind);
-    if(op.variant)block.variant=op.variant;
-    if(supportsProvider(project.system.id,kind))block.provider=project.system.id;
-    const before=op.before_block_id?blocks.find(b=>b.id===op.before_block_id):undefined;
-    if(op.before_block_id&&!before)return `no component ${op.before_block_id} on this page; before_block_id must name one of its components.`;
-    block.parentId=before?(before.kind==='frame'?before.id:before.parentId):undefined;
-    if(!canParent([...blocks,block],block.id,block.parentId))return 'that frame cannot nest any deeper.';
-    for(const [field,text] of Object.entries(op.content??{}))(block as unknown as Record<string,string>)[field]=text;
-    const at=before&&before.kind!=='frame'?blocks.indexOf(before):-1;
-    blocks.splice(at<0?blocks.length:at,0,block);
-    selected=block.id;
-    return undefined;
+function applyBatch(batch:Batch):Record<string,unknown>{
+  const now=fingerprint(project);
+  if(batch.baseRevision&&batch.baseRevision!==now){
+    const since=changesSince(project.ledger,batch.baseRevision,{limit:20});
+    return {error:`the project changed since revision ${batch.baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the batch again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
   }
-  if(op.op==='update'){
-    const block=find(op.block_id);
-    if(!block)return op.block_id===SELECTION?'nothing is selected. Pass a block_id from the contract, or ask the person to select something.':`no component ${op.block_id} on this page.`;
-    if(op.fields.description!==undefined&&block.kind!=='products')return 'description belongs to a collection component; this one is a '+block.kind+'.';
-    if(op.image!==undefined){
-      if(!['hero','products'].includes(block.kind))return `a picture belongs to a hero or a collection; this one is a ${block.kind}.`;
-      if(op.image===''){block.image='';}
-      else{
-        // `sample:desk-lamp` names one the app ships with; anything else must be a library id.
-        const src=op.image.startsWith('sample:')?sampleSrc(op.image.slice('sample:'.length)):localRef(op.image);
-        if(!safeImage(src))return unknownValue('image',op.image,['sample:<id> from aphrodite_list_images','a library id from aphrodite_list_images','"" to clear it']);
-        block.image=src;
-      }
-    }
-    if(op.variant!==undefined){
-      const variants=patternVariants(block.kind);
-      if(!variants.includes(op.variant))return unknownValue('variant',op.variant,variants,`This is a ${block.kind}.`);
-      block.variant=op.variant;
-    }
-    for(const [field,text] of Object.entries(op.fields))(block as unknown as Record<string,string>)[field]=text;
-    return undefined;
-  }
-  if(op.op==='move'){
-    const block=find(op.block_id);
-    if(!block)return `no component ${op.block_id} on this page.`;
-    const from=blocks.indexOf(block),to=from+(op.direction==='up'?-1:1);
-    if(to<0||to>=blocks.length)return `that component is already ${op.direction==='up'?'first':'last'}.`;
-    [blocks[from],blocks[to]]=[blocks[to],blocks[from]];
-    return undefined;
-  }
-  if(op.op==='delete'){
-    const block=find(op.block_id);
-    if(!block)return `no component ${op.block_id} on this page.`;
-    blocks.forEach(child=>{if(child.parentId===block.id)child.parentId=block.parentId;});
-    blocks.splice(blocks.indexOf(block),1);
-    if(selected===block.id)selected='';
-    return undefined;
-  }
-  if(op.op==='page'){
-    // With a page_id it renames one; without, it makes one. Either way the design system carries
-    // over untouched, because a page is a frame on the same space, not a new project.
-    if(op.page_id!==undefined){
-      const target=project.pages.find(p=>p.id===op.page_id);
-      if(!target)return `no page ${op.page_id}. Take an id from the contract.`;
-      target.name=op.name;
-      if(op.preset!==undefined){ensureSpace(project);const f=project.space!.frames[target.id];if(f)f.preset=op.preset;}
-      return undefined;
-    }
-    if(project.pages.length>=30)return 'this project already has 30 pages, which is the limit.';
-    ensureSpace(project);
-    const created:Page={id:uid(),name:op.name,blocks:[]};
-    project.pages.push(created);
-    project.space!.frames[created.id]=nextFramePosition(project.space!,op.preset??'desktop',framePresets.find(p=>p.id===(op.preset??'desktop'))?.width??1200);
-    project.activePageId=created.id;
-    return undefined;
-  }
-  ensureSpace(project);
-  const frame=project.space!.frames[op.page_id??page.id];
-  if(!frame)return `no page ${op.page_id} to resize.`;
-  frame.preset=op.preset;
-  return undefined;
-}
-
-/** A batch: all of it lands as one undo step and one receipt, or none of it lands. */
-function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
-  const page=pageId?project.pages.find(p=>p.id===pageId):currentPage(project);
-  if(!page)return {error:`no page "${pageId}". This project has: ${project.pages.map(p=>p.id).join(', ')}`};
-  const before=JSON.parse(JSON.stringify(project)) as Project;
-  const snapshot=JSON.stringify(project);
-  const selectedBefore=selected;
-  let failure:{index:number;error:string}|undefined;
+  const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
+  let failure:Extract<BatchResult,{ok:false}>|undefined;
   commit(()=>{
-    let target=project.pages.find(p=>p.id===page.id)!;
-    for(const [index,op] of ops.entries()){
-      const error=runOp(target,op);
-      if(error){failure={index,error};break;}
-      /* Making a page moves the batch onto it, the way a person making a frame lands inside it.
-         Without this, "make a mobile page and put a hero on it" quietly puts the hero back on the
-         page they started from. */
-      if(op.op==='page'&&op.page_id===undefined)target=currentPage(project);
-    }
-    // Nothing half-applied: put the project back and let commit see no change at all.
-    if(failure){project=JSON.parse(snapshot) as Project;selected=selectedBefore;}
-  },true,'agent:apply');
-  if(failure)return {error:`ops[${failure.index}]: ${failure.error}`,failed_at:failure.index,applied:0};
-  return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
+    const result=runBatch(project,batch,selected);
+    if(!result.ok){failure=result;return;}
+    project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+    selected=result.selected;
+  },true,'agent:apply',batch.reason);
+  if(failure){
+    const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
+    return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
+  }
+  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState()};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1490,13 +1427,18 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(c.kind==='state')return agentState();
   if(c.kind==='contract'){
     if(screen!=='editor')return closedCanvas(project);
-    return {ok:true,screen:'editor',visible:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
+    return {ok:true,screen:'editor',visible:true,...revisionInfo(),...designContract(project,selected,{format:c.format,pageId:c.pageId})};
   }
   if(c.kind==='tokens'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     return {ok:true,...designTokens(project,themeVars(project))};
   }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
+  if(c.kind==='changes'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
+    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:found.changes.map(publicChange)};
+  }
   if(c.kind==='render'){
     if(screen!=='editor')return closedRender();
     if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
@@ -1644,9 +1586,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         };
       }
       case 'apply':{
-        const parsed=parseOps({ops:c.ops,page_id:c.pageId});
+        const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed){commandCaller='';return {error:parsed.error};}
-        const result=applyOps(parsed.ops,parsed.pageId);
+        const result=applyBatch(parsed.batch);
         commandCaller='';
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
@@ -1864,7 +1806,7 @@ async function reloadFromDisk(){
   if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your projects are back.','찾았습니다. 프로젝트가 돌아왔습니다.'));}
   else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
   const entry=library.entries.find(e=>e.project.id===project.id);
-  if(entry&&screen==='editor')openProject(entry.project);else{screen='home';undoStack=[];redoStack=[];}
+  if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
   render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
 }
 async function boot(){
