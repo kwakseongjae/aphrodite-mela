@@ -1,0 +1,117 @@
+/**
+ * The ledger: every change to a project, in order, with who made it and why.
+ *
+ * It is append-only. An undo does not erase the change it takes back; it appends a change of its own
+ * that names the one it undid. So "the first state plus every change in order" is always the state on
+ * screen, and an agent asking what happened since it last looked never meets a gap.
+ *
+ * Two copies of each change exist, for two jobs:
+ * - The ledger entry is saved with the project. Uploaded pictures inside it are replaced by their
+ *   size, and the oldest entries lose their ops once the ledger outgrows its budget, so a long session
+ *   cannot push the project past what local storage holds.
+ * - The undo entry stays in memory with the ops exactly as they were, pictures included, so undo is
+ *   exact for the last `UNDO_LIMIT` changes.
+ */
+import {fingerprint, type Project} from '../model';
+import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
+import {MAX_REASON, type Author, type Change, type Ledger} from './types';
+export {readLedger, MAX_REASON, type Author, type Change, type Ledger} from './types';
+
+export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
+
+export const UNDO_LIMIT = 200;
+/** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
+export const LEDGER_BUDGET = 1_200_000;
+const MAX_INLINE_DATA = 2_000;
+
+/** A design state without what is not design: the ledger itself. */
+export function designOf(project: Project): Project {
+  const {ledger: _ledger, ...design} = project as Project & {ledger?: Ledger};
+  return design as Project;
+}
+
+/** Replaces long `data:` strings with a marker that keeps their size. Used for what is saved and shown, never for undo. */
+export function slim<T>(value: T): T {
+  if (typeof value === 'string') return (value.startsWith('data:') && value.length > MAX_INLINE_DATA ? {$omitted: 'data-url', bytes: value.length} : value) as T;
+  if (Array.isArray(value)) return value.map(slim) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
+  return value;
+}
+
+/** True when an op carries a marker `slim` left in place of a picture, which cannot be replayed. */
+export function hasOmitted(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if ((value as {$omitted?: unknown}).$omitted !== undefined) return true;
+  return Object.values(value).some(hasOmitted);
+}
+
+export type ChangeMeta = {author: Author; source: string; reason?: string; undoes?: number; redoes?: number; at?: string; id?: string};
+
+/**
+ * Records the step from `before` to `after` in the ledger and returns the undo entry for it, or null
+ * when the design did not change. `ops`, when given, must be `diffProject(before, after)`.
+ */
+export function record(ledger: Ledger, before: Project, after: Project, meta: ChangeMeta, ops = diffProject(before, after)): {change: Change; undo: UndoEntry} | null {
+  if (!ops.length) return null;
+  const seq = ledger.seq + 1;
+  const reason = meta.reason?.trim().slice(0, MAX_REASON);
+  const change: Change = {
+    id: meta.id ?? crypto.randomUUID(),
+    seq,
+    at: meta.at ?? new Date().toISOString(),
+    author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},
+    source: meta.source.slice(0, 80),
+    ...(reason ? {reason} : {}),
+    ops: slim(ops),
+    anchors: anchorsOf(ops),
+    baseRevision: fingerprint(before),
+    revision: fingerprint(after),
+    view: isViewOnly(ops, before, after),
+    ...(meta.undoes !== undefined ? {undoes: meta.undoes} : {}),
+    ...(meta.redoes !== undefined ? {redoes: meta.redoes} : {}),
+    size: 0,
+  };
+  change.size = JSON.stringify(change).length;
+  ledger.seq = seq;
+  ledger.changes.push(change);
+  compact(ledger);
+  return {change, undo: {seq, ops, inverse: diffProject(after, before)}};
+}
+
+/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
+export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
+  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
+  for (const change of ledger.changes) {
+    if (total <= budget) break;
+    if (change.compacted) continue;
+    total -= change.size;
+    change.ops = [];
+    change.compacted = true;
+    change.size = 0;
+    change.size = JSON.stringify(change).length;
+    total += change.size;
+  }
+  // Headers alone can outgrow the budget after very long histories; the oldest go first.
+  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
+}
+
+/**
+ * The changes after a point, oldest first. `since` is a sequence number, or a revision — then the
+ * point is the last change that produced it. View-only changes are left out unless asked for.
+ */
+export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number} = {}): {changes: Change[]; more: boolean; from: number} {
+  const all = ledger?.changes ?? [];
+  let from = 0;
+  if (typeof since === 'number') from = since;
+  else if (typeof since === 'string') {
+    const hit = [...all].reverse().find(c => c.revision === since);
+    from = hit ? hit.seq : all.length ? all[0].seq - 1 : 0;
+  }
+  const after = all.filter(c => c.seq > from && (options.includeView || !c.view));
+  const limit = options.limit ?? 50;
+  return {changes: after.slice(0, limit), more: after.length > limit, from};
+}
+
+export function emptyLedger(): Ledger {
+  return {seq: 0, changes: []};
+}

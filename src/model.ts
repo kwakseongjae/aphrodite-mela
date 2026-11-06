@@ -9,6 +9,7 @@ import {validComponentTheme,type ComponentTheme} from './design/component-theme'
 import {validShelf,type ShelfChoice} from './design/shelf';
 import { validLayout, validateTree, type Layout } from './layout';
 import {ownSystems} from './design/presets';
+import {readLedger,type Ledger} from './ledger/types';
 export type BlockKind = 'frame' | 'navigation' | 'hero' | 'features' | 'products' | 'testimonial' | 'cta' | 'footer' | PatternKind;
 export type HeroVariant = 'split' | 'image-left' | 'stacked';
 export type Block = { id: string; kind: BlockKind; title: string; text: string; label: string; image: string; filled: boolean; variant?: string; eyebrow?: string; description?:string; itemImages?:string[]; options?: PatternOptions; provider?: Provider; theme?:ComponentTheme; parentId?: string; layout?: Layout };
@@ -23,7 +24,8 @@ export type ReferenceEvidence = { engine: 'Apple Vision + pixels' | 'Pixels only
 export type VibeReceipt = {packId:string;changedFields:number;source:'local-authored-demo';imageSource:'user-upload'|'bundled-generated'|'none';modelCalled:false};
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
 export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal };
-export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space };
+/** `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. */
+export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger };
 export const uid = () => crypto.randomUUID();
 export const systems: DesignSystem[] = [
   ...ownSystems,
@@ -140,8 +142,10 @@ export function parseProject(raw: string): Project {
     }
     if (!validateTree(page.blocks)) throw new Error('프레임 중첩이 올바르지 않습니다 (순환/누락/깊이 초과).');
   }
+  // A saved ledger that does not hold together is dropped, never a reason to refuse the project.
+  const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{})};
+  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{})};
 }
 export function importDesignMarkdown(markdown: string, name: string, base: DesignSystem): DesignSystem {
   if (markdown.length > 200000) throw new Error('DESIGN.md는 200KB 이하여야 합니다.');
