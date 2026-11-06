@@ -4,6 +4,7 @@ import {initialProject, parseProject, fingerprint, makeBlock, type Project} from
 import {applyPatch} from '../src/ledger/patch.ts';
 import {changesSince, compact, designOf, emptyLedger, hasOmitted, record, slim, UNDO_LIMIT, type Author} from '../src/ledger/ledger.ts';
 import {begin, end, newHistory, step} from '../src/ledger/session.ts';
+import {cloneProject} from '../src/workspace/library.ts';
 
 const me: Author = {kind: 'person', name: 'Designer'};
 const bot: Author = {kind: 'agent', name: 'Claude Code'};
@@ -165,4 +166,15 @@ test('the ledger travels with the project and a broken one never blocks opening 
   const opened = parseProject(JSON.stringify(bad));
   assert.equal(opened.ledger, undefined);
   assert.equal(opened.name, 'Saved');
+});
+
+test('a copied project keeps its history: the ids it names are the copy\'s ids too', () => {
+  const p = initialProject(), h = newHistory();
+  edit(p, h, x => { x.pages[0].blocks[1].title = 'Before the copy'; });
+  const copy = cloneProject(p);
+  assert.notEqual(copy.id, p.id);
+  assert.deepEqual(copy.ledger, p.ledger);
+  const named = new Set(copy.ledger!.changes.flatMap(c => c.anchors.nodes));
+  const present = new Set(copy.pages.flatMap(page => page.blocks.map(b => b.id)));
+  assert.ok([...named].every(id => present.has(id)), 'every node the history names exists in the copy');
 });

@@ -53,10 +53,13 @@ check('the vocabulary lists the kinds an agent may add', async () => {
   assert.ok(hero.variants.includes('stacked'));
 });
 
+/** Every batch carries a reason now; it is shown to the person beside the change. */
+const WHY = 'verify-agent-tools: checking the batch edit path.';
+
 let beforeCount = 0;
 check('one call adds three components', async () => {
   beforeCount = await blockCount();
-  const result = await agent('apply', {ops: [
+  const result = await agent('apply', {reason: WHY, ops: [
     {op: 'add', component_kind: 'hero', variant: 'stacked', content: {title: '빛으로 완성하는 공간'}},
     {op: 'add', component_kind: 'features'},
     {op: 'add', component_kind: 'cta', content: {label: '자세히 보기'}},
@@ -67,11 +70,27 @@ check('one call adds three components', async () => {
 });
 
 check('the receipt says what changed', async () => {
-  const result = await agent('apply', {ops: [{op: 'update', block_id: 'selection', fields: {label: '지금 보기'}}]});
+  const result = await agent('apply', {reason: WHY, ops: [{op: 'update', block_id: 'selection', fields: {label: '지금 보기'}}]});
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(result.receipt, 'a receipt came back');
   assert.equal(result.receipt.changedNodes.length, 1, 'exactly one component changed');
   assert.ok(result.receipt.savedRevision, 'the receipt carries the new revision');
+});
+
+check('a batch without a reason is refused and nothing lands', async () => {
+  const before = await blockCount();
+  const result = await agent('apply', {ops: [{op: 'add', component_kind: 'cta'}]});
+  assert.match(result.error ?? '', /reason/, JSON.stringify(result));
+  assert.equal(await blockCount(), before);
+});
+
+check('the ledger names the agent and keeps its reason', async () => {
+  const result = await agent('changes', {});
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const last = result.changes.at(-1);
+  assert.equal(last.author.kind, 'agent');
+  assert.equal(last.reason, WHY);
+  assert.equal(last.revision, result.revision, 'the newest change produced the revision on screen');
 });
 
 check('the batch is one undo step, not three', async () => {
@@ -86,7 +105,7 @@ check('the batch is one undo step, not three', async () => {
 });
 
 check('the undo just pressed was a person, so the screen is theirs for a moment', async () => {
-  const refused = await agent('apply', {ops: [{op: 'add', component_kind: 'hero'}]});
+  const refused = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero'}]});
   assert.equal(refused.status, 409, JSON.stringify(refused));
   assert.match(refused.error, /the person is using the screen/);
   await sleep(5_200); // their hold expires in five seconds; the rest of the run needs the lease back
@@ -94,7 +113,7 @@ check('the undo just pressed was a person, so the screen is theirs for a moment'
 
 check('a batch with a bad operation changes nothing at all', async () => {
   const before = await blockCount();
-  const result = await agent('apply', {ops: [
+  const result = await agent('apply', {reason: WHY, ops: [
     {op: 'add', component_kind: 'hero'},
     {op: 'add', component_kind: 'testimonial'},
     {op: 'delete', block_id: 'no-such-block'},
@@ -106,7 +125,7 @@ check('a batch with a bad operation changes nothing at all', async () => {
 });
 
 check('an unknown component kind is refused with the real ones listed', async () => {
-  const result = await agent('apply', {ops: [{op: 'add', component_kind: 'hero-large'}]});
+  const result = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero-large'}]});
   assert.match(result.error, /unknown ops\[0\]\.component_kind "hero-large"/);
   assert.match(result.error, /Closest match: "hero"/);
 });
@@ -116,7 +135,7 @@ check('reading needs no door, writing does', async () => {
   await sleep(200);
   const contract = await agent('contract');
   assert.equal(contract.schema, 'aphrodite.contract/1', 'the contract still reads');
-  const refused = await agent('apply', {ops: [{op: 'add', component_kind: 'hero'}]});
+  const refused = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero'}]});
   assert.equal(refused.status, 423, JSON.stringify(refused));
 });
 

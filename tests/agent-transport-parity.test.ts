@@ -20,6 +20,8 @@ const commands: [string, unknown][] = [
   ['command', {query: 'hero 추가'}],
   ['edit', {field: 'title', text: 'Hello'}],
   ['library', {action: 'list'}],
+  ['changes', {since: 3}],
+  ['apply', {reason: 'Parity.', ops: [{op: 'delete', block_id: 'selection'}]}],
   ['end', null],
 ];
 
