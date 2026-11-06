@@ -133,3 +133,22 @@ test('switching pages and dragging frames is view; resizing a frame is design', 
   const copyEdit = clone(p); copyEdit.activePageId = 'second'; copyEdit.pages[0].blocks[0].title = 'New';
   assert.equal(isViewOnly(diffProject(p, copyEdit), p, copyEdit), false);
 });
+
+test('a new field on Project or Page cannot slip past the ledger unnoticed', async () => {
+  // Fields are read off the type in model.ts. A field added there must be either diffed (projectFields /
+  // pageFields in src/ledger/patch.ts) or named here as deliberately not design, with the reason.
+  const {readFileSync} = await import('node:fs');
+  const {projectFields, pageFields} = await import('../src/ledger/patch.ts');
+  const model = readFileSync(new URL('../src/model.ts', import.meta.url), 'utf8');
+  const fieldsOf = (name: string) => {
+    const body = model.match(new RegExp(`export type ${name} = \\{([^}]*)\\}`))![1];
+    return [...body.matchAll(/(\w+)\??\s*:/g)].map(m => m[1]);
+  };
+  const notDesign: Record<string, string> = {
+    version: 'fixed at 1', id: 'never changes', pages: 'diffed by its own ops', system: 'diffed field by field',
+    shelf: 'kept beside the canvas; canvas undo has never touched it', ledger: 'the record itself',
+  };
+  for (const field of fieldsOf('Project')) assert.ok((projectFields as readonly string[]).includes(field) || field in notDesign, `Project.${field} is neither diffed nor excused`);
+  const pageNotDesign: Record<string, string> = {id: 'never changes', blocks: 'diffed by its own ops'};
+  for (const field of fieldsOf('Page')) assert.ok((pageFields as readonly string[]).includes(field) || field in pageNotDesign, `Page.${field} is neither diffed nor excused`);
+});
