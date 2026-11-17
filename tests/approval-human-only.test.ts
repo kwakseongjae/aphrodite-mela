@@ -191,6 +191,33 @@ test('approvedFingerprint is written in exactly one place in main.ts',()=>{
   assert.equal(sets.length,1,`found ${sets.length} assignments; every approval must pass the one guarded case`);
 });
 
+/* Undo and redo reach approval through history rather than a button: session.ts refuses an agent's
+   step that would move it (tests/ledger.test.ts), and these pin how the refusal gets back to the agent
+   from act, command, key and click alike. */
+test('history() keeps the stacks on a refused step and leaves the reason for the agent',()=>{
+  const start=main.indexOf('function history(');
+  assert.ok(start>0);
+  const body=main.slice(start,main.indexOf('\n}',start));
+  assert.match(body,/step\(project,direction,edits,author\(by\)\)/,'the step is asked as whoever asked for it');
+  assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefused=error\.message;return;\}/,'refused before the stack is popped');
+  assert.ok(body.indexOf('HumanOnlyStep')<body.indexOf('.pop()'));
+});
+
+test('runAgentCommand returns a refused step as the gate\'s 403',()=>{
+  const start=main.indexOf('async function runAgentCommand');
+  const body=main.slice(start,main.indexOf('\n}',start));
+  assert.match(body,/commandCaller=who;stepRefused='';/,'a stale refusal never answers the next command');
+  assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*if\(stepRefused\)\{const error=stepRefused;stepRefused='';return \{error,status:403\};\}/,'checked after the wait, so a click has landed');
+});
+
+test('undo and redo name who asked: the key handler by isTrusted, action() before its first await',()=>{
+  assert.match(main,/history\(e\.shiftKey \? 'redo' : 'undo', e\.isTrusted \? '' : commandCaller\)/);
+  const start=main.indexOf('async function action(');
+  const asked=main.indexOf("const by=trusted?'':commandCaller;",start);
+  assert.ok(asked>start&&asked<main.indexOf('await ',start),'read before an agent\'s click returns');
+  assert.match(main,/case 'undo': history\('undo',by\); break;\n\s*case 'redo': history\('redo',by\); break;/);
+});
+
 test('the MCP interface tool and every bridge route funnel into runAgentCommand',()=>{
   assert.equal(useInterface.route.path,'/agent/ui');
   for(const [path,kind] of [['/agent/ui','ui'],['/agent/act','act'],['/agent/click','click'],['/agent/command','command']])

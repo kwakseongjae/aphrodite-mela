@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {agent, personClicks, personSubmits, presses, evaluate, close} = await openApp({port: 4184, cdp: 9335, profile: '/tmp/aphrodite-tools-profile'});
+const {agent, personClicks, personSubmits, presses, evaluate, send, close} = await openApp({port: 4184, cdp: 9335, profile: '/tmp/aphrodite-tools-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 const blockCount = () => evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`);
@@ -128,6 +128,44 @@ check('an unknown component kind is refused with the real ones listed', async ()
   const result = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero-large'}]});
   assert.match(result.error, /unknown ops\[0\]\.component_kind "hero-large"/);
   assert.match(result.error, /Closest match: "hero"/);
+});
+
+const approval = () => evaluate(`document.querySelector('#app').dataset.approval`);
+/** The person's own click on a real control: a trusted event, which approving needs. */
+async function personPresses(selector) {
+  const at = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null;
+    el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+    return document.elementFromPoint(x, y)?.closest('[data-action]') === el.closest('[data-action]') ? {x, y} : null; })()`);
+  assert.ok(at, `${selector} is on screen and nothing covers it`);
+  for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x: at.x, y: at.y, button: 'left', clickCount: 1});
+}
+
+check('an agent cannot put the approval back with redo, nor take it away with undo', async () => {
+  await personPresses('.review-card [data-action=approve]');
+  await sleep(250);
+  assert.equal(await approval(), 'approved', 'the person approved');
+  await presses('z', 4);
+  await sleep(250);
+  assert.equal(await approval(), 'draft', 'and took it back with ⌘Z');
+  await sleep(5_200);
+  for (const [kind, payload] of [['act', {action: 'redo'}], ['command', {query: 'Redo'}], ['key', {key: 'z', meta: true, shift: true}]]) {
+    const refused = await agent(kind, payload);
+    assert.equal(refused.status, 403, `${kind}: ${JSON.stringify(refused)}`);
+    assert.match(refused.error, /person's decision/);
+    assert.equal(await approval(), 'draft', `${kind} left it a draft`);
+  }
+  await agent('key', {key: 'k', meta: true});
+  await sleep(150);
+  const clicked = await agent('click', {selector: '#command-list [data-action=redo]'});
+  assert.equal(clicked.status, 403, `click on the palette's Redo: ${JSON.stringify(clicked)}`);
+  assert.equal(await approval(), 'draft');
+  await presses('z', 4 | 8);
+  await sleep(250);
+  assert.equal(await approval(), 'approved', "the person's own ⌘⇧Z puts it back");
+  await sleep(5_200);
+  const undone = await agent('act', {action: 'undo'});
+  assert.equal(undone.status, 403, JSON.stringify(undone));
+  assert.equal(await approval(), 'approved');
 });
 
 check('reading needs no door, writing does', async () => {

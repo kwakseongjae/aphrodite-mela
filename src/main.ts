@@ -11,7 +11,7 @@ import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
 import {pinShelf,shelfPage} from './design/shelf';
-import {begin,end,newHistory,step} from './ledger/session';
+import {begin,end,newHistory,step,HumanOnlyStep} from './ledger/session';
 import type {Author} from './ledger/ledger';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
@@ -162,7 +162,7 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
 /** How much of the 12 hours is left, in the person's language. Read at paint time so it counts down as
  *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
-let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
+let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
@@ -217,7 +217,7 @@ async function showVault(refresh=true){
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';edits=newHistory();referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /** Who an edit belongs to: the agent whose command is running, or the person at the screen. */
-function author():Author{return commandCaller?{kind:'agent',name:commandCaller}:{kind:'person',name:'you'};}
+function author(by=commandCaller):Author{return by?{kind:'agent',name:by}:{kind:'person',name:'you'};}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
  * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step.
@@ -229,10 +229,13 @@ function commit(change: () => void, updateUI = true,source='editor:change',reaso
   if (recorded) { persist();recordRun(source,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
-function history(direction: 'undo' | 'redo') {
+/** `by` is the agent that asked for the step, or '' for the person. */
+function history(direction: 'undo' | 'redo',by=commandCaller) {
   const before=project;let done;
-  try{done=step(project,direction,edits,author());}
-  catch{
+  try{done=step(project,direction,edits,author(by));}
+  catch(error){
+    // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
+    if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
     (direction==='undo'?edits.undo:edits.redo).pop();
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
@@ -836,6 +839,8 @@ async function action(el: HTMLElement, trusted = false) {
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
+  // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
+  const by=trusted?'':commandCaller;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
@@ -908,8 +913,8 @@ async function action(el: HTMLElement, trusted = false) {
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
     case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;});toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
     case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
-    case 'undo': history('undo'); break;
-    case 'redo': history('redo'); break;
+    case 'undo': history('undo',by); break;
+    case 'redo': history('redo',by); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
@@ -1463,7 +1468,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
   }
-  commandCaller=who;
+  commandCaller=who;stepRefused='';
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
     commandCaller='';
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
@@ -1597,8 +1602,10 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     }
   }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}
   commandCaller='';
-  if(agentMode()==='connected')bumpConnect(who);
   await new Promise(r=>setTimeout(r,60));
+  // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
+  if(stepRefused){const error=stepRefused;stepRefused='';return {error,status:403};}
+  if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
 (window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
@@ -1779,7 +1786,7 @@ document.addEventListener('keydown', e => {
   }
   if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', e.isTrusted ? '' : commandCaller); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }

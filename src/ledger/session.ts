@@ -11,6 +11,7 @@
  * which kind of path to go and fix.
  */
 import type {Project} from '../model';
+import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject} from './patch';
 import {designOf, emptyLedger, record, UNDO_LIMIT, type Author, type Change, type UndoEntry} from './ledger';
 
@@ -51,17 +52,28 @@ export function end(project: Project, before: Project, meta: {author: Author; so
 }
 
 /**
+ * An undo or redo that would give or take back the approval, asked for by someone other than the
+ * person. Approving is theirs alone (src/agent/authority.ts), and history is not a way round that.
+ */
+export class HumanOnlyStep extends Error {
+  constructor() { super(HUMAN_ONLY_ERROR); }
+}
+
+/**
  * Takes back the last change, or puts back the last one taken back. Returns the project to show and
  * the change it appended, or null when there is nothing to do. The project passed in is not touched;
- * its ledger and shelf carry over to the one returned. Throws a `PatchError` when the step no longer
- * fits the project, and then the stacks are left as they were.
+ * its ledger and shelf carry over to the one returned. Throws a `HumanOnlyStep` when anyone but the
+ * person would move the approval, and a `PatchError` when the step no longer fits the project; either
+ * way the stacks are left as they were.
  */
 export function step(project: Project, direction: 'undo' | 'redo', history: History, author: Author): {project: Project; change: Change | null} | null {
   const from = direction === 'undo' ? history.undo : history.redo;
   const entry = from[from.length - 1];
   if (!entry) return null;
+  const ops = direction === 'undo' ? entry.inverse : entry.ops;
+  if (author.kind !== 'person' && ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint')) throw new HumanOnlyStep();
   const current = designOf(project);
-  const next = applyPatch(current, direction === 'undo' ? entry.inverse : entry.ops);
+  const next = applyPatch(current, ops);
   const ledger = ledgerOf(project);
   const done = record(ledger, current, next, {author, source: direction, ...(direction === 'undo' ? {undoes: entry.seq} : {redoes: entry.seq})});
   from.pop();

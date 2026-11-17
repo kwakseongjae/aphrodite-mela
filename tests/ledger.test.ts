@@ -91,6 +91,22 @@ test('a step that no longer fits throws and leaves the stacks alone', () => {
   assert.equal(h.redo.length, 0);
 });
 
+test('an agent\'s undo or redo cannot give or take back the approval; the person\'s can', () => {
+  const p = initialProject(), h = newHistory();
+  edit(p, h, x => { x.approvedFingerprint = fingerprint(x); });
+  const draft = step(p, 'undo', h, me)!.project;
+  assert.equal(draft.approvedFingerprint, undefined, 'the person took it back with ⌘Z');
+  const seq = draft.ledger!.seq;
+  assert.throws(() => step(draft, 'redo', h, bot), /person's decision/);
+  assert.deepEqual([h.undo.length, h.redo.length, draft.ledger!.seq], [0, 1, seq], 'the stacks and the ledger are as they were');
+  const approved = step(draft, 'redo', h, me)!.project;
+  assert.equal(approved.approvedFingerprint, fingerprint(approved), 'the person\'s own ⌘⇧Z puts it back');
+  assert.throws(() => step(approved, 'undo', h, bot), /person's decision/);
+  assert.deepEqual([h.undo.length, h.redo.length], [1, 0]);
+  edit(approved, h, x => { x.name = 'After approval'; }, {author: bot});
+  assert.equal(step(approved, 'undo', h, bot)!.project.name, p.name, 'an agent still undoes an ordinary edit');
+});
+
 test('an edit made outside commit is still recorded, as untracked, before the next one', () => {
   const p = initialProject(), h = newHistory();
   edit(p, h, x => { x.name = 'Tracked'; });
