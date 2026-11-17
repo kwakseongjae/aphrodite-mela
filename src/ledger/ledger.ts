@@ -14,31 +14,17 @@
  */
 import {fingerprint, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {MAX_REASON, type Author, type Change, type Ledger} from './types';
-export {readLedger, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
+import {compact, MAX_REASON, slim, type Author, type Change, type Ledger} from './types';
+export {readLedger, compact, slim, LEDGER_BUDGET, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 
 export const UNDO_LIMIT = 200;
-/** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
-export const LEDGER_BUDGET = 1_200_000;
-const MAX_INLINE_DATA = 2_000;
 
 /** A design state without what is not design: the ledger itself. */
 export function designOf(project: Project): Project {
   const {ledger: _ledger, ...design} = project as Project & {ledger?: Ledger};
   return design as Project;
-}
-
-/**
- * Replaces uploaded pictures, however small, and other long `data:` strings with a marker that keeps
- * their size. Used for what is saved and shown, never for undo.
- */
-export function slim<T>(value: T): T {
-  if (typeof value === 'string') return (/^data:image\//i.test(value) || (value.startsWith('data:') && value.length > MAX_INLINE_DATA) ? {$omitted: 'data-url', bytes: value.length} : value) as T;
-  if (Array.isArray(value)) return value.map(slim) as T;
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
-  return value;
 }
 
 /** True when an op carries a marker `slim` left in place of a picture, which cannot be replayed. */
@@ -79,23 +65,6 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
   ledger.changes.push(change);
   compact(ledger);
   return {change, undo: {seq, ops, inverse: diffProject(after, before)}};
-}
-
-/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
-export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
-  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
-  for (const change of ledger.changes) {
-    if (total <= budget) break;
-    if (change.compacted) continue;
-    total -= change.size;
-    change.ops = [];
-    change.compacted = true;
-    change.size = 0;
-    change.size = JSON.stringify(change).length;
-    total += change.size;
-  }
-  // Headers alone can outgrow the budget after very long histories; the oldest go first.
-  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
 }
 
 /**

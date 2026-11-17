@@ -1,6 +1,6 @@
 /**
- * The shapes the ledger is saved in, and the reader for them. Kept apart from the ledger logic so the
- * project model can read a saved ledger without importing what records one.
+ * The shapes the ledger is saved in, what is left out of them, and the reader for them. Kept apart
+ * from the ledger logic so the project model can read a saved ledger without importing what records one.
  */
 import type {PatchOp} from './patch';
 
@@ -30,6 +30,37 @@ export type Change = {
 };
 export type Ledger = {seq: number; changes: Change[]};
 export const MAX_REASON = 500;
+/** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
+export const LEDGER_BUDGET = 1_200_000;
+const MAX_INLINE_DATA = 2_000;
+
+/**
+ * Replaces uploaded pictures, however small, and other long `data:` strings with a marker that keeps
+ * their size. Used for what is saved and shown, never for undo.
+ */
+export function slim<T>(value: T): T {
+  if (typeof value === 'string') return (/^data:image\//i.test(value) || (value.startsWith('data:') && value.length > MAX_INLINE_DATA) ? {$omitted: 'data-url', bytes: value.length} : value) as T;
+  if (Array.isArray(value)) return value.map(slim) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
+  return value;
+}
+
+/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
+export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
+  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
+  for (const change of ledger.changes) {
+    if (total <= budget) break;
+    if (change.compacted) continue;
+    total -= change.size;
+    change.ops = [];
+    change.compacted = true;
+    change.size = 0;
+    change.size = JSON.stringify(change).length;
+    total += change.size;
+  }
+  // Headers alone can outgrow the budget after very long histories; the oldest go first.
+  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
+}
 
 const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
 
@@ -51,5 +82,12 @@ export function readLedger(raw: unknown): Ledger | undefined {
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
     if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;
   }
-  return l;
+  // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
+  const read: Ledger = {seq: l.seq, changes: l.changes.map(c => {
+    const kept = {...c, ops: slim(c.ops), size: 0};
+    kept.size = JSON.stringify(kept).length;
+    return kept;
+  })};
+  compact(read);
+  return read;
 }

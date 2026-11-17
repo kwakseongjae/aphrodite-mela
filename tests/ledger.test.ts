@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initialProject, parseProject, fingerprint, makeBlock, type Project} from '../src/model.ts';
 import {applyPatch} from '../src/ledger/patch.ts';
-import {changesSince, compact, designOf, emptyLedger, hasOmitted, record, slim, UNDO_LIMIT, type Author} from '../src/ledger/ledger.ts';
+import {changesSince, compact, designOf, emptyLedger, hasOmitted, LEDGER_BUDGET, readLedger, record, slim, UNDO_LIMIT, type Author, type Ledger} from '../src/ledger/ledger.ts';
 import {begin, end, newHistory, step} from '../src/ledger/session.ts';
 import {cloneProject} from '../src/workspace/library.ts';
 import {ensureSpace} from '../src/editor/space.ts';
@@ -242,6 +242,24 @@ test('the saved ledger keeps to its budget: oldest ops first, then oldest header
   assert.ok(!ledger.changes[ledger.changes.length - 1].compacted, 'the newest keeps its ops');
   compact(ledger, 600);
   assert.ok(ledger.changes.length >= 1 && ledger.changes[ledger.changes.length - 1].seq === 60);
+});
+
+test('a ledger read from a file is held to what is saved: pictures out, sizes counted, the budget kept', () => {
+  const p = initialProject(), h = newHistory(p);
+  edit(p, h, x => { x.brief = 'One'; });
+  edit(p, h, x => { x.brief = 'Two'; });
+  const raw = clone(p.ledger!) as Ledger;
+  const block = {op: 'set', on: 'block', page_id: p.pages[0].id, block_id: p.pages[0].blocks[1].id, field: 'image', value: 'data:image/png;base64,AAAA'} as const;
+  raw.changes[0].ops = [{op: 'set', on: 'project', field: 'brief', value: 'a'.repeat(700_000)}];
+  raw.changes[1].ops = [block, {op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(700_000)}];
+  raw.changes.forEach(c => { c.size = 1; });
+  const read = readLedger(JSON.parse(JSON.stringify(raw)))!;
+  assert.ok(read.changes.every(c => c.size === JSON.stringify({...c, size: 0}).length), 'every size is counted, not taken on trust');
+  assert.ok(read.changes.reduce((s, c) => s + c.size, 0) <= LEDGER_BUDGET);
+  assert.deepEqual([read.changes[0].compacted, read.changes[0].ops], [true, []], 'the oldest gave up its ops');
+  assert.deepEqual(read.changes[1].ops[0], {...block, value: {$omitted: 'data-url', bytes: 26}});
+  assert.ok(!JSON.stringify(read).includes('data:image'));
+  assert.deepEqual(readLedger(JSON.parse(JSON.stringify(p.ledger))), p.ledger, 'a ledger the app saved reads back as it was');
 });
 
 test('changes since a sequence number or a revision, view left out unless asked', () => {
