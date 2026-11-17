@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {initialProject, parseProject, fingerprint, makeBlock, type Project} from '../src/model.ts';
 import {applyPatch} from '../src/ledger/patch.ts';
 import {changesSince, compact, designOf, emptyLedger, hasOmitted, record, slim, UNDO_LIMIT, type Author} from '../src/ledger/ledger.ts';
@@ -129,6 +130,15 @@ test('undo and redo record what changed behind the ledger first, even with nothi
   assert.deepEqual(p.ledger!.changes.map(c => c.source), ['editor:change', 'untracked', 'undo', 'untracked']);
   const replayed = p.ledger!.changes.reduce((s, c) => applyPatch(s, c.ops), designOf(start));
   assert.deepEqual(replayed, designOf(p), 'the first state plus every change is still the state on screen');
+});
+
+test('a project is the baseline from the moment it opens, so a change before the first edit is recorded', () => {
+  const p = initialProject(), h = newHistory(p);
+  p.brief = 'Changed before the first commit';
+  edit(p, h, x => { x.name = 'First'; });
+  assert.deepEqual(p.ledger!.changes.map(c => c.source), ['untracked', 'editor:change']);
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /function openProject\(next:Project\)\{project=parseProject\(JSON\.stringify\(next\)\);selected='';edits=newHistory\(project\);/, 'main.ts opens every project that way');
 });
 
 test('switching pages is recorded as view, and undo still takes it back as it always has', () => {

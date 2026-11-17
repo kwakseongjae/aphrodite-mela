@@ -17,8 +17,9 @@ import {designOf, emptyLedger, record, UNDO_LIMIT, type Author, type Change, typ
 
 export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
 
-export function newHistory(): History {
-  return {undo: [], redo: []};
+/** Given the project as it opens, takes it as the baseline: what changes outside `commit()` from then on is recorded. */
+export function newHistory(project?: Project): History {
+  return project ? {undo: [], redo: [], last: clone(project)} : {undo: [], redo: []};
 }
 
 const clone = (p: Project): Project => JSON.parse(JSON.stringify(designOf(p))) as Project;
