@@ -116,6 +116,21 @@ test('an edit made outside commit is still recorded, as untracked, before the ne
   assert.equal(h.undo.length, 2, 'untracked changes are not something undo takes back');
 });
 
+test('undo and redo record what changed behind the ledger first, even with nothing to step', () => {
+  const start = initialProject(), h = newHistory();
+  let p = clone(start);
+  edit(p, h, x => { x.name = 'Tracked'; });
+  p.brief = 'Changed behind the ledger';
+  p = step(p, 'undo', h, me)!.project;
+  assert.equal(p.brief, 'Changed behind the ledger', 'undo takes back the edit, not the outside change');
+  assert.deepEqual(p.ledger!.changes.map(c => c.source), ['editor:change', 'untracked', 'undo']);
+  p.pages[0].name = 'Renamed behind the ledger';
+  assert.equal(step(p, 'undo', h, me), null, 'nothing left to undo');
+  assert.deepEqual(p.ledger!.changes.map(c => c.source), ['editor:change', 'untracked', 'undo', 'untracked']);
+  const replayed = p.ledger!.changes.reduce((s, c) => applyPatch(s, c.ops), designOf(start));
+  assert.deepEqual(replayed, designOf(p), 'the first state plus every change is still the state on screen');
+});
+
 test('switching pages is recorded as view, and undo still takes it back as it always has', () => {
   const p = initialProject(), h = newHistory();
   p.pages.push({id: 'second', name: 'Second', blocks: []});

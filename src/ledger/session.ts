@@ -5,8 +5,8 @@
  * the logic in this file means the rules — what counts as a change, what undo does, how deep it goes —
  * run under test without a browser.
  *
- * Something that changes the project outside `commit()` is caught too: `begin` compares the project
- * with the state `end` last saw, and records the difference as an `untracked` change before the new
+ * Something that changes the project outside `commit()` is caught too: `begin` and `step` compare the
+ * project with the state last seen, and record the difference as an `untracked` change before the new
  * one. The ledger stays complete even when a code path forgets to commit, and the source name says
  * which kind of path to go and fix.
  */
@@ -28,8 +28,8 @@ function ledgerOf(project: Project) {
   return project.ledger;
 }
 
-/** Call before an edit. Returns the design as it stands, for `end`. */
-export function begin(project: Project, history: History, author: Author): Project {
+/** Records whatever changed since the state last seen as an `untracked` change. Returns the design as it stands. */
+function reconcile(project: Project, history: History, author: Author): Project {
   if (history.last) {
     const drift = diffProject(history.last, designOf(project));
     if (drift.length) {
@@ -38,6 +38,11 @@ export function begin(project: Project, history: History, author: Author): Proje
     }
   } else history.last = clone(project);
   return history.last;
+}
+
+/** Call before an edit. Returns the design as it stands, for `end`. */
+export function begin(project: Project, history: History, author: Author): Project {
+  return reconcile(project, history, author);
 }
 
 /** Call after an edit. Records it and makes it the next thing undo takes back; null when nothing changed. */
@@ -67,6 +72,8 @@ export class HumanOnlyStep extends Error {
  * way the stacks are left as they were.
  */
 export function step(project: Project, direction: 'undo' | 'redo', history: History, author: Author): {project: Project; change: Change | null} | null {
+  // What changed behind the ledger is recorded first, even with nothing to step, so the step is only the step.
+  reconcile(project, history, author);
   const from = direction === 'undo' ? history.undo : history.redo;
   const entry = from[from.length - 1];
   if (!entry) return null;
