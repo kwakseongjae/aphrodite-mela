@@ -4,7 +4,9 @@
  */
 import type {PatchOp} from './patch';
 
-export type Author = {kind: 'person' | 'agent'; name: string};
+/** `unknown` is a change caught after the fact (an edit made outside `commit()`): nobody can say whose it was. */
+export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
+export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
 export type Change = {
   id: string;
   seq: number;
@@ -44,7 +46,7 @@ export function readLedger(raw: unknown): Ledger | undefined {
     if (!c || typeof c !== 'object' || !Number.isInteger(c.seq) || c.seq <= last || c.seq > l.seq) return undefined;
     last = c.seq;
     if (!isStr(c.id, 100) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
-    if (!c.author || !['person', 'agent'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
+    if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
     if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
     if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;

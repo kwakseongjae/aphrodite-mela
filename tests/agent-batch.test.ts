@@ -114,7 +114,7 @@ test('round trip: a person\'s edits read from the ledger and sent back as a patc
   const base = initialProject();
   const theirs = json(base) as Project, h = newHistory();
   const person = {kind: 'person' as const, name: 'you'};
-  const edit = (change: (p: Project) => void) => { const before = begin(theirs, h, person); change(theirs); end(theirs, before, {author: person, source: 'editor:change'}, h); };
+  const edit = (change: (p: Project) => void) => { const before = begin(theirs, h); change(theirs); end(theirs, before, {author: person, source: 'editor:change'}, h); };
   edit(p => { p.pages[0].blocks[1].title = 'By hand'; });
   edit(p => { p.pages[0].blocks.splice(2, 0, makeBlock('testimonial', true)); });
   edit(p => { p.pages[0].blocks.reverse(); });

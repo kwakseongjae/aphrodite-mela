@@ -6,6 +6,7 @@ import {applyPatch} from '../src/ledger/patch.ts';
 import {changesSince, compact, designOf, emptyLedger, hasOmitted, record, slim, UNDO_LIMIT, type Author} from '../src/ledger/ledger.ts';
 import {begin, end, newHistory, step} from '../src/ledger/session.ts';
 import {cloneProject} from '../src/workspace/library.ts';
+import {ensureSpace} from '../src/editor/space.ts';
 
 const me: Author = {kind: 'person', name: 'Designer'};
 const bot: Author = {kind: 'agent', name: 'Claude Code'};
@@ -14,7 +15,7 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 /** The way main.ts commits: begin, mutate, end. */
 function edit(p: Project, h: ReturnType<typeof newHistory>, change: (p: Project) => void, meta: {author?: Author; source?: string; reason?: string} = {}) {
   const author = meta.author ?? me;
-  const before = begin(p, h, author);
+  const before = begin(p, h);
   change(p);
   return end(p, before, {author, source: meta.source ?? 'editor:change', reason: meta.reason}, h);
 }
@@ -138,7 +139,54 @@ test('a project is the baseline from the moment it opens, so a change before the
   edit(p, h, x => { x.name = 'First'; });
   assert.deepEqual(p.ledger!.changes.map(c => c.source), ['untracked', 'editor:change']);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /function openProject\(next:Project\)\{project=parseProject\(JSON\.stringify\(next\)\);selected='';edits=newHistory\(project\);/, 'main.ts opens every project that way');
+  assert.match(main, /function openProject\(next:Project\)\{project=parseProject\(JSON\.stringify\(next\)\);selected='';ensureSpace\(project\);edits=newHistory\(project\);/, 'main.ts opens every project that way, its frames laid out first');
+});
+
+test('an untracked change is nobody\'s, not the next editor\'s, and redo does not survive it', () => {
+  const p = initialProject(), h = newHistory(p);
+  edit(p, h, x => { x.name = 'Tracked'; });
+  const back = step(p, 'undo', h, me)!.project;
+  assert.equal(h.redo.length, 1);
+  back.brief = 'Changed behind the ledger';
+  assert.equal(step(back, 'redo', h, bot), null, 'what redo would put back was taken from a state that is gone');
+  assert.equal(h.redo.length, 0);
+  back.pages[0].name = 'Renamed behind the ledger';
+  edit(back, h, x => { x.name = 'Next'; }, {author: bot});
+  const changes = back.ledger!.changes;
+  assert.deepEqual(changes.map(c => `${c.source}/${c.author.kind}`), ['editor:change/person', 'undo/person', 'untracked/unknown', 'untracked/unknown', 'editor:change/agent']);
+  assert.deepEqual(changes[2].author, {kind: 'unknown', name: 'unknown'});
+  assert.deepEqual(parseProject(JSON.stringify(back)).ledger, back.ledger, 'a saved ledger with an unknown author reads back');
+});
+
+test('a page and its frame come and go together, so ⌘Z and ⌘⇧Z after adding a page still work', () => {
+  // As main.ts does it: openProject() and commit() lay out the frames, so render() finds nothing to change.
+  const add = (p: Project, h: ReturnType<typeof newHistory>, layout: boolean) => {
+    const before = begin(p, h);
+    p.pages.push({id: 'second', name: 'Second', blocks: []});
+    if (layout) ensureSpace(p);
+    end(p, before, {author: me, source: 'page-form'}, h);
+  };
+  let p = parseProject(JSON.stringify(initialProject()));
+  ensureSpace(p);
+  let h = newHistory(p);
+  add(p, h, true);
+  assert.equal(ensureSpace(p), false, 'render has nothing to lay out');
+  p = step(p, 'undo', h, me)!.project;
+  assert.equal(ensureSpace(p), false);
+  p = step(p, 'redo', h, me)!.project;
+  assert.deepEqual(p.pages.map(x => x.id).at(-1), 'second');
+  assert.ok(!p.ledger!.changes.some(c => c.source === 'untracked'));
+  // Left to render(), the frame is an edit outside the ledger, and the redo it clears is lost.
+  p = parseProject(JSON.stringify(initialProject()));
+  ensureSpace(p);
+  h = newHistory(p);
+  add(p, h, false);
+  ensureSpace(p);
+  p = step(p, 'undo', h, me)!.project;
+  ensureSpace(p);
+  assert.equal(step(p, 'redo', h, me), null);
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /\n {2}change\(\);ensureSpace\(project\);\n {2}const recorded=end\(project,before,/, 'commit() lays out frames before it records');
 });
 
 test('switching pages is recorded as view, and undo still takes it back as it always has', () => {

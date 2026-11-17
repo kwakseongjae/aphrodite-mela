@@ -215,16 +215,18 @@ async function showVault(refresh=true){
   showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
-function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /** Who an edit belongs to: the agent whose command is running, or the person at the screen. */
 function author(by=commandCaller):Author{return by?{kind:'agent',name:by}:{kind:'person',name:'you'};}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
- * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step.
+ * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step. A page's
+ * frame comes and goes with the page, here rather than in render(), which would be an edit outside
+ * the ledger (recorded as untracked, and clearing redo).
  */
 function commit(change: () => void, updateUI = true,source='editor:change',reason?:string) {
-  const who=author(),before = begin(project,edits,who),pageBefore=project.activePageId;
-  change();
+  const who=author(),before = begin(project,edits),pageBefore=project.activePageId;
+  change();ensureSpace(project);
   const recorded=end(project,before,{author:who,source,reason},edits);
   if (recorded) { persist();recordRun(source,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}

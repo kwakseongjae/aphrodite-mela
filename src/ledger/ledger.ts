@@ -15,7 +15,7 @@
 import {fingerprint, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
 import {MAX_REASON, type Author, type Change, type Ledger} from './types';
-export {readLedger, MAX_REASON, type Author, type Change, type Ledger} from './types';
+export {readLedger, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 

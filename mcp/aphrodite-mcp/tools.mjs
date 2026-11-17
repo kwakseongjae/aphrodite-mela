@@ -75,7 +75,7 @@ export const tools = [
     name: 'aphrodite_get_changes',
     title: 'Read what changed',
     description: [
-      'Every change to the project since a point, in order: who made it (a person, or which agent), where it came from, the reason when one was given, which pages and components it touched, and the ops themselves. The person\'s own edits on the canvas are here too, in the same form, so you can see what they did by hand instead of guessing from a screenshot.',
+      'Every change to the project since a point, in order: who made it (a person, which agent, or unknown for an edit caught after the fact), where it came from, the reason when one was given, which pages and components it touched, and the ops themselves. The person\'s own edits on the canvas are here too, in the same form, so you can see what they did by hand instead of guessing from a screenshot.',
       '',
       'Call it at the start of each turn with the `seq` from your last reply, and before you edit. Every reply carries `revision`: send it as `base_revision` with aphrodite_apply_edits, and a batch written against an older state is refused with what changed, instead of quietly writing over the person\'s work.',
       'Undo does not erase anything here: it appears as its own change that names the one it took back (`undoes`). Changes that only moved the view — opening another page, dragging a frame around the space — are left out unless you pass include_view.',
