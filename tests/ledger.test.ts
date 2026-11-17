@@ -210,6 +210,21 @@ test('pictures are kept for undo and left out of what is saved', () => {
   assert.deepEqual(slim({a: 'short', b: 'data:x'}), {a: 'short', b: 'data:x'});
 });
 
+test('an uploaded picture is left out however small it is; other data is kept unless it is long', () => {
+  const tiny = 'data:image/png;base64,' + 'A'.repeat(500);
+  assert.deepEqual(slim({image: tiny}), {image: {$omitted: 'data-url', bytes: tiny.length}});
+  assert.deepEqual(slim('data:image/svg+xml,<svg/>'), {$omitted: 'data-url', bytes: 25});
+  const text = 'data:text/plain,' + 'x'.repeat(500);
+  assert.equal(slim(text), text);
+  assert.deepEqual(slim('data:text/plain,' + 'x'.repeat(3_000)), {$omitted: 'data-url', bytes: 3_016});
+  const p = initialProject(), h = newHistory(p);
+  const c = edit(p, h, x => { x.pages[0].blocks[1].image = tiny; })!;
+  assert.ok(hasOmitted(c.ops));
+  assert.ok(!JSON.stringify(p.ledger).includes('data:image'), 'not in what is saved, exported or sent to an agent');
+  const back = step(p, 'undo', h, me)!.project;
+  assert.equal(step(back, 'redo', h, me)!.project.pages[0].blocks[1].image, tiny, 'undo keeps it exactly');
+});
+
 test('the saved ledger keeps to its budget: oldest ops first, then oldest headers', () => {
   const ledger = emptyLedger();
   let p = initialProject();

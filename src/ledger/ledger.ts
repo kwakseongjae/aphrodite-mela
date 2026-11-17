@@ -30,9 +30,12 @@ export function designOf(project: Project): Project {
   return design as Project;
 }
 
-/** Replaces long `data:` strings with a marker that keeps their size. Used for what is saved and shown, never for undo. */
+/**
+ * Replaces uploaded pictures, however small, and other long `data:` strings with a marker that keeps
+ * their size. Used for what is saved and shown, never for undo.
+ */
 export function slim<T>(value: T): T {
-  if (typeof value === 'string') return (value.startsWith('data:') && value.length > MAX_INLINE_DATA ? {$omitted: 'data-url', bytes: value.length} : value) as T;
+  if (typeof value === 'string') return (/^data:image\//i.test(value) || (value.startsWith('data:') && value.length > MAX_INLINE_DATA) ? {$omitted: 'data-url', bytes: value.length} : value) as T;
   if (Array.isArray(value)) return value.map(slim) as T;
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
   return value;
