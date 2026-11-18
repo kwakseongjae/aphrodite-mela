@@ -170,6 +170,21 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
     const personClicks = action => evaluate(
       `(() => { const b = document.createElement('button'); b.dataset.action = ${JSON.stringify(action)};
         document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+    /**
+     * The person pressing a button with the mouse: a trusted click, which `personClicks` is not. Who
+     * may edit only answers to this (doorActions in src/agent/authority.ts). The button is placed
+     * above everything, outside #app, so it can be pressed while a dialog makes the app inert.
+     */
+    const personPresses = async (action, data = {}) => {
+      const p = await evaluate(`(() => { const b = document.createElement('button'); b.id = 'person-press'; b.dataset.action = ${JSON.stringify(action)};
+        Object.assign(b.dataset, ${JSON.stringify(data)}); b.dataset.action = ${JSON.stringify(action)};
+        Object.assign(b.style, {position: 'fixed', left: '0', top: '0', width: '24px', height: '24px', zIndex: '2147483647'});
+        document.body.append(b); return {x: 12, y: 12}; })()`);
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'])
+        await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+      await sleep(150);
+      await evaluate(`document.querySelector('#person-press')?.remove(), true`);
+    };
     /** The person filling in a dialog and pressing its button. */
     const personSubmits = (formSelector, values) => evaluate(
       `(() => { const form = document.querySelector(${JSON.stringify(formSelector)});
@@ -193,7 +208,7 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
       await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key, code, modifiers, windowsVirtualKeyCode: vk});
       await send('Input.dispatchKeyEvent', {type: 'keyUp', key, code, modifiers});
     };
-    return {evaluate, send, agent, personClicks, personSubmits, personTypes, presses, close};
+    return {evaluate, send, agent, personClicks, personPresses, personSubmits, personTypes, presses, close};
   } catch (error) {
     close();
     throw error;

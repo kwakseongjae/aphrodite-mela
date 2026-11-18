@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {agent, personClicks, personSubmits, presses, evaluate, send, close} = await openApp({port: 4184, cdp: 9335, profile: '/tmp/aphrodite-tools-profile'});
+const {agent, personClicks, personPresses: pressDoor, personSubmits, presses, evaluate, send, close} = await openApp({port: 4184, cdp: 9335, profile: '/tmp/aphrodite-tools-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 const blockCount = () => evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`);
@@ -21,7 +21,7 @@ check('a blank project opens and the door is opened by the person', async () => 
   assert.equal(await personSubmits('#new-project-form', {name: 'Harness'}), true, 'the new-project dialog was filled in');
   await sleep(600);
   assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor', 'the editor is open');
-  await personClicks('agent-connect-toggle');
+  await pressDoor('agent-connect-toggle');
   await sleep(250);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true);
   // Flipping the switch leaves its dialog open, as it does for a person; they close it to carry on.
@@ -169,7 +169,7 @@ check('an agent cannot put the approval back with redo, nor take it away with un
 });
 
 check('reading needs no door, writing does', async () => {
-  await personClicks('agent-disconnect');
+  await pressDoor('agent-disconnect');
   await sleep(200);
   const contract = await agent('contract');
   assert.equal(contract.schema, 'aphrodite.contract/1', 'the contract still reads');

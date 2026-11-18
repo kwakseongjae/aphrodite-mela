@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 
-const {agent, personClicks, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
+const {agent, personClicks, personPresses, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 
@@ -89,7 +89,7 @@ check('the person allows it with one click, and the agent may write', async () =
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
   const allowed = await agent('edit', {field: 'title', text: 'Asked and allowed'});
   assert.equal(allowed.status, undefined, JSON.stringify(allowed));
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(200);
 });
 
@@ -99,7 +99,7 @@ check('Enter allows and Esc is Not now, from the person\'s keyboard', async () =
   await key('Enter', 'Enter', 13);
   assert.equal(await dialog(), '');
   assert.equal((await agent('state', {}, 'claude-code')).state.writes, 'on', 'Enter allowed it');
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(200);
   await agent('connect', {}, 'codex');
   await sleep(200);
@@ -141,7 +141,7 @@ check('the guide tells an agent where it stands without asking permission', asyn
 });
 
 check('the person turns it on, and the banner says so', async () => {
-  await personClicks('agent-connect-toggle');
+  await personPresses('agent-connect-toggle');
   await sleep(120);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'the connected banner is up');
 });
@@ -173,7 +173,7 @@ check('a second agent is refused by name while the first holds it', async () => 
 });
 
 check('disconnecting closes the door again', async () => {
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(120);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false);
   const refused = await agent('edit', {field: 'title', text: 'x'});
@@ -224,6 +224,16 @@ check('no agent can answer for the person or change the list — not even an all
     const clicked = await agent('click', {selector: '[data-action="ask-allow"]'}, caller);
     assert.equal(clicked.status, 403, `${caller} clicking Allow: ${JSON.stringify(clicked)}`);
   }
+  // The gate judges `action`; `data` must not be able to swap in another one underneath it.
+  for (const data of [{action: 'ask-allow'}, {Action: 'ask-allow'}, {action: 'agent-connect-toggle'}, {action: 'agent-disconnect'}]) {
+    const r = await agent('act', {action: 'preview', data}, 'claude-code');
+    assert.ok(r.error, `an act whose data names an action is refused: ${JSON.stringify(data)} → ${JSON.stringify(r)}`);
+  }
+  // And whatever reaches a door button without the person's own input — script in the page, a built
+  // button, a programmatic click — is refused by the interface itself, like approving.
+  await personClicks('agent-disconnect');
+  await personClicks('ask-allow');
+  await sleep(150);
   // A key is a write an allowed agent may send, but the dialog only answers to the person's own keyboard.
   for (const k of ['Enter', 'Escape']) await agent('key', {key: k}, 'claude-code');
   // Nor can it close the dialog, which would answer Not now for the person.
@@ -241,7 +251,7 @@ check('no agent can answer for the person or change the list — not even an all
 });
 
 check('disconnecting forgets the name, and the next request asks again', async () => {
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(200);
   assert.equal(await evaluate(`localStorage.getItem('aphrodite-allowed-agents')`), null, 'nothing is remembered');
   await restart();
@@ -258,11 +268,11 @@ check('the person can disconnect one agent and keep another', async () => {
   await press('ask-allow');
   await sleep(150);
   assert.equal(await writes('astra'), 'on');
-  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'agent-forget'; b.dataset.name = 'astra'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await personPresses('agent-forget', {name: 'astra'});
   await sleep(150);
   assert.equal(await writes('astra'), 'off', 'astra is out');
   assert.equal(await writes('claude-code'), 'on', 'claude-code stays');
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
 });
 
 

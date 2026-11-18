@@ -55,7 +55,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
@@ -893,10 +893,12 @@ function compareModal() {
 /**
  * `trusted` says the person started this with their own input (the click event's isTrusted). Only the
  * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an agent's
- * el.click() — leaves it false, and an approve* action then refuses to run.
+ * el.click() — leaves it false, and an approve* or door action then refuses to run.
  */
 async function action(el: HTMLElement, trusted = false) {
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
+  // Who may edit is decided the same way: allowing, declining, the switch and disconnecting run only from the person's own input.
+  if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
@@ -1444,7 +1446,7 @@ async function inlineAssets(html:string):Promise<string>{
 }
 function agentState(who=commandCaller){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
