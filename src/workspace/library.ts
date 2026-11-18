@@ -1,4 +1,5 @@
 import {parseProject,uid,type Project} from '../model';
+import {LEDGER_RESERVE} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -39,16 +40,42 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
-/** What the app's own library file takes at most (src-tauri/src/workspace.rs refuses to write more). */
-export const LIBRARY_LIMIT=40_000_000;
-/** About what a browser keeps in local storage for one site; the browser build saves the library there. An estimate: browsers differ. */
-export const BROWSER_LIBRARY_LIMIT=5_000_000;
-/** How many characters the library would save at with `project` in it as it is now: what to hold a change to before it is made. */
-export function librarySizeWith(library:Library,project:Project):number{return JSON.stringify(upsertProject(library,project)).length;}
+/** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
+export const LIBRARY_LIMIT_BYTES=40_000_000;
+/**
+ * A guess at what a browser keeps in local storage for one site, in characters. Browsers differ, and the
+ * other keys this app keeps there count too, so this only turns away what would plainly not fit; the real
+ * guard in the browser build is the toast the person sees when a save fails.
+ */
+export const BROWSER_LIBRARY_ESTIMATE=5_000_000;
+/** How many bytes `text` takes as UTF-8, without encoding it. */
+export function utf8Length(text:string):number{
+  let n=0;
+  for(let i=0;i<text.length;i++){const c=text.charCodeAt(i);if(c<0x80)n++;else if(c<0x800)n+=2;else if(c>=0xd800&&c<=0xdbff&&i+1<text.length&&(text.charCodeAt(i+1)&0xfc00)===0xdc00){n+=4;i++;}else n+=3;}
+  return n;
+}
+export type LibraryLimit={limit:number;unit:'bytes'|'chars'};
+/**
+ * Why saving the library with `after` (a design) in place of `before` would not fit where it is kept, or
+ * undefined when it would — measured from above, without recording the change: the library with this
+ * project's design and no history, plus the most a history can take (LEDGER_RESERVE characters, three
+ * bytes each at worst). `known`, the library's length as last saved and the new design's, answers
+ * without measuring the library again when even the sum of the two leaves room. A change that does not
+ * grow the design is never refused for this: making something smaller is always taken.
+ */
+export function libraryRefusal(library:Library,before:Project,after:Project,{limit,unit}:LibraryLimit,known?:{libraryChars:number;designChars:number}):string|undefined{
+  const measure=unit==='bytes'?utf8Length:(s:string)=>s.length,most=unit==='bytes'?3:1;
+  if(known&&most*(known.libraryChars+known.designChars+LEDGER_RESERVE)<=limit)return undefined;
+  const design={...after,ledger:undefined};
+  const size=measure(JSON.stringify(upsertProject(library,design)))+most*LEDGER_RESERVE;
+  if(size<=limit)return undefined;
+  if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
+  return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
+}
 export function writeLibrary(storage:LocalStore,library:Library):void{
   // One atomic localStorage write: quota errors cannot leave a half-written index.
   const raw=JSON.stringify(library);
-  if(raw.length>LIBRARY_LIMIT)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
+  if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }
 export function cloneProject(project:Project):Project{

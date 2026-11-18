@@ -48,7 +48,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,librarySizeWith,LIBRARY_LIMIT,BROWSER_LIBRARY_LIMIT} from './workspace/library';
+import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -1545,9 +1545,9 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
   commit(()=>{
     const result=runBatch(project,batch,selected);
     if(!result.ok){failure=result;return;}
-    // Saving is the last thing a change does, so it is measured first: past what the library holds, nothing lands.
-    const limit=diskQueue?LIBRARY_LIMIT:BROWSER_LIBRARY_LIMIT,size=librarySizeWith(library,result.project)+LEDGER_RESERVE;
-    if(size>limit){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:`with this change the saved projects would come to ${size.toLocaleString('en')} characters, past the ${limit.toLocaleString('en')} ${diskQueue?'the app\'s library file':'this browser\'s storage'} holds. Make the page smaller or split it, or ask the person to export or remove a project.`};return;}
+    // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
+    const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+    if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
     created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
