@@ -97,6 +97,23 @@ pub const ROUTES: &[&str] = &[
     "POST /agent/end",
 ];
 
+/// The command kind a request names, read off ROUTES: `/agent/<kind>`, with the method ROUTES gives
+/// it. Anything else is not a route. Matching the list itself is what keeps the 404 text honest.
+fn route_kind(method: &Method, path: &str) -> Option<&'static str> {
+    let method = match method {
+        Method::Get => "GET",
+        Method::Post => "POST",
+        _ => return None,
+    };
+    ROUTES.iter().find_map(|route| {
+        let (want, want_path) = route.split_once(' ')?;
+        if want != method || want_path != path {
+            return None;
+        }
+        want_path.strip_prefix("/agent/")
+    })
+}
+
 /// A GET route's query string as a payload object, so `?format=detailed` reaches the app the same
 /// way a POST body would. Values are taken literally; the app validates every one of them.
 fn query_params(query: &str) -> Value {
@@ -208,32 +225,9 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
             let caller = caller_label(request.headers());
             let url = request.url().to_string();
             let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
-            let kind = match (request.method(), path) {
-                (Method::Get, "/agent/state") => "state",
-                (Method::Get, "/agent/contract") => "contract",
-                (Method::Get, "/agent/changes") => "changes",
-                (Method::Get, "/agent/tokens") => "tokens",
-                (Method::Get, "/agent/render") => "render",
-                (Method::Get, "/agent/guide") => "guide",
-                (Method::Post, "/agent/connect") => "connect",
-                (Method::Post, "/agent/ui") => "ui",
-                (Method::Get, "/agent/components") => "components",
-                (Method::Post, "/agent/apply") => "apply",
-                (Method::Post, "/agent/act") => "act",
-                (Method::Post, "/agent/click") => "click",
-                (Method::Post, "/agent/type") => "type",
-                (Method::Post, "/agent/key") => "key",
-                (Method::Post, "/agent/command") => "command",
-                (Method::Post, "/agent/edit") => "edit",
-                (Method::Post, "/agent/library") => "library",
-                (Method::Get, "/agent/references") => "references",
-                (Method::Get, "/agent/taste") => "taste",
-                (Method::Post, "/agent/keep") => "keep",
-                (Method::Post, "/agent/unkeep") => "unkeep",
-                (Method::Post, "/agent/system") => "system",
-                (Method::Post, "/agent/export") => "export",
-                (Method::Post, "/agent/end") => "end",
-                _ => {
+            let kind = match route_kind(request.method(), path) {
+                Some(kind) => kind,
+                None => {
                     respond(
                         request,
                         404,
@@ -356,23 +350,32 @@ mod tests {
         assert_eq!(caller_label(&[header("X-Aphrodite-Agent", &"x".repeat(80))]).len(), 32);
     }
 
-    /// The matcher and the 404 list must stay the same set: a route that exists but is not advertised
-    /// is a route agents never find, and one advertised but missing is a promise the app breaks.
+    /// The matcher reads the 404 list, so the two cannot drift: a route that exists but is not
+    /// advertised is a route agents never find, and one advertised but missing is a promise the app
+    /// breaks. ROUTES itself is held to the command table (src/agent/commands.mjs) by
+    /// tests/command-table.test.ts.
     #[test]
-    fn every_advertised_route_is_matched_and_every_matched_route_is_advertised() {
-        let source = include_str!("agent.rs");
-        let matcher = source
-            .split("let kind = match (request.method(), path) {")
-            .nth(1)
-            .and_then(|rest| rest.split("_ => {").next())
-            .expect("the route matcher");
+    fn every_advertised_route_is_matched_to_the_kind_it_names() {
         for route in ROUTES {
             let (method, path) = route.split_once(' ').expect("METHOD /path");
-            let arm = format!("(Method::{}, \"{}\")", if method == "GET" { "Get" } else { "Post" }, path);
-            assert!(matcher.contains(&arm), "{route} is advertised but not matched");
+            let method = if method == "GET" { Method::Get } else { Method::Post };
+            let kind = path.strip_prefix("/agent/").expect("an /agent/ path");
+            assert_eq!(route_kind(&method, path), Some(kind), "{route}");
         }
-        let matched = matcher.matches("(Method::").count();
-        assert_eq!(matched, ROUTES.len(), "the matcher has {matched} routes but {} are advertised", ROUTES.len());
+        assert_eq!(ROUTES.len(), 24, "every route 0.3-1b served, and no more");
+    }
+
+    #[test]
+    fn a_route_is_matched_by_method_and_whole_path_only() {
+        assert_eq!(route_kind(&Method::Get, "/agent/connect"), None, "connecting is a POST");
+        assert_eq!(route_kind(&Method::Post, "/agent/state"), None, "the state is a GET");
+        assert_eq!(route_kind(&Method::Get, "/agent/state/"), None);
+        assert_eq!(route_kind(&Method::Get, "/agent/statex"), None);
+        assert_eq!(route_kind(&Method::Get, "/agent/"), None);
+        assert_eq!(route_kind(&Method::Get, "/agent"), None);
+        assert_eq!(route_kind(&Method::Post, "/agent/approve"), None, "nothing approves");
+        assert_eq!(route_kind(&Method::Put, "/agent/apply"), None);
+        assert_eq!(route_kind(&Method::Get, "/AGENT/STATE"), None);
     }
 
     #[test]
