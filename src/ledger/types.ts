@@ -3,6 +3,7 @@
  * from the ledger logic so the project model can read a saved ledger without importing what records one.
  */
 import type {PatchOp} from './patch';
+import {passageHash} from './sha256';
 
 /** `unknown` is a change caught after the fact (an edit made outside `commit()`): nobody can say whose it was. */
 export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
@@ -48,7 +49,11 @@ export function slim<T>(value: T): T {
   return value;
 }
 
-/** Eight hex digits that tell one passage of text from another: FNV-1a over its UTF-16 code units. Not a security signature. */
+/**
+ * Eight hex digits made from a text (FNV-1a over its UTF-16 code units), to name something: the id an
+ * old ledger's change is given when it is read. Identity only, not a check — two texts can share one.
+ * A saved text diff checks its passage with passageHash (sha256.ts).
+ */
 export function shortHash(text: string): string {
   let h = 2166136261;
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
@@ -57,13 +62,13 @@ export function shortHash(text: string): string {
 
 /**
  * The ops as they are saved: a text diff keeps what it put in, and for what it took out only the
- * length and a short hash — enough to check the passage before replaying it, at a fraction of the
+ * length and a 128-bit SHA-256 hash — enough to check the passage before replaying it, at a fraction of the
  * size. Undo keeps the ops as they were. Anything not shaped like a text diff passes through.
  */
 export function forSaving(ops: PatchOp[]): PatchOp[] {
   return ops.map(op => {
     if (!op || op.op !== 'text' || !Array.isArray(op.hunks)) return op;
-    return {...op, hunks: op.hunks.map(h => h && typeof (h as {remove?: unknown}).remove === 'string' ? {at: h.at, remove_length: (h as {remove: string}).remove.length, remove_hash: shortHash((h as {remove: string}).remove), insert: h.insert} : h)};
+    return {...op, hunks: op.hunks.map(h => h && typeof (h as {remove?: unknown}).remove === 'string' ? {at: h.at, remove_length: (h as {remove: string}).remove.length, remove_hash: passageHash((h as {remove: string}).remove), insert: h.insert} : h)};
   });
 }
 

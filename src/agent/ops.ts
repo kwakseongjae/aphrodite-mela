@@ -346,7 +346,7 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
         const at = h.at, insert = h.insert;
         if (!Number.isInteger(at) || (at as number) < 0 || typeof insert !== 'string') return {error: `${where}.hunks[${i}] needs "at" (a whole number, 0 or more) and "insert" (text).`};
         if (typeof h.remove === 'string') hunks.push({at: at as number, remove: h.remove, insert});
-        else if (Number.isInteger(h.remove_length) && (h.remove_length as number) >= 0 && typeof h.remove_hash === 'string' && /^[0-9a-f]{8}$/.test(h.remove_hash)) hunks.push({at: at as number, remove_length: h.remove_length as number, remove_hash: h.remove_hash, insert});
+        else if (Number.isInteger(h.remove_length) && (h.remove_length as number) >= 0 && typeof h.remove_hash === 'string' && /^[0-9a-f]{32}$/.test(h.remove_hash)) hunks.push({at: at as number, remove_length: h.remove_length as number, remove_hash: h.remove_hash, insert});
         else return {error: `${where}.hunks[${i}] needs "remove" (the text taken out), or "remove_length" and "remove_hash" as aphrodite_get_changes gives them.`};
       }
       return {op: {op: 'text', on: 'page', page_id: page, field: 'html', hunks}};

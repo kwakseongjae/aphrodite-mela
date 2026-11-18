@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {initialProject, type Project} from '../src/model.ts';
 import {applyPatch, diffProject, textHunks, applyText, PatchError, type PatchOp} from '../src/ledger/patch.ts';
 import {forSaving, shortHash, readLedger, LEDGER_BUDGET} from '../src/ledger/types.ts';
+import {passageHash} from '../src/ledger/sha256.ts';
 import {begin, end, step, newHistory} from '../src/ledger/session.ts';
 import {emptyLedger, UNDO_LIMIT} from '../src/ledger/ledger.ts';
 import {parseBatch} from '../src/agent/ops.ts';
@@ -82,12 +83,19 @@ test('two edits far apart are two hunks, not everything between them', () => {
   assert.equal(textHunks(minified, edited).length, 2, 'a page on one line still splits at its tags');
 });
 
+test('a passage of the same length and the same 32-bit hash is still not the passage taken out', () => {
+  assert.equal(shortHash('vr3MPM6%G-'), shortHash('@$IU-)=51c'), 'the collision the review found');
+  assert.throws(() => applyText('@$IU-)=51c', [{at: 0, remove_length: 10, remove_hash: passageHash('vr3MPM6%G-'), insert: 'CHANGED'}]), /no longer what passage 0 took out/);
+  assert.equal(applyText('vr3MPM6%G-', [{at: 0, remove_length: 10, remove_hash: passageHash('vr3MPM6%G-'), insert: 'CHANGED'}]), 'CHANGED');
+  assert.ok('error' in parseBatch({reason: 'r', patch: [{op: 'text', on: 'page', page_id: 'free-1', field: 'html', hunks: [{at: 0, remove_length: 10, remove_hash: shortHash('vr3MPM6%G-'), insert: 'x'}]}]}), 'the old eight-digit form is refused');
+});
+
 test('a hunk that no longer fits is refused, and nothing is applied', () => {
   const p = freeProject('<p>alpha</p>\n<p>beta</p>\n'), frozen = JSON.stringify(p);
   for (const hunks of [
     [{at: 3, remove: 'beta', insert: 'gamma'}],
-    [{at: 3, remove_length: 5, remove_hash: shortHash('alpha'), insert: 'A'}, {at: 15, remove: 'zzzz', insert: 'B'}],
-    [{at: 3, remove_length: 5, remove_hash: '00000000', insert: 'A'}],
+    [{at: 3, remove_length: 5, remove_hash: passageHash('alpha'), insert: 'A'}, {at: 15, remove: 'zzzz', insert: 'B'}],
+    [{at: 3, remove_length: 5, remove_hash: '0'.repeat(32), insert: 'A'}],
     [{at: 900, remove: '', insert: 'past the end'}],
     [{at: 15, remove: 'beta', insert: 'B'}, {at: 3, remove: 'alpha', insert: 'A'}],
   ]) {
@@ -108,7 +116,7 @@ test('one paragraph edited on a 47,000-character page is recorded in under 2,000
   assert.ok(change.size < 2_000, `${change.size} characters`);
   const op = change.ops[0] as Extract<PatchOp, {op: 'text'}>;
   assert.equal(op.op, 'text');
-  for (const h of op.hunks) assert.ok(!('remove' in h) && 'remove_length' in h && /^[0-9a-f]{8}$/.test(h.remove_hash), JSON.stringify(h));
+  for (const h of op.hunks) assert.ok(!('remove' in h) && 'remove_length' in h && /^[0-9a-f]{32}$/.test(h.remove_hash), JSON.stringify(h));
   const replayed = applyPatch(json(before), json(change.ops));
   assert.equal(replayed.pages[1].html, p.pages[1].html, 'the saved change replays onto a copy of the state it was made on');
   const read = readLedger(json(p.ledger))!;

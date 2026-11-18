@@ -14,7 +14,7 @@
  *   the person keeps beside the canvas and which canvas undo has never touched.
  */
 import type {Block, Page, Project} from '../model';
-import {shortHash} from './types';
+import {passageHash} from './sha256';
 
 export type PatchOp =
   | {op: 'set'; on: 'project'; field: ProjectField; value?: unknown; unset?: true}
@@ -31,7 +31,7 @@ export type PatchOp =
 
 /**
  * One passage of a text diff: at `at` (a place in the text as it was before the change) take out
- * `remove` and put in `insert`. The ledger saves `remove` as its length and a short hash, which is
+ * `remove` and put in `insert`. The ledger saves `remove` as its length and a SHA-256 hash, which is
  * enough to check the passage is still there and to replay the change forward; undo keeps the text.
  */
 export type TextHunk = {at: number; remove: string; insert: string} | {at: number; remove_length: number; remove_hash: string; insert: string};
@@ -389,7 +389,7 @@ export function applyText(value: string, hunks: readonly TextHunk[]): string {
     const length = 'remove' in h ? h.remove.length : h.remove_length;
     if (!Number.isInteger(h.at) || h.at < from || !Number.isInteger(length) || length < 0 || h.at + length > value.length || typeof h.insert !== 'string') throw new Error(`passage ${i} at ${h.at} is outside the text or out of order`);
     const taken = value.slice(h.at, h.at + length);
-    if ('remove' in h ? taken !== h.remove : shortHash(taken) !== h.remove_hash) throw new Error(`the text at ${h.at} is no longer what passage ${i} took out`);
+    if ('remove' in h ? taken !== h.remove : passageHash(taken) !== h.remove_hash) throw new Error(`the text at ${h.at} is no longer what passage ${i} took out`);
     pieces.push(value.slice(from, h.at), h.insert);
     from = h.at + length;
   }
