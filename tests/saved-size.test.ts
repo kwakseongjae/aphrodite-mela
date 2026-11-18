@@ -84,3 +84,45 @@ test('a person\'s rename, undo, redo and an edit made outside commit at the line
   saves('reconcile', cur);
   assert.equal(cur.ledger!.changes.at(-1)!.source, 'untracked');
 });
+
+/* Codex 3rd review: with the design between MAX_PROJECT − LEDGER_RESERVE and the cap, even one header did
+   not fit beside it. Then the history gives way entirely — the design comes before the record of it. */
+test('a design just under the cap still saves after a person\'s edit, undo, redo and an edit outside commit: the history empties if it must', async () => {
+  const {upsertProject} = await import('../src/workspace/library.ts');
+  const p = initialProject();
+  p.pages = Array.from({length: 10}, (_, i) => ({id: `free-${i}`, name: `Page ${i}`, blocks: [], kind: 'html' as const, html: 'a'}));
+  p.activePageId = 'free-0';
+  const frame = ',"ledger":{"seq":99,"changes":[]}'.length;
+  let room = MAX_PROJECT - frame - designLength(p);
+  for (const page of p.pages) { const add = Math.min(room, 1_999_999); page.html += String.fromCharCode(98 + Number(page.id.slice(5))).repeat(add); room -= add; }
+  assert.equal(designLength(p), MAX_PROJECT - frame);
+  p.ledger = emptyLedger();
+  const history = newHistory(p), empty = {version: 1 as const, entries: []};
+  const saves = (label: string, q: Project) => {
+    const stored = upsertProject(empty, q).entries[0].project;
+    const raw = JSON.stringify(stored);
+    assert.ok(raw.length <= MAX_PROJECT, `${label}: ${raw.length} characters saved`);
+    assert.doesNotThrow(() => parseProject(raw), label);
+    assert.deepEqual(stored.ledger, q.ledger, `${label}: what is in memory is what was saved`);
+  };
+  const before = begin(p, history);
+  p.pages[3].name = 'Page X';
+  end(p, before, {author: PERSON, source: 'editor:change'}, history);
+  saves('rename', p);
+  assert.equal(p.pages[3].name, 'Page X', 'the design is kept');
+  let cur = step(p, 'undo', history, PERSON)!.project;
+  assert.equal(cur.pages[3].name, 'Page 3');
+  saves('undo', cur);
+  cur = step(cur, 'redo', history, PERSON)!.project;
+  assert.equal(cur.pages[3].name, 'Page X');
+  saves('redo', cur);
+  cur.pages[4].name = 'Page Y';
+  begin(cur, history);
+  saves('reconcile', cur);
+  const next = begin(cur, history);
+  cur.pages[5].name = 'Page Z';
+  const change = end(cur, next, {author: PERSON, source: 'editor:change'}, history)!;
+  assert.equal(change.parent, undefined, 'after the history emptied, the next change starts on nothing recorded');
+  assert.ok(change.seq > 3, 'the sequence carries on');
+  saves('after', cur);
+});

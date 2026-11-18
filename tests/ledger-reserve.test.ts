@@ -56,9 +56,12 @@ test('the newest header alone always fits: a change touching every component the
   p.activePageId = p.pages[0].id;
   const change = end(p, before, {author: AGENT, source: 'agent:apply', reason: 'x'}, history)!;
   assert.ok(change.anchors.nodes.length <= 500 && change.anchors.pages.length <= 60, `${change.anchors.nodes.length} nodes`);
+  const alone = JSON.stringify({...change, ops: [], compacted: true}).length;
+  assert.ok(alone < LEDGER_BUDGET / 4, `${alone} characters for one header`);
+  compact(p.ledger!, alone + 30);
+  assert.deepEqual(p.ledger!.changes.map(c => c.id), [change.id], 'with room for one header, the newest is kept');
   compact(p.ledger!, 0);
-  assert.equal(p.ledger!.changes.length, 1);
-  assert.ok(JSON.stringify(p.ledger).length < LEDGER_BUDGET / 4, `${JSON.stringify(p.ledger).length} characters for one header`);
+  assert.deepEqual([p.ledger!.changes.length, p.ledger!.seq], [0, change.seq], 'with no room even for one, the history empties and keeps its count');
 });
 
 test('compact counts what the ledger serializes to, brackets and commas included', () => {

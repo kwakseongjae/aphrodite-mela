@@ -96,8 +96,10 @@ export function forSaving(ops: PatchOp[]): PatchOp[] {
 
 /**
  * Drops the ops of the oldest entries, then the oldest headers, until the ledger serializes to at most
- * `budget` characters — brackets, commas and the sequence number counted. The newest header is kept;
- * it fits any budget the ledger is given in practice (see LEDGER_RESERVE).
+ * `budget` characters — brackets, commas and the sequence number counted. Headers are kept while there
+ * is room for them: the newest always fits the ledger's own budget (see LEDGER_RESERVE), but a project
+ * whose design leaves less than one header's room (fitSaved) empties its history, `seq` kept. The
+ * design comes before the record of it; the next change then starts with no parent.
  */
 export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
   // {"seq":N,"changes":[…]} — the entries, a comma between each two, and the frame around them.
@@ -117,7 +119,7 @@ export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
     if (!change.compacted) drop(change);
   }
   // Headers alone can outgrow the budget after very long histories; the oldest go first.
-  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size + 1;
+  while (total > budget && ledger.changes.length) total -= ledger.changes.shift()!.size + (ledger.changes.length ? 1 : 0);
 }
 
 const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
