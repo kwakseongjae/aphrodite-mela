@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
+import {rules,scenarios,value,clone,el,disabled,describe,type El} from './support/css';
 
 const dir=new URL('../src/ui/',import.meta.url);
 const sheets=readdirSync(dir).filter(f=>f.endsWith('.css')&&f!=='tokens.css');
@@ -66,12 +67,88 @@ test('Korean text breaks between words, never inside one',()=>{
   assert.match(rule[0],/word-break:\s*keep-all/);
 });
 
-test('every interactive part shows a keyboard focus ring',()=>{
-  const css=strip(read('components.css'));
-  // A box that holds a native field (select, composer) shows it with :focus-within.
-  const focus=css.match(/([^{}]*:focus-(?:visible|within)[^{}]*)\{[^}]*var\(--ui-focus\)/g)?.join(',')??'';
-  for(const part of ['ui-btn','ui-icon-btn','ui-chip','ui-seg-item','ui-tab','ui-row','ui-attach','ui-send','ui-switch','ui-input','ui-textarea','ui-select','ui-composer'])
-    assert.match(focus,new RegExp(`\\.${part}\\b[^,]*:focus`),`.${part} has no :focus-visible or :focus-within rule in the focus colour`);
+/**
+ * The ring is drawn with box-shadow, and so are some states (a selected segment, a pressed primary
+ * button). A state rule that comes later or weighs more replaces the ring rather than adding to it, so
+ * this asks the cascade: for every focusable part, under each state the sheet gives it and under all of
+ * them at once, focused from the keyboard (:focus-visible) and as the gallery shows it (.is-focus), does
+ * the winning box-shadow still hold --ui-focus?
+ */
+const focusable:Record<string,'self'|'within'|'switch'>={
+  'ui-btn':'self','ui-icon-btn':'self','ui-chip':'self','ui-seg-item':'self','ui-tab':'self','ui-row':'self','ui-attach':'self','ui-send':'self',
+  'ui-input':'self','ui-textarea':'self',
+  // A box around a native field takes focus from inside it.
+  'ui-select':'within','ui-composer':'within',
+  // The checkbox under the track takes focus; the track draws it.
+  'ui-switch-track':'switch',
+};
+
+function focused(chain:El[],how:'self'|'within'|'switch',from:'keyboard'|'gallery'){
+  const target=chain.at(-1)!,above=chain.slice(0,-1);
+  if(from==='gallery'){(how==='switch'?above.find(e=>e.classes.has('ui-switch'))!:target).classes.add('is-focus');return chain;}
+  for(const e of above)e.states.add('focus-within');
+  if(how==='within')target.states.add('focus-within');
+  if(how==='self')for(const s of ['focus','focus-visible','focus-within'])target.states.add(s);
+  if(how==='switch'){
+    target.prev=target.prev?.length?target.prev:[el(['ui-switch-input'])];
+    for(const input of target.prev)for(const s of ['focus','focus-visible'])input.states.add(s);
+  }
+  return chain;
+}
+
+/** Each way a focused part shows no ring in the given sheet; [] when the ring always wins. */
+export function ringsLost(css:string){
+  const all=rules(css),lost:string[]=[];
+  const every=scenarios(all).filter(c=>!c.at(-1)!.element&&!disabled(c));
+  for(const [part,how] of Object.entries(focusable)){
+    const seen=every.filter(c=>c.at(-1)!.classes.has(part));
+    if(!seen.length)continue;
+    // Every state at once, on the shortest document that holds the part.
+    const all_at_once=[...seen].sort((a,b)=>a.length-b.length)[0].map(clone),t=all_at_once.at(-1)!;
+    for(const c of seen){
+      const s=c.at(-1)!;s.classes.forEach(k=>t.classes.add(k));s.attrs.forEach((v,k)=>t.attrs.set(k,v));s.states.forEach(k=>t.states.add(k));
+      if(s.prev)t.prev=[el([...(t.prev??[]).flatMap(p=>[...p.classes]),...s.prev.flatMap(p=>[...p.classes])],[...(t.prev??[]).flatMap(p=>[...p.states]),...s.prev.flatMap(p=>[...p.states])])];
+    }
+    for(const chain of [...seen,all_at_once])for(const from of ['keyboard','gallery'] as const){
+      const c=focused(chain.map(clone),how,from);
+      const shadow=value(all,c,'box-shadow')??'none';
+      if(!shadow.includes('var(--ui-focus)'))lost.push(describe(c)+': box-shadow '+shadow);
+    }
+  }
+  return lost;
+}
+
+test('the cascade reader picks the declaration a browser would',()=>{
+  const sheet=rules('.a{x:1} .a.b{x:2} .a:hover{x:3} .p > .a{y:1} .q .a{y:2} .s + .a{z:1} .a:not(.b){w:1} .a{v:1 !important} .a.b.c{v:2} .a::after{u:1} @media (m){.a{t:1}}');
+  assert.equal(value(sheet,[el(['a','b'])],'x'),'2');
+  assert.equal(value(sheet,[el(['a','b'],['hover'])],'x'),'3','same weight: the later rule');
+  assert.equal(value(sheet,[el(['p']),el(['a'])],'y'),'1');
+  assert.equal(value(sheet,[el(['q']),el(['p']),el(['a'])],'y'),'2');
+  assert.equal(value(sheet,[el(['p']),el(['x']),el(['a'])],'y'),undefined,'> is the parent only');
+  const after=el(['a']);after.prev=[el(['s'])];
+  assert.equal(value(sheet,[after],'z'),'1');
+  assert.equal(value(sheet,[el(['a','b'])],'w'),undefined);
+  assert.equal(value(sheet,[el(['a','b','c'])],'v'),'1','!important outweighs specificity');
+  const pe=el();pe.element='after';
+  assert.equal(value(sheet,[el(['a']),pe],'u'),'1');
+  assert.equal(value(sheet,[el(['a'])],'u'),undefined,'a pseudo-element rule does not reach its host');
+  assert.equal(value(sheet,[el(['a'])],'t'),undefined);
+  assert.equal(value(sheet,[el(['a'])],'t',['@media (m)']),'1');
+});
+
+test('every focusable part is in the sheet',()=>{
+  const every=scenarios(rules(read('components.css')));
+  for(const part of Object.keys(focusable))assert.ok(every.some(c=>c.at(-1)!.classes.has(part)),'.'+part+' is not drawn: take it off the focusable list');
+});
+
+test('every interactive part keeps its keyboard focus ring in every state',()=>{
+  assert.deepEqual(ringsLost(read('components.css')),[]);
+});
+
+test('the ring check sees a state rule that replaces the ring',()=>{
+  const sheet='.ui-seg-item:focus-visible, .ui-seg-item.is-focus { outline: none; box-shadow: 0 0 0 var(--ui-ring) var(--ui-focus); }\n'+
+    '.ui-seg-item.is-on, .ui-seg-item[aria-checked="true"] { box-shadow: var(--ui-shadow-seg); }';
+  assert.deepEqual(ringsLost(sheet).length,6,'on, aria-checked and both at once, from the keyboard and in the gallery');
 });
 
 /**

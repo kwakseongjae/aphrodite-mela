@@ -52,6 +52,15 @@
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
   outline: none; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
+/* A state that draws its own shadow keeps it under the ring, rather than replacing the ring. */
+.ui-seg-item.is-on:focus-visible, .ui-seg-item.is-on.is-focus, .ui-seg-item[aria-pressed="true"]:focus-visible, .ui-seg-item[aria-pressed="true"].is-focus,
+.ui-seg-item[aria-checked="true"]:focus-visible, .ui-seg-item[aria-checked="true"].is-focus {
+  box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-seg);
+}
+.ui-btn-primary:active:not(:disabled):focus-visible, .ui-btn-primary:active:not(:disabled).is-focus, .ui-btn-primary.is-pressed:focus-visible, .ui-btn-primary.is-pressed.is-focus,
+.ui-send:active:not(:disabled):focus-visible, .ui-send:active:not(:disabled).is-focus, .ui-send.is-pressed:focus-visible, .ui-send.is-pressed.is-focus {
+  box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-press);
+}
 /* Fields draw focus on their own edge: the box is already a boundary. */
 .ui-input:focus-visible, .ui-input.is-focus, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
   outline: none; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus);
