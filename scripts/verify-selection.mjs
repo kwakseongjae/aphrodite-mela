@@ -139,6 +139,27 @@ check('a field being edited in the inspector is saved before the selection moves
   assert.equal(JSON.stringify(changes[0].ops).includes(first), true);
 });
 
+// The desktop app is WebKit, where a press on the canvas can leave focus in the field. On 11/18 an
+// edit made there left no trace in the desktop ledger. Holding focus in the field the same way here
+// shows whether selecting saves it anyway.
+check('a field still focused when another section is selected is saved onto its own block', async () => {
+  const [first, second] = await blocks();
+  await click(await inside(first));
+  assert.equal(await selectedId(), first);
+  const before = await ledgerSeq();
+  await evaluate(`(() => { window.__keepFocus = e => e.preventDefault(); document.addEventListener('mousedown', window.__keepFocus, true); const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return true; })()`);
+  await send('Input.insertText', {text: ' 웹킷'});
+  await sleep(200);
+  await click(await inside(second));
+  await evaluate(`document.removeEventListener('mousedown', window.__keepFocus, true)`);
+  assert.equal(await selectedId(), second, 'the click still selects');
+  const {changes} = await agent('changes', {since: before, limit: 50});
+  assert.equal(changes.length, 1, JSON.stringify(changes));
+  assert.equal(changes[0].author.kind, 'person');
+  assert.equal(JSON.stringify(changes[0].ops).includes(' 웹킷'), true, 'the edit was saved');
+  assert.equal(JSON.stringify(changes[0].ops).includes(first), true, 'onto the block it was typed into');
+});
+
 check('a press that wobbles on the section next to the selected one does not resize anything', async () => {
   const [first, second] = await blocks();
   await click(await inside(first));

@@ -562,6 +562,10 @@ function inspectorPanelHtml(){const page=currentPage(project);return editorMode=
  * A field being edited in the inspector has already been saved by its own `change` as focus left it.
  */
 function selectBlock(id:string){
+  // A press on the canvas does not always take focus from the field (WebKit keeps it), and a field
+  // that is removed while focused never sends `change`. Leaving it first saves the edit, onto the
+  // block it was typed into, before `selected` moves on.
+  const typing=document.activeElement;if(typing instanceof HTMLElement&&typing.closest('.inspector'))typing.blur();
   selected=id;
   const canvas=app.querySelector<HTMLElement>('#design-canvas'),aside=app.querySelector<HTMLElement>('.inspector');
   if(screen!=='editor'||!canvas||!aside){render();return;}
