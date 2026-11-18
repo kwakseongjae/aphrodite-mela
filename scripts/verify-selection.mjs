@@ -186,8 +186,10 @@ check('a deliberate drag on a handle still resizes', async () => {
 });
 
 /* Review 0.3-1b: the assembly bar names the selected node and enables Pin selected frame for a frame.
-   render() drew it; selecting in place left it stale. The editor no longer mounts the bar on its own
-   (render() places it after a `.workflow` element that is gone), so the check puts the slot in. */
+   render() drew it; selecting in place left it stale.
+   This tests the refresh path only. The bar is NOT on screen in the editor today: render() places it
+   after a `.workflow` element that no longer exists, so the person never sees it (mounting it again
+   belongs to the 0.3-F UI renewal). The check inserts an empty slot itself and watches it refresh. */
 check('the assembly bar follows the selection without a change being recorded', async () => {
   await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'add'; b.dataset.kind = 'frame'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
   await sleep(600);

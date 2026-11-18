@@ -37,7 +37,7 @@ check('an agent cannot open the door for itself', async () => {
 
 /* The request is a dialog in the middle of the screen (0.3-1b). The person answers it with their own
    mouse and keys — trusted CDP input — because a synthetic event is exactly what an agent could send. */
-const dialog = () => evaluate(`document.querySelector('#modal-root .ask-dialog') ? document.querySelector('#modal-root .modal').textContent : ''`);
+const dialog = () => evaluate(`document.querySelector('#modal-root .ask-modal')?.textContent ?? ''`);
 const key = async (key, code, vk) => {
   await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key, code, windowsVirtualKeyCode: vk});
   await send('Input.dispatchKeyEvent', {type: 'keyUp', key, code, windowsVirtualKeyCode: vk});
@@ -137,6 +137,27 @@ check('a request left open is not replaced by the next asker, and Allow lets in 
   }
   assert.equal(await writes('zed'), 'on', 'the name on screen is the one let in');
   assert.equal(await writes('windsurf'), 'off');
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
+/* Re-review 0.3-1b: a button pressed before the request arrived can finish after it — `font-picker`
+   awaits loadFonts() and then opens its dialog. That continuation must not take the request off the
+   screen. The press here is a script in the page, as an agent's act would be; it lands after the request. */
+check('a dialog that opens late, from anything but the person, goes under the request', async () => {
+  await evaluate(`(setTimeout(() => { const b = document.createElement('button'); b.dataset.action = 'font-picker'; document.querySelector('#app').append(b); b.click(); b.remove(); }, 400), true)`);
+  assert.equal((await agent('connect', {}, 'cline')).status, 'asked');
+  await sleep(900);
+  assert.match(await dialog(), /cline/, 'the request is still on screen');
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 2, 'with the late dialog under it');
+  assert.equal(await evaluate(`document.activeElement?.dataset.action`), 'ask-allow', 'and the focus still on Allow');
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .modal-backdrop:last-child .ask-modal')`), true, 'the request is the one on top');
+  await press('ask-allow');
+  assert.equal((await agent('state', {}, 'cline')).state.writes, 'on', 'the person answered the request they saw');
+  assert.equal(await dialog(), '');
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 1, 'the late dialog is there once the request is answered');
+  await key('Escape', 'Escape', 27);
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 0);
   await personPresses('agent-disconnect');
   await sleep(150);
 });

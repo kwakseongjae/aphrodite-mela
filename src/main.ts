@@ -720,8 +720,13 @@ function inspectorHtml() {
 function showModal(title: string, subtitle: string, body: string, wide = false) {
   comparisonObserver?.disconnect(); comparisonObserver = null;
   if (!modalRoot.children.length) modalReturnFocus = document.activeElement as HTMLElement;
+  /* A request to edit stays on top of any dialog the person did not open just now — a button's
+     continuation after an await, a script's click — which goes under it and shows once it is answered.
+     The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
+  const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
   modalRoot.innerHTML = `<div class="modal-backdrop"><section class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><div><span class="kicker">APHRODITE STUDIO</span><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div>${iconButton('close-modal', 'x', 'Close dialog')}</div><div class="modal-content">${body}</div></section></div>`;
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
+  if(ask)modalRoot.append(ask);
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
@@ -730,6 +735,8 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
   offerAsk();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
+/** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2){closeModal();return;}ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -757,11 +764,11 @@ function askModal(by:string,id:string){
  */
 function answerAsk(allow:boolean){
   const shown=askShown();
-  if(!shown||!askIs(shown)){if(shown)closeModal();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
+  if(!shown||!askIs(shown)){if(shown)closeAsk();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
   const by=shown.by;
   askState={...askState!,answered:allow?'allowed':'declined',at:allow?askState!.at:Date.now()};
   if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
-  if(askOpen())closeModal();
+  closeAsk();
   refreshBanners();
   toast(allow?`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
 }
@@ -1851,6 +1858,8 @@ document.addEventListener('keydown', e => {
   if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
     if(!e.isTrusted){e.preventDefault();return;}
     const on=document.activeElement as HTMLElement|null;
+    // Enter typed into a dialog that opened under the request is not an answer: the focus goes back to Allow.
+    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&!on.closest('.ask-modal')){e.preventDefault();modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();return;}
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
@@ -1860,7 +1869,7 @@ document.addEventListener('keydown', e => {
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
