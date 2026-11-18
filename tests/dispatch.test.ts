@@ -99,7 +99,9 @@ test('the change that saves what the person typed is theirs, even while an agent
   const typing=()=>fromBrowser('input',{inputType:'insertText'});
   // The person types; an agent's click moves the selection, and the field saves as it loses focus.
   at(field,typing());
-  assert.equal(refusal(sendAs(d,()=>at(field,fromBrowser('change')))),undefined,'the person’s words');
+  const theirs=sendAs(d,()=>at(field,fromBrowser('change')));
+  assert.deepEqual({author:theirs?.author,surface:theirs?.surface},{author:PERSON,surface:'ui'},'the person’s words');
+  assert.equal(refusal(theirs),undefined,'and recorded as theirs');
   assert.equal(sendAs(d,()=>at(field,fromBrowser('change'))),d,'once saved, a second change is not theirs');
   // A field the person never typed into, or a checkbox the agent clicked, is the agent's.
   assert.equal(sendAs(d,()=>at(other,fromBrowser('change'))),d);
