@@ -19,3 +19,15 @@ test('assembly context describes nested insertion target and human approval boun
  assert.equal(nodePath(p.pages[0].blocks,b.id),`Page root / ${a.title} / ${b.title}`);
  const brief=assemblyBrief(p,b.id,a.id);assert.match(brief,/Pin selected frame/);assert.match(brief,/does NOT approve/);assert.match(brief,/session-only/);
 });
+
+test('a receipt names the html pages a change made or rewrote, without their html',()=>{
+  const before=initialProject();
+  const after=JSON.parse(JSON.stringify(before));
+  after.pages.push({id:'free-1',name:'Briefing',blocks:[],kind:'html',html:'<p>PRIVATE PAGE</p>'});
+  const made=changeReceipt(before,after);
+  assert.deepEqual(made.changedPages,[{pageId:'free-1',html:'added'}]);
+  assert.ok(!JSON.stringify(made).includes('PRIVATE PAGE'));
+  const later=JSON.parse(JSON.stringify(after));later.pages[1].html='<p>Rewritten</p>';
+  assert.deepEqual(changeReceipt(after,later).changedPages,[{pageId:'free-1',html:'changed'}]);
+  assert.equal(changeReceipt(before,before).changedPages,undefined,'a receipt with no html page says nothing about them');
+});
