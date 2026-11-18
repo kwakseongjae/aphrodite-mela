@@ -57,7 +57,7 @@ import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
-import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
+import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {isFreePage} from './free-page';
@@ -1590,6 +1590,11 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     return {ok:true,...designTokens(project,themeVars(project))};
   }
+  if(c.kind==='html'||c.kind==='text'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    const read=c.kind==='html'?pageHtmlRead(project,c):pageTextRead(project,c);
+    return 'error' in read?read:{...read,...revisionInfo()};
+  }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='changes'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
@@ -1601,6 +1606,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
     const page=c.pageId?project.pages.find(x=>x.id===c.pageId):currentPage(project);
     if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
+    const refused=renderRefusal(page);if(refused)return {error:refused};
     const width=c.width??frameWidth(project.space?.frames[page.id]??{x:0,y:0,preset:'desktop'});
     try{
       // A render is a viewport, not a whole page: a caller that wants more of a long page asks for

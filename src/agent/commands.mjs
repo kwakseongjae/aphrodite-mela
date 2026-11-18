@@ -108,6 +108,75 @@ export const commands = [
     },
   },
   {
+    id: 'read.html',
+    label: {en: 'Read a page\'s html', ko: '페이지 HTML 읽기'},
+    grade: 'read',
+    kind: 'html',
+    input: {
+      type: 'object',
+      properties: {
+        page_id: {type: 'string', description: 'Required. An html page, from aphrodite_get_contract or from the reply that made it.'},
+        start: {type: 'integer', minimum: 0, description: 'The first character to return (default 0).'},
+        end: {type: 'integer', minimum: 0, description: 'The character to stop before (default: the end, or 200,000 characters on, whichever comes first).'},
+      },
+      required: ['page_id'],
+      additionalProperties: false,
+    },
+    ...plain,
+    surfaces: MCP_PANEL,
+    controls: [],
+    route: {method: 'GET', path: '/agent/html'},
+    example: {page_id: 'abc-1'},
+    mcp: {
+      order: 3,
+      name: 'aphrodite_get_page_html',
+      title: 'Read a page\'s html',
+      description: [
+        'The html of one html page, exactly as it is stored: what to read before you change it, and where to copy the passage you send as `find` to html_replace.',
+        '',
+        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make.',
+        'A section page has no html; read it with aphrodite_get_contract. For the words of a page without its markup, aphrodite_get_page_text is shorter.',
+        '',
+        'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
+      ].join('\n'),
+      annotations: {title: 'Read a page\'s html', ...READ},
+      params: args => ({page_id: args.page_id, start: args.start, end: args.end}),
+    },
+  },
+  {
+    id: 'read.text',
+    label: {en: 'Read the words of a page', ko: '페이지 글 읽기'},
+    grade: 'read',
+    kind: 'text',
+    input: {
+      type: 'object',
+      properties: {
+        page_id: {type: 'string', description: 'Required. An html page, from aphrodite_get_contract.'},
+      },
+      required: ['page_id'],
+      additionalProperties: false,
+    },
+    ...plain,
+    surfaces: MCP_PANEL,
+    controls: [],
+    route: {method: 'GET', path: '/agent/text'},
+    example: {page_id: 'abc-1'},
+    mcp: {
+      order: 4,
+      name: 'aphrodite_get_page_text',
+      title: 'Read the words of a page',
+      description: [
+        'What an html page says, without how it is built: headings as #, list items as -, table rows as | a | b |, a paragraph per block. Scripts, styles and drawings are left out.',
+        '',
+        'Use it to read a briefing or a report someone else wrote before you add to it. To change the page, read its html with aphrodite_get_page_html: the text here is not what html_replace finds.',
+        '',
+        'Example: {"page_id": "abc-1"}',
+      ].join('\n'),
+      annotations: {title: 'Read the words of a page', ...READ},
+      params: args => ({page_id: args.page_id}),
+    },
+  },
+  {
     id: 'read.changes',
     label: {en: 'Read what changed', ko: '바뀐 것 읽기'},
     grade: 'read',
@@ -127,7 +196,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/changes'},
     example: {since: 12},
     mcp: {
-      order: 3,
+      order: 5,
       name: 'aphrodite_get_changes',
       title: 'Read what changed',
       description: [
@@ -155,7 +224,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/tokens'},
     example: {},
     mcp: {
-      order: 4,
+      order: 6,
       name: 'aphrodite_get_tokens',
       title: 'Read the design tokens',
       description: [
@@ -189,7 +258,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/render'},
     example: {width: 390},
     mcp: {
-      order: 5,
+      order: 7,
       name: 'aphrodite_get_render',
       title: 'Look at the page',
       description: [
@@ -290,7 +359,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/ui'},
     example: {action: 'command', query: 'Preview'},
     mcp: {
-      order: 15,
+      order: 17,
       name: 'aphrodite_use_interface',
       title: 'Drive the interface directly',
       description: [
@@ -330,7 +399,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/components'},
     example: {},
     mcp: {
-      order: 6,
+      order: 8,
       name: 'aphrodite_list_components',
       title: 'List the component vocabulary',
       description: [
@@ -399,7 +468,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/apply'},
     example: {reason: 'The brief asks for a calmer first screen.', ops: [{op: 'delete', block_id: 'selection'}]},
     mcp: {
-      order: 14,
+      order: 16,
       name: 'aphrodite_apply_edits',
       title: 'Change the design',
       description: [
@@ -549,7 +618,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'list'},
     mcp: {
-      order: 13,
+      order: 15,
       name: 'aphrodite_list_images',
       title: 'List the local picture library',
       description: [
@@ -585,7 +654,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'import', name: 'hero', base64: 'iVBORw0KGgo='},
     mcp: {
-      order: 16,
+      order: 18,
       name: 'aphrodite_add_image',
       title: 'Add a picture to the library',
       description: [
@@ -620,7 +689,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'delete', id: '0123456789abcdef'},
     mcp: {
-      order: 17,
+      order: 19,
       name: 'aphrodite_delete_image',
       title: 'Delete a picture from the library',
       description: [
@@ -646,7 +715,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/references'},
     example: {},
     mcp: {
-      order: 7,
+      order: 9,
       name: 'aphrodite_list_references',
       title: 'List the reference archive',
       description: [
@@ -674,7 +743,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/taste'},
     example: {},
     mcp: {
-      order: 8,
+      order: 10,
       name: 'aphrodite_get_taste',
       title: 'Read what the app has observed about their taste',
       description: [
@@ -710,7 +779,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/keep'},
     example: {url: 'https://example.com/lighting', note: 'the grid breathes'},
     mcp: {
-      order: 9,
+      order: 11,
       name: 'aphrodite_keep_reference',
       title: 'Keep something in the reference archive',
       description: [
@@ -743,7 +812,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/unkeep'},
     example: {id: '3fc91b608b8b93c4'},
     mcp: {
-      order: 10,
+      order: 12,
       name: 'aphrodite_forget_reference',
       title: 'Take something back out of the reference archive',
       description: [
@@ -786,7 +855,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/system'},
     example: {id: 'toss', reason: 'The person asked for the Toss look.'},
     mcp: {
-      order: 11,
+      order: 13,
       name: 'aphrodite_set_design_system',
       title: 'Change the design system',
       description: [
@@ -821,7 +890,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/export'},
     example: {format: 'contract'},
     mcp: {
-      order: 12,
+      order: 14,
       name: 'aphrodite_export_contract',
       title: 'Read the build contract',
       description: [

@@ -73,6 +73,8 @@ fn caller_label(headers: &[Header]) -> String {
 pub const ROUTES: &[&str] = &[
     "GET /agent/state",
     "GET /agent/contract",
+    "GET /agent/html",
+    "GET /agent/text",
     "GET /agent/changes",
     "GET /agent/tokens",
     "GET /agent/render",
@@ -362,7 +364,7 @@ mod tests {
             let kind = path.strip_prefix("/agent/").expect("an /agent/ path");
             assert_eq!(route_kind(&method, path), Some(kind), "{route}");
         }
-        assert_eq!(ROUTES.len(), 24, "every route 0.3-1b served, and no more");
+        assert_eq!(ROUTES.len(), 26, "every route 0.3-1b served, the two page reads 0.3-P1 added, and no more");
     }
 
     #[test]
