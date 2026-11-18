@@ -14,6 +14,7 @@
  *   the person keeps beside the canvas and which canvas undo has never touched.
  */
 import type {Block, Page, Project} from '../model';
+import {shortHash} from './types';
 
 export type PatchOp =
   | {op: 'set'; on: 'project'; field: ProjectField; value?: unknown; unset?: true}
@@ -25,12 +26,20 @@ export type PatchOp =
   | {op: 'move_page'; page_id: string; index: number}
   | {op: 'insert_block'; page_id: string; index: number; block: Block}
   | {op: 'remove_block'; page_id: string; block_id: string}
-  | {op: 'move_block'; page_id: string; block_id: string; index: number};
+  | {op: 'move_block'; page_id: string; block_id: string; index: number}
+  | {op: 'text'; on: 'page'; page_id: string; field: 'html'; hunks: TextHunk[]};
+
+/**
+ * One passage of a text diff: at `at` (a place in the text as it was before the change) take out
+ * `remove` and put in `insert`. The ledger saves `remove` as its length and a short hash, which is
+ * enough to check the passage is still there and to replay the change forward; undo keeps the text.
+ */
+export type TextHunk = {at: number; remove: string; insert: string} | {at: number; remove_length: number; remove_hash: string; insert: string};
 
 /** Project fields a patch may set. `id`, `version`, `pages` (by its own ops) and the shelf are not among them. */
 export const projectFields = ['name', 'brief', 'reference', 'contentLanguage', 'space', 'activePageId', 'approvedFingerprint'] as const;
 export type ProjectField = typeof projectFields[number];
-export const pageFields = ['name', 'referenceEvidence', 'vibeReceipt', 'proposal'] as const;
+export const pageFields = ['name', 'referenceEvidence', 'vibeReceipt', 'proposal', 'kind', 'html', 'media'] as const;
 export type PageField = typeof pageFields[number];
 
 /** Where the person is looking, rather than what the design is. Changes made only of these are marked `view`. */
@@ -109,7 +118,11 @@ export function diffProject(before: Project, after: Project): PatchOp[] {
     const was = old.get(page.id);
     if (!was) continue;
     fields.push(...fieldOps(was as unknown as Record<string, unknown>, page as unknown as Record<string, unknown>, pageFields,
-      (field, value, unset) => unset ? {op: 'set', on: 'page', page_id: page.id, field: field as PageField, unset: true} : {op: 'set', on: 'page', page_id: page.id, field: field as PageField, value}));
+      (field, value, unset) => {
+        const hunks = field === 'html' && typeof was.html === 'string' && typeof value === 'string' ? textEdit(was.html, value) : undefined;
+        if (hunks) return {op: 'text', on: 'page', page_id: page.id, field: 'html', hunks};
+        return unset ? {op: 'set', on: 'page', page_id: page.id, field: field as PageField, unset: true} : {op: 'set', on: 'page', page_id: page.id, field: field as PageField, value};
+      }));
     const blocks = listOps(was.blocks, page.blocks,
       block_id => ({op: 'remove_block', page_id: page.id, block_id}),
       (block, index) => ({op: 'insert_block', page_id: page.id, index, block}),
@@ -208,6 +221,14 @@ export function applyPatch(project: Project, ops: readonly PatchOp[]): Project {
         blocks.splice(position(op.index, blocks.length, index), 0, moving);
         return;
       }
+      case 'text': {
+        if (op.on !== 'page' || op.field !== 'html') throw new PatchError(index, 'only a page\'s html takes a text diff');
+        const target = page(op.page_id);
+        if (typeof target.html !== 'string') throw new PatchError(index, `page ${op.page_id} has no html to change; it is not an html page`);
+        try { target.html = applyText(target.html, op.hunks); }
+        catch (error) { throw new PatchError(index, `page ${op.page_id}: ${error instanceof Error ? error.message : String(error)}`); }
+        return;
+      }
       default:
         throw new PatchError(index, `unknown op ${(op as {op?: unknown}).op}`);
     }
@@ -243,4 +264,135 @@ export function anchorsOf(ops: readonly PatchOp[]): {pages: string[]; nodes: str
     else if ('block_id' in op) nodes.add(op.block_id);
   }
   return {pages: [...pages], nodes: [...nodes]};
+}
+
+/* ---------- text diffs: a long text recorded as the passages that changed ---------- */
+
+/** Lines, and the tags on a line: each unit ends at a newline or a `>`, so a page written on one line still splits. */
+function units(text: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 10 || c === 62) { out.push(text.slice(from, i + 1)); from = i + 1; }
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
+/** How far the line diff may go before it gives up and records one passage from the first change to the last. */
+const MAX_EDITS = 1_000, MAX_WORK = 4_000_000;
+
+/**
+ * The shortest edit from `a` to `b` (Myers), as the runs that differ: [aFrom, aTo, bFrom, bTo].
+ * Undefined when finding it would take longer than a recorded change is worth.
+ */
+function differingRuns(a: number[], b: number[]): [number, number, number, number][] | undefined {
+  const n = a.length, m = b.length, limit = Math.min(n + m, MAX_EDITS), off = limit + 1;
+  const v = new Int32Array(2 * limit + 3);
+  const trace: Int32Array[] = [];
+  let work = 0;
+  for (let d = 0; d <= limit; d++) {
+    trace.push(v.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && v[off + k - 1] < v[off + k + 1]) ? v[off + k + 1] : v[off + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) { x++; y++; work++; }
+      v[off + k] = x;
+      if (x < n || y < m) continue;
+      const removed = new Uint8Array(n), inserted = new Uint8Array(m);
+      for (let e = d; e > 0; e--) {
+        const w = trace[e], kk = x - y;
+        const prevK = kk === -e || (kk !== e && w[off + kk - 1] < w[off + kk + 1]) ? kk + 1 : kk - 1;
+        const prevX = w[off + prevK], prevY = prevX - prevK;
+        while (x > prevX && y > prevY) { x--; y--; }
+        if (prevK === kk + 1) inserted[prevY] = 1; else removed[prevX] = 1;
+        x = prevX; y = prevY;
+      }
+      const runs: [number, number, number, number][] = [];
+      for (let i = 0, j = 0; i < n || j < m;) {
+        if (i < n && j < m && !removed[i] && !inserted[j]) { i++; j++; continue; }
+        const from = [i, j];
+        while ((i < n && removed[i]) || (j < m && inserted[j])) { while (i < n && removed[i]) i++; while (j < m && inserted[j]) j++; }
+        runs.push([from[0], i, from[1], j]);
+      }
+      return runs;
+    }
+    work += d;
+    if (work > MAX_WORK) return undefined;
+  }
+  return undefined;
+}
+
+const high = (c: number) => c >= 0xd800 && c <= 0xdbff;
+const low = (c: number) => c >= 0xdc00 && c <= 0xdfff;
+
+/** One passage, trimmed to the characters that differ, never cutting a character in two. */
+function trimmed(at: number, remove: string, insert: string): {at: number; remove: string; insert: string} {
+  const most = Math.min(remove.length, insert.length);
+  let head = 0;
+  while (head < most && remove.charCodeAt(head) === insert.charCodeAt(head)) head++;
+  if (head > 0 && high(remove.charCodeAt(head - 1))) head--;
+  let tail = 0;
+  while (tail < most - head && remove.charCodeAt(remove.length - 1 - tail) === insert.charCodeAt(insert.length - 1 - tail)) tail++;
+  if (tail > 0 && low(remove.charCodeAt(remove.length - tail))) tail--;
+  return {at: at + head, remove: remove.slice(head, remove.length - tail), insert: insert.slice(head, insert.length - tail)};
+}
+
+/**
+ * The passages that turn `before` into `after`: found line by line (and tag by tag), then trimmed to
+ * the character. In order, apart, each `at` a place in `before`. Empty when the two are the same.
+ */
+export function textHunks(before: string, after: string): {at: number; remove: string; insert: string}[] {
+  if (before === after) return [];
+  const ua = units(before), ub = units(after);
+  let head = 0;
+  while (head < ua.length && head < ub.length && ua[head] === ub[head]) head++;
+  let tail = 0;
+  while (tail < ua.length - head && tail < ub.length - head && ua[ua.length - 1 - tail] === ub[ub.length - 1 - tail]) tail++;
+  const ids = new Map<string, number>();
+  const id = (u: string) => { let n = ids.get(u); if (n === undefined) { n = ids.size; ids.set(u, n); } return n; };
+  const a = ua.slice(head, ua.length - tail).map(id), b = ub.slice(head, ub.length - tail).map(id);
+  const runs = differingRuns(a, b) ?? [[0, a.length, 0, b.length]];
+  const startsA = [0], startsB = [0];
+  for (const u of ua) startsA.push(startsA[startsA.length - 1] + u.length);
+  for (const u of ub) startsB.push(startsB[startsB.length - 1] + u.length);
+  const hunks: {at: number; remove: string; insert: string}[] = [];
+  for (const [a0, a1, b0, b1] of runs) {
+    const from = startsA[head + a0];
+    const hunk = trimmed(from, before.slice(from, startsA[head + a1]), after.slice(startsB[head + b0], startsB[head + b1]));
+    if (hunk.remove || hunk.insert) hunks.push(hunk);
+  }
+  return hunks;
+}
+
+/**
+ * The text diff worth recording for this change, or undefined when the whole value says it better:
+ * when the passages carry more than half of it, a reader is better off with the value itself.
+ */
+export function textEdit(before: string, after: string): {at: number; remove: string; insert: string}[] | undefined {
+  const hunks = textHunks(before, after);
+  const carried = hunks.reduce((n, h) => n + h.remove.length + h.insert.length, 0);
+  return hunks.length && carried * 2 <= Math.max(before.length, after.length) ? hunks : undefined;
+}
+
+/**
+ * Applies passages to `value`. Every one is checked first — in order, apart, inside the text, and
+ * taking out exactly what it says (the text, or its length and hash) — and if any does not fit,
+ * nothing is applied and this throws. Each `at` is a place in `value` as it is now.
+ */
+export function applyText(value: string, hunks: readonly TextHunk[]): string {
+  if (!Array.isArray(hunks)) throw new Error('a text change is a list of passages');
+  const pieces: string[] = [];
+  let from = 0;
+  for (const [i, h] of hunks.entries()) {
+    const length = 'remove' in h ? h.remove.length : h.remove_length;
+    if (!Number.isInteger(h.at) || h.at < from || !Number.isInteger(length) || length < 0 || h.at + length > value.length || typeof h.insert !== 'string') throw new Error(`passage ${i} at ${h.at} is outside the text or out of order`);
+    const taken = value.slice(h.at, h.at + length);
+    if ('remove' in h ? taken !== h.remove : shortHash(taken) !== h.remove_hash) throw new Error(`the text at ${h.at} is no longer what passage ${i} took out`);
+    pieces.push(value.slice(from, h.at), h.insert);
+    from = h.at + length;
+  }
+  pieces.push(value.slice(from));
+  return pieces.join('');
 }

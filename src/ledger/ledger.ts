@@ -14,8 +14,8 @@
  */
 import {fingerprint, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, MAX_REASON, slim, type Author, type Change, type Ledger} from './types';
-export {readLedger, compact, slim, LEDGER_BUDGET, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
+import {compact, forSaving, MAX_REASON, slim, type Author, type Change, type Ledger} from './types';
+export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 
@@ -51,7 +51,7 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
     author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},
     source: meta.source.slice(0, 80),
     ...(reason ? {reason} : {}),
-    ops: slim(ops),
+    ops: slim(forSaving(ops)),
     anchors: anchorsOf(ops),
     baseRevision: fingerprint(before),
     revision: fingerprint(after),

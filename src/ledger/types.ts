@@ -45,6 +45,25 @@ export function slim<T>(value: T): T {
   return value;
 }
 
+/** Eight hex digits that tell one passage of text from another: FNV-1a over its UTF-16 code units. Not a security signature. */
+export function shortHash(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * The ops as they are saved: a text diff keeps what it put in, and for what it took out only the
+ * length and a short hash — enough to check the passage before replaying it, at a fraction of the
+ * size. Undo keeps the ops as they were. Anything not shaped like a text diff passes through.
+ */
+export function forSaving(ops: PatchOp[]): PatchOp[] {
+  return ops.map(op => {
+    if (!op || op.op !== 'text' || !Array.isArray(op.hunks)) return op;
+    return {...op, hunks: op.hunks.map(h => h && typeof (h as {remove?: unknown}).remove === 'string' ? {at: h.at, remove_length: (h as {remove: string}).remove.length, remove_hash: shortHash((h as {remove: string}).remove), insert: h.insert} : h)};
+  });
+}
+
 /** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
 export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
   let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
@@ -84,7 +103,7 @@ export function readLedger(raw: unknown): Ledger | undefined {
   }
   // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
   const read: Ledger = {seq: l.seq, changes: l.changes.map(c => {
-    const kept = {...c, ops: slim(c.ops), size: 0};
+    const kept = {...c, ops: slim(forSaving(c.ops)), size: 0};
     kept.size = JSON.stringify(kept).length;
     return kept;
   })};

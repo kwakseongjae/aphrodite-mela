@@ -13,7 +13,7 @@ import {unknownValue, missingField} from './errors';
 import {componentKinds} from './contract';
 import {patternVariants} from '../patterns';
 import {framePresets, type FramePreset} from '../editor/space';
-import type {PatchOp} from '../ledger/patch';
+import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
 
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page';
@@ -215,7 +215,8 @@ export function parseOps(payload: unknown): {ops: Op[]; pageId?: string} | {erro
    project model would refuse. Approving is not among the things it can say. */
 
 export const MAX_PATCH = 400;
-const PATCH_OPS = ['set', 'insert_page', 'remove_page', 'move_page', 'insert_block', 'remove_block', 'move_block'] as const;
+const PATCH_OPS = ['set', 'insert_page', 'remove_page', 'move_page', 'insert_block', 'remove_block', 'move_block', 'text'] as const;
+const MAX_HUNKS = 10_000;
 const SET_ON = ['project', 'system', 'page', 'block'] as const;
 const FIELD = /^[a-zA-Z][a-zA-Z0-9]{0,40}$/;
 const MAX_VALUE = 4_200_000;
@@ -289,6 +290,24 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
       const page = id('page_id'), block = id('block_id'), index = position(), err = bad(page, block, index);
       if (err) return err;
       return {op: {op: 'move_block', page_id: page as string, block_id: block as string, index: index as number}};
+    }
+    /* A text diff, as aphrodite_get_changes returns it: each passage takes out `remove` (or, in the
+       saved form, `remove_length` characters hashing to `remove_hash`) at `at` and puts in `insert`. */
+    case 'text': {
+      if (o.on !== 'page' || o.field !== 'html') return {error: `${where} is a text diff of a page's html: "on": "page", "field": "html".`};
+      const page = id('page_id');
+      if (typeof page !== 'string') return page;
+      if (!Array.isArray(o.hunks) || !o.hunks.length || o.hunks.length > MAX_HUNKS) return {error: `${where}.hunks must be a list of 1 to ${MAX_HUNKS} passages, as aphrodite_get_changes returns them.`};
+      const hunks: TextHunk[] = [];
+      for (const [i, raw] of (o.hunks as unknown[]).entries()) {
+        const h = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+        const at = h.at, insert = h.insert;
+        if (!Number.isInteger(at) || (at as number) < 0 || typeof insert !== 'string') return {error: `${where}.hunks[${i}] needs "at" (a whole number, 0 or more) and "insert" (text).`};
+        if (typeof h.remove === 'string') hunks.push({at: at as number, remove: h.remove, insert});
+        else if (Number.isInteger(h.remove_length) && (h.remove_length as number) >= 0 && typeof h.remove_hash === 'string' && /^[0-9a-f]{8}$/.test(h.remove_hash)) hunks.push({at: at as number, remove_length: h.remove_length as number, remove_hash: h.remove_hash, insert});
+        else return {error: `${where}.hunks[${i}] needs "remove" (the text taken out), or "remove_length" and "remove_hash" as aphrodite_get_changes gives them.`};
+      }
+      return {op: {op: 'text', on: 'page', page_id: page, field: 'html', hunks}};
     }
   }
 }
