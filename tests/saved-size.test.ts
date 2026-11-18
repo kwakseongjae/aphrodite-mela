@@ -57,3 +57,30 @@ test('one character more of design is refused, nothing changes, and the refusal 
     assert.equal(JSON.stringify(p), frozen);
   }
 });
+
+test('a person\'s rename, undo, redo and an edit made outside commit at the line all save within the cap, and undo and redo put back what they should', () => {
+  const p = heavy();
+  p.pages[0].html = filling(p, DESIGN_ROOM - 40);
+  const history = newHistory(p);
+  const original = p.pages[0].html, saves = (label: string, q: Project) => {
+    const saved = JSON.stringify(q);
+    assert.ok(saved.length <= MAX_PROJECT, `${label}: ${saved.length} characters saved`);
+    assert.doesNotThrow(() => parseProject(saved), label);
+  };
+  let before = begin(p, history);
+  p.pages[0].name = 'Page zero, renamed';
+  p.pages[0].html = 'g'.repeat(original.length);
+  end(p, before, {author: PERSON, source: 'editor:change'}, history);
+  saves('rename', p);
+  const edited = p.pages[0].html;
+  let cur = step(p, 'undo', history, PERSON)!.project;
+  assert.equal(cur.pages[0].html, original, 'undo puts back the html it took');
+  saves('undo', cur);
+  cur = step(cur, 'redo', history, PERSON)!.project;
+  assert.equal(cur.pages[0].html, edited, 'redo puts the edit back');
+  saves('redo', cur);
+  cur.name = 'Changed outside commit';
+  before = begin(cur, history);
+  saves('reconcile', cur);
+  assert.equal(cur.ledger!.changes.at(-1)!.source, 'untracked');
+});

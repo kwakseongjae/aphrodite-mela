@@ -102,8 +102,10 @@ const SAVED_SLACK = 1_000;
 /**
  * Keeps what is saved — the design and its history together — within what a project holds
  * (MAX_PROJECT). When the two would not fit, the history gives way, oldest ops first and then oldest
- * headers; the design never does. Every recording in session.ts ends here, so a person's edit, undo or
- * redo near the cap still saves and opens.
+ * headers; the design never does. Every recording in session.ts ends here. A design within
+ * MAX_PROJECT − LEDGER_RESERVE always saves and opens after a person's edit, undo or redo; one past it
+ * (a big picture uploaded, say — this was so before html pages) is not rescued here: saving it fails and
+ * the person sees the not-saved warning, as they did before.
  */
 export function fitSaved(project: Project): void {
   const ledger = project.ledger;
