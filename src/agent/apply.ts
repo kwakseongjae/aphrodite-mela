@@ -17,7 +17,7 @@ import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
-import {htmlProblem, isFreePage} from '../free-page';
+import {htmlProblem, isFreePage, MAX_PAGE_HTML} from '../free-page';
 
 /** `created` is every page the batch made, in order, so the agent can address what it just made. */
 export type BatchResult = {ok: true; project: Project; selected: string; created: string[]} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
@@ -53,10 +53,20 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
   if (!target) return `no page ${op.page_id}. Take an html page id from aphrodite_get_contract, or from the reply that made it.`;
   if (!isFreePage(target)) return `page ${op.page_id} is a section page, not an html page. Its sections change with add, update, move and delete; html_set and html_replace change an html page.`;
   if (op.op === 'html_set') return setHtml(target, op.html);
-  const count = target.html.split(op.find).length - 1;
-  if (!count) return `the passage to find is not on page ${op.page_id}. Read the page again with aphrodite_get_page_html (it may have changed) and send the exact text.`;
-  if (count > 1 && !op.all) return `the passage to find is on page ${op.page_id} ${count} times. Send a longer passage that is there once, or "all": true to change every one.`;
-  return setHtml(target, op.all ? target.html.split(op.find).join(op.replace) : target.html.replace(op.find, () => op.replace));
+  // Counted, and the new length known, before anything is built: a short passage replaced everywhere by a
+  // long one would otherwise make the whole result first and only then find it too big.
+  const {html} = target, {find, replace} = op, places: number[] = [];
+  let length = html.length;
+  for (let at = html.indexOf(find); at >= 0; at = html.indexOf(find, at + find.length)) {
+    places.push(at);
+    length += replace.length - find.length;
+    if (!op.all && places.length > 1) return `the passage to find is on page ${op.page_id} more than once. Send a longer passage that is there once, or "all": true to change every one.`;
+    if (length > MAX_PAGE_HTML) return `changing every place the passage is would make page ${op.page_id} more than ${MAX_PAGE_HTML.toLocaleString('en')} characters, which a page holds at most. Change fewer places, or split the page.`;
+  }
+  if (!places.length) return `the passage to find is not on page ${op.page_id}. Read the page again with aphrodite_get_page_html (it may have changed) and send the exact text.`;
+  let next = '', from = 0;
+  for (const at of places) { next += html.slice(from, at) + replace; from = at + find.length; }
+  return setHtml(target, next + html.slice(from));
 }
 
 /** One operation against a page of `project`, which it changes in place. Returns an error sentence, or nothing. */
@@ -150,6 +160,12 @@ function runOp(project: Project, page: Page, op: Op, focus: Focus): string | und
  * on the project passed in; the caller carries it over.
  */
 export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
+  // Whatever goes wrong inside, the answer is a sentence and the project passed in is untouched.
+  try { return attempt(project, batch, selected); }
+  catch (error) { return {ok: false, index: -1, part: batch.patch?.length && !batch.ops.length ? 'patch' : 'ops', error: `the batch could not be applied: ${error instanceof Error ? error.message : String(error)}`}; }
+}
+
+function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project;
   const focus: Focus = {selected, created: []};
   if (batch.ops.length) {

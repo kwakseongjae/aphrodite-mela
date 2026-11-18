@@ -217,7 +217,7 @@ check('the six ways an html change can fail all leave the page, the ledger and t
   const now = await revision();
   const cases = [
     ['the passage is not there', {ops: [{op: 'html_replace', page_id: briefing.id, find: 'Five things', replace: 'x'}]}, /not on page/],
-    ['the passage is there twice', {ops: [{op: 'html_replace', page_id: briefing.id, find: '<p>Row</p>', replace: 'x'}]}, /2 times/],
+    ['the passage is there twice', {ops: [{op: 'html_replace', page_id: briefing.id, find: '<p>Row</p>', replace: 'x'}]}, /more than once/],
     ['the second op fails', {ops: [{op: 'html_set', page_id: briefing.id, html: '<p>Fine</p>'}, {op: 'html_replace', page_id: briefing.id, find: 'missing', replace: 'x'}]}, /not on page/],
     ['a page is made and then an op fails', {ops: [{op: 'html_page', name: 'Orphan', html: '<p>Orphan</p>'}, {op: 'html_set', page_id: 'no-such-page', html: 'x'}]}, /no page/],
     ['an html op on a section page', {ops: [{op: 'html_set', page_id: section, html: '<p>x</p>'}]}, /section page/],

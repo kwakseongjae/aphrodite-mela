@@ -15,6 +15,7 @@
  */
 import type {Block, Page, Project} from '../model';
 import {passageHash} from './sha256';
+import {MAX_PAGE_HTML} from '../free-page';
 
 export type PatchOp =
   | {op: 'set'; on: 'project'; field: ProjectField; value?: unknown; unset?: true}
@@ -225,7 +226,7 @@ export function applyPatch(project: Project, ops: readonly PatchOp[]): Project {
         if (op.on !== 'page' || op.field !== 'html') throw new PatchError(index, 'only a page\'s html takes a text diff');
         const target = page(op.page_id);
         if (typeof target.html !== 'string') throw new PatchError(index, `page ${op.page_id} has no html to change; it is not an html page`);
-        try { target.html = applyText(target.html, op.hunks); }
+        try { target.html = applyText(target.html, op.hunks, MAX_PAGE_HTML); }
         catch (error) { throw new PatchError(index, `page ${op.page_id}: ${error instanceof Error ? error.message : String(error)}`); }
         return;
       }
@@ -381,18 +382,21 @@ export function textEdit(before: string, after: string): {at: number; remove: st
  * taking out exactly what it says (the text, or its length and hash) — and if any does not fit,
  * nothing is applied and this throws. Each `at` is a place in `value` as it is now.
  */
-export function applyText(value: string, hunks: readonly TextHunk[]): string {
+export function applyText(value: string, hunks: readonly TextHunk[], max = Infinity): string {
   if (!Array.isArray(hunks)) throw new Error('a text change is a list of passages');
   const pieces: string[] = [];
-  let from = 0;
+  let from = 0, total = value.length;
   for (const [i, h] of hunks.entries()) {
     const length = 'remove' in h ? h.remove.length : h.remove_length;
     if (!Number.isInteger(h.at) || h.at < from || !Number.isInteger(length) || length < 0 || h.at + length > value.length || typeof h.insert !== 'string') throw new Error(`passage ${i} at ${h.at} is outside the text or out of order`);
     const taken = value.slice(h.at, h.at + length);
     if ('remove' in h ? taken !== h.remove : passageHash(taken) !== h.remove_hash) throw new Error(`the text at ${h.at} is no longer what passage ${i} took out`);
     pieces.push(value.slice(from, h.at), h.insert);
-    from = h.at + length;
+    from = h.at + taken.length;
+    total += h.insert.length - taken.length;
   }
+  // Known before anything is joined: a change that would outgrow the text's cap is refused, not built.
+  if (total > max) throw new Error(`the change would make the text ${total.toLocaleString('en')} characters; it holds at most ${max.toLocaleString('en')}`);
   pieces.push(value.slice(from));
   return pieces.join('');
 }

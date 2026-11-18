@@ -73,7 +73,7 @@ test('the six ways an html batch can fail all change nothing', () => {
   const section = project.pages[0].id, before = state(project), frozen = JSON.stringify(project);
   const cases: [string, Record<string, unknown>[], RegExp][] = [
     ['the passage is not there', [{op: 'html_replace', page_id: id, find: 'Five things', replace: 'x'}], /not on page/],
-    ['the passage is there more than once', [{op: 'html_replace', page_id: id, find: '<p>Row</p>', replace: 'x'}], /2 times/],
+    ['the passage is there more than once', [{op: 'html_replace', page_id: id, find: '<p>Row</p>', replace: 'x'}], /more than once/],
     ['the second op fails', [{op: 'html_set', page_id: id, html: '<p>Fine</p>'}, {op: 'html_replace', page_id: id, find: 'missing', replace: 'x'}], /not on page/],
     ['a page is made and then an op fails', [{op: 'html_page', name: 'Orphan', html: '<p>Orphan</p>'}, {op: 'html_set', page_id: 'no-such-page', html: 'x'}], /no page no-such-page/],
     ['an html op on a section page', [{op: 'html_set', page_id: section, html: '<p>x</p>'}], /section page/],
@@ -140,6 +140,37 @@ test('a media item arrives with media_add (0.3-P2), not through a patch', () => 
   const media = {id: 'media-1', name: 'Clip', blocks: [], kind: 'media', media: {src: `media:${'b'.repeat(64)}`, mime: 'video/mp4', width: 640, height: 360}};
   const inserted = runBatch(p, batch({patch: [{op: 'insert_page', index: 1, page: media}]}), '');
   assert.ok(!inserted.ok && /media_add/.test(inserted.error), inserted.ok ? 'landed' : inserted.error);
+});
+
+test('a replacement that would grow a page past 2MB is refused before it is built, as an ordinary failure', () => {
+  const p = initialProject();
+  const made = runBatch(p, batch({ops: [{op: 'html_page', name: 'As', html: 'a'.repeat(30_000)}]}), '');
+  assert.ok(made.ok);
+  if (!made.ok) return;
+  const id = made.created[0], frozen = JSON.stringify(made.project);
+  const t0 = performance.now();
+  const grown = runBatch(made.project, batch({ops: [{op: 'html_replace', page_id: id, find: 'a', replace: 'b'.repeat(30_000), all: true}]}), '');
+  assert.ok(!grown.ok && /2,000,000/.test(grown.error), grown.ok ? 'landed' : grown.error);
+  assert.ok(performance.now() - t0 < 1_000, 'refused without building 900 million characters');
+  assert.equal(JSON.stringify(made.project), frozen);
+  const full = runBatch(p, batch({ops: [{op: 'html_page', name: 'Full', html: 'a'.repeat(1_999_000)}]}), '');
+  assert.ok(full.ok);
+  if (!full.ok) return;
+  const t1 = performance.now();
+  const ambiguous = runBatch(full.project, batch({ops: [{op: 'html_replace', page_id: full.created[0], find: 'a', replace: 'b'}]}), '');
+  assert.ok(!ambiguous.ok && /more than once/.test(ambiguous.error), ambiguous.ok ? 'landed' : ambiguous.error);
+  assert.ok(performance.now() - t1 < 1_000, 'counting stops at the second');
+  const same = runBatch(full.project, batch({ops: [{op: 'html_replace', page_id: full.created[0], find: 'aa', replace: 'bb', all: true}]}), '');
+  assert.ok(same.ok, same.ok ? '' : same.error);
+});
+
+test('a text diff or a set that would grow a page past 2MB is refused as an ordinary failure', () => {
+  const {project, id} = withFreePage();
+  const big = 'x'.repeat(1_000_000);
+  const hunks = runBatch(project, batch({patch: [0, 1, 2].map(() => ({op: 'text', on: 'page', page_id: id, field: 'html', hunks: [{at: 0, remove: '', insert: big}]}))}), '');
+  assert.ok(!hunks.ok && /2,000,000/.test(hunks.error), hunks.ok ? 'landed' : hunks.error);
+  const set = parseBatch({reason: REASON, patch: [{op: 'set', on: 'page', page_id: id, field: 'html', value: 'y'.repeat(2_100_000)}]});
+  assert.ok('error' in set && /2,000,000/.test(set.error), 'error' in set ? set.error : 'parsed');
 });
 
 test('thirty pages of html that would not fit in a saved project are refused, not half made', () => {

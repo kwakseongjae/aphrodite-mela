@@ -294,6 +294,7 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
       if (o.unset !== undefined && o.unset !== true) return {error: `${where}.unset is either true or left out.`};
       if (o.unset === true && o.value !== undefined) return {error: `${where} has both value and unset; pick one.`};
       if (o.unset !== true && o.value === undefined) return {error: `${where} needs a value, or "unset": true to clear the field.`};
+      if (on === 'page' && field === 'html' && typeof o.value === 'string' && o.value.length > MAX_PAGE_HTML) return {error: `${where} sets html of ${o.value.length.toLocaleString('en')} characters; a page holds at most ${MAX_PAGE_HTML.toLocaleString('en')}.`};
       const tail = o.unset === true ? {unset: true as const} : {value: o.value};
       if (on === 'project') return {op: {op: 'set', on: 'project', field: field as never, ...tail}};
       if (on === 'system') return {op: {op: 'set', on: 'system', field, ...tail}};
