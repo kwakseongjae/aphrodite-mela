@@ -127,6 +127,7 @@
         <div class="ui-gallery-stack">
           <div><label class="ui-label" for="g-model">모델</label><span class="ui-select"><select id="g-model"><option>Claude</option><option>ChatGPT</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
           <div><span class="ui-select is-focus"><select aria-label="포커스"><option>포커스</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
+          <div><span class="ui-select"><select aria-label="비활성" disabled><option>비활성 (select에 disabled)</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
           <div class="ui-gallery-row ui-gallery-wide">
             <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input" checked><span class="ui-switch-track"></span>켜짐</label>
             <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input"><span class="ui-switch-track"></span>꺼짐</label>
@@ -138,6 +139,10 @@
             <button class="ui-seg-item" aria-pressed="true"><i data-lucide="arrow-right" class="ui-icon ui-icon-xs"></i>가로</button>
             <button class="ui-seg-item is-hover" aria-pressed="false"><i data-lucide="arrow-down" class="ui-icon ui-icon-xs"></i>세로</button>
             <button class="ui-seg-item is-focus" aria-pressed="false"><i data-lucide="layout-grid" class="ui-icon ui-icon-xs"></i>격자</button>
+          </div>
+          <div class="ui-seg" role="radiogroup" aria-label="선택과 포커스가 겹침">
+            <button class="ui-seg-item is-focus" role="radio" aria-checked="true">선택 + 포커스</button>
+            <button class="ui-seg-item" role="radio" aria-checked="false">다른 항목</button>
           </div>
           <div class="ui-seg ui-seg-md" role="group" aria-label="에이전트"><button class="ui-seg-item" aria-pressed="true">Claude</button><button class="ui-seg-item" aria-pressed="false">ChatGPT</button></div>
           <div class="ui-tabs" role="tablist" style="padding: 0">
@@ -210,9 +215,11 @@
             <button class="ui-row"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>기본 줄<span class="ui-row-meta">기본</span></button>
             <button class="ui-row is-hover"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>마우스를 올린 줄<span class="ui-row-meta">호버</span></button>
             <button class="ui-row is-selected"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>사람이 선택한 줄<span class="ui-row-meta">선택</span></button>
+            <button class="ui-row is-pressed"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>누르고 있는 줄<span class="ui-row-meta">눌림</span></button>
             <button class="ui-row is-on"><i data-lucide="folder" class="ui-icon ui-icon-sm"></i>지금 보는 곳<span class="ui-row-meta">현재</span></button>
             <button class="ui-row is-agent"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>에이전트가 그리는 줄<span class="ui-row-meta">그리는 중</span></button>
             <button class="ui-row is-focus"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>키보드로 온 줄<span class="ui-row-meta">포커스</span></button>
+            <button class="ui-row" disabled><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>비활성 줄<span class="ui-row-meta">비활성</span></button>
           </div>
         </div>
       </div>
