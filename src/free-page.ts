@@ -78,6 +78,15 @@ function decoded(text: string): string {
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
   });
 }
+/** Where the tag opened at `open` ends: the first `>` outside its quoted attribute values, or -1 when it never does. */
+function tagEnd(html: string, open: number): number {
+  for (let at = open + 1; at < html.length; at++) {
+    const c = html[at];
+    if (c === '>') return at;
+    if (c === '"' || c === "'") { at = html.indexOf(c, at + 1); if (at < 0) return -1; }
+  }
+  return -1;
+}
 const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'head']);
 const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'caption', 'dd', 'details', 'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'tfoot', 'thead', 'ul']);
 
@@ -102,7 +111,7 @@ export function pageText(html: string): string {
     if (html[open + 1] === '!' || html[open + 1] === '?') { const close = html.indexOf('>', open); i = close < 0 ? html.length : close + 1; continue; }
     const tag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(html.slice(open, open + 40));
     if (!tag) { words += '<'; i = open + 1; continue; }
-    const close = html.indexOf('>', open);
+    const close = tagEnd(html, open);
     if (close < 0) break;
     i = close + 1;
     const closing = tag[1] === '/', name = tag[2].toLowerCase();

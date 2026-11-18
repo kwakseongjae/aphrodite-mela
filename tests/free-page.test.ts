@@ -80,6 +80,8 @@ test('the words of a page, without its scripts and styles', () => {
   assert.equal(text, '# Q3 & next\n\nOne bold line.\n\n- First\n\n- Second\n\n| A | B |\n\n| 1 | 2 |\n');
   assert.doesNotMatch(text, /alert|color/);
   assert.equal(pageText(`<div style="${'color:red;'.repeat(400)}">Long style</div><p>a < b</p>`), 'Long style\n\na < b\n', 'a long tag is a tag, and a lone < is a character');
+  assert.equal(pageText('<p title="1 > 0">Hello</p>'), 'Hello\n', 'a > inside quotes does not end the tag');
+  assert.equal(pageText("<p data-x='a>b' title=\"c>'d\">Hi</p><p>Next</p>"), 'Hi\n\nNext\n');
 });
 
 test('reading the words of a 2MB page takes one pass, however its tags are left open', () => {
@@ -89,6 +91,7 @@ test('reading the words of a 2MB page takes one pass, however its tags are left 
     ['scripts never closed', '<script>'.repeat(200_000)],
     ['headings never closed', '<h2>title'.repeat(180_000)],
     ['tags that never end', '<p>text</p>' + '<a'.repeat(900_000)],
+    ['quotes that never close', '<p>text</p>' + '<a title="x>'.repeat(150_000)],
   ] as const) {
     const t0 = performance.now();
     pageText(html);
