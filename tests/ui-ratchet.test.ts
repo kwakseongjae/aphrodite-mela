@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync} from 'node:fs';
+import {existsSync,readFileSync,readdirSync} from 'node:fs';
 
 /**
  * The older stylesheets can only lose colours and font sizes, never gain them.
@@ -13,15 +13,16 @@ import {readFileSync,readdirSync} from 'node:fs';
  * Legacy is every .css under src/ except src/ui (the system), src/generated and src/vendor (built or
  * copied from elsewhere). A new .css file there has no pin and fails: put new styles in src/ui.
  * CSS written inside .ts files is not counted; that is a known gap.
+ *
+ * page.css, patterns.css and moa.css are not counted either. They draw the person's design, on the
+ * canvas and in the page it exports (render.ts reads all three), not the app's own screens: moving a
+ * screen to src/ui never lowers them, and what a design may look like is not this system's to pin.
  */
 const pins:Record<string,{colours:number,sizes:number}>={
   'agent/agent.css':{colours:10,sizes:2},
   'design/component-explorer.css':{colours:92,sizes:15},
   'design/studio.css':{colours:29,sizes:11},
   'editor/pointer-editor.css':{colours:9,sizes:3},
-  'moa.css':{colours:5,sizes:9},
-  'page.css':{colours:10,sizes:38},
-  'patterns.css':{colours:6,sizes:8},
   'reference.css':{colours:22,sizes:7},
   'style.css':{colours:341,sizes:32},
   'workspace/home.css':{colours:82,sizes:29},
@@ -81,7 +82,9 @@ export function sizes(css:string){
 }
 
 const src=new URL('../src/',import.meta.url);
-const legacy=readdirSync(src,{recursive:true}).map(String).filter(f=>f.endsWith('.css')&&!/^(ui|generated|vendor)\//.test(f)).sort();
+/** The sheets that draw the person's design rather than the app. */
+const canvas=['moa.css','page.css','patterns.css'];
+const legacy=readdirSync(src,{recursive:true}).map(String).filter(f=>f.endsWith('.css')&&!/^(ui|generated|vendor)\//.test(f)&&!canvas.includes(f)).sort();
 
 test('the counters read colours and sizes the way they are written',()=>{
   assert.deepEqual([...colours('.a{color:#FFF;background:#ffffff;border:1px solid rgb(0 0 0 / .1)} .white:hover{fill:White;stroke:rgb(0 0 0/.1)}')].sort(),['#ffffff','rgb(0 0 0/.1)','white']);
@@ -92,6 +95,14 @@ test('the counters read colours and sizes the way they are written',()=>{
 test('every older stylesheet has a pin, and nothing in src/ outside src/ui is new',()=>{
   assert.deepEqual(legacy.filter(f=>!(f in pins)),[],'a stylesheet outside src/ui with no pin: new styles belong in src/ui');
   assert.deepEqual(Object.keys(pins).filter(f=>!legacy.includes(f)),[],'a pinned stylesheet is gone: remove its pin');
+});
+
+test('the canvas stylesheets left out of the count are the ones the exported page is made of',()=>{
+  const render=readFileSync(new URL('render.ts',src),'utf8');
+  for(const f of canvas){
+    assert.ok(existsSync(new URL(f,src)),`${f} is gone: take it off the canvas list`);
+    assert.ok(render.includes(`'./${f}?raw'`),`${f} is no longer part of the exported page: pin it with the app's own sheets`);
+  }
 });
 
 test('no older stylesheet gains a colour or a font size, and one that loses one lowers its pin',()=>{
