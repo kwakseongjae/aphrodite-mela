@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync,readdirSync} from 'node:fs';
+import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
 
 /**
  * The older stylesheets can only lose colours and font sizes, never gain them.
@@ -10,8 +11,8 @@ import {existsSync,readFileSync,readdirSync} from 'node:fs';
  * move screens over and lower the pins as they go. A count that grows fails. A count that shrinks fails
  * too, asking for the pin to come down in the same change, so the ground gained is not given back.
  *
- * Legacy is every .css under src/ except src/ui (the system), src/generated and src/vendor (built or
- * copied from elsewhere). A new .css file there has no pin and fails: put new styles in src/ui.
+ * Legacy is every .css under src/ except src/ui at any depth (the system, which tests/ui-components.test.ts
+ * checks instead), src/generated and src/vendor (built or copied from elsewhere); tests/support/css.ts sorts them. A new .css file there has no pin and fails: put new styles in src/ui.
  * CSS written inside .ts files is not counted; that is a known gap.
  *
  * page.css, patterns.css and moa.css are not counted either. They draw the person's design, on the
@@ -29,16 +30,9 @@ const pins:Record<string,{colours:number,sizes:number}>={
   'workspace/vault.css':{colours:3,sizes:3},
 };
 
-const named='aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen'.split(' ');
-const namedRe=new RegExp(`(?<![\\w-])(${named.join('|')})(?![\\w-])`,'gi');
+const namedRe=new RegExp(`(?<![\\w-])(${namedColours.join('|')})(?![\\w-])`,'gi');
 const fnRe=/\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\((?:[^()]|\([^()]*\))*\)/gi;
 const hexRe=/#[0-9a-f]{3,8}\b/gi;
-
-/** Every declaration's property and value, with comments, strings and url()s taken out. */
-function declarations(css:string){
-  const clean=css.replace(/\/\*[\s\S]*?\*\//g,'').replace(/url\((?:[^()]|\([^()]*\))*\)/g,'url()').replace(/(["'])(?:\\.|(?!\1).)*\1/g,'""');
-  return [...clean.matchAll(/([\w-]+)\s*:\s*([^;{}]+)(?=[;}])/g)].map(m=>({prop:m[1].toLowerCase(),value:m[2].trim()}));
-}
 
 const hex=(h:string)=>{h=h.toLowerCase().slice(1);if(h.length===3||h.length===4)h=[...h].map(c=>c+c).join('');if(h.length===8&&h.endsWith('ff'))h=h.slice(0,6);return `#${h}`;};
 
@@ -83,8 +77,8 @@ export function sizes(css:string){
 
 const src=new URL('../src/',import.meta.url);
 /** The sheets that draw the person's design rather than the app. */
-const canvas=['moa.css','page.css','patterns.css'];
-const legacy=readdirSync(src,{recursive:true}).map(String).filter(f=>f.endsWith('.css')&&!/^(ui|generated|vendor)\//.test(f)&&!canvas.includes(f)).sort();
+const canvas=canvasSheets;
+const legacy=readdirSync(src,{recursive:true}).map(String).filter(f=>f.endsWith('.css')&&sheetKind(f)==='legacy').sort();
 
 test('the counters read colours and sizes the way they are written',()=>{
   assert.deepEqual([...colours('.a{color:#FFF;background:#ffffff;border:1px solid rgb(0 0 0 / .1)} .white:hover{fill:White;stroke:rgb(0 0 0/.1)}')].sort(),['#ffffff','rgb(0 0 0/.1)','white']);

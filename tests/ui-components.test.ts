@@ -1,67 +1,72 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
-import {rules,scenarios,value,clone,el,disabled,describe,type El} from './support/css';
+import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths} from './support/css';
 
-const dir=new URL('../src/ui/',import.meta.url);
-const sheets=readdirSync(dir).filter(f=>f.endsWith('.css')&&f!=='tokens.css');
-const read=(file:string)=>readFileSync(new URL(file,dir),'utf8');
-const strip=(css:string)=>css.replace(/\/\*[\s\S]*?\*\//g,'');
+/** Every sheet the system owns: any .css under src/ui at any depth, but the generated tokens.css. */
+const src=new URL('../src/',import.meta.url);
+const sheets=readdirSync(src,{recursive:true}).map(String).filter(f=>f.endsWith('.css')&&sheetKind(f)==='system').sort();
+const read=(file:string)=>readFileSync(new URL(file,src),'utf8');
+/** The sheets as one, in the order a page would load them, for the checks that ask the cascade. */
+const system=sheets.map(read).join('\n');
 
-/** Every selector in a sheet, with @font-face and keyframe steps left out: they select nothing. */
-function selectors(css:string){
-  const out:string[]=[];
-  const body=strip(css).replace(/@font-face\s*\{[^}]*\}/g,'').replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]*\{[^}]*\})*\s*\}/g,'');
-  for(const m of body.matchAll(/([^{};]+)\{/g)){
-    const prelude=m[1].trim();
-    if(prelude.startsWith('@'))continue;
-    out.push(...prelude.split(',').map(s=>s.trim()).filter(Boolean));
-  }
-  return out;
+/** What the sheet checks find in one sheet. A sheet anywhere under src/ui goes through this. */
+function problems(file:string,css:string){
+  return [...outOfScope(css).map(s=>file+': "'+s+'" styles something outside the parts'),...rawValues(css).map(v=>file+': raw value '+v)];
 }
 
 test('there are component sheets to check',()=>{
-  assert.ok(sheets.includes('components.css'),'src/ui/components.css exists');
+  assert.ok(sheets.includes('ui/components.css'),'src/ui/components.css exists');
 });
 
 /**
- * The new parts must not reach an existing screen. A selector without a `.ui-` class (a bare `button`,
- * a `*`, a `.is-on` on its own) would restyle markup the app already has, which is exactly what this
- * chunk promised not to do. `:not(.ui-x)` does not count: it matches everything else.
+ * The new parts must not reach an existing screen, and colours and sizes come from the tokens only.
+ * A selector that styles anything but a part would restyle markup the app already has; a raw value is
+ * one the source does not know about, which the next theme or scale change will miss.
  */
-test('every selector in the new sheets is scoped to a .ui- class',()=>{
-  for(const file of sheets)for(const selector of selectors(read(file))){
-    const positive=selector.replace(/:not\([^)]*\)/g,'');
-    assert.match(positive,/\.ui-[\w-]/,`${file}: "${selector}" is not scoped to a .ui- class`);
-  }
+test('every system sheet styles only the parts, with token values only',()=>{
+  assert.deepEqual(sheets.flatMap(f=>problems(f,read(f))),[]);
+});
+
+test('a sheet in a folder under src/ui is checked like any other, and the ratchet leaves it to these checks',()=>{
+  assert.equal(sheetKind('ui/screens/home.css'),'system');
+  assert.equal(sheetKind('ui/screens/deep/panel.css'),'system');
+  assert.equal(sheetKind('ui/tokens.css'),'generated','the root tokens.css is held by the drift test');
+  assert.equal(sheetKind('ui/screens/tokens.css'),'system','only the root tokens.css is generated');
+  assert.equal(sheetKind('workspace/home.css'),'legacy');
+  assert.equal(problems('ui/screens/home.css','button { color: #fff; font-size: 1rem; }').length,3);
+});
+
+test('the scope check refuses a selector that styles something outside the parts',()=>{
+  for(const selector of ['body:has(.ui-modal)','.ui-modal ~ #app','#app:has(.ui-toast) .topbar','.ui-root ~ *','button','*','.is-on',':not(.ui-x)',
+    '.ui-x:not(.ui-y) ~ p',':is(.ui-a, button)','.ui-a + .b .c','.ui-x ~ .a .b'])
+    assert.deepEqual(outOfScope(selector+'{x:1}'),[selector],selector);
+  for(const selector of ['.ui-a','.ui-a:hover:not(:disabled)','.ui-root *','.ui-root *::before','.ui-a > b','.ui-switch:has(.ui-switch-input:disabled)',
+    '.ui-select:has(> select:disabled)','.ui-x + .ui-y','.ui-x .a ~ .b','.ui-gallery-matrix tbody tr + tr td','.ui-a::placeholder'])
+    assert.deepEqual(outOfScope(selector+'{x:1}'),[],selector);
 });
 
 test('the scope check reads selectors the way a browser would',()=>{
-  assert.deepEqual(selectors('a{x:1} .ui-a, .ui-b:hover{y:2} @media (x){.ui-c{z:3}} @font-face{font-family:A}'),['a','.ui-a','.ui-b:hover','.ui-c']);
-});
-
-/**
- * Colours and sizes come from the tokens only, as in the approved mockup's check-raw.sh. A raw value
- * here is a value the source does not know about, which the next theme or scale change will miss.
- */
-const raw=/#[0-9a-fA-F]{3,8}\b|\b\d*\.?\d+px\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(|:\s*(?:white|black)\b/g;
-
-test('the new sheets hold no raw colour or px value, only tokens',()=>{
-  for(const file of sheets){
-    const hits=strip(read(file)).split('\n').flatMap((line,i)=>[...line.matchAll(raw)].map(m=>`${file}:${i+1}: ${m[0]}`));
-    assert.deepEqual(hits,[],`raw values outside tokens.css`);
-  }
+  assert.deepEqual(rules('a{x:1} .ui-a, .ui-b:hover{y:2} @media (x){.ui-c{z:3}} @font-face{font-family:A} @keyframes k{from{x:1}to{x:2}}').map(r=>r.selector),['a','.ui-a','.ui-b:hover','.ui-c']);
 });
 
 test('the raw-value check catches what it is meant to',()=>{
-  for(const bad of ['color:#fff','width:12px','margin:.5px','background:rgb(0 0 0)','color: white','border-color:oklch(50% .1 150)'])
-    assert.ok(bad.match(raw),bad);
-  for(const fine of ['width:var(--ui-space-2)','color:var(--ui-text-1)','font-weight:600','opacity:var(--ui-disabled-opacity)','.ui-white-space{}'])
-    assert.equal(fine.match(raw),null,fine);
+  for(const bad of ['color:#fff','width:12px','margin:.5px','background:rgb(0 0 0)','color: white','border-color:oklch(50% .1 150)',
+    'font-size:0.8rem','font-size:13pt','font-size:small','color:red','color:gray','border: var(--ui-hairline) solid black','background:color-mix(in srgb, red 20%, transparent)','color:light-dark(red, blue)','width:2PX',
+    'padding:1em','width:10vw','height:50vh','border-width:thin','transition:color 120ms','margin:var(--ui-x, 4px)','color:GRAY','x:1}@media (min-width: 40rem){.ui-a{y:1}'])
+    assert.ok(rawValues('.ui-a{'+bad+'}').length,bad);
+  // Allowed: a number with no unit, a share (% and fr), the whole viewport, and keywords that are not a colour or a size.
+  assert.deepEqual(allowedUnits,['%','fr']);
+  assert.deepEqual(allowedLengths,['100vh','100vw','100dvh']);
+  for(const fine of ['width:var(--ui-space-2)','color:var(--ui-text-1)','font-weight:600','opacity:var(--ui-disabled-opacity)','margin:0','flex:1 1 auto',
+    'width:100%','grid-template-columns:repeat(3, 1fr)','min-height:100vh','border-color:transparent','color:currentColor','font:inherit','background:none',
+    'background:color-mix(in srgb, var(--ui-text-inverse) 14%, transparent)','height:calc(var(--ui-control-sm) - var(--ui-space-1) * 2)','font-weight:var(--ui-w-medium)',
+    'src:url("/fonts/a-2px.woff2") format("woff2-variations")','font-feature-settings:"ss06" 1','white-space:nowrap'])
+    assert.deepEqual(rawValues('.ui-a{'+fine+'}'),[],fine);
 });
 
 test('Korean text breaks between words, never inside one',()=>{
-  const css=strip(read('components.css'));
+  const css=strip(read('ui/components.css'));
   const rule=css.match(/\.ui-root[^{]*\{[^}]*\}/);
   assert.ok(rule,'there is a .ui-root rule');
   assert.match(rule[0],/word-break:\s*keep-all/);
@@ -137,12 +142,12 @@ test('the cascade reader picks the declaration a browser would',()=>{
 });
 
 test('every focusable part is in the sheet',()=>{
-  const every=scenarios(rules(read('components.css')));
+  const every=scenarios(rules(system));
   for(const part of Object.keys(focusable))assert.ok(every.some(c=>c.at(-1)!.classes.has(part)),'.'+part+' is not drawn: take it off the focusable list');
 });
 
 test('every interactive part keeps its keyboard focus ring in every state',()=>{
-  assert.deepEqual(ringsLost(read('components.css')),[]);
+  assert.deepEqual(ringsLost(system),[]);
 });
 
 test('the ring check sees a state rule that replaces the ring',()=>{

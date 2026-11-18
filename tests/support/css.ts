@@ -10,6 +10,70 @@
 
 export const strip=(css:string)=>css.replace(/\/\*[\s\S]*?\*\//g,'');
 
+/** Where a stylesheet under src/ sits, and so which tests read it. Paths are relative to src/. */
+export const canvasSheets=['moa.css','page.css','patterns.css'];
+export function sheetKind(path:string):'system'|'generated'|'built'|'canvas'|'legacy'{
+  if(path==='ui/tokens.css')return 'generated';
+  if(path.startsWith('ui/'))return 'system';
+  if(/^(generated|vendor)\//.test(path))return 'built';
+  if(canvasSheets.includes(path))return 'canvas';
+  return 'legacy';
+}
+
+/** CSS named colours. One of these in a value is a colour the tokens do not know. */
+export const namedColours='aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen'.split(' ');
+
+/** Every declaration's property and value, with comments, strings and url()s taken out. */
+export function declarations(css:string){
+  const clean=strip(css).replace(/url\((?:[^()]|\([^()]*\))*\)/g,'url()').replace(/(["'])(?:\\.|(?!\1).)*\1/g,'""');
+  return [...clean.matchAll(/([\w-]+)\s*:\s*([^;{}]+)(?=[;}])/g)].map(m=>({prop:m[1].toLowerCase(),value:m[2].trim()}));
+}
+
+/**
+ * Values that carry a unit but are not design values, so the tokens hold no step for them: a share of
+ * the box (%), a share of a grid (fr) and the whole viewport. Every other number with a unit is raw.
+ * A number with no unit (0, 1, a weight, a factor in calc()) is not a length, and transparent,
+ * currentColor, inherit, none and auto are not colours or sizes.
+ */
+export const allowedUnits=['%','fr'];
+export const allowedLengths=['100vh','100vw','100dvh'];
+const sizeWords='xx-small x-small small medium large x-large xx-large xxx-large smaller larger thin thick'.split(' ');
+const word=(list:string[])=>new RegExp('(?<![\\w-])('+list.join('|')+')(?![\\w-])','gi');
+const namedRe=word(namedColours),sizeRe=word(sizeWords);
+
+/** Every raw colour or size in a sheet's values and @media conditions, as "line: value: what". */
+export function rawValues(css:string){
+  const hits:string[]=[];
+  const text=strip(css).replace(/(["'])(?:\\.|(?!\1).)*\1/g,'""').replace(/url\((?:[^()]|\([^()]*\))*\)/g,'url()');
+  const values=[...declarations(css).map(d=>d.value),...[...text.matchAll(/@(?:media|supports|container)([^{]*)\{/g)].map(m=>m[1])];
+  for(const raw of values){
+    const v=raw.replace(/var\(\s*--[\w-]+/g,'var(');
+    const found:string[]=[];
+    for(const m of v.matchAll(/#[0-9a-f]{3,8}\b/gi))found.push(m[0]);
+    for(const m of v.matchAll(/\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi))found.push(m[0]);
+    for(const m of v.matchAll(namedRe))found.push(m[0]);
+    for(const m of v.matchAll(sizeRe))found.push(m[0]);
+    for(const m of v.replace(/#[0-9a-f]{3,8}\b/gi,'').matchAll(/(?<![\w.-])[+-]?(?:\d+\.?\d*|\.\d+)([a-z%]+)/gi))
+      if(!allowedUnits.includes(m[1].toLowerCase())&&!allowedLengths.includes(m[0].toLowerCase()))found.push(m[0]);
+    for(const f of found)hits.push(raw+': '+f);
+  }
+  return hits;
+}
+
+/**
+ * Selectors that would style something other than a part. The element a selector styles (its last
+ * compound) must carry a .ui- class, or sit inside one: a compound to the left of a space or ">" is an
+ * ancestor. A .ui- class inside :has(), :not(), :is() or :where(), or to the left of "~" or "+", does not
+ * count: body:has(.ui-modal) styles the body, and .ui-modal ~ #app styles #app.
+ */
+export function outOfScope(css:string){
+  const carries=(c:Compound)=>c.classes.some(k=>k.startsWith('ui-'));
+  return rules(css).map(r=>r.selector).filter(selector=>{
+    const cx=complex(selector);
+    return !(carries(cx.compounds.at(-1)!)||cx.compounds.slice(0,-1).some((c,j)=>(cx.combinators[j]===' '||cx.combinators[j]==='>')&&carries(c)));
+  });
+}
+
 export type Rule={selector:string,decls:Record<string,{value:string,important:boolean}>,order:number,media:string};
 
 /** Every style rule, one per selector in its list, in source order. @font-face and @keyframes select nothing. */
