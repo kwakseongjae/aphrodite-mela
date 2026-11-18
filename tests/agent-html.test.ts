@@ -4,7 +4,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {initialProject, fingerprint, type Project} from '../src/model.ts';
+import {initialProject, fingerprint, isApproved, type Project} from '../src/model.ts';
 import {parseBatch, type Batch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
 import {htmlWindow} from '../src/free-page.ts';
@@ -105,6 +105,41 @@ test('what an html page may hold is checked where it is written: no paths on thi
   assert.ok(!patched.ok && /media:/.test(patched.error), 'a patch is held to the same rule');
   const sections = runBatch(project, batch({patch: [{op: 'insert_block', page_id: id, index: 0, block: project.pages[0].blocks[0]}]}), '');
   assert.ok(!sections.ok, 'a patch cannot put sections on an html page');
+});
+
+test('no html path writes the approval: a changed page is simply not the one the person approved', () => {
+  const {project, id} = withFreePage();
+  project.approvedFingerprint = fingerprint(project);
+  assert.ok(isApproved(project), 'the person approved this composition');
+  const payloads: Record<string, unknown>[] = [
+    {ops: [{op: 'html_set', page_id: id, html: '<p>Other</p>'}]},
+    {ops: [{op: 'html_replace', page_id: id, find: 'Three things', replace: 'Two things'}]},
+    {patch: [{op: 'text', on: 'page', page_id: id, field: 'html', hunks: [{at: 0, remove: '<!doctype html>', insert: ''}]}]},
+  ];
+  for (const payload of payloads) {
+    const result = runBatch(project, batch(payload), '');
+    assert.ok(result.ok, result.ok ? '' : result.error);
+    if (!result.ok) continue;
+    assert.equal(result.project.approvedFingerprint, project.approvedFingerprint, 'the approval record stays the person\'s, untouched');
+    assert.equal(isApproved(result.project), false, 'the changed page is not the approved one');
+  }
+  assert.ok('error' in parseBatch({reason: REASON, patch: [{op: 'text', on: 'project', page_id: id, field: 'approvedFingerprint', hunks: [{at: 0, remove: '', insert: 'x'}]}]}), 'a text diff cannot reach the approval');
+  project.ledger = emptyLedger();
+  const history = newHistory(project), before = begin(project, history);
+  const changed = runBatch(project, batch(payloads[0]), '');
+  assert.ok(changed.ok);
+  if (!changed.ok) return;
+  const current = {...changed.project, ledger: project.ledger};
+  end(current, before, {author: AGENT, source: 'agent:apply', reason: REASON}, history);
+  const undone = step(current, 'undo', history, AGENT)!;
+  assert.equal(undone.project.approvedFingerprint, project.approvedFingerprint, 'an agent\'s undo of its own html change moves no approval');
+});
+
+test('a media item arrives with media_add (0.3-P2), not through a patch', () => {
+  const p = initialProject();
+  const media = {id: 'media-1', name: 'Clip', blocks: [], kind: 'media', media: {src: `media:${'b'.repeat(64)}`, mime: 'video/mp4', width: 640, height: 360}};
+  const inserted = runBatch(p, batch({patch: [{op: 'insert_page', index: 1, page: media}]}), '');
+  assert.ok(!inserted.ok && /media_add/.test(inserted.error), inserted.ok ? 'landed' : inserted.error);
 });
 
 test('thirty pages of html that would not fit in a saved project are refused, not half made', () => {

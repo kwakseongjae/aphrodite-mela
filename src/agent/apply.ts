@@ -177,10 +177,12 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
     // A patch can say anything the model can hold, so the result is held to what a saved project must be.
     try { next = parseProject(JSON.stringify(next)); }
     catch (error) { return {ok: false, index: -1, part: 'patch', error: `the patch would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
-    const was = new Map(project.pages.map(p => [p.id, p.html]));
+    const was = new Map(project.pages.map(p => [p.id, p]));
     for (const page of next.pages) {
-      const problem = typeof page.html === 'string' && page.html !== was.get(page.id) ? htmlProblem(page.html) : undefined;
+      const problem = typeof page.html === 'string' && page.html !== was.get(page.id)?.html ? htmlProblem(page.html) : undefined;
       if (problem) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: ${problem}`};
+      // A media item points at a file on the board, so it is made where the file is put there (media_add, 0.3-P2).
+      if (page.media !== undefined && JSON.stringify(page.media) !== JSON.stringify(was.get(page.id)?.media)) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: a media item arrives with media_add, which puts its file on the board first; a patch cannot point one at a file that may not be there.`};
     }
     if (!next.pages.some(p => p.blocks.some(b => b.id === focus.selected))) focus.selected = '';
   }
