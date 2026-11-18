@@ -1,0 +1,129 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {commands,grades,surfaceNames,commandById,gradeOfKind,kindsOfGrade,loopbackRoutes,mcpTools,type Row} from '../src/agent/commands.mjs';
+import {tools,toolByName} from '../mcp/aphrodite-mcp/tools.mjs';
+import {parseAgentCommand} from '../src/agent/bridge';
+import {judge,gateFor,HUMAN_ONLY_KIND,DOOR_KIND,type Authority} from '../src/agent/authority';
+
+/**
+ * 0.3-2: one command = one row of src/agent/commands.mjs. These tests hold the table to its own rules
+ * and hold every generated list to the table, so a command cannot be added, renamed or regraded in
+ * one place and quietly left behind in another.
+ */
+const NOW=1_700_000_000_000;
+const agentRs=readFileSync(new URL('../src-tauri/src/agent.rs',import.meta.url),'utf8');
+
+test('every row is well formed',()=>{
+  const ids=commands.map(r=>r.id);
+  assert.equal(new Set(ids).size,ids.length,'ids are unique');
+  for(const row of commands){
+    assert.match(row.id,/^(read|edit|outside|choose|human|chrome|screen)\.[a-z][a-z-]*$/,`${row.id} is named <family>.<name>`);
+    assert.ok(row.label.en.trim()&&row.label.ko.trim(),`${row.id} has an English and a Korean label`);
+    assert.ok(grades.includes(row.grade),`${row.id} has a known grade`);
+    assert.ok(['required','optional','none'].includes(row.reason),row.id);
+    assert.ok(['checked','none'].includes(row.revision),row.id);
+    assert.ok(['transport','person-only'].includes(row.author),row.id);
+    assert.equal(row.input?.type,'object',`${row.id} takes an object`);
+    assert.deepEqual(Object.keys(row.surfaces).sort(),[...surfaceNames].sort(),`${row.id} says yes or no for every surface`);
+    assert.ok(Object.values(row.surfaces).some(Boolean),`${row.id} is reachable somewhere`);
+    assert.equal(commandById[row.id],row);
+  }
+});
+
+test('only an edit writes to the ledger, and every edit that is not a screen verb names its source',()=>{
+  for(const row of commands){
+    if(row.grade==='edit'&&!row.resolves){
+      assert.ok(row.ledger&&row.ledger.sources.length>0,`${row.id} is an edit and names the ledger source it writes`);
+      for(const s of row.ledger.sources)assert.match(s,/^[a-z]+(:[a-z-]+)?$/,`${row.id} source ${s}`);
+    }else{
+      assert.equal(row.ledger,null,`${row.id} is ${row.resolves?'a screen verb: the row it reaches writes':'not an edit'}, so it writes no ledger source of its own`);
+    }
+    if(row.reason!=='none'||row.revision!=='none')assert.equal(row.grade,'edit',`${row.id}: reasons and revisions belong to edits`);
+  }
+});
+
+test('what only the person may do is reachable only from the screen, by the person',()=>{
+  const human=commands.filter(r=>r.grade==='human');
+  assert.ok(human.length>=2);
+  for(const row of human){
+    assert.deepEqual(row.surfaces,{ui:true,mcp:false,loopback:false,inApp:false},`${row.id} is on no agent surface`);
+    assert.equal(row.author,'person-only');
+    assert.equal(row.route,undefined,`${row.id} has no route`);
+    assert.equal(row.mcp,undefined,`${row.id} has no tool`);
+  }
+  assert.equal(gradeOfKind(HUMAN_ONLY_KIND),'human','approving is a human row');
+  assert.equal(gradeOfKind(DOOR_KIND),'human','answering for the door is a human row');
+  for(const name of ['approve','approve-export'])assert.ok(commandById['human.approve'].controls.some(c=>c.kind==='action'&&c.name===name),name);
+  for(const name of ['ask-allow','ask-decline','agent-connect-toggle','agent-disconnect','agent-forget'])assert.ok(commandById['human.door'].controls.some(c=>c.kind==='action'&&c.name===name),name);
+});
+
+test('the interface around the design is offered to no agent surface',()=>{
+  for(const row of commands.filter(r=>r.grade==='chrome')){
+    assert.deepEqual(row.surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row.id);
+    assert.equal(row.author,'person-only');
+  }
+  for(const row of commands.filter(r=>r.author==='person-only'))assert.ok(['human','chrome'].includes(row.grade),`${row.id}: only a human or chrome row is person-only`);
+});
+
+test('a route, a tool and a surface flag say the same thing',()=>{
+  for(const row of commands){
+    assert.equal(!!row.route,row.surfaces.loopback,`${row.id}: a loopback row has a route and only it does`);
+    assert.equal(!!row.mcp,row.surfaces.mcp,`${row.id}: an MCP row has a tool block and only it does`);
+    if(row.mcp)assert.ok(row.surfaces.loopback,`${row.id}: every tool is a route onto the loopback channel`);
+    if(row.route)assert.ok(row.kind,`${row.id}: a routed row names the kind the gate judges it as`);
+    assert.equal(row.surfaces.inApp,false,`${row.id}: the in-app panel is not on main yet`);
+  }
+});
+
+test('rows that share a gate kind agree on its grade',()=>{
+  const byKind=new Map<string,string>();
+  for(const row of commands.filter(r=>r.kind)){
+    const seen=byKind.get(row.kind!);
+    if(seen)assert.equal(row.grade,seen,`${row.id} grades "${row.kind}" differently from another row`);
+    byKind.set(row.kind!,row.grade);
+  }
+});
+
+test('every route parses, and the gate judges what it parses to as the row says',()=>{
+  for(const row of commands.filter(r=>r.route)){
+    const routeKind=row.route!.path.split('/').pop()!;
+    const parsed=parseAgentCommand(routeKind,row.example);
+    assert.ok('command' in parsed,`${row.id}: its example does not parse as ${routeKind}: ${'error' in parsed?parsed.error:''}`);
+    if('command' in parsed)assert.equal(gateFor(parsed.command),row.kind,`${row.id} is judged as "${row.kind}"`);
+  }
+});
+
+test('each grade meets the permission rule the way the grade says, with nobody at the door',()=>{
+  const closed:Authority={mode:'design',holder:null,now:NOW};
+  for(const row of commands.filter(r=>r.kind&&r.kind!=='end')){
+    const v=judge(row.kind!,'claude-code',closed);
+    if(row.grade==='read'||row.grade==='choose')assert.equal(v.allow,true,`${row.id} is allowed with the door closed`);
+    else if(row.grade==='edit'||row.grade==='outside')assert.deepEqual([v.allow,!v.allow&&v.status],[false,423],`${row.id} waits for the door`);
+    else if(row.grade==='human')assert.deepEqual([v.allow,!v.allow&&v.status],[false,403],`${row.id} is refused outright`);
+    else assert.fail(`${row.id}: a ${row.grade} row has no gate kind`);
+  }
+  assert.deepEqual(kindsOfGrade('human').sort(),[DOOR_KIND,HUMAN_ONLY_KIND].sort());
+});
+
+test('the MCP tool list is the table’s projection, in the order a client is shown it',()=>{
+  assert.deepEqual(tools,mcpTools());
+  for(const tool of tools)assert.equal(toolByName[tool.name],tool);
+  const orders=commands.filter(r=>r.mcp).map(r=>r.mcp!.order).sort((a,b)=>a-b);
+  assert.deepEqual(orders,orders.map((_,i)=>i),'tool positions are 0..n-1, each once');
+  const rowOf=(name:string)=>commands.find(r=>r.mcp?.name===name)!;
+  for(const tool of tools){
+    const row=rowOf(tool.name);
+    assert.equal(tool.inputSchema,row.input,`${tool.name} takes the row's own schema`);
+    assert.equal(tool.annotations.readOnlyHint,row.grade==='read',`${tool.name} is read-only exactly when its row is a read`);
+  }
+});
+
+test('the bridge advertises exactly the table’s loopback routes, in the same order',()=>{
+  const block=agentRs.slice(agentRs.indexOf('pub const ROUTES'),agentRs.indexOf('];',agentRs.indexOf('pub const ROUTES')));
+  const routes=[...block.matchAll(/"((?:GET|POST) \/agent\/[a-z]+)"/g)].map(m=>m[1]);
+  assert.deepEqual(routes,loopbackRoutes());
+});
+
+/** Row type is exported for the generated projections; keep it honest about optional parts. */
+const _row:Row=commands[0];void _row;
