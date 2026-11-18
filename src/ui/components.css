@@ -171,9 +171,9 @@
 .ui-tab {
   appearance: none; cursor: default; border: 0; background: none; margin: 0; padding: 0; font-family: inherit; border-radius: var(--ui-radius-1);
   display: inline-flex; align-items: center; gap: var(--ui-space-1); position: relative; white-space: nowrap;
-  font-size: var(--ui-text-12); font-weight: var(--ui-w-medium); color: var(--ui-text-3);
+  font-size: var(--ui-text-12); font-weight: var(--ui-w-medium); color: var(--ui-text-2);
 }
-.ui-tab:hover:not(:disabled), .ui-tab.is-hover { color: var(--ui-text-2); }
+.ui-tab:hover:not(:disabled), .ui-tab.is-hover { color: var(--ui-text-1); }
 .ui-tab:active:not(:disabled), .ui-tab.is-pressed { color: var(--ui-text-1); }
 .ui-tab.is-on, .ui-tab[aria-selected="true"] { color: var(--ui-text-1); }
 .ui-tab.is-on::after, .ui-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: calc(var(--ui-hairline) * -1); height: var(--ui-ring); background: var(--ui-text-1); border-radius: var(--ui-ring); }
