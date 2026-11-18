@@ -66,6 +66,11 @@ test('three pairs are let off their minimum, all graphics: one the owner approve
   const let_off=pairs.filter(p=>p.short);
   assert.deepEqual(let_off.map(p=>p.fg+'/'+p.bg),['line-strong/bg-panel','accent/bg-panel','accent-hover/bg-panel'],'a new exception needs the owner, not a test edit');
   for(const p of let_off){assert.equal(p.min,3,'text has no exceptions');assert.equal(p.meta,undefined,'an exception is never read as text');}
+  // A pair let off is let off only where it is drawn today: a new part drawing it needs the owner too.
+  const drawers=(fg:string,bg:string)=>drawn(css,policy).pairs.filter(d=>d.fg===fg&&d.bg===bg).flatMap(d=>d.rules).sort();
+  assert.deepEqual(drawers('line-strong','bg-panel'),['.ui-btn-secondary','.ui-chip','.ui-composer','.ui-connect','.ui-input','.ui-select','.ui-switch-track','.ui-textarea']);
+  assert.deepEqual(drawers('accent','bg-panel'),['.ui-connect.is-connected','.ui-dot.ui-dot-accent','.ui-switch-input:checked + .ui-switch-track','.ui-switch.is-on .ui-switch-track']);
+  assert.deepEqual(drawers('accent-hover','bg-panel'),['.ui-switch.is-on.is-hover .ui-switch-track','.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track']);
 });
 
 /**

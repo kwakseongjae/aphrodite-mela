@@ -93,11 +93,11 @@ export type Theme=keyof typeof themes;
  * tests/ui-contrast.test.ts reads the pairs the parts actually draw off the stylesheet and fails on one
  * that is not here, or is here at a lower minimum than the way it is drawn needs.
  *
- * A pair at 3 is for graphics only, unless it is marked \`meta\`: then text in a placeholder or in meta
+ * A pair at 3 is for graphics only, unless it is marked `meta`: then text in a placeholder or in meta
  * that repeats something said elsewhere (a count, a shortcut, a time) may use it too. The test names
  * those selectors. Anything else a person must read to act is text, at 4.5.
  *
- * \`short\` names a theme where the value is known to fall under its minimum, and why that is tolerated
+ * `short` names a theme where the value is known to fall under its minimum, and why that is tolerated
  * for now. The test fails if such a pair starts passing, so a fix also removes the note.
  */
 export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:Partial<Record<'light'|'dark',string>>}[]=[
@@ -142,9 +142,9 @@ export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:P
   {fg:'select',bg:'bg-canvas',min:3,use:'선택선 (그래픽)'},
   {fg:'select',bg:'bg-panel',min:3,use:'선택 점 (그래픽)'},
   {fg:'focus',bg:'bg-panel',min:3,use:'키보드 포커스 고리, 포커스 받은 입력 칸 테두리 (그래픽)'},
-  {fg:'line-strong',bg:'bg-panel',min:3,use:'입력 칸 테두리, 꺼진 스위치 막대 (그래픽)',short:{
-    light:'승인된 시안의 값(1.47:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.',
-    dark:'승인된 시안의 값(1.92:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.'}},
+  {fg:'line-strong',bg:'bg-panel',min:3,use:'입력 칸 · 글 상자 · 선택 상자 · 요청 입력창 테두리, 꺼진 스위치 막대, 칩 · 보조 버튼 · 연결 카드 테두리 (그래픽)',short:{
+    light:'승인된 시안의 값(1.47:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알리고, 칩 · 보조 버튼 · 연결 카드는 글자가 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.',
+    dark:'승인된 시안의 값(1.92:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알리고, 칩 · 보조 버튼 · 연결 카드는 글자가 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.'}},
   {fg:'accent',bg:'bg-panel',min:3,use:'켜진 스위치, 연결된 카드 테두리, 강조 점 (그래픽)',short:{dark:'대표님이 11/18에 승인한 예외(어두운 판 녹색 채움). 시안은 흰 글자 6.52:1을 지키려고 두 판에 같은 녹색을 쓴다. 스위치의 손잡이 위치와 연결 카드의 "연결됨" 알약이 상태를 함께 알린다. F3에서 다시 본다.'}},
   {fg:'accent-hover',bg:'bg-panel',min:3,use:'마우스를 올린 켜진 스위치 (그래픽)',short:{dark:'어두운 판 녹색 채움(11/18 승인)에 마우스를 올린 색(1.98:1). 승인이 이 색까지 덮는지는 보드에서 여쭌다. 손잡이 위치가 상태를 함께 알린다.'}},
   {fg:'on-agent',bg:'agent',min:4.5,use:'에이전트 이름표'},
