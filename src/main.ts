@@ -558,7 +558,7 @@ function inspectorPanelHtml(){const page=currentPage(project);return editorMode=
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
  * canvas on every click — the page flashed and every picture reloaded. Only what shows the selection
- * changes: the outline and its handles, the marks on the section and its layer, and the inspector.
+ * changes: the outline and its handles, the marks on the section and its layer, the inspector and the assembly bar.
  * A field being edited in the inspector has already been saved by its own `change` as focus left it.
  */
 function selectBlock(id:string){
@@ -574,7 +574,7 @@ function selectBlock(id:string){
   app.querySelectorAll<HTMLElement>('.layer[data-layer-id]').forEach(el=>el.classList.toggle('selected',el.dataset.layerId===id));
   aside.querySelectorAll(':scope>:not(.inspector-grip,.inspector-top,.inspector-toggle)').forEach(el=>el.remove());
   aside.insertAdjacentHTML('beforeend',inspectorPanelHtml());decorateInspector(page);
-  hydrateIconsIn(aside);syncStateAttributes();
+  hydrateIconsIn(aside);refreshAssemblyBar();syncStateAttributes();
   mountPointer(canvas,page);
 }
 /** What the inspector adds for the selected block once it is drawn. render() and selectBlock() both call it. */

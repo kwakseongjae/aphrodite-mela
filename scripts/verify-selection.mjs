@@ -185,5 +185,36 @@ check('a deliberate drag on a handle still resizes', async () => {
   assert.deepEqual(changes.map(c => c.source), ['pointer:resize']);
 });
 
+/* Review 0.3-1b: the assembly bar names the selected node and enables Pin selected frame for a frame.
+   render() drew it; selecting in place left it stale. The editor no longer mounts the bar on its own
+   (render() places it after a `.workflow` element that is gone), so the check puts the slot in. */
+check('the assembly bar follows the selection without a change being recorded', async () => {
+  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'add'; b.dataset.kind = 'frame'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await sleep(600);
+  const frame = await selectedId();
+  assert.equal(await evaluate(`document.querySelector('[data-block-id="${frame}"]')?.dataset.kind`), 'frame', 'a layout frame was added and selected');
+  await evaluate(`(() => { document.querySelector('.workbench').insertAdjacentHTML('afterbegin', '<section class="assembly-bar"></section>'); return true; })()`);
+  await personClicks('assembly-toggle');
+  await sleep(200);
+  const barText = () => evaluate(`document.querySelector('.assembly-bar').textContent`);
+  const pin = () => evaluate(`(() => { const b = document.querySelector('.assembly-bar [data-action="pin-frame"]'); return b ? !b.disabled : null; })()`);
+  assert.equal(await pin(), true, 'Pin selected frame is on for the frame');
+  const onFrame = await barText();
+  const before = await ledgerSeq();
+  const [first] = await blocks();
+  await click(await inside(first));
+  assert.equal(await selectedId(), first);
+  assert.equal(await pin(), false, 'and off once a section that is not a frame is selected');
+  assert.notEqual(await barText(), onFrame, 'the bar names the newly selected node');
+  await evaluate(`document.querySelector('[data-block-id="${frame}"]').focus(), true`);
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13});
+  await sleep(300);
+  assert.equal(await selectedId(), frame);
+  assert.equal(await pin(), true, 'and on again for the frame');
+  assert.equal(await barText(), onFrame);
+  assert.equal(await ledgerSeq(), before, 'selecting recorded nothing');
+});
+
 checks.push(['(numbers)', async () => { console.log('       ' + JSON.stringify(result)); }]);
 await runChecks(checks, close);
