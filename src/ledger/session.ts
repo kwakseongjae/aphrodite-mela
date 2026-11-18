@@ -15,7 +15,8 @@ import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject} from './patch';
 import {designOf, emptyLedger, fitSaved, record, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
 
-export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
+/** `saved` is how long the project was at its last save, when the caller knows it (main.ts persist): it spares fitSaved a serialization while the project is far from its cap. */
+export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project; saved?: number};
 
 /** Given the project as it opens, takes it as the baseline: what changes outside `commit()` from then on is recorded. */
 export function newHistory(project?: Project): History {
@@ -38,7 +39,7 @@ function reconcile(project: Project, history: History): Project {
     const drift = diffProject(history.last, designOf(project));
     if (drift.length) {
       record(ledgerOf(project), history.last, designOf(project), {author: UNKNOWN, source: 'untracked'}, drift);
-      fitSaved(project);
+      fitSaved(project, history.saved);
       history.last = clone(project);
       history.redo = [];
     }
@@ -55,7 +56,7 @@ export function begin(project: Project, history: History): Project {
 export function end(project: Project, before: Project, meta: {author: Author; source: string; reason?: string}, history: History): Change | null {
   const done = record(ledgerOf(project), before, designOf(project), meta);
   if (!done) return null;
-  fitSaved(project);
+  fitSaved(project, history.saved);
   history.undo.push(done.undo);
   if (history.undo.length > UNDO_LIMIT) history.undo.shift();
   history.redo = [];
@@ -93,7 +94,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   from.pop();
   (direction === 'undo' ? history.redo : history.undo).push(entry);
   next.ledger = ledger;
-  fitSaved(next);
+  fitSaved(next, history.saved);
   history.last = clone(next);
   // A step that changes nothing (its effect was already gone) still moves the stacks, and records nothing.
   return {project: next, change: done ? done.change : null};

@@ -14,7 +14,7 @@
  */
 import {fingerprint, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+import {compact, forSaving, LEDGER_RESERVE, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
 export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
@@ -107,9 +107,14 @@ const SAVED_SLACK = 1_000;
  * (a big picture uploaded, say — this was so before html pages) is not rescued here: saving it fails and
  * the person sees the not-saved warning, as they did before.
  */
-export function fitSaved(project: Project): void {
+export function fitSaved(project: Project, saved?: number): void {
   const ledger = project.ledger;
   if (!ledger) return;
+  // `saved` is how long the project was when it was last saved (main.ts persist measures it anyway). Far
+  // from the cap there is nothing to do and no reason to serialize the design to find that out: the
+  // history never takes more than its reserve, and one edit is taken to add less than another reserve.
+  // A picture bigger than that, uploaded near the cap, is measured at the next save, which warns if it fails.
+  if (saved !== undefined && MAX_PROJECT - saved > 2 * LEDGER_RESERVE) return;
   const room = MAX_PROJECT - JSON.stringify(designOf(project)).length - SAVED_SLACK;
   if (JSON.stringify(ledger).length > room) compact(ledger, Math.max(0, room - ledger.changes.length));
 }

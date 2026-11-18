@@ -33,12 +33,15 @@ export function entryFor(project:Project,now=new Date().toISOString(),workspaceI
   if(workspaceId!==undefined)entry.workspaceId=requireWorkspaceId(workspaceId);
   return entry;
 }
-export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{
+export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{return upsertProjectMeasured(library,project,now,workspaceId).library;}
+/** upsertProject, and how long the project it stored serializes to: the save measures it anyway, and the next edit can use it (session.ts History.saved). */
+export function upsertProjectMeasured(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):{library:Library;projectChars:number}{
   const existing=library.entries.find(e=>e.project.id===project.id);
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
-  const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
-  return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
+  const raw=JSON.stringify(project);
+  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
+  return {library:{version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]},projectChars:raw.length};
 }
 /** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
 export const LIBRARY_LIMIT_BYTES=40_000_000;
@@ -72,9 +75,9 @@ export function libraryRefusal(library:Library,before:Project,after:Project,{lim
   if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
   return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
 }
-export function writeLibrary(storage:LocalStore,library:Library):void{
-  // One atomic localStorage write: quota errors cannot leave a half-written index.
-  const raw=JSON.stringify(library);
+export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,JSON.stringify(library));}
+/** The library, already serialized, in one atomic localStorage write: quota errors cannot leave a half-written index. */
+export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }

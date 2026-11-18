@@ -48,7 +48,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,upsertProjectMeasured,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -215,8 +215,10 @@ function paintToasts(){
 }
 /** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
 function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
-function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+/** How long the library was as last handed to storage: an agent's batch is measured against it before the library is serialized again. */
+let savedLibraryChars:number|undefined;
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;savedLibraryChars=raw.length;}
+function persist() { try { const saved=upsertProjectMeasured(library,project,undefined,workspaces.activeId);saveLibrary(saved.library);edits.saved=saved.projectChars; if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -1546,7 +1548,7 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
     const result=runBatch(project,batch,selected);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
-    const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+    const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},savedLibraryChars===undefined?undefined:{libraryChars:savedLibraryChars,designChars:result.designChars});
     if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
     created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
