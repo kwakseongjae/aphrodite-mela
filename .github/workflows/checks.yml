@@ -55,6 +55,12 @@ jobs:
       - name: Build the frontend
         run: npm run build
 
+      # Every edit lands in the ledger as exactly one change, named for whoever made it: each edit
+      # row of the command table, on every surface it is offered on (0.3-2b). It drives the bundle
+      # just built in the runner's Chrome, with trusted input for the person.
+      - name: Check that the ledger names who made each edit
+        run: npm run verify:ledger
+
       # The crate's build script wants the sidecar to exist before cargo runs, and it must be
       # built for the target cargo is about to use.
       - name: Build the Vision sidecar
