@@ -184,6 +184,62 @@ check('edit and system written against an older revision are refused with what c
   }
 });
 
+/* ---- 0.3-P1: an html page, made and changed by an agent in one call each, and taken back by the person ---- */
+
+const BRIEFING = '<!doctype html><html><head><style>h1{font:600 32px serif}</style></head><body>\n<h1>Week 47</h1>\n<p id="lead">Three things changed.</p>\n<p>Row</p>\n<p>Row</p>\n<script>document.body.dataset.ready = "1";</script>\n</body></html>';
+const briefing = {id: ''};
+/** What would show that an html call landed: the ledger, the revision, the page count and the page itself. */
+const htmlState = async () => {
+  const contract = await read('contract');
+  return {seq: await seq(), revision: contract.revision, pages: contract.project.page_count, html: briefing.id ? (await read('html', {page_id: briefing.id})).html : null};
+};
+
+check('an agent makes an html page and changes one passage of it: one change each, the agent\'s, the passage as a text diff', async () => {
+  let made;
+  const first = await oneChange('html_page', async () => (made = await read('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Briefing', html: BRIEFING}]})));
+  matches('html_page', first, {row: 'edit.apply', author: AGENT, source: 'agent:apply', reason: WHY});
+  briefing.id = made.created_pages?.[0]?.page_id ?? '';
+  assert.ok(briefing.id, `the reply names the page it made: ${JSON.stringify(made).slice(0, 300)}`);
+  const stored = await read('html', {page_id: briefing.id});
+  assert.equal(stored.html, BRIEFING, 'the page reads back exactly as it was sent');
+  const passage = stored.html.slice(stored.html.indexOf('<p id="lead">'), stored.html.indexOf('</p>', stored.html.indexOf('<p id="lead">')) + 4);
+  const second = await oneChange('html_replace', () => read('apply', {reason: WHY, base_revision: stored.revision, ops: [{op: 'html_replace', page_id: briefing.id, find: passage, replace: '<p id="lead">Four things changed.</p>'}]}));
+  matches('html_replace', second, {row: 'edit.apply', author: AGENT, source: 'agent:apply', reason: WHY});
+  assert.deepEqual(second.ops.map(op => op.op), ['text'], 'one passage is recorded as a text diff, not the whole page');
+  assert.match((await read('text', {page_id: briefing.id})).text, /Four things changed\./);
+});
+
+check('the six ways an html change can fail all leave the page, the ledger and the revision as they were', async () => {
+  assert.ok(briefing.id, 'the html page from the check before');
+  const section = (await read('contract')).pages.find(p => !p.kind).page_id;
+  const stale = await revision();
+  await oneChange('a change in between', () => read('apply', {reason: WHY, ops: [{op: 'html_replace', page_id: briefing.id, find: 'Week 47', replace: 'Week 48'}]}));
+  const now = await revision();
+  const cases = [
+    ['the passage is not there', {ops: [{op: 'html_replace', page_id: briefing.id, find: 'Five things', replace: 'x'}]}, /not on page/],
+    ['the passage is there twice', {ops: [{op: 'html_replace', page_id: briefing.id, find: '<p>Row</p>', replace: 'x'}]}, /2 times/],
+    ['the second op fails', {ops: [{op: 'html_set', page_id: briefing.id, html: '<p>Fine</p>'}, {op: 'html_replace', page_id: briefing.id, find: 'missing', replace: 'x'}]}, /not on page/],
+    ['a page is made and then an op fails', {ops: [{op: 'html_page', name: 'Orphan', html: '<p>Orphan</p>'}, {op: 'html_set', page_id: 'no-such-page', html: 'x'}]}, /no page/],
+    ['an html op on a section page', {ops: [{op: 'html_set', page_id: section, html: '<p>x</p>'}]}, /section page/],
+    ['a revision the project has moved on from', {ops: [{op: 'html_set', page_id: briefing.id, html: '<p>Stale</p>'}], base_revision: stale}, /changed since revision/],
+  ];
+  for (const [why, payload, says] of cases) {
+    const before = await htmlState();
+    const result = await read('apply', {reason: WHY, base_revision: now, ...payload});
+    await sleep(200);
+    assert.match(result.error ?? '', says, `${why}: ${JSON.stringify(result).slice(0, 300)}`);
+    assert.deepEqual(await htmlState(), before, `${why}: nothing changed`);
+  }
+});
+
+check('the person\'s ⌘Z takes back an agent\'s whole replacement of an html page, exactly', async () => {
+  const before = (await read('html', {page_id: briefing.id})).html;
+  await oneChange('html_set', async () => read('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_set', page_id: briefing.id, html: '<p>Rewritten whole.</p>'}]}));
+  matches('⌘Z after html_set', await oneChange('⌘Z after html_set', () => presses('z', 4)), {row: 'edit.undo', author: PERSON, source: 'undo'});
+  assert.equal((await read('html', {page_id: briefing.id})).html, before);
+  await sleep(5_200); // the person's press holds the screen for five seconds
+});
+
 /* ---- the screen verbs: what they reach is recorded as the agent's, never the person's ---- */
 
 check('act: the button it presses is recorded as the agent, with the reason given', async () => {
