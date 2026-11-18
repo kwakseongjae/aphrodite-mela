@@ -103,3 +103,11 @@ test('the app loads the tokens before the parts, from index.html and not from ap
   const appCode=readdirSync(new URL('../src/',import.meta.url),{recursive:true}).map(String).filter(f=>/\.tsx?$/.test(f)&&!f.startsWith('ui/'));
   for(const file of appCode)assert.doesNotMatch(readFileSync(new URL(`../src/${file}`,import.meta.url),'utf8'),/from\s+['"][./]*ui\/tokens/,`${file} imports src/ui/tokens.ts`);
 });
+
+test('the gallery is a development page, never part of the app bundle',()=>{
+  // Vite serves any root .html in dev; a build only takes index.html unless the config names more.
+  assert.ok(existsSync(new URL('../ui-gallery.html',import.meta.url)),'ui-gallery.html exists');
+  const config=readFileSync(new URL('../vite.config.ts',import.meta.url),'utf8');
+  assert.doesNotMatch(config,/ui-gallery|rollupOptions\s*:\s*\{[^}]*input/,'vite.config.ts adds the gallery (or another page) to the build');
+  assert.doesNotMatch(readFileSync(new URL('../index.html',import.meta.url),'utf8'),/gallery/,'index.html loads the gallery sheet');
+});
