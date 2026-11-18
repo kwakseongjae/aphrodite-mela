@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {agent, evaluate, personClicks, personSubmits, presses, close} =
+const {agent, evaluate, personClicks, personPresses, personSubmits, presses, close} =
   await openApp({port: 4187, cdp: 9338, profile: '/tmp/aphrodite-se-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
@@ -18,7 +18,7 @@ check('a project is open and the person opens the door', async () => {
   await sleep(400);
   assert.equal(await personSubmits('#new-project-form', {name: 'Contract'}), true);
   await sleep(600);
-  await personClicks('agent-connect-toggle');
+  await personPresses('agent-connect-toggle');
   await sleep(250);
   await presses('Escape');
   await sleep(200);

@@ -1,4 +1,4 @@
-import { createIcons } from 'lucide';
+import { createIcons, createElement } from 'lucide';
 /** Last-resort crash surface: a blank webview hides everything, so uncaught errors are painted into the page. */
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
@@ -55,14 +55,15 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {changesSince,designOf,type Change} from './ledger/ledger';
-import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
+import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
+import {describeCaller} from './agent/callers';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
@@ -155,22 +156,25 @@ let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
 let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDebounce=0;
-/* Connected mode: the person keeps the screen and an agent may edit alongside them. The allow lasts
-   CONNECT_HOURS (12) and is remembered across relaunches; the switch ends it early. */
-let connectMode=false;try{connectMode=connectActive(localStorage.getItem(CONNECT_KEY),Date.now());}catch{}
-function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,String(connectUntil(Date.now())));else localStorage.removeItem(CONNECT_KEY);}catch{/* not remembered; it still holds for this launch */}}
-/** How much of the 12 hours is left, in the person's language. Read at paint time so it counts down as
- *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
-function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
-let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;
+/* Connected mode: the person keeps the screen and the agents they let in may edit alongside them.
+   Who is let in is remembered by name (ALLOWED_KEY, no expiry) until the person disconnects them;
+   `*` is the switch, open to any agent. connectMode is only "anyone is let in". */
+let allowedAgents:string[]=[];try{allowedAgents=readAllowed(localStorage.getItem(ALLOWED_KEY));localStorage.removeItem(LEGACY_CONNECT_KEY);}catch{}
+let connectMode=allowedAgents.length>0;
+function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
+/** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
+function allowedText(){return allowedAgents.map(callerText).join(', ');}
+let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
-function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
+/** The door as one caller meets it: open to another agent is still closed to this one. */
+function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
+function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now(),allowed:allowedAgents};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
 function bumpConnect(by:string){
   connectWrites++;
   const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
   if(count)count.textContent=String(connectWrites);
-  if(who)who.textContent=by;
+  if(who)who.textContent=callerText(by);
   if(!count)render();
 }
 let tokensOpen=false;
@@ -195,6 +199,8 @@ const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}
 const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
+/** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
+function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
 let toasts:Toast[]=[];let toastId=0;
 const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
 function paintToasts(){
@@ -204,7 +210,8 @@ function paintToasts(){
   const wait=nextExpiry(toasts,Date.now());
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
 }
-function toast(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
+/** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
+function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
 function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
@@ -261,8 +268,9 @@ function agentConnectModal(){
   showModal(ui('Agent connection','에이전트 연결'),
     ui('Reading is always open. Writing is not, until you say so.','읽기는 언제나 열려 있습니다. 쓰기는 허용하기 전까지 막혀 있습니다.'),
     `<p class="panel-description">${ui('An agent on this Mac can always read this project — its pages, components and tokens. To let one edit while you keep working, turn this on. You keep the screen the whole time: your own typing takes priority, and ⌘Z undoes an agent edit like any other.','이 Mac의 에이전트는 이 프로젝트를 언제나 읽을 수 있습니다. 페이지·컴포넌트·토큰이요. 사용자가 계속 작업하는 동안 에이전트가 편집도 하게 하려면 이 스위치를 켜세요. 화면은 내내 사용자 것입니다. 사용자의 입력이 우선하고, 에이전트의 편집도 ⌘Z로 되돌립니다.')}</p>`+
-    `<div class="connect-switch"><div><strong>${ui('Let an agent edit alongside me','에이전트가 함께 편집하도록 허용')}</strong><small>${on?`${ui('On','켜짐')} · ${(()=>{try{return connectRemaining(localStorage.getItem(CONNECT_KEY),Date.now(),uiLanguage==='ko');}catch{return '';}})()} · ${ui('Disconnect ends it at once.','연결 끊기로 즉시 끌 수 있습니다.')}`:ui('Off. Agents can read but not change anything.','꺼짐. 에이전트는 읽을 수만 있습니다.')}</small></div>`+
+    `<div class="connect-switch"><div><strong>${ui('Let an agent edit alongside me','에이전트가 함께 편집하도록 허용')}</strong><small>${on?`${ui('On','켜짐')} · ${esc(allowedText())} · ${ui('Remembered until you disconnect. Turning it off disconnects every agent.','연결을 끊을 때까지 기억합니다. 끄면 모든 에이전트의 연결이 끊깁니다.')}`:ui('Off. Agents can read but not change anything.','꺼짐. 에이전트는 읽을 수만 있습니다.')}</small></div>`+
     `<button type="button" class="${on?'primary-button':'secondary-button'}" data-action="agent-connect-toggle" aria-pressed="${on}">${on?ui('On','켜짐'):ui('Off','꺼짐')}</button></div>`+
+    (allowedAgents.length?`<ul class="connect-allowed" aria-label="${ui('Agents you let in','허용한 에이전트')}">${allowedAgents.map(n=>`<li><span><strong>${esc(callerText(n))}</strong>${n===ANYONE?'':` <code>${esc(n)}</code>`}</span><button type="button" class="secondary-button" data-action="agent-forget" data-name="${esc(n)}">${ui('Disconnect','연결 끊기')}</button></li>`).join('')}</ul>`:'')+
     `<div class="modal-note">${ui('Agent mode is the other way to hand over: it locks people out entirely and gives the agent the whole screen. This switch does not do that.','에이전트 모드는 다른 방식의 위임입니다. 사람을 완전히 잠그고 화면 전체를 에이전트에게 넘깁니다. 이 스위치는 그렇게 하지 않습니다.')}</div>`+
     (nativeDesktop&&channel?`<details><summary>${ui('Channel details','채널 정보')}</summary><pre class="export-code">${esc(bridgeExamples(channel,endpointFile))}</pre></details>`:''),
     true);
@@ -333,29 +341,23 @@ function toggleNight(){
 }
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}`;}
+function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
   slot.innerHTML=bannersHtml();
-  const left=connectLeftText(),copy=homeCopy[uiLanguage];
+  const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
-}
-
-/** An agent asking to be let in. A line at the top, not a dialog: it must never interrupt a drag. */
-function askBannerHtml(){
-  if(!askState||askState.answered!=='pending'||agentMode()!=='design')return '';
-  return `<div class="ask-banner" role="status">${icon('bot')}<strong>${esc(askState.by)}</strong><span class="connect-sep">·</span><span>${ui('would like to edit alongside you','함께 편집하기를 요청합니다')}</span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes any of it','화면은 그대로 쓰시면 됩니다 · 무엇이든 ⌘Z로 되돌립니다')}</span><span class="connect-fill"></span><button type="button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="ask-allow" data-action="ask-allow">${ui('Allow','허용')}</button></div>`;
 }
 
 /** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
 function connectBannerHtml(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
-  const holder=lease&&lease.label!==HUMAN?lease.label:'',left=connectLeftText();
-  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder||ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
+  const holder=lease&&lease.label!==HUMAN?lease.label:'',left=allowedText()?`${ui('allowed','허용')} ${esc(allowedText())}`:'';
+  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
 }
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
@@ -505,7 +507,7 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,connectLeftText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
@@ -537,7 +539,7 @@ function render() {
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
     </main>
-    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${inspectorPanelHtml()}</aside>
   </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -547,6 +549,38 @@ function render() {
   mountSpace();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
+  decorateInspector(page);
+  if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
+  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  mountPointer(canvas as HTMLElement,page);
+}
+function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+function inspectorPanelHtml(){const page=currentPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml();}
+/**
+ * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
+ * canvas on every click — the page flashed and every picture reloaded. Only what shows the selection
+ * changes: the outline and its handles, the marks on the section and its layer, the inspector and the assembly bar.
+ * A field being edited in the inspector has already been saved by its own `change` as focus left it.
+ */
+function selectBlock(id:string){
+  // A press on the canvas does not always take focus from the field (WebKit keeps it), and a field
+  // that is removed while focused never sends `change`. Leaving it first saves the edit, onto the
+  // block it was typed into, before `selected` moves on.
+  const typing=document.activeElement;if(typing instanceof HTMLElement&&typing.closest('.inspector'))typing.blur();
+  selected=id;
+  const canvas=app.querySelector<HTMLElement>('#design-canvas'),aside=app.querySelector<HTMLElement>('.inspector');
+  if(screen!=='editor'||!canvas||!aside){render();return;}
+  const page=currentPage(project);
+  canvas.querySelectorAll<HTMLElement>('.block-wrap[data-block-id]').forEach(el=>el.classList.toggle('selected',el.dataset.blockId===id));
+  app.querySelectorAll<HTMLElement>('.layer[data-layer-id]').forEach(el=>el.classList.toggle('selected',el.dataset.layerId===id));
+  aside.querySelectorAll(':scope>:not(.inspector-grip,.inspector-top,.inspector-toggle)').forEach(el=>el.remove());
+  aside.insertAdjacentHTML('beforeend',inspectorPanelHtml());decorateInspector(page);
+  hydrateIconsIn(aside);refreshAssemblyBar();syncStateAttributes();
+  mountPointer(canvas,page);
+}
+/** What the inspector adds for the selected block once it is drawn. render() and selectBlock() both call it. */
+function decorateInspector(page:Page){
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -565,16 +599,12 @@ function render() {
     app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',library+layout);
     if(b.kind==='frame')app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',select('variant',ui('Frame recipe','프레임 레시피'),patternVariants('frame'),b.variant??'default')+'<p class="panel-description">app-* 레시피는 열·간격 규칙을 고정합니다. 일반 레이아웃 편집은 default로 전환하세요.</p>');
   }
-  if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   if(inspected&&supportsComponentTheme(inspected)){
    const mode=inspected.theme?.mode??'project';
    const effect=primaryEffect(inspected);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<p class="panel-description" role="status">${ui('Primary affects: ','메인 색상 적용 영역: ')}${ui(effect,({'fill':'채움 배경','text-border':'글자·테두리 (ghost는 글자)','border':'테두리만','neutral':'중립형 — 현재 변형의 기본 글자·배경에는 미적용'} as Record<string,string>)[effect])}</p>${mode==='custom'?`<label class="edit-field">${ui('HEX','HEX')}<input id="component-theme-hex" aria-label="Component primary hex" value="${componentAccent(inspected,project.system.accent)}" maxlength="7" pattern="#[a-fA-F0-9]{6}"></label>`:''}`);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<label class="edit-field">${ui('Component primary color','컴포넌트 메인 색상')}<select id="component-theme-mode" aria-label="Component color policy"><option value="project" ${mode==='project'?'selected':''}>${ui('Follow project','프로젝트 색상 적용')}</option><option value="source" ${mode==='source'?'selected':''}>${ui('Adapter baseline','어댑터 기본색')}</option><option value="custom" ${mode==='custom'?'selected':''}>${ui('Custom color','개별 색상 지정')}</option></select></label>${mode==='custom'?`<label class="edit-field">${ui('Custom primary','개별 메인 색상')}<input type="color" id="component-theme-accent" aria-label="Component custom primary" value="${componentAccent(inspected,project.system.accent)}"></label>`:''}<p class="panel-description">${ui('Primary only. Fonts and surfaces still follow existing adapters. Baseline is not a full original DS.','메인 색상만 변경합니다. 폰트·표면색은 기존 어댑터를 따릅니다. 기본색은 원본 DS 전체 복원이 아닙니다.')}<br>${componentAccent(inspected,project.system.accent)}</p>`);
   }
-  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
-  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
-  disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
 }
 function libraryHtml() {
   if (tab === 'archive') return referencesPanelHtml(archive.entries(), archive.scope(), uiLanguage === 'ko', nativeDesktop);
@@ -692,13 +722,73 @@ function inspectorHtml() {
 function showModal(title: string, subtitle: string, body: string, wide = false) {
   comparisonObserver?.disconnect(); comparisonObserver = null;
   if (!modalRoot.children.length) modalReturnFocus = document.activeElement as HTMLElement;
+  /* A request to edit stays on top of any dialog the person did not open just now — a button's
+     continuation after an await, a script's click — which goes under it and shows once it is answered.
+     The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
+  const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
   modalRoot.innerHTML = `<div class="modal-backdrop"><section class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-heading"><div><span class="kicker">APHRODITE STUDIO</span><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div>${iconButton('close-modal', 'x', 'Close dialog')}</div><div class="modal-content">${body}</div></section></div>`;
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
+  if(ask)modalRoot.append(ask);
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
 function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+  // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
+  offerAsk();
 }
+function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
+/** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2){closeModal();return;}ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}
+/** Which request the dialog on screen is: its id and who asked, as drawn into it. */
+function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
+/** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
+function askIs(shown:{id:string;by:string}){return !!askState&&askState.answered==='pending'&&!!shown.id&&askState.id===shown.id&&askState.by===shown.by;}
+let askSeq=0;
+/**
+ * An agent asking to be let in, as a dialog in the middle of the screen. It waits for its moment: not
+ * over another dialog the person is using (it shows when that one closes), and not in the middle of a
+ * press, where making the page inert would cancel the person's drag.
+ */
+function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by,askState.id);}
+/** A program's name as a person knows it ("Codex", not "codex-mcp-client"); the switch reads as any agent. */
+function callerText(raw:string){return raw===ANYONE?ui('any agent','모든 에이전트'):describeCaller(raw).name;}
+/**
+ * The request, written for someone who has never heard of an agent channel: which program, where it
+ * runs, that it can already read, that allowing starts nothing new. The name the program sent stays
+ * on it, small, because that name is all the app actually knows — it is what the program says.
+ */
+function askModal(by:string,id:string){
+  const who=describeCaller(by),n=esc(who.name),ga=who.known?(who.name.endsWith('Desktop')?'이':'가'):'이(가)';
+  const from=who.source==='terminal'?ui(`${n}, running in a terminal on this Mac, connected to Aphrodite over MCP.`,`이 Mac의 터미널에서 실행 중인 ${n}${ga} MCP로 Aphrodite에 연결했습니다.`)
+    :who.source==='mcp'?ui(`${n}, running on this Mac, connected to Aphrodite over MCP.`,`이 Mac에서 실행 중인 ${n}${ga} MCP로 Aphrodite에 연결했습니다.`)
+    :who.source==='in-app'?ui(`This comes from the ${n} chat inside Aphrodite.`,`Aphrodite 안의 ${n} 대화에서 온 요청입니다.`)
+    :ui('A program on this Mac connected to Aphrodite. All it says about itself is its name.','이 Mac의 어떤 프로그램이 Aphrodite에 연결했습니다. 스스로 밝힌 이름 말고는 알 수 없습니다.');
+  showModal(ui(`${n} wants to edit this project with you`,`${n}${ga} 이 프로젝트를 함께 편집하려고 합니다`),`${from} ${ui('It can already read; if you allow it, it can make changes too.','읽기는 이미 할 수 있고, 허용하면 고칠 수도 있습니다.')}`,
+    `<div class="ask-dialog" data-ask-id="${esc(id)}" data-ask-by="${esc(by)}"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · Disconnect it in Help (?) → Agent connection','다음부터는 묻지 않습니다 · 도움말(?) → 에이전트 연결에서 끊을 수 있습니다')}</span></li><li>${icon('monitor')}<span>${ui('Allowing starts nothing new: the connection exists only on this Mac, while Aphrodite is open.','허용해도 새로 켜지는 것은 없습니다. 이 연결은 Aphrodite가 열려 있는 동안 이 Mac 안에서만 열려 있습니다.')}</span></li></ul>`+
+    `<p class="ask-raw">${ui('Connection name','연결 이름')}: <code class="ask-name">${esc(by)}</code>${who.known?'':` (${ui('unknown program','알 수 없는 프로그램')})`}</p>`+
+    `<div class="ask-actions"><button type="button" class="secondary-button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="primary-button" data-action="ask-allow">${ui('Allow','허용')}</button></div></div>`);
+  modalRoot.querySelector('.modal')?.classList.add('ask-modal');
+  // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
+  toasts=[];paintToasts();
+  modalRoot.querySelector<HTMLElement>('[data-action="ask-allow"]')?.focus();
+}
+/**
+ * The person's answer to the dialog on screen. Only their own input reaches here (doorActions in
+ * authority.ts; the keys check isTrusted). It changes nothing unless the dialog is still the request
+ * waiting — same id, same name — so an answer can never land on a request the person did not see.
+ */
+function answerAsk(allow:boolean){
+  const shown=askShown();
+  if(!shown||!askIs(shown)){if(shown)closeAsk();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
+  const by=shown.by;
+  askState={...askState!,answered:allow?'allowed':'declined',at:allow?askState!.at:Date.now()};
+  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
+  closeAsk();
+  refreshBanners();
+  toast(allow?`${callerText(by)} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
+}
+document.addEventListener('pointerdown',()=>{pointerHeld=true;},true);
+for(const type of ['pointerup','pointercancel'])document.addEventListener(type,()=>{pointerHeld=false;setTimeout(offerAsk,0);},true);
 function systemModal() {
   showModal(ui('Start with a point of view.','관점부터 정하세요.'), '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import a design system', 'secondary-button full-width')}<p class="fine-print">${ui('A DESIGN.md, or a design-system graph as .json. Named colours are painted; the rest is kept with the project so a round trip loses nothing.','DESIGN.md 또는 디자인 시스템 그래프(.json). 이름이 맞는 색은 화면에 적용하고, 나머지는 프로젝트에 그대로 보관해 왕복해도 잃지 않습니다.')}</p>`);
 }
@@ -835,10 +925,12 @@ function compareModal() {
 /**
  * `trusted` says the person started this with their own input (the click event's isTrusted). Only the
  * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an agent's
- * el.click() — leaves it false, and an approve* action then refuses to run.
+ * el.click() — leaves it false, and an approve* or door action then refuses to run.
  */
 async function action(el: HTMLElement, trusted = false) {
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
+  // Who may edit is decided the same way: allowing, declining, the switch and disconnecting run only from the person's own input.
+  if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
@@ -919,7 +1011,7 @@ async function action(el: HTMLElement, trusted = false) {
     case 'redo': history('redo',by); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
-    case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
+    case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
     case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);break;}
@@ -1131,7 +1223,7 @@ async function action(el: HTMLElement, trusted = false) {
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
-    case 'close-modal': closeModal(); break;
+    case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': await reloadFromDisk(); break;
@@ -1160,10 +1252,11 @@ async function action(el: HTMLElement, trusted = false) {
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'ask-allow': {const by=askState?.by??'';askState=askState?{...askState,answered:'allowed'}:null;connectMode=true;rememberConnect(true);lease=null;connectWrites=0;refreshBanners();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
-    case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;refreshBanners();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
-    case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-disconnect': connectMode=false;rememberConnect(false);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
+    case 'ask-allow': answerAsk(true);break;
+    case 'ask-decline': answerAsk(false);break;
+    case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
+    case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }
@@ -1175,7 +1268,7 @@ document.addEventListener('click', e => {
   document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open],details.folio-help[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   const link=target.closest<HTMLAnchorElement>('a[href^="https://github.com/"]');
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
-  if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
+  if (target.classList.contains('modal-backdrop')) { if(askOpen()){if(e.isTrusted)answerAsk(false);return;} closeModal(); return; }
   const chip=target.closest<HTMLElement>('[data-toast]');
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
@@ -1183,7 +1276,7 @@ document.addEventListener('click', e => {
   if (control) { e.preventDefault(); void action(control, e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
-  if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
+  if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
 });
 document.addEventListener('contextmenu',e=>{
   if(screen!=='home')return;const card=(e.target as HTMLElement).closest<HTMLElement>('[data-project-id]');if(!card)return;
@@ -1383,9 +1476,9 @@ async function inlineAssets(html:string):Promise<string>{
   for(const [path,data] of seen)out=out.split(path).join(data);
   return out;
 }
-function agentState(){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function agentState(who=commandCaller){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
@@ -1430,8 +1523,11 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   // bridge, MCP, window.aphroditeAgent) arrives through this one function.
   const verdict=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
+  /* While a request to edit is on screen the dialogs are the person's: a button, click, palette entry,
+     key or typed submit could close or replace it. Edits (`apply`, `edit`) never touch a dialog and go on. */
+  if(askShown()&&(['act','click','command','key','type'] as string[]).includes(c.kind))return {error:'a request to edit is waiting for the person\'s answer. Wait for them; edits through apply still work.',status:409};
   lease=verdict.hold;
-  if(c.kind==='state')return agentState();
+  if(c.kind==='state')return agentState(who);
   if(c.kind==='contract'){
     if(screen!=='editor')return closedCanvas(project);
     return {ok:true,screen:'editor',visible:true,...revisionInfo(),...designContract(project,selected,{format:c.format,pageId:c.pageId})};
@@ -1464,11 +1560,13 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
-  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed',screen:screen==='editor'?'editor':'home'})};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:callerMode(who),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:callerMode(who)!=='design',askedRecently:!!askState&&(askState.answered==='pending'||Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'),screen:screen==='editor'?'editor':'home'})};
   if(c.kind==='connect'){
-    const outcome=considerAsk(who,agentMode(),askState,Date.now());
-    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
-    return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
+    // A waiting request whose agent has since been let in some other way (the switch) has nothing left to ask.
+    if(askState?.answered==='pending'&&!askShown()&&callerMode(askState.by)!=='design')askState={...askState,answered:'allowed'};
+    const outcome=considerAsk(who,callerMode(who),askState,Date.now());
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
   commandCaller=who;stepRefused='';
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
@@ -1713,7 +1811,7 @@ function mountSpace(){
     const done=(ev:PointerEvent)=>{
       space.removeEventListener('pointermove',draw);space.removeEventListener('pointerup',done);space.removeEventListener('pointercancel',done);
       const rect=box.getBoundingClientRect();box.remove();
-      if(!dragging){if(selected){selected='';render();}return;}
+      if(!dragging){if(selected)selectBlock('');return;}
       // One selection model: keep the block the marquee covers most.
       let best:{id:string;area:number}|undefined;
       for(const el of Array.from(document.querySelectorAll<HTMLElement>('.space-frame.active [data-block-id]'))){
@@ -1724,8 +1822,8 @@ function mountSpace(){
         if(area>0&&(!best||area>best.area))best={id:el.dataset.blockId!,area};
       }
       const next=best?.id??'';
-      if(next!==selected){selected=next;render();recordRun('marquee:select',{selected:next||null});}
-      else if(!next&&selected){selected='';render();}
+      if(next!==selected){selectBlock(next);recordRun('marquee:select',{selected:next||null});}
+      else if(!next&&selected)selectBlock('');
     };
     space.addEventListener('pointermove',draw,{signal});space.addEventListener('pointerup',done,{signal});space.addEventListener('pointercancel',done,{signal});
   },{signal});
@@ -1771,13 +1869,22 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
+  // Enter allows and Esc is Not now, from the person's own keyboard only: a key an agent sends is dropped.
+  if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
+    if(!e.isTrusted){e.preventDefault();return;}
+    const on=document.activeElement as HTMLElement|null;
+    // Enter typed into a dialog that opened under the request is not an answer: the focus goes back to Allow.
+    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&!on.closest('.ask-modal')){e.preventDefault();modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();return;}
+    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
+    e.preventDefault();answerAsk(e.key==='Enter');return;
+  }
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const items = Array.from(modalRoot.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
@@ -1791,7 +1898,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', e.isTrusted ? '' : commandCaller); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
-  else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
+  else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selectBlock((e.target as HTMLElement).dataset.blockId!); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
 });
 installPatternRuntime(document);
 installMenuSelects(document);

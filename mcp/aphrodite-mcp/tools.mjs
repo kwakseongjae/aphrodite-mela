@@ -9,6 +9,19 @@
 /** Tools are namespaced so they stay distinct among whatever else a client has loaded. */
 export const PREFIX = 'aphrodite_';
 
+/**
+ * The name this client goes by in the app — on the request the person answers, in the banner and in
+ * every receipt — taken from its own `initialize` (`clientInfo.name`). It is what the program says
+ * about itself, so it is cleaned the way the app cleans it (src/agent/authority.ts normalizeCaller),
+ * with spaces kept as hyphens, and it may never be `human`. Nothing usable falls back to `mcp-client`.
+ */
+export const FALLBACK_CALLER = 'mcp-client';
+export function callerName(clientInfo) {
+  const raw = typeof clientInfo?.name === 'string' ? clientInfo.name : '';
+  const cleaned = raw.toLowerCase().replace(/[\s_.]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/, '');
+  return !cleaned || cleaned === 'human' ? FALLBACK_CALLER : cleaned;
+}
+
 const READ = {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false};
 const WRITE = {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false};
 const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false};
@@ -33,7 +46,7 @@ export const tools = [
     name: 'aphrodite_request_connection',
     title: 'Ask to edit alongside the person',
     description: [
-      'Ask the person to let you change the design. A line appears at the top of their app with your name on it, and they allow or decline with one click.',
+      'Ask the person to let you change the design. A dialog appears in the middle of their app with your name on it, and they allow or decline with one click. Once allowed, your name is remembered until they disconnect it.',
       '',
       'Call it once, when an edit came back saying writing is off. Then tell the person in your own words what you would like to change while they decide — that is what makes them comfortable saying yes.',
       'Asking again straight away does nothing: one request stands at a time, and a decline holds for a few minutes. This is deliberate. Nothing here can open the door on its own.',

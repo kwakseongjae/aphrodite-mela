@@ -5,11 +5,11 @@ The channel is **open from launch**. An agent on this Mac can read the project w
 | | 읽기 (`state`, `contract`, `tokens`, `components`, `render`, `library`의 `list`) | 쓰기 (`apply`, `ui`, `edit`, `act`, `click`, `type`, `key`, `command`, `library`의 `import`·`delete`) |
 |---|---|---|
 | **평소** (design) | 200 | **423** — 사람에게 연결 모드나 에이전트 모드를 켜 달라고 요청하라는 안내 |
-| **연결 모드** (connected) | 200 | 200, 단 쓰기 리스를 쥔 주체만. 다른 주체는 **409**(보유자 이름 포함) |
+| **연결 모드** (connected) | 200 | 200, 단 사람이 허용한 이름(또는 스위치로 연 경우 누구나)이고 쓰기 리스를 쥔 주체만. 허용되지 않은 이름은 **423**, 리스를 남이 쥐었으면 **409**(보유자 이름 포함) |
 | **에이전트 모드** (delegated) | 200 | 200 |
 
-- **연결 모드**는 사람이 켠다: 도움말(`?`) → **에이전트 연결** → 스위치. 사람은 화면을 계속 쓰고, 에이전트의 편집은 상단 한 줄 배너에 집계되며 ⌘Z로 되돌아간다. 한 번 허용하면 **12시간** 기억된다 — 앱을 껐다 켜도 그대로다(`CONNECT_HOURS`, `src/agent/guide.ts`). 스위치를 끄면 그 자리에서 끝난다.
-- **에이전트가 스스로 문을 열 수는 없다.** 스위치를 누르는 것도 쓰기라서 `agent-connect-toggle`을 `act`로 호출하면 423이 돌아온다. 대신 **요청할 수는 있다** — `POST /agent/connect`는 앱 상단에 요청자 이름이 박힌 한 줄을 띄우고, 사람이 한 번 눌러 허용하거나 거절한다. 요청은 한 번에 하나만 서 있고 거절은 5분간 유지된다.
+- **연결 모드**는 이름별로 열린다. 에이전트가 요청하고 사람이 **허용**을 누르면 그 이름(`X-Aphrodite-Agent`)을 기억한다 — 기한 없이, 앱을 껐다 켜도 그대로다(`aphrodite-allowed-agents`, `src/agent/authority.ts`). 같은 이름은 다시 묻지 않고, 다른 이름은 묻는다. 도움말(`?`) → **에이전트 연결**의 스위치는 누구에게나 연다(`*`). 사람은 화면을 계속 쓰고, 에이전트의 편집은 상단 한 줄 배너에 집계되며 ⌘Z로 되돌아간다. 배너의 **연결 끊기**나 스위치 끄기는 모두를 잊고, 에이전트 연결 창에서는 한 이름씩 끊을 수 있다. 끊긴 이름은 다음 요청 때 다시 묻는다.
+- **허용 목록은 사람만 바꾼다.** 허용·거절·스위치·연결 끊기(`ask-allow`·`ask-decline`·`agent-connect-toggle`·`agent-disconnect`·`agent-forget`)에 닿는 에이전트 명령(`act`·`click`·`command`·`ui`)은 어느 모드에서든, 이미 허용된 에이전트라도 **403**이다. 대신 **요청할 수는 있다** — `POST /agent/connect`는 사람 화면에 요청자 이름이 박힌 요청을 띄우고, 사람이 한 번 눌러 허용하거나 거절한다. 요청은 한 번에 하나만 서 있고 거절은 그 이름에 5분간 유지된다.
 - **`GET /agent/guide`**는 권한 없이 언제나 읽을 수 있다. 작업 방식과 지금 상태(어느 프로젝트, 쓰기 가능 여부, 누가 화면을 쥐었는지)를 함께 알려준다. 에이전트는 여기서 시작하면 된다.
 - **사람이 항상 이긴다.** 연결 모드에서 사람이 타이핑하거나 클릭하면 리스가 즉시 사람에게 돌아가고, 에이전트의 다음 쓰기는 409를 받는다. 몇 초 조용하면 다시 열린다. 에이전트의 리스도 90초 무활동이면 풀린다.
 - **호출자 이름**: `X-Aphrodite-Agent: claude-code` 헤더로 자기 이름을 밝힌다. 영수증마다 `by`로 남는다. `human`은 쓸 수 없다.
@@ -38,13 +38,13 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | Route | 파라미터 | Does | 권한 |
 |---|---|---|---|
 | `GET /agent/guide` | — | 플레이북과 지금 상태를 한 덩이로: 어느 프로젝트·몇 페이지·모드·화면을 쥔 주체·쓰기 가능 여부. `{ok, guide}`. 여기서 시작하면 된다. | 물음 |
-| `POST /agent/connect` | `{}` | 사람 화면에 요청자 이름이 박힌 한 줄을 띄운다. `{ok, status, message, mode}` — `status`는 `asked` / `waiting`(이미 서 있는 요청) / `declined`(5분 유지) / `already-open`(이미 열려 있음). | 물음 |
+| `POST /agent/connect` | `{}` | 사람 화면 가운데에 요청자 이름이 박힌 창을 띄운다(사람이 다른 창을 쓰는 중이거나 누르고 있는 중이면 끝난 뒤에). 허용하면 그 이름을 기억한다. `{ok, status, message, mode}` — `status`는 `asked` / `waiting`(이미 서 있는 요청) / `declined`(5분 유지) / `already-open`(이미 열려 있음). | 물음 |
 | `GET /agent/contract` | `?format=detailed&pageId=…` | 디자인 계약: 페이지·프레임·컴포넌트(`block_id`, kind, variant, 카피), 디자인 시스템, **사람이 지금 선택한 것**. 기본은 concise, 큰 프로젝트는 잘리고 어떻게 좁혀 물을지 알려준다. 이미지 바이트는 절대 싣지 않는다(`inline:image/png:24000`처럼 설명만). | 읽기 |
 | `GET /agent/tokens` | — | 토큰과 **실제 CSS 변수명**(`--brand`, `--heading`). 생성 코드가 매직 넘버 대신 토큰을 쓰게. | 읽기 |
 | `GET /agent/components` | — | 조립 어휘: kind × 변형 × 프로바이더. `aphrodite.components/1` — `component_kind`, `name`, `group`, `variants`, `providers`. | 읽기 |
 | `GET /agent/render` | `?width=&height=&pageId=` | 페이지 그림. `{ok, page_id, width, height, mime:"image/png", png:<base64>}`. `width` 240–2000(기본은 그 페이지 프레임 너비), `height` 320–6000(기본은 `width`×1.6). **뷰포트**라서 긴 페이지는 아래가 잘린다 — 더 보려면 높이를 키워 다시 부른다. 앱 자신의 WebKit이 화면 밖(−9000, −9000)의 창에 따로 그려 찍는다: 사람의 창은 움직이지 않고 패널·독·줌도 찍히지 않는다. 레이아웃을 1.5초 기다리고 촬영은 10초에 포기한다(채널 자체는 30초). macOS 데스크톱 앱 전용. | 읽기 |
 | `POST /agent/apply` | `{"ops":[…],"page_id":"…"}` | 배치 편집. **전부 적용되거나 하나도 안 된다.** undo 하나, 영수증 하나. 성공은 `{ok, applied, receipt, state}`, 실패는 `{error, failed_at, applied:0}`. op는 아래 표 참고. | 쓰기 |
-| `GET /agent/state` | — | `#app`의 data 속성 + **권한 두 칸**. `connection`(`design`·`connected`·`delegated`)과 `writes`(`on`·`off`)가 문이 열렸는지 답한다. **`mode`는 권한이 아니라 에디터 탭**(design·dev·agent)이고 두 개념이 `design`이라는 단어를 공유하니 섞지 말 것. 그 밖에 `page`·`frame`·`camera`·`selectedId`·`selectedKind` 등, delegation 요약, 최근 영수증 10개(`seq`·`kind`·`at`). 에이전트 모드가 꺼져 있어도 답한다. `writes:on`은 **문**이 열렸다는 뜻이지 지금 내 차례라는 뜻은 아니다 — 리스를 남이 쥐고 있으면 개별 쓰기는 409. | 읽기 |
+| `GET /agent/state` | — | `#app`의 data 속성 + **권한 두 칸**. `connection`(`design`·`connected`·`delegated`)과 `writes`(`on`·`off`)가 문이 열렸는지 답한다. **`mode`는 권한이 아니라 에디터 탭**(design·dev·agent)이고 두 개념이 `design`이라는 단어를 공유하니 섞지 말 것. 그 밖에 `page`·`frame`·`camera`·`selectedId`·`selectedKind` 등, delegation 요약, 최근 영수증 10개(`seq`·`kind`·`at`). 에이전트 모드가 꺼져 있어도 답한다. `connection`·`writes`는 **묻는 에이전트 기준**이다 — 다른 이름만 허용돼 있으면 `design`·`off`. `writes:on`은 **문**이 열렸다는 뜻이지 지금 내 차례라는 뜻은 아니다 — 리스를 남이 쥐고 있으면 개별 쓰기는 409. | 읽기 |
 | `POST /agent/ui` | `{"action":"command\|click\|type\|key", …그 동사의 필드}` | 의미 단위 도구로 표현되지 않는 것을 인터페이스로 직접 한다(대화상자 열기, Preview·Export, 설정, 단축키). 안쪽 동사의 파서와 권한을 그대로 탄다 — 문 하나, 규칙 하나. | 쓰기 |
 | `POST /agent/command` | `{"query":"hero 추가"}` | Runs the best palette match (same search as ⌘K: commands, "Add <component>", "Go to frame · …"). | 쓰기 |
 | `POST /agent/act` | `{"action":"add","data":{"kind":"cta"}}` | Dispatches a `data-action` exactly like a click on a button with those data attributes. | 쓰기 |

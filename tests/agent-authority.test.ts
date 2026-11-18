@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState,doorActions,DOOR_KIND,ANYONE,mayWrite,readAllowed,allowAgent,forgetAgent} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -125,4 +125,49 @@ test('the state tells an agent about the door, in a word the editor tab cannot s
   assert.equal(state.mode,'design','the editor tab survives');
   assert.equal(state.connection,'connected');
   assert.equal(state.writes,'on');
+});
+
+/* 0.3-1b: the door is opened per agent and remembered by name. The person writes the list; no agent
+   command can, in any mode — an allowed agent could otherwise let a second one in. */
+test('connected mode lets in the names the person allowed, and no one else',()=>{
+  const open:Authority={mode:'connected',holder:null,now:NOW,allowed:['claude-code']};
+  assert.equal(allowed('apply','claude-code',open),true);
+  const other=refused('apply','astra',open);
+  assert.equal(other.status,423);
+  assert.match(other.error,/writing is off for astra/);
+  assert.match(other.error,/aphrodite_request_connection/,'it is told the way in');
+  assert.equal(allowed('apply','astra',{...open,allowed:['claude-code',ANYONE]}),true,'the switch lets anyone in');
+  assert.equal(allowed('state','astra',open),true,'reading never needed the list');
+  assert.equal(allowed('apply','astra',{mode:'delegated',holder:null,now:NOW,allowed:[]}),true,'Agent mode is a separate door');
+  assert.equal(mayWrite('Claude-Code',['claude-code']),true,'names compare as the receipts spell them');
+  assert.equal(mayWrite('human',[ANYONE]),true);
+  assert.equal(mayWrite('human',['claude-code']),false);
+});
+
+test('no agent command can change who may edit, in any mode',()=>{
+  const states:Authority[]=[at('design'),{mode:'connected',holder:null,now:NOW,allowed:['claude-code']},{mode:'connected',holder:null,now:NOW,allowed:[ANYONE]},at('delegated')];
+  for(const action of doorActions){
+    assert.equal(gateFor({kind:'act',action}),DOOR_KIND,action);
+    assert.equal(gateFor({kind:'click'},action),DOOR_KIND,`a click that lands on ${action}`);
+    assert.equal(gateFor({kind:'command'},action),DOOR_KIND,`a palette entry that runs ${action}`);
+    for(const a of states){
+      const v=refused(gateFor({kind:'act',action}),'claude-code',a);
+      assert.equal(v.status,403,`${action} in ${a.mode}`);
+      assert.match(v.error,/the person's to decide/);
+    }
+  }
+  assert.equal(gateFor({kind:'act',action:'  Ask-Allow '}),DOOR_KIND,'spelling does not get around it');
+});
+
+test('the remembered list is read back strictly',()=>{
+  assert.deepEqual(readAllowed(JSON.stringify(['claude-code','astra'])),['claude-code','astra']);
+  assert.deepEqual(readAllowed(JSON.stringify(['*'])),[ANYONE]);
+  assert.deepEqual(readAllowed(null),[]);
+  assert.deepEqual(readAllowed('not json'),[]);
+  assert.deepEqual(readAllowed('{"claude-code":true}'),[]);
+  assert.deepEqual(readAllowed(JSON.stringify(['Claude Code','human','unknown-agent',7,'claude-code','claude-code'])),['claude-code'],'only clean names, once each');
+  assert.deepEqual(allowAgent(['claude-code'],'Astra'),['claude-code','astra']);
+  assert.deepEqual(allowAgent(['claude-code'],'claude-code'),['claude-code']);
+  assert.deepEqual(forgetAgent(['claude-code','astra'],'claude-code'),['astra']);
+  assert.notEqual(normalizeCaller('*'),ANYONE,'an agent cannot name itself the switch');
 });

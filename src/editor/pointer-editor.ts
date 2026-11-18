@@ -73,7 +73,9 @@ export function mountPointerEditor(o:Options):()=>void {
     }
     function paint(schedule=true){
       if(!active)return;
-      moved ||= Math.hypot(last.x-startPoint.x,last.y-startPoint.y)>=4;
+      // A handle straddles the block's edge, half of it over the next section. A press there that
+      // wobbles a few pixels is a click on that section, not a resize: 4px took one on 11/18.
+      moved ||= Math.hypot(last.x-startPoint.x,last.y-startPoint.y)>=8;
       const now=performance.now(),dt=Math.min(32,now-previousTime)/1000;previousTime=now;
       if(moved&&schedule){const clip=scroll.getBoundingClientRect();if(last.x>=clip.left&&last.x<=clip.right&&last.y>=clip.top&&last.y<=clip.bottom){scroll.scrollLeft+=edgeVelocity(last.x,clip.left,clip.right)*dt;scroll.scrollTop+=edgeVelocity(last.y,clip.top,clip.bottom)*dt;}}
       const scrollDelta={x:scroll.scrollLeft-scrollStart.x,y:scroll.scrollTop-scrollStart.y};
@@ -109,7 +111,13 @@ export function mountPointerEditor(o:Options):()=>void {
     function finish(cancel:boolean){
       if(!active)return;active=false;cancelAnimationFrame(frame);gesture.abort();shield.remove();restoreStyle();restore=undefined;
       if(overlay.hasPointerCapture(e.pointerId))overlay.releasePointerCapture(e.pointerId);
-      if(cancel||!moved){o.report?.({outcome:cancel?'cancelled':'no-op',gesture:handle!});position();if(cancel)say('취소됨 · 변경 사항 없음',true);else hud.hidden=true;return;}
+      if(cancel||!moved){
+        o.report?.({outcome:cancel?'cancelled':'no-op',gesture:handle!});position();if(cancel)say('취소됨 · 변경 사항 없음',true);else hud.hidden=true;
+        // The press was a click, and it lands on whatever section is under it.
+        const under=cancel?undefined:document.elementsFromPoint(last.x,last.y).map(hit=>hit.closest<HTMLElement>('[data-block-id]')).find(w=>!!w&&canvas.contains(w));
+        if(under&&under.dataset.blockId!==block!.id)o.select(under.dataset.blockId!);
+        return;
+      }
       if(handle!=='move'){
         const layout={...block!.layout,widthPx:next.width,height:next.height};if(free){layout.x=next.x;layout.y=next.y;}
         if(commitKeepingViewport({type:'resize',id:block!.id,layout}))o.announce(`크기 저장됨 · ${next.width} × ${next.height}px`);else o.announce('변경 사항 없음 · 기존 크기 유지');

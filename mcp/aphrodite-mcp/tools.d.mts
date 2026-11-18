@@ -23,3 +23,6 @@ export declare const PREFIX: string;
 export declare const tools: Tool[];
 export declare const toolByName: Record<string, Tool>;
 export declare function toolManifest(): Omit<Tool, 'route' | 'params' | 'body'>[];
+export declare const FALLBACK_CALLER: string;
+/** The client's own name from initialize, cleaned for the X-Aphrodite-Agent header. */
+export declare function callerName(clientInfo: {name?: unknown; version?: unknown} | undefined): string;

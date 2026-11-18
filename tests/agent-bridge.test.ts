@@ -7,6 +7,7 @@ test('parseAgentCommand validates every kind and rejects junk',()=>{
   assert.deepEqual(parseAgentCommand('act',{action:'add',data:{kind:'hero'}}),{command:{kind:'act',action:'add',data:{kind:'hero'}}});
   assert.match((parseAgentCommand('act',{action:'Add Thing'}) as {error:string}).error,/kebab-case/);
   assert.match((parseAgentCommand('act',{action:'add',data:{'bad key':'x'}}) as {error:string}).error,/bad data key/);
+  for(const key of ['action','Action','ACTION'])assert.match((parseAgentCommand('act',{action:'preview',data:{[key]:'ask-allow'}}) as {error:string}).error,/may not name an action/,'data cannot swap in an action the gate never judged');
   assert.deepEqual(parseAgentCommand('click',{selector:'[data-action="page"]'}),{command:{kind:'click',selector:'[data-action="page"]'}});
   assert.match((parseAgentCommand('click',{selector:'<script>'}) as {error:string}).error,/selector/);
   assert.deepEqual(parseAgentCommand('type',{selector:'[data-field=title]',text:'hi',submit:true}),{command:{kind:'type',selector:'[data-field=title]',text:'hi',submit:true}});

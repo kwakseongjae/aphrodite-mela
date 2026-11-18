@@ -11,7 +11,12 @@ export type Mode =
   | 'connected'   // the person keeps working; an agent may edit alongside them
   | 'delegated';  // Agent mode: the agent holds the screen and people are locked out
 export type Holder = {label: string; since: number};
-export type Authority = {mode: Mode; holder: Holder | null; now: number};
+/**
+ * `allowed` is who the person has let in: agent names they allowed when asked, or `*` for the switch
+ * that opens the door to any agent. Left out, connected mode is open to any agent, as it was before
+ * names were remembered.
+ */
+export type Authority = {mode: Mode; holder: Holder | null; now: number; allowed?: readonly string[]};
 export type Verdict = {allow: true; hold: Holder | null} | {allow: false; status: 403 | 409 | 423; error: string};
 
 export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render', 'references', 'taste', 'changes'] as const;
@@ -45,6 +50,48 @@ export const HUMAN_ONLY_KIND = 'approve';
 export const HUMAN_ONLY_ERROR =
   "approving a direction is the person's decision, and no agent command can make it. Tell them the composition is ready and let them press Approve direction themselves.";
 
+/**
+ * Who may edit is also the person's to decide. Allowing an agent, turning the switch, disconnecting
+ * and answering a request all change that list or answer for them, so no agent command may run one —
+ * not even an agent that is already allowed, which could otherwise let a second one in.
+ */
+export const doorActions = ['ask-allow', 'ask-decline', 'agent-connect-toggle', 'agent-disconnect', 'agent-forget'] as const;
+/** The gate's name for "this command would change who may edit". Like HUMAN_ONLY_KIND, never a command kind. */
+export const DOOR_KIND = 'door';
+export const DOOR_ERROR =
+  "who may edit is the person's to decide, and no agent command can allow, disconnect or answer for them. Call aphrodite_request_connection once and let them answer.";
+/** The name the switch stores: any agent may edit. normalizeCaller can never produce it. */
+export const ANYONE = '*';
+
+export function isDoorAction(action: unknown): boolean {
+  return typeof action === 'string' && (doorActions as readonly string[]).includes(action.trim().toLowerCase());
+}
+
+/** Whether this caller is let in. Read only in connected mode; Agent mode lets the holder do anything. */
+export function mayWrite(caller: string, allowed: readonly string[] | undefined): boolean {
+  if (!allowed) return true;
+  return allowed.includes(ANYONE) || allowed.includes(normalizeCaller(caller));
+}
+
+/**
+ * The remembered list, read back from storage. Anything that is not a clean name (or the switch's
+ * `*`) is dropped rather than trusted: the list decides who may write.
+ */
+export function readAllowed(stored: string | null): string[] {
+  let raw: unknown;
+  try { raw = JSON.parse(stored ?? '[]'); } catch { return []; }
+  if (!Array.isArray(raw)) return [];
+  const names = raw.filter((n): n is string => typeof n === 'string' && (n === ANYONE || (normalizeCaller(n) === n && n !== 'unknown-agent')));
+  return [...new Set(names)];
+}
+export function allowAgent(list: readonly string[], name: string): string[] {
+  const who = name === ANYONE ? ANYONE : normalizeCaller(name);
+  return list.includes(who) ? [...list] : [...list, who];
+}
+export function forgetAgent(list: readonly string[], name: string): string[] {
+  return list.filter(n => n !== name);
+}
+
 export function isHumanOnlyAction(action: unknown): boolean {
   if (typeof action !== 'string') return false;
   const a = action.trim().toLowerCase();
@@ -70,6 +117,7 @@ export function humanOnlyBlocked(action: string | undefined, origin: {trusted: b
  */
 export function gateFor(command: {kind: string; action?: string}, reaches?: string): string {
   if (isHumanOnlyAction(reaches) || (command.kind === 'act' && isHumanOnlyAction(command.action))) return HUMAN_ONLY_KIND;
+  if (isDoorAction(reaches) || (command.kind === 'act' && isDoorAction(command.action))) return DOOR_KIND;
   if (command.kind === 'library') return command.action === 'list' ? 'images' : 'library';
   return command.kind;
 }
@@ -112,6 +160,7 @@ export function connectionState(mode: Mode): {connection: Mode; writes: 'on' | '
 export function judge(kind: string, caller: string, a: Authority): Verdict {
   // Before anything else, and in every mode: not the open door, not a lease, not Agent mode.
   if (kind === HUMAN_ONLY_KIND) return {allow: false, status: 403, error: HUMAN_ONLY_ERROR};
+  if (kind === DOOR_KIND) return {allow: false, status: 403, error: DOOR_ERROR};
   if (isRead(kind) || isAsk(kind)) return {allow: true, hold: a.holder};
   if (kind === 'end') {
     return a.mode === 'design'
@@ -128,6 +177,13 @@ export function judge(kind: string, caller: string, a: Authority): Verdict {
     };
   }
   const who = normalizeCaller(caller);
+  if (!mayWrite(who, a.allowed)) {
+    return {
+      allow: false,
+      status: 423,
+      error: `writing is off for ${who}: the person has let other agents in, not this one. Call aphrodite_request_connection once and let them answer. Reading works without it.`,
+    };
+  }
   const held = leaseHeld(a);
   if (!held || held.label === who) return {allow: true, hold: {label: who, since: a.now}};
   if (held.label === HUMAN) {

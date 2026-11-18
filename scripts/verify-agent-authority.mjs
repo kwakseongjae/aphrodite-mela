@@ -10,9 +10,9 @@
  *   node scripts/verify-agent-authority.mjs
  */
 import assert from 'node:assert/strict';
-import {openApp, runChecks, sleep} from './lib/headless.mjs';
+import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 
-const {agent, personClicks, personTypes, evaluate, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
+const {agent, personClicks, personPresses, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 
@@ -30,44 +30,186 @@ check('writing is refused with 423 and told how to proceed', async () => {
 
 check('an agent cannot open the door for itself', async () => {
   const refused = await agent('act', {action: 'agent-connect-toggle'});
-  assert.equal(refused.status, 423, 'flipping the switch is a write like any other');
+  assert.equal(refused.status, 403, 'flipping the switch is the person\'s, like approving');
+  assert.match(refused.error, /the person's to decide/);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'no banner appeared');
 });
 
-check('an agent can ask, and the request reaches the person with its name on it', async () => {
+/* The request is a dialog in the middle of the screen (0.3-1b). The person answers it with their own
+   mouse and keys — trusted CDP input — because a synthetic event is exactly what an agent could send. */
+const dialog = () => evaluate(`document.querySelector('#modal-root .ask-modal')?.textContent ?? ''`);
+const key = async (key, code, vk) => {
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key, code, windowsVirtualKeyCode: vk});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key, code, windowsVirtualKeyCode: vk});
+  await sleep(200);
+};
+const press = async action => {
+  const p = await evaluate(`(() => { const r = document.querySelector('#modal-root [data-action="${action}"]').getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const hit = document.elementFromPoint(x, y); if (hit?.closest('[data-action]')?.dataset.action !== '${action}') throw new Error('${action} is covered by ' + hit?.outerHTML.slice(0, 120)); return {x, y}; })()`);
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'])
+    await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+  await sleep(250);
+};
+
+check('an agent can ask, and the request waits for the dialog the person is in', async () => {
+  const before = await evaluate(`document.querySelector('#app').dataset.modal`);
+  assert.ok(before, 'the first-launch welcome is open');
   const asked = await agent('connect', {}, 'claude-code');
   assert.equal(asked.status, 'asked', JSON.stringify(asked));
   assert.match(asked.message, /claude-code/, 'the reply says the person can see who is asking');
   await sleep(200);
-  const banner = await evaluate(`document.querySelector('.ask-banner')?.textContent ?? ''`);
-  assert.match(banner, /claude-code/, 'the request is on their screen');
+  assert.equal(await dialog(), '', 'the request does not replace what the person has open');
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.modal`), before);
+  await personClicks('welcome-dismiss');
+  await sleep(250);
+});
+
+check('the request reaches the person with its name on it, in the middle of the screen', async () => {
+  const text = await dialog();
+  assert.match(text, /claude-code/, 'the request is on their screen once the welcome closes');
+  // The person reads which program it is and where it runs; the raw name it sent stays, small, in code type.
+  assert.match(await evaluate(`document.querySelector('#modal-root .ask-modal #modal-title').textContent`), /^Claude Code/, 'the heading names the program');
+  assert.match(text, /터미널|terminal/, 'and where it runs');
+  assert.match(text, /MCP/);
+  assert.match(text, /새로 켜지는 것은 없습니다|starts nothing new/, 'allowing launches nothing');
+  assert.equal(await evaluate(`document.querySelector('#modal-root .ask-name').textContent`), 'claude-code', 'the name it gave itself is shown as such');
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('#modal-root .ask-name')).fontFamily.includes('monospace')`), true, 'the name is set in code type');
+  assert.match(text, /⌘Z/);
+  assert.match(text, /not be asked again|다음부터는 묻지 않습니다/);
+  assert.equal(await evaluate(`document.activeElement?.dataset.action`), 'ask-allow', 'Allow has the focus, so Enter allows');
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'asking did not open anything');
   const again = await agent('connect', {}, 'claude-code');
   assert.equal(again.status, 'waiting', 'asking twice does not put up a second request');
 });
 
+check('the focus stays in the request', async () => {
+  for (let i = 0; i < 5; i++) {
+    await key('Tab', 'Tab', 9);
+    assert.equal(await evaluate(`document.querySelector('#modal-root').contains(document.activeElement)`), true, `after ${i + 1} Tab presses`);
+  }
+  await evaluate(`document.querySelector('#modal-root [data-action="ask-allow"]').focus(), true`);
+});
+
 check('the person allows it with one click, and the agent may write', async () => {
-  await personClicks('ask-allow');
-  await sleep(250);
-  assert.equal(await evaluate(`document.querySelector('.ask-banner') !== null`), false, 'the request is answered and gone');
+  await press('ask-allow');
+  assert.equal(await dialog(), '', 'the request is answered and gone');
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
   const allowed = await agent('edit', {field: 'title', text: 'Asked and allowed'});
   assert.equal(allowed.status, undefined, JSON.stringify(allowed));
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(200);
 });
 
+check('Enter allows and Esc is Not now, from the person\'s keyboard', async () => {
+  await agent('connect', {}, 'claude-code');
+  await sleep(200);
+  await key('Enter', 'Enter', 13);
+  assert.equal(await dialog(), '');
+  assert.equal((await agent('state', {}, 'claude-code')).state.writes, 'on', 'Enter allowed it');
+  await personPresses('agent-disconnect');
+  await sleep(200);
+  await agent('connect', {}, 'codex');
+  await sleep(200);
+  await key('Escape', 'Escape', 27);
+  assert.equal(await dialog(), '');
+  assert.equal((await agent('connect', {}, 'codex')).status, 'declined', 'Esc declined it');
+});
+
+check('a request that arrives mid-press waits for the release', async () => {
+  const p = {x: 5, y: 300};
+  await send('Input.dispatchMouseEvent', {type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1});
+  assert.equal((await agent('connect', {}, 'cursor')).status, 'asked');
+  await sleep(200);
+  assert.equal(await dialog(), '', 'nothing goes inert under a press');
+  await send('Input.dispatchMouseEvent', {type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1});
+  await sleep(250);
+  assert.match(await dialog(), /cursor/, 'and it shows once the press is over');
+  await key('Escape', 'Escape', 27);
+});
+
+check('a request left open is not replaced by the next asker, and Allow lets in the name on screen', async () => {
+  assert.equal((await agent('connect', {}, 'zed')).status, 'asked');
+  await sleep(200);
+  const shown = await evaluate(`(() => { const d = document.querySelector('#modal-root .ask-dialog'); return d ? {id: d.dataset.askId, by: d.dataset.askBy} : null; })()`);
+  assert.equal(shown?.by, 'zed', 'the dialog carries who asked');
+  assert.ok(shown?.id, 'and which request it is');
+  // The clock moves past the cooldown while the dialog sits there.
+  await evaluate(`(() => { const real = Date.now.bind(Date); window.__realNow = real; Date.now = () => real() + 6 * 60 * 1000; return true; })()`);
+  try {
+    const other = await agent('connect', {}, 'windsurf');
+    assert.equal(other.status, 'waiting', JSON.stringify(other));
+    await press('ask-allow');
+  } finally {
+    await evaluate(`(Date.now = window.__realNow, true)`);
+  }
+  assert.equal(await writes('zed'), 'on', 'the name on screen is the one let in');
+  assert.equal(await writes('windsurf'), 'off');
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
+/* Re-review 0.3-1b: a button pressed before the request arrived can finish after it — `font-picker`
+   awaits loadFonts() and then opens its dialog. That continuation must not take the request off the
+   screen. The press here is a script in the page, as an agent's act would be; it lands after the request. */
+check('a dialog that opens late, from anything but the person, goes under the request', async () => {
+  await evaluate(`(setTimeout(() => { const b = document.createElement('button'); b.dataset.action = 'font-picker'; document.querySelector('#app').append(b); b.click(); b.remove(); }, 400), true)`);
+  assert.equal((await agent('connect', {}, 'cline')).status, 'asked');
+  await sleep(900);
+  assert.match(await dialog(), /cline/, 'the request is still on screen');
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 2, 'with the late dialog under it');
+  assert.equal(await evaluate(`document.activeElement?.dataset.action`), 'ask-allow', 'and the focus still on Allow');
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .modal-backdrop:last-child .ask-modal')`), true, 'the request is the one on top');
+  await press('ask-allow');
+  assert.equal((await agent('state', {}, 'cline')).state.writes, 'on', 'the person answered the request they saw');
+  assert.equal(await dialog(), '');
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 1, 'the late dialog is there once the request is answered');
+  await key('Escape', 'Escape', 27);
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root .modal').length`), 0);
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
+check('while a request is open, nothing but the person answers or closes it', async () => {
+  await agent('connect', {}, 'claude-code');
+  await sleep(200);
+  await press('ask-allow');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'asked');
+  await sleep(200);
+  assert.match(await dialog(), /kiro/);
+  assert.match(await dialog(), /알 수 없는 프로그램|unknown program/, 'a name the app does not know is said to be unknown');
+  // An allowed agent driving buttons that would close or replace a dialog.
+  for (const action of ['welcome-dismiss', 'systems', 'home']) {
+    const r = await agent('act', {action}, 'claude-code');
+    assert.equal(r.status, 409, `${action} waits for the person's answer: ${JSON.stringify(r)}`);
+  }
+  assert.equal((await agent('command', {query: 'commands'}, 'claude-code')).status, 409);
+  assert.equal((await agent('key', {key: 'k', meta: true}, 'claude-code')).status, 409);
+  // Its edits are not dialogs, so they go on — and leave the request where it is.
+  const edit = await agent('apply', {reason: 'still working', ops: []}, 'claude-code');
+  assert.notEqual(edit.status, 409, JSON.stringify(edit));
+  await sleep(150);
+  assert.match(await dialog(), /kiro/, 'the request is still on screen');
+  // Script in the page closing it is not the person either: the request comes back, still unanswered.
+  await personClicks('welcome-dismiss');
+  await sleep(200);
+  assert.match(await dialog(), /kiro/, 'the request is back, not declined');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'waiting', 'and nothing was recorded for the person');
+  await press('close-modal');
+  assert.equal(await dialog(), '');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'declined', 'the person\'s own × is Not now');
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
 check('the person declines, and the agent is told to stop asking', async () => {
-  const asked = await agent('connect', {}, 'claude-code');
-  assert.equal(asked.status, 'asked', 'a spent yes does not bar a fresh request');
+  const asked = await agent('connect', {}, 'gemini');
+  assert.equal(asked.status, 'asked', 'a refusal of one name does not hold back another');
   await sleep(200);
-  await personClicks('ask-decline');
-  await sleep(200);
-  assert.equal(await evaluate(`document.querySelector('.ask-banner') !== null`), false, 'the request is gone');
-  const refused = await agent('connect', {}, 'claude-code');
+  await press('ask-decline');
+  assert.equal(await dialog(), '', 'the request is gone');
+  const refused = await agent('connect', {}, 'gemini');
   assert.equal(refused.status, 'declined');
   assert.match(refused.message, /Do not ask again/);
-  const write = await agent('edit', {field: 'title', text: 'x'});
+  const write = await agent('edit', {field: 'title', text: 'x'}, 'gemini');
   assert.equal(write.status, 423, 'and the door is still shut');
 });
 
@@ -79,7 +221,7 @@ check('the guide tells an agent where it stands without asking permission', asyn
 });
 
 check('the person turns it on, and the banner says so', async () => {
-  await personClicks('agent-connect-toggle');
+  await personPresses('agent-connect-toggle');
   await sleep(120);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'the connected banner is up');
 });
@@ -111,11 +253,112 @@ check('a second agent is refused by name while the first holds it', async () => 
 });
 
 check('disconnecting closes the door again', async () => {
-  await personClicks('agent-disconnect');
+  await personPresses('agent-disconnect');
   await sleep(120);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false);
   const refused = await agent('edit', {field: 'title', text: 'x'});
   assert.equal(refused.status, 423);
+});
+
+/* 0.3-1b: an agent the person allowed is remembered by name — no clock, across a restart — until they
+   disconnect it. A reload of the page stands in for the restart: the app reads its state back from
+   storage exactly as it does at launch. */
+const restart = async () => {
+  await send('Page.reload', {ignoreCache: true});
+  await sleep(800);
+  await waitFor(() => evaluate('!!window.aphroditeAgent && !!document.querySelector("#app")'), 'the app to boot again');
+};
+const writes = async caller => (await agent('state', {}, caller)).state.writes;
+
+check('the person allows an agent by name, and a restart remembers it', async () => {
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  await sleep(200);
+  await press('ask-allow');
+  await sleep(200);
+  assert.equal(await writes('claude-code'), 'on');
+  await restart();
+  assert.equal(await writes('claude-code'), 'on', 'still let in after the restart');
+  const again = await agent('connect', {}, 'claude-code');
+  assert.equal(again.status, 'already-open', 'and it is not asked again');
+  const write = await agent('edit', {field: 'title', text: 'remembered'}, 'claude-code');
+  assert.notEqual(write.status, 423, JSON.stringify(write));
+  assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the banner names who is let in, as a person knows it');
+  await personClicks('agent-connect');
+  await sleep(250);
+  const listed = await evaluate(`document.querySelector('#modal-root .connect-allowed')?.textContent ?? ''`);
+  assert.match(listed, /Claude Code/, 'Help → Agent connection lists it the same way');
+  assert.match(listed, /claude-code/, 'with the name it sent');
+  await key('Escape', 'Escape', 27);
+});
+
+check('a different name is still asked, and cannot write meanwhile', async () => {
+  assert.equal(await writes('astra'), 'off');
+  const refused = await agent('edit', {field: 'title', text: 'x'}, 'astra');
+  assert.equal(refused.status, 423, JSON.stringify(refused));
+  assert.match(refused.error, /writing is off for astra/);
+  const asked = await agent('connect', {}, 'astra');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+});
+
+check('no agent can answer for the person or change the list — not even an allowed one', async () => {
+  for (const caller of ['astra', 'claude-code']) {
+    for (const action of ['ask-allow', 'ask-decline', 'agent-connect-toggle', 'agent-disconnect', 'agent-forget']) {
+      const refused = await agent('act', {action, data: {name: 'claude-code'}}, caller);
+      assert.equal(refused.status, 403, `${caller} ${action}: ${JSON.stringify(refused)}`);
+    }
+    const clicked = await agent('click', {selector: '[data-action="ask-allow"]'}, caller);
+    assert.equal(clicked.status, 403, `${caller} clicking Allow: ${JSON.stringify(clicked)}`);
+  }
+  // The gate judges `action`; `data` must not be able to swap in another one underneath it.
+  for (const data of [{action: 'ask-allow'}, {Action: 'ask-allow'}, {action: 'agent-connect-toggle'}, {action: 'agent-disconnect'}]) {
+    const r = await agent('act', {action: 'preview', data}, 'claude-code');
+    assert.ok(r.error, `an act whose data names an action is refused: ${JSON.stringify(data)} → ${JSON.stringify(r)}`);
+  }
+  // And whatever reaches a door button without the person's own input — script in the page, a built
+  // button, a programmatic click — is refused by the interface itself, like approving.
+  await personClicks('agent-disconnect');
+  await personClicks('ask-allow');
+  await sleep(150);
+  // A key is a write an allowed agent may send, but the dialog only answers to the person's own keyboard.
+  for (const k of ['Enter', 'Escape']) await agent('key', {key: k}, 'claude-code');
+  // Nor can it close the dialog, which would answer Not now for the person.
+  for (const selector of ['#modal-root .modal-backdrop', '#modal-root [data-action="close-modal"]']) {
+    const r = await agent('click', {selector}, 'claude-code');
+    assert.equal(r.status, 409, `a click waits while the request is open: ${JSON.stringify(r)}`);
+  }
+  await sleep(200);
+  assert.match(await dialog(), /astra/, 'the request is still waiting for the person');
+  assert.equal(await writes('astra'), 'off', 'astra is still out');
+  assert.equal(await writes('claude-code'), 'on', 'and claude-code is still in');
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-allowed-agents'))`), ['claude-code'], 'the remembered list did not move');
+  await press('ask-decline');
+  await sleep(200);
+});
+
+check('disconnecting forgets the name, and the next request asks again', async () => {
+  await personPresses('agent-disconnect');
+  await sleep(200);
+  assert.equal(await evaluate(`localStorage.getItem('aphrodite-allowed-agents')`), null, 'nothing is remembered');
+  await restart();
+  assert.equal(await writes('claude-code'), 'off');
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+});
+
+check('the person can disconnect one agent and keep another', async () => {
+  await press('ask-allow');
+  await sleep(150);
+  await agent('connect', {}, 'astra');
+  await sleep(150);
+  await press('ask-allow');
+  await sleep(150);
+  assert.equal(await writes('astra'), 'on');
+  await personPresses('agent-forget', {name: 'astra'});
+  await sleep(150);
+  assert.equal(await writes('astra'), 'off', 'astra is out');
+  assert.equal(await writes('claude-code'), 'on', 'claude-code stays');
+  await personPresses('agent-disconnect');
 });
 
 

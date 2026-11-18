@@ -104,7 +104,7 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       const action=str(p.action,80);
       if(!action||!SAFE_ACTION.test(action))return {error:'act needs "action" (kebab-case data-action name)'};
       const data:Record<string,string>={};
-      if(p.data&&typeof p.data==='object')for(const [k,v] of Object.entries(p.data as Record<string,unknown>)){if(!/^[a-zA-Z][\w-]{0,40}$/.test(k))return {error:`bad data key "${k}"`};const s=str(v,2000);if(s===undefined)return {error:`data.${k} must be a string`};data[k]=s;}
+      if(p.data&&typeof p.data==='object')for(const [k,v] of Object.entries(p.data as Record<string,unknown>)){if(!/^[a-zA-Z][\w-]{0,40}$/.test(k))return {error:`bad data key "${k}"`};if(k.toLowerCase()==='action')return {error:'data may not name an action: the gate judges "action", so data cannot swap in another'};const s=str(v,2000);if(s===undefined)return {error:`data.${k} must be a string`};data[k]=s;}
       return {command:{kind:'act',action,data}};
     }
     case 'click':{

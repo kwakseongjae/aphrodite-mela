@@ -31,7 +31,7 @@ export const playbook = [
   '',
   '## Reading is always open. Changing is not.',
   'Reading needs nothing. Changing needs the person to have opened the door, in one of two ways:',
-  '- **Connected mode** — they keep working, you edit alongside them, a banner counts your changes and ⌘Z takes any of them back.',
+  '- **Connected mode** — they keep working, you edit alongside them, a banner counts your changes and ⌘Z takes any of them back. Once they allow your name it is remembered, across restarts, until they disconnect it.',
   '- **Agent mode** — they hand over the whole screen and are locked out until they end it.',
   '',
   'If a change comes back refused with `writing is off`, call `aphrodite_request_connection`. That puts a request on their screen with your name on it; they allow or decline with one click. You cannot open it yourself, and asking twice in a row will not help — tell them what you want to do and wait.',
@@ -71,10 +71,11 @@ export function guideFor(status: GuideStatus): string {
   return lines.join('\n');
 }
 
-/** How long a declined or pending request keeps an agent from asking again. */
+/** How long a refusal keeps the refused agent from asking again. A request still waiting has no clock. */
 export const ASK_COOLDOWN_MS = 5 * 60 * 1000;
 
-export type AskState = {by: string; at: number; answered: 'pending' | 'allowed' | 'declined'} | null;
+/** `id` names one request, so an answer given to the dialog on screen can only ever land on that request. */
+export type AskState = {by: string; at: number; answered: 'pending' | 'allowed' | 'declined'; id?: string} | null;
 export type AskOutcome =
   | {status: 'already-open'; message: string}
   | {status: 'asked'; message: string}
@@ -83,7 +84,8 @@ export type AskOutcome =
 
 /**
  * What to do with a request to connect. Pure, so the rule about how often an agent may ask is
- * testable and cannot drift: one prompt at a time, and a refusal holds for a while.
+ * testable and cannot drift: one prompt at a time, and a refusal holds for a while. `mode` is the
+ * door as this caller meets it: connected only if the person has let this name (or anyone) in.
  */
 export function considerAsk(caller: string, mode: GuideStatus['mode'], state: AskState, now: number): AskOutcome {
   if (mode !== 'design') {
@@ -92,58 +94,23 @@ export function considerAsk(caller: string, mode: GuideStatus['mode'], state: As
       : 'Connected mode is already on. You may change the design.'};
   }
   // An answered "yes" is spent: if the person later closed the door, asking again is fair. Only a
-  // request still waiting, or one just refused, holds an agent back.
-  if (state && now - state.at < ASK_COOLDOWN_MS) {
-    if (state.answered === 'declined') {
-      return {status: 'declined', message: 'The person declined a moment ago. Do not ask again — tell them what you would like to change and let them decide.'};
-    }
-    if (state.answered === 'pending') {
-      return {status: 'waiting', message: 'A request is already on their screen. Tell the person what you want to do rather than asking again.'};
-    }
+  // request still waiting, or one just refused, holds an agent back. A waiting one holds until the
+  // person answers it, however long that takes: replacing it would put another name under their Allow.
+  if (state?.answered === 'pending') {
+    return {status: 'waiting', message: 'A request is already on their screen. Tell the person what you want to do rather than asking again.'};
+  }
+  if (state && now - state.at < ASK_COOLDOWN_MS && state.answered === 'declined' && state.by === caller) {
+    return {status: 'declined', message: 'The person declined a moment ago. Do not ask again — tell them what you would like to change and let them decide.'};
   }
   return {status: 'asked', message: `Asked. The person now sees a request from "${caller}" and can allow it with one click. Tell them what you would like to change while they decide.`};
 }
 
 /**
- * How long an allowed connection lasts. It used to end with the launch, which sounded careful and
- * was merely annoying: the app restarts often, and each restart cost the person another click for a
- * permission they had already given. It is remembered for a working day instead — visibly, since the
- * banner stays up the whole time, and reversibly, since Disconnect ends it and ⌘Z undoes any edit.
+ * Who the person has let in, remembered by name. It used to be one switch that lapsed after twelve
+ * hours, so a person who had already said yes was asked again every morning. Now an agent they allow
+ * is remembered — across restarts, with no clock — until they disconnect it, and only they can (see
+ * `doorActions` in authority.ts). The banner stays up the whole time and ⌘Z undoes any edit.
  */
-export const CONNECT_HOURS = 12;
-export const CONNECT_KEY = 'aphrodite-connect-until';
-
-export function connectUntil(now: number): number {
-  return now + CONNECT_HOURS * 60 * 60 * 1000;
-}
-
-/** Whether a remembered permission is still good. Anything unreadable or past its time is not. */
-export function connectActive(stored: string | null, now: number): boolean {
-  const until = Number(stored);
-  return Number.isFinite(until) && until > now;
-}
-
-/** What the person is told about how long it lasts. */
-export function connectRemaining(stored: string | null, now: number, ko: boolean): string {
-  if (!connectActive(stored, now)) return '';
-  const hours = Math.max(1, Math.round((Number(stored) - now) / (60 * 60 * 1000)));
-  return ko ? `약 ${hours}시간 남음` : `about ${hours}h left`;
-}
-
-/**
- * The switch's own words: how long a connection lasts, and how much of that is left. Pure and given
- * the remaining milliseconds rather than the clock, so both the tooltip and the visible label say the
- * same thing and the rounding can be tested. Hours round down — it must never promise more time than
- * it has — and anything lapsed or unreadable says nothing rather than a number nobody can trust.
- */
-export function connectLeftLabel(remaining: number, ko: boolean): string {
-  if (!Number.isFinite(remaining) || remaining <= 0) return '';
-  const hours = Math.floor(remaining / (60 * 60 * 1000));
-  const minutes = Math.floor(remaining / (60 * 1000));
-  const left = hours >= 1
-    ? (ko ? `${hours}시간 남음` : `${hours} h left`)
-    : minutes >= 1
-      ? (ko ? `${minutes}분 남음` : `${minutes} min left`)
-      : (ko ? '1분 미만 남음' : 'under a minute left');
-  return ko ? `${CONNECT_HOURS}시간 동안 · ${left}` : `for ${CONNECT_HOURS} hours · ${left}`;
-}
+export const ALLOWED_KEY = 'aphrodite-allowed-agents';
+/** Where the twelve-hour switch kept its deadline. Read nowhere now; cleared on launch. */
+export const LEGACY_CONNECT_KEY = 'aphrodite-connect-until';
