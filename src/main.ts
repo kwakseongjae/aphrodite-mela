@@ -76,7 +76,7 @@ import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
-import {agentDispatch,carry,dispatchOf,refusal,sourceFor,NOBODY,type Dispatch} from './agent/dispatch';
+import {agentDispatch,carry,dispatchOf,isAgentSurface,refusal,sourceFor,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -1538,11 +1538,13 @@ const agentLook={
   palette:(query:string)=>{try{return filterCommands(commandTable(paletteContext()),query,uiLanguage)[0]?.action;}catch{return undefined;}},
 };
 /**
- * Every agent transport arrives here. The agent becomes one Dispatch, and every edit the command
- * makes — through its own route, or through the buttons, fields and keys it presses — is recorded
- * under it, however long after.
+ * Every agent transport arrives here, naming the surface it came by: the loopback bridge (which MCP
+ * rides), the in-app agent, or `window.aphroditeAgent` in the page. The agent and the surface become
+ * one Dispatch, and every edit the command makes — through its own route, or
+ * through the buttons, fields and keys it presses — is recorded under it, however long after.
  */
-async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
+async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefined,surface:AgentSurface):Promise<Record<string,unknown>>{
+  if(!isAgentSurface(surface))return {error:'an agent arrives on loopback, mcp or inApp'};
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
@@ -1596,7 +1598,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
-  const d=agentDispatch(who,'loopback');
+  const d=agentDispatch(who,surface);
   stepRefused='';
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
@@ -1670,8 +1672,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       }
       case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
       case 'ui':{
-        // Hand it to the verb's own handler: one door in, the same rules inside.
-        return runAgentCommand(c.action,c.payload,who);
+        // Hand it to the verb's own handler: one door in, the same rules inside, the same surface.
+        return runAgentCommand(c.action,c.payload,who,surface);
       }
       case 'system':{
         let next:DesignSystem|undefined;
@@ -1722,7 +1724,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
-        const result=applyBatch(parsed.batch,agentDispatch(who,'loopback',{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
+        const result=applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }
@@ -1735,11 +1737,13 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
-(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
+/* The same executor, in the page: the headless gates and a browser build reach it here. It arrives as
+   the loopback channel unless the caller says which agent surface it stands for; it is never the screen. */
+(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string,surface:unknown='loopback')=>runAgentCommand(kind,payload,caller,surface as AgentSurface)};
 /* Registering the listener is itself a round trip to Rust. The channel must not advertise itself
    before this lands, or a request arriving in between is emitted into nothing and waits out the
    whole timeout — which is what an agent calling the moment it saw the endpoint file used to get. */
-const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
+const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller,'loopback');try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{

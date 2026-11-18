@@ -228,8 +228,8 @@ test('the MCP interface tool and every bridge route funnel into runAgentCommand'
   for(const path of ['/agent/ui','/agent/act','/agent/click','/agent/command'])
     assert.ok(bridgeRs.includes(`"POST ${path}",`),`${path} is a route`);
   assert.match(bridgeRs,/want_path\.strip_prefix\("\/agent\/"\)/,'the kind is the path after /agent/');
-  assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(/);
-  assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string\)=>runAgentCommand\(/);
+  assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(ev\.payload\.kind,ev\.payload\.payload,ev\.payload\.caller,'loopback'\)/);
+  assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string,surface:unknown='loopback'\)=>runAgentCommand\(/);
 });
 
 test('the ledger\'s patch, accepted back through apply_edits, cannot set the approval either',async()=>{
