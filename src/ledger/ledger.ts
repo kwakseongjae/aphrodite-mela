@@ -14,7 +14,7 @@
  */
 import {fingerprint, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, forSaving, LEDGER_RESERVE, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+import {compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
 export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
@@ -96,27 +96,19 @@ export function changesSince(ledger: Ledger | undefined, since: number | string 
   return {changes: after.slice(0, limit), more: after.length > limit, from};
 }
 
-/** What the saved project carries besides the design and the ledger's own entries: its key, brackets and commas. */
-const SAVED_SLACK = 1_000;
-
 /**
  * Keeps what is saved — the design and its history together — within what a project holds
- * (MAX_PROJECT). When the two would not fit, the history gives way, oldest ops first and then oldest
- * headers; the design never does. Every recording in session.ts ends here. A design within
- * MAX_PROJECT − LEDGER_RESERVE always saves and opens after a person's edit, undo or redo; one past it
- * (a big picture uploaded, say — this was so before html pages) is not rescued here: saving it fails and
- * the person sees the not-saved warning, as they did before.
+ * (MAX_PROJECT), in place: the history gives way, oldest ops first and then oldest headers, and the
+ * design never does. The save calls this (src/workspace/library.ts upsertProject) when the project it
+ * has just serialized is over the cap, so a project far from it costs nothing, and what stays in memory
+ * is what was saved. A design within MAX_PROJECT − LEDGER_RESERVE never gets here. A design past
+ * MAX_PROJECT on its own is not rescued: saving it fails and the person sees the not-saved warning.
  */
-export function fitSaved(project: Project, saved?: number): void {
+export function fitSaved(project: Project): void {
   const ledger = project.ledger;
   if (!ledger) return;
-  // `saved` is how long the project was when it was last saved (main.ts persist measures it anyway). Far
-  // from the cap there is nothing to do and no reason to serialize the design to find that out: the
-  // history never takes more than its reserve, and one edit is taken to add less than another reserve.
-  // A picture bigger than that, uploaded near the cap, is measured at the next save, which warns if it fails.
-  if (saved !== undefined && MAX_PROJECT - saved > 2 * LEDGER_RESERVE) return;
-  const room = MAX_PROJECT - JSON.stringify(designOf(project)).length - SAVED_SLACK;
-  if (JSON.stringify(ledger).length > room) compact(ledger, Math.max(0, room - ledger.changes.length));
+  // The saved project is the design with `,"ledger":` and the ledger added, wherever the key falls.
+  compact(ledger, MAX_PROJECT - JSON.stringify(designOf(project)).length - ',"ledger":'.length);
 }
 
 export function emptyLedger(): Ledger {

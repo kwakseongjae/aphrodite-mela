@@ -1,4 +1,5 @@
-import {parseProject,uid,type Project} from '../model';
+import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
+import {fitSaved} from '../ledger/ledger';
 import {LEDGER_RESERVE} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
@@ -28,20 +29,24 @@ export function readLibrary(storage:LocalStore):Library{
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
   return {version:1,entries:legacy?[entryFor(parseProject(legacy))]:[]};
 }
-export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string):ProjectEntry{
-  const entry:ProjectEntry={project:parseProject(JSON.stringify(project)),createdAt:now,updatedAt:now,pinned:false,archived:false};
+export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=JSON.stringify(project)):ProjectEntry{
+  const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
   if(workspaceId!==undefined)entry.workspaceId=requireWorkspaceId(workspaceId);
   return entry;
 }
-export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{return upsertProjectMeasured(library,project,now,workspaceId).library;}
-/** upsertProject, and how long the project it stored serializes to: the save measures it anyway, and the next edit can use it (session.ts History.saved). */
-export function upsertProjectMeasured(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):{library:Library;projectChars:number}{
+/**
+ * The library with `project` saved into it. The project is serialized once; only when that is over what
+ * a project holds does its history give way, in place (fitSaved), and it is serialized again — so what
+ * stays in memory is what was saved, and the next save does not meet the same history.
+ */
+export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{
   const existing=library.entries.find(e=>e.project.id===project.id);
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
-  const raw=JSON.stringify(project);
-  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
-  return {library:{version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]},projectChars:raw.length};
+  let raw=JSON.stringify(project);
+  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);}
+  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
+  return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
 /** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
 export const LIBRARY_LIMIT_BYTES=40_000_000;
