@@ -96,12 +96,17 @@ export function sendAs<T>(d: Dispatch | undefined, dispatch: () => T): T {
 /**
  * Dispatches an event the app makes itself on behalf of whoever caused it: an agent's click, key or
  * typing, the change a menu sends after the person picks from it, the click the palette sends when
- * Enter is pressed. The event carries `d`, and so does whatever the browser fires because of it.
+ * Enter is pressed. The event carries `d` while it is sent, and so does whatever the browser fires because of it.
  * A `ui` Dispatch can be passed on this way but not made: `refusal` still asks where it came from.
  */
 export function send(target: EventTarget, e: Event, d: Dispatch | undefined): boolean {
   if (d) carried.set(e, d);
-  return sendAs(d, () => target.dispatchEvent(e));
+  try {
+    return sendAs(d, () => target.dispatchEvent(e));
+  } finally {
+    // Good for this one sending: the same event object sent again by anyone else names nobody.
+    carried.delete(e);
+  }
 }
 
 /**

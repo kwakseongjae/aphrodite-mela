@@ -298,6 +298,14 @@ check('a value an agent typed sends no change of the browser’s own when the pe
   assert.deepEqual(await evaluate('window.__ledgerChanges'), [false], 'only the agent’s own change was sent');
 });
 
+check('a menu change sent for the person cannot be sent again', async () => {
+  // Captured as it passes, then sent again by script with a different value: nobody is named for the second.
+  await evaluate(`(() => { window.__ledgerSaved = null; window.addEventListener('change', e => { if (e.target.id === 'radius-select') window.__ledgerSaved = e; }, true); return true; })()`);
+  matches('the person’s pick', await oneChange('pick radius', async () => pick('#radius-select', await otherOption('#radius-select'))), {row: 'edit.tokens', author: PERSON, source: 'editor:change'});
+  await changes('the same event sent again', 0, async () => evaluate(`(() => { const s = document.querySelector('#radius-select');
+    s.value = [...s.options].find(o => o.value !== s.value).value; s.dispatchEvent(window.__ledgerSaved); return true; })()`));
+});
+
 /* ---- every edit row the person reaches, through one of its controls, by their own input ---- */
 
 const toDirections = async () => {

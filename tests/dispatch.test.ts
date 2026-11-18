@@ -57,6 +57,16 @@ test('an event the app makes for an agent carries that agent, and an event it ma
   assert.equal(refusal(sentAs(new Event('change'),theirs)),undefined);
 });
 
+test('an event carries its Dispatch for the one sending only',()=>{
+  const t=new EventTarget(),theirs=personAt(trusted)!;let kept:Event|undefined,seen:Dispatch|undefined;
+  t.addEventListener('change',e=>{kept=e;seen=dispatchOf(e);});
+  send(t,new Event('change'),theirs);
+  assert.equal(seen,theirs);
+  // Captured as it passed and sent again: nobody is named, so nothing is recorded under the person.
+  t.dispatchEvent(kept!);
+  assert.equal(seen,undefined);
+});
+
 test('what the browser fires while an agent’s event is being sent is the agent’s, trusted or not',()=>{
   const d=agentDispatch('claude-code','loopback');
   // The submit a submit button's click makes the browser fire: trusted, and nobody carried it.
