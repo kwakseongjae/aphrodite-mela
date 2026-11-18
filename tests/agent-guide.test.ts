@@ -72,6 +72,16 @@ test('a refusal holds back the agent that was refused, not every other one',()=>
   assert.equal(considerAsk('claude-code','design',pending,NOW+1000).status,'waiting','but only one request is on the screen at a time');
 });
 
+/* Review 0.3-1b: a request left open past the cooldown was replaced by the next asker while the
+   dialog still showed the first, so Allow let in a name the person never saw. */
+test('a request waiting for the person is never replaced, however long it waits',()=>{
+  const pending:AskState={by:'astra',at:NOW,answered:'pending',id:'r1'};
+  for(const later of [NOW+ASK_COOLDOWN_MS+1,NOW+24*60*60*1000]){
+    assert.equal(considerAsk('claude-code','design',pending,later).status,'waiting');
+    assert.equal(considerAsk('astra','design',pending,later).status,'waiting');
+  }
+});
+
 test('the playbook tells an agent its name is remembered once allowed',()=>{
   assert.match(playbook,/remembered, across restarts, until they disconnect it/);
 });

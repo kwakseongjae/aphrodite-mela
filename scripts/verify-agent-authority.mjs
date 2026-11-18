@@ -120,6 +120,27 @@ check('a request that arrives mid-press waits for the release', async () => {
   await key('Escape', 'Escape', 27);
 });
 
+check('a request left open is not replaced by the next asker, and Allow lets in the name on screen', async () => {
+  assert.equal((await agent('connect', {}, 'zed')).status, 'asked');
+  await sleep(200);
+  const shown = await evaluate(`(() => { const d = document.querySelector('#modal-root .ask-dialog'); return d ? {id: d.dataset.askId, by: d.dataset.askBy} : null; })()`);
+  assert.equal(shown?.by, 'zed', 'the dialog carries who asked');
+  assert.ok(shown?.id, 'and which request it is');
+  // The clock moves past the cooldown while the dialog sits there.
+  await evaluate(`(() => { const real = Date.now.bind(Date); window.__realNow = real; Date.now = () => real() + 6 * 60 * 1000; return true; })()`);
+  try {
+    const other = await agent('connect', {}, 'windsurf');
+    assert.equal(other.status, 'waiting', JSON.stringify(other));
+    await press('ask-allow');
+  } finally {
+    await evaluate(`(Date.now = window.__realNow, true)`);
+  }
+  assert.equal(await writes('zed'), 'on', 'the name on screen is the one let in');
+  assert.equal(await writes('windsurf'), 'off');
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
 check('the person declines, and the agent is told to stop asking', async () => {
   const asked = await agent('connect', {}, 'gemini');
   assert.equal(asked.status, 'asked', 'a refusal of one name does not hold back another');

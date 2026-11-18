@@ -71,10 +71,11 @@ export function guideFor(status: GuideStatus): string {
   return lines.join('\n');
 }
 
-/** How long a declined or pending request keeps an agent from asking again. */
+/** How long a refusal keeps the refused agent from asking again. A request still waiting has no clock. */
 export const ASK_COOLDOWN_MS = 5 * 60 * 1000;
 
-export type AskState = {by: string; at: number; answered: 'pending' | 'allowed' | 'declined'} | null;
+/** `id` names one request, so an answer given to the dialog on screen can only ever land on that request. */
+export type AskState = {by: string; at: number; answered: 'pending' | 'allowed' | 'declined'; id?: string} | null;
 export type AskOutcome =
   | {status: 'already-open'; message: string}
   | {status: 'asked'; message: string}
@@ -93,14 +94,13 @@ export function considerAsk(caller: string, mode: GuideStatus['mode'], state: As
       : 'Connected mode is already on. You may change the design.'};
   }
   // An answered "yes" is spent: if the person later closed the door, asking again is fair. Only a
-  // request still waiting, or one just refused, holds an agent back.
-  if (state && now - state.at < ASK_COOLDOWN_MS) {
-    if (state.answered === 'declined' && state.by === caller) {
-      return {status: 'declined', message: 'The person declined a moment ago. Do not ask again — tell them what you would like to change and let them decide.'};
-    }
-    if (state.answered === 'pending') {
-      return {status: 'waiting', message: 'A request is already on their screen. Tell the person what you want to do rather than asking again.'};
-    }
+  // request still waiting, or one just refused, holds an agent back. A waiting one holds until the
+  // person answers it, however long that takes: replacing it would put another name under their Allow.
+  if (state?.answered === 'pending') {
+    return {status: 'waiting', message: 'A request is already on their screen. Tell the person what you want to do rather than asking again.'};
+  }
+  if (state && now - state.at < ASK_COOLDOWN_MS && state.answered === 'declined' && state.by === caller) {
+    return {status: 'declined', message: 'The person declined a moment ago. Do not ask again — tell them what you would like to change and let them decide.'};
   }
   return {status: 'asked', message: `Asked. The person now sees a request from "${caller}" and can allow it with one click. Tell them what you would like to change while they decide.`};
 }

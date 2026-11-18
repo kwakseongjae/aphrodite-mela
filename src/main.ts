@@ -725,31 +725,42 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { const asking=askOpen(); analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { const asking=askShown(); analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
   // Closing the request any way but Allow is Not now: it must not linger unanswered, nor come straight back.
-  if(asking&&askState?.answered==='pending'){askState={...askState,answered:'declined',at:Date.now()};toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));}
+  if(asking&&askIs(asking)){askState={...askState!,answered:'declined',at:Date.now()};toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));}
   offerAsk();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
+/** Which request the dialog on screen is: its id and who asked, as drawn into it. */
+function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
+/** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
+function askIs(shown:{id:string;by:string}){return !!askState&&askState.answered==='pending'&&!!shown.id&&askState.id===shown.id&&askState.by===shown.by;}
+let askSeq=0;
 /**
  * An agent asking to be let in, as a dialog in the middle of the screen. It waits for its moment: not
  * over another dialog the person is using (it shows when that one closes), and not in the middle of a
  * press, where making the page inert would cancel the person's drag.
  */
-function offerAsk(){if(!askState||askState.answered!=='pending'||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by);}
-function askModal(by:string){
+function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by,askState.id);}
+function askModal(by:string,id:string){
   showModal(`<code class="ask-name">${esc(by)}</code>`,ui('would like to edit alongside you','함께 편집하기를 요청합니다'),
-    `<div class="ask-dialog"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · You can disconnect it in Settings','다음부터는 묻지 않습니다 · 설정에서 끊을 수 있습니다')}</span></li></ul>`+
+    `<div class="ask-dialog" data-ask-id="${esc(id)}" data-ask-by="${esc(by)}"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · You can disconnect it in Settings','다음부터는 묻지 않습니다 · 설정에서 끊을 수 있습니다')}</span></li></ul>`+
     `<div class="ask-actions"><button type="button" class="secondary-button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="primary-button" data-action="ask-allow">${ui('Allow','허용')}</button></div></div>`);
   modalRoot.querySelector('.modal')?.classList.add('ask-modal');
   // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
   toasts=[];paintToasts();
   modalRoot.querySelector<HTMLElement>('[data-action="ask-allow"]')?.focus();
 }
-/** The person's answer. Only their own input reaches here (doorActions in authority.ts; the keys check isTrusted). */
+/**
+ * The person's answer to the dialog on screen. Only their own input reaches here (doorActions in
+ * authority.ts; the keys check isTrusted). It changes nothing unless the dialog is still the request
+ * waiting — same id, same name — so an answer can never land on a request the person did not see.
+ */
 function answerAsk(allow:boolean){
-  if(!askState)return;const by=askState.by;
-  askState={...askState,answered:allow?'allowed':'declined',at:allow?askState.at:Date.now()};
+  const shown=askShown();
+  if(!shown||!askIs(shown)){if(shown)closeModal();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
+  const by=shown.by;
+  askState={...askState!,answered:allow?'allowed':'declined',at:allow?askState!.at:Date.now()};
   if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
   if(askOpen())closeModal();
   refreshBanners();
@@ -1525,10 +1536,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
-  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:callerMode(who),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:callerMode(who)!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed',screen:screen==='editor'?'editor':'home'})};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:callerMode(who),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:callerMode(who)!=='design',askedRecently:!!askState&&(askState.answered==='pending'||Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'),screen:screen==='editor'?'editor':'home'})};
   if(c.kind==='connect'){
+    // A waiting request whose agent has since been let in some other way (the switch) has nothing left to ask.
+    if(askState?.answered==='pending'&&!askShown()&&callerMode(askState.by)!=='design')askState={...askState,answered:'allowed'};
     const outcome=considerAsk(who,callerMode(who),askState,Date.now());
-    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};offerAsk();if(!askOpen())toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
   commandCaller=who;stepRefused='';
