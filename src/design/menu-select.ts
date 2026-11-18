@@ -1,10 +1,15 @@
 import {esc} from '../html';
 import {icon} from '../design/icon';
+import {carry,dispatchOf} from '../agent/dispatch';
 
 /**
  * Custom dropdown that mirrors a native <select>. The native element stays in the DOM (hidden) so every
  * existing `change` handler and form submission keeps working; the menu just sets `select.value` and
  * dispatches a bubbling `change`. Selects inside iframes and `select[multiple]` are left alone.
+ *
+ * That `change` is made here, so the browser does not vouch for it: it carries the Dispatch of the
+ * click that picked the option (src/agent/dispatch.ts), and an edit it causes is recorded as whoever
+ * clicked — the person, or an agent's click.
  */
 export type MenuOption={value:string;label:string;selected:boolean;disabled:boolean};
 
@@ -57,7 +62,7 @@ export function enhanceSelect(select:HTMLSelectElement):void{
     e.preventDefault();e.stopPropagation();
     const value=item.dataset.value??'';
     details.open=false;
-    if(select.value!==value){select.value=value;select.dispatchEvent(new Event('input',{bubbles:true}));select.dispatchEvent(new Event('change',{bubbles:true}));}
+    if(select.value!==value){const who=dispatchOf(e);select.value=value;select.dispatchEvent(carry(new Event('input',{bubbles:true}),who));select.dispatchEvent(carry(new Event('change',{bubbles:true}),who));}
     refresh(select);
   });
   details.addEventListener('keydown',e=>{

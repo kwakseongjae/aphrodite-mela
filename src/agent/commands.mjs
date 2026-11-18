@@ -11,9 +11,10 @@
  * Plain JavaScript with no imports, so the dependency-free MCP server and the Vite app read the same
  * object with no build step (the precedent is tools.mjs + tools.d.mts).
  *
- * 0.3-2 step 1 records the rules as they are today — which commands take a reason, which check the
- * revision, which ledger source each writes — without changing any of them. Step 2 changes the rules
- * here and the code follows.
+ * Which commands take a reason, which check the revision and which ledger sources each writes are
+ * columns here, and the code follows them: `commit()` in main.ts takes the row an edit belongs to and
+ * refuses a source the row does not list, and the agent channel asks for a reason and checks the
+ * revision where the row says so (0.3-2b).
  */
 
 /**
@@ -738,7 +739,7 @@ export const commands = [
     },
   },
   {
-    /* The whole system at once. The agent's route writes the default source today (see the report). */
+    /* The whole system at once. An agent's call is `agent:system`; the person's controls write the rest. */
     id: 'edit.system',
     label: {en: 'Change the design system', ko: '디자인 시스템 바꾸기'},
     grade: 'edit',
@@ -755,7 +756,7 @@ export const commands = [
     },
     reason: 'none',
     revision: 'none',
-    ledger: sources('editor:change', 'design:apply-source', 'theme:draft-applied'),
+    ledger: sources('agent:system', 'editor:change', 'design:apply-source', 'theme:draft-applied'),
     author: 'transport',
     surfaces: BOTH_PANEL,
     controls: [action('systems'), action('choose-system'), action('import-md'), action('apply-omd'), action('proposal-apply')],
@@ -827,12 +828,15 @@ export const commands = [
 
   /* ---- Only the person. The gate's two refusals are these rows' kinds; no surface but the screen has them. ---- */
   {
+    /* Approving writes the approval into the project, so it is a change in the ledger like an edit —
+       one that `commit()` records for the person and nobody else. */
     id: 'human.approve',
     label: {en: 'Approve the direction', ko: '방향 승인'},
     grade: 'human',
     kind: 'approve',
     input: NOTHING,
     ...plain,
+    ledger: sources('editor:change'),
     author: 'person-only',
     surfaces: UI,
     controls: [action('approve'), action('approve-export')],

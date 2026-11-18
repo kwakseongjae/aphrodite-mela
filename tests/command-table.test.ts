@@ -31,9 +31,10 @@ test('every row is well formed',()=>{
   }
 });
 
-test('only an edit writes to the ledger, and every edit that is not a screen verb names its source',()=>{
+test('only an edit (and approving) writes to the ledger, and every edit that is not a screen verb names its source',()=>{
   for(const row of commands){
-    if(row.grade==='edit'&&!row.resolves){
+    // Approving writes the approval into the project: a change in the ledger, the person's alone.
+    if(row.grade==='edit'&&!row.resolves||row.id==='human.approve'){
       assert.ok(row.ledger&&row.ledger.sources.length>0,`${row.id} is an edit and names the ledger source it writes`);
       for(const s of row.ledger.sources)assert.match(s,/^[a-z]+(:[a-z-]+)?$/,`${row.id} source ${s}`);
     }else{
