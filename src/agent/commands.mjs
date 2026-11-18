@@ -11,9 +11,10 @@
  * Plain JavaScript with no imports, so the dependency-free MCP server and the Vite app read the same
  * object with no build step (the precedent is tools.mjs + tools.d.mts).
  *
- * 0.3-2 step 1 records the rules as they are today — which commands take a reason, which check the
- * revision, which ledger source each writes — without changing any of them. Step 2 changes the rules
- * here and the code follows.
+ * Which commands take a reason, which check the revision and which ledger sources each writes are
+ * columns here, and the code follows them: `commit()` in main.ts takes the row an edit belongs to and
+ * refuses a source the row does not list, and the agent channel asks for a reason and checks the
+ * revision where the row says so (0.3-2b).
  */
 
 /**
@@ -28,6 +29,11 @@ const WRITE = {readOnlyHint: false, destructiveHint: false, idempotentHint: fals
 const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false};
 
 const NOTHING = {type: 'object', properties: {}, additionalProperties: false};
+/** What an edit that is `reason: 'required'` and `revision: 'checked'` takes besides its own input. */
+const REASON = {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'};
+const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). If the project has changed since, nothing is changed and the reply lists what changed.'};
+/** A screen verb's reason is optional: it is kept with the change the verb reaches, when there is one. */
+const OPTIONAL_REASON = {type: 'string', maxLength: 500, description: 'Optional. One sentence for the person on why, kept with the change this makes.'};
 const UI = {ui: true, mcp: false, loopback: false, inApp: false};
 const LOOPBACK = {ui: false, mcp: false, loopback: true, inApp: false};
 const MCP = {ui: false, mcp: true, loopback: true, inApp: false};
@@ -272,11 +278,13 @@ export const commands = [
         key: {type: 'string', description: 'key: the key to press, e.g. "Escape", "k", "1".'},
         meta: {type: 'boolean'},
         shift: {type: 'boolean'},
+        reason: {...OPTIONAL_REASON, description: 'command: optional. One sentence for the person on why, kept with the change the command makes.'},
       },
       required: ['action'],
       additionalProperties: false,
     },
     ...plain,
+    reason: 'optional',
     surfaces: MCP,
     controls: [],
     route: {method: 'POST', path: '/agent/ui'},
@@ -290,6 +298,7 @@ export const commands = [
         '',
         'Try the other tools first. This one needs you to know the interface, and a change made through it is a normal edit the person can undo like any other.',
         'The most useful action is `command`: it runs the best match from the app\'s own command palette, the same list a person sees with ⌘K, so you can name what you want in words instead of hunting for a selector. Reach for `click`, `type` and `key` only when no command covers it.',
+        'A `command` can carry a `reason`, one sentence for the person on why; it is kept with the change it makes.',
         'It needs the same open door as editing, and no combination of actions here can approve a direction.',
         'None of it needs the window in front: nothing is done with a real mouse or keyboard, so the person can be working in another app.',
         '',
@@ -305,6 +314,7 @@ export const commands = [
         key: args.key,
         meta: args.meta,
         shift: args.shift,
+        reason: args.reason,
       }),
     },
   },
@@ -415,11 +425,13 @@ export const commands = [
       properties: {
         action: {type: 'string', description: 'A kebab-case data-action name.'},
         data: {type: 'object', description: 'The data-* values the button would carry. May not name an action.'},
+        reason: OPTIONAL_REASON,
       },
       required: ['action'],
       additionalProperties: false,
     },
     ...plain,
+    reason: 'optional',
     surfaces: LOOPBACK,
     controls: [],
     route: {method: 'POST', path: '/agent/act'},
@@ -480,8 +492,9 @@ export const commands = [
     grade: 'edit',
     kind: 'command',
     resolves: true,
-    input: {type: 'object', properties: {query: {type: 'string', description: 'Palette search text, in English or Korean.'}}, required: ['query'], additionalProperties: false},
+    input: {type: 'object', properties: {query: {type: 'string', description: 'Palette search text, in English or Korean.'}, reason: OPTIONAL_REASON}, required: ['query'], additionalProperties: false},
     ...plain,
+    reason: 'optional',
     surfaces: LOOPBACK,
     controls: [],
     route: {method: 'POST', path: '/agent/command'},
@@ -499,18 +512,20 @@ export const commands = [
         field: {type: 'string', enum: ['title', 'text', 'label', 'eyebrow', 'description']},
         text: {type: 'string'},
         blockId: {type: 'string', description: 'Defaults to the selection.'},
+        reason: REASON,
+        base_revision: BASE_REVISION,
       },
-      required: ['field', 'text'],
+      required: ['field', 'text', 'reason'],
       additionalProperties: false,
     },
-    reason: 'none',
-    revision: 'none',
+    reason: 'required',
+    revision: 'checked',
     ledger: sources('agent:edit', 'editor:change'),
     author: 'transport',
     surfaces: UI_LOOPBACK,
     controls: [field('data-field')],
     route: {method: 'POST', path: '/agent/edit'},
-    example: {field: 'title', text: 'Hello'},
+    example: {field: 'title', text: 'Hello', reason: 'The brief names the shop in its first line.'},
   },
   {
     id: 'read.images',
@@ -738,7 +753,7 @@ export const commands = [
     },
   },
   {
-    /* The whole system at once. The agent's route writes the default source today (see the report). */
+    /* The whole system at once. An agent's call is `agent:system`; the person's controls write the rest. */
     id: 'edit.system',
     label: {en: 'Change the design system', ko: '디자인 시스템 바꾸기'},
     grade: 'edit',
@@ -750,17 +765,20 @@ export const commands = [
         markdown: {type: 'string', description: 'A DESIGN.md to import, up to 200KB.'},
         name: {type: 'string', description: 'What to call an imported system.'},
         tokens: {type: 'object', description: 'Individual tokens to override, e.g. accent, background, foreground, radius, font, surface, line, muted, danger, success, warning.'},
+        reason: REASON,
+        base_revision: BASE_REVISION,
       },
+      required: ['reason'],
       additionalProperties: false,
     },
-    reason: 'none',
-    revision: 'none',
-    ledger: sources('editor:change', 'design:apply-source', 'theme:draft-applied'),
+    reason: 'required',
+    revision: 'checked',
+    ledger: sources('agent:system', 'editor:change', 'design:apply-source', 'theme:draft-applied'),
     author: 'transport',
     surfaces: BOTH_PANEL,
     controls: [action('systems'), action('choose-system'), action('import-md'), action('apply-omd'), action('proposal-apply')],
     route: {method: 'POST', path: '/agent/system'},
-    example: {id: 'toss'},
+    example: {id: 'toss', reason: 'The person asked for the Toss look.'},
     mcp: {
       order: 11,
       name: 'aphrodite_set_design_system',
@@ -769,13 +787,14 @@ export const commands = [
         'Repaints the whole project from one of the built-in systems (`mui`, `shadcn`, `seed`, `astryx`, `atelier`, `karrot`, `toss`, `mono`), from a DESIGN.md you pass as `markdown`, or from loose `tokens` such as `{"accent": "#344e41"}`.',
         '',
         'This is the largest single edit there is — every block on every page repaints — and it lands as one change with one undo. Read aphrodite_get_contract first so you know what you are replacing.',
+        'Every call needs a `reason`: one sentence, for the person, on why. It is shown beside the change and kept with it. Send `base_revision` (the revision from aphrodite_get_changes or aphrodite_get_contract) so a call written against an older state is refused with what changed, instead of repainting over the person\'s work.',
         'Anything in `tokens` that is not a real colour is dropped rather than trusted.',
         'Changing the design needs the door open.',
         '',
-        'Example: {"id": "toss"}',
+        'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "1830:4fa1c2:9b0e11"}',
       ].join('\n'),
       annotations: {title: 'Change the design system', ...WRITE},
-      body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens}),
+      body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens, reason: args.reason, base_revision: args.base_revision}),
     },
   },
   {
@@ -827,12 +846,15 @@ export const commands = [
 
   /* ---- Only the person. The gate's two refusals are these rows' kinds; no surface but the screen has them. ---- */
   {
+    /* Approving writes the approval into the project, so it is a change in the ledger like an edit —
+       one that `commit()` records for the person and nobody else. */
     id: 'human.approve',
     label: {en: 'Approve the direction', ko: '방향 승인'},
     grade: 'human',
     kind: 'approve',
     input: NOTHING,
     ...plain,
+    ledger: sources('editor:change'),
     author: 'person-only',
     surfaces: UI,
     controls: [action('approve'), action('approve-export')],

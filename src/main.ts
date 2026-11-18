@@ -12,7 +12,6 @@ import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGrou
 import './design/component-explorer.css';
 import {pinShelf,shelfPage} from './design/shelf';
 import {begin,end,newHistory,step,HumanOnlyStep} from './ledger/session';
-import type {Author} from './ledger/ledger';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -77,6 +76,7 @@ import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
+import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -124,6 +124,8 @@ const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-red
 let project: Project = initialProject();
 try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
+/** The block the inspector's fields were last drawn for. */
+let inspectedId:string|undefined;
 let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
 /* The reference archive and taste.md, with every dependency they have on the editor written down
    rather than reached for. See src/workspace/archive.ts. */
@@ -164,7 +166,7 @@ let connectMode=allowedAgents.length>0;
 function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
-let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;let pointerHeld=false;
+let lease:Holder|null=null;let connectWrites=0;let stepRefused='';let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
@@ -223,25 +225,44 @@ async function showVault(refresh=true){
 }
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
-/** Who an edit belongs to: the agent whose command is running, or the person at the screen. */
-function author(by=commandCaller):Author{return by?{kind:'agent',name:by}:{kind:'person',name:'you'};}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
- * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step. A page's
- * frame comes and goes with the page, here rather than in render(), which would be an edit outside
- * the ledger (recorded as untracked, and clearing redo).
+ * src/ledger/patch.ts), recorded in the ledger under `d` — who made it, through what, and why — and
+ * becomes one undo step. `d` comes from the input that started the edit (src/agent/dispatch.ts) and is
+ * passed down, across any await, by the code that holds it; nothing here guesses. `row` is the
+ * command-table row the edit belongs to, and `source` one its ledger column lists (the first that is
+ * not an agent's, unless named). Nothing changes under a Dispatch that names nobody who may, or under
+ * an agent's for a row only the person may do. A page's frame comes and goes with the page, here
+ * rather than in render(), which would be an edit outside the ledger (recorded as untracked, and
+ * clearing redo).
  */
-function commit(change: () => void, updateUI = true,source='editor:change',reason?:string) {
-  const who=author(),before = begin(project,edits),pageBefore=project.activePageId;
+function commit(change: () => void, d: Dispatch, row: string, {source, updateUI = true}: {source?: string; updateUI?: boolean} = {}) {
+  const refused=refusal(d,row);if(refused)throw new Error(refused);
+  const from=sourceFor(row,source);
+  if(d.author.kind!=='agent'&&from.startsWith('agent:'))throw new Error(`${from} is an agent's source`);
+  if(updateUI)saveTyping();
+  const before = begin(project,edits),pageBefore=project.activePageId;
   change();ensureSpace(project);
-  const recorded=end(project,before,{author:who,source,reason},edits);
-  if (recorded) { persist();recordRun(source,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
+  const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
+  if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'},d); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
-/** `by` is the agent that asked for the step, or '' for the person. */
-function history(direction: 'undo' | 'redo',by=commandCaller) {
+/**
+ * A field the person typed into and has not left is saved, as their own change, before anything draws
+ * the editor over it. A field removed while focused sends no `change` in WebKit, and in Chrome sends it
+ * after the redraw, onto whatever is selected by then. Its own `change` has already cleared it, so
+ * saving it here never comes back here.
+ */
+function saveTyping(){const typing=document.activeElement;if(typing instanceof HTMLElement&&typing.closest('.inspector')&&typedInto(typing))typing.blur();}
+/** Who an event comes from, when that is someone who may change the design: the person's own input, or an agent's command it carries. */
+function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusal(d)?d:undefined;}
+watchTyping(window);
+/** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
+function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
+  if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
+  saveTyping();
   const before=project;let done;
-  try{done=step(project,direction,edits,author(by));}
+  try{done=step(project,direction,edits,d.author);}
   catch(error){
     // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
     if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
@@ -250,10 +271,11 @@ function history(direction: 'undo' | 'redo',by=commandCaller) {
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
   if(!done)return;
-  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
-function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
+/** `d`, when an agent's, names it on the receipt. */
+function recordRun(kind:string,details:Record<string,unknown>={},d?:Dispatch){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,d?.author.kind==='agent'?{...details,by:d.author.name}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
 function insertionTarget(){return currentPage(project).blocks.find(b=>b.id===insertParent&&b.kind==='frame')?.id;}
 let assemblyExpanded=false;try{assemblyExpanded=localStorage.getItem('aphrodite-assembly-expanded')==='true';}catch{}
 function assemblyBar(){const page=currentPage(project),last=assemblyRun?.events.at(-1),foreign=assemblyRun&&assemblyRun.projectId!==project.id;
@@ -501,6 +523,8 @@ function hubRefresh(){
   hydrateIcons();syncStateAttributes();
 }
 function render() {
+  // Only onto the block the inspector was drawn for: the field's change saves onto the selection.
+  if(inspectedId===selected)saveTyping();
   disposePointerEditor?.();
   /* The official-library runtime is a lazy chunk now. Ask for it the moment a page needs one, and
      draw again when it lands — until then those blocks show a frame that says it is coming. The
@@ -552,10 +576,10 @@ function render() {
   decorateInspector(page);
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
-  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
   mountPointer(canvas as HTMLElement,page);
 }
-function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
 function inspectorPanelHtml(){const page=currentPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml();}
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
@@ -581,6 +605,7 @@ function selectBlock(id:string){
 }
 /** What the inspector adds for the selected block once it is drawn. render() and selectBlock() both call it. */
 function decorateInspector(page:Page){
+  inspectedId=selected;
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -814,14 +839,14 @@ function exportModal(view = 'prompt') {
   if (htmlTab) htmlTab.textContent = activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
   if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
 }
-function addBlock(kind: BlockKind, before?: string, choice?:{provider:string;variant:string}) {
+function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
   const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
   if(!canParent([...blocks,b],b.id,b.parentId)){recordRun('catalog:rejected',{reason:'invalid-depth',parentId:b.parentId});toast('이 프레임에는 더 깊게 중첩할 수 없습니다. 삽입 대상을 바꾸세요.');return;}
   if(!choice&&supportsProvider(project.system.id,kind))b.provider=project.system.id;
   const parentName=nodePath(blocks,b.parentId);
-  commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},true,before?'catalog:drop':'catalog:add');
+  commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
   document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   toast(`${catalog.find(c => c.kind === kind)!.name} ${ui('added →','추가됨 →')} ${parentName}`);
 }
@@ -866,7 +891,8 @@ function bindDragAndDrop() {
     if(event.type==='pointercancel'||Math.hypot(event.clientX-start.x,event.clientY-start.y)<=6)return;
     const hit=document.elementFromPoint(event.clientX,event.clientY);
     if(!hit?.closest('#design-canvas')){toast(ui('Drop inside the page canvas','페이지 캔버스 안에 놓아주세요'));return;}
-    addBlock(choice.kind,hit.closest<HTMLElement>('[data-block-id]')?.dataset.blockId,choice);
+    const d=who(event);if(!d)return;
+    addBlock(choice.kind,d,hit.closest<HTMLElement>('[data-block-id]')?.dataset.blockId,choice);
    };
    el.addEventListener('pointermove',move);el.addEventListener('pointerup',finish);el.addEventListener('pointercancel',finish);el.addEventListener('lostpointercapture',cleanup);document.addEventListener('keydown',cancel);
   });
@@ -889,16 +915,16 @@ function bindDragAndDrop() {
   app.querySelectorAll<HTMLElement>('[data-component]').forEach(el=>el.addEventListener('dragend',()=>{el.classList.remove('shelf-dragging');document.querySelector('#design-canvas')?.classList.remove('drop-active');}));
   const canvas = app.querySelector<HTMLElement>('#design-canvas')!;
   if(canvas.dataset.nativeDropBound)return;canvas.dataset.nativeDropBound='true';
-  canvas.addEventListener('drop',e=>{const raw=e.dataTransfer?.getData(catalogMime);if(!raw)return;e.preventDefault();e.stopImmediatePropagation();canvas.classList.remove('drop-active');canvas.querySelectorAll('.drop-before').forEach(el=>el.classList.remove('drop-before'));const choice=parseCatalogChoice(raw);if(!choice){toast(ui('Invalid catalog selection','유효하지 않은 카탈로그 선택입니다'));return;}const before=(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId;addBlock(choice.kind,before,choice);});
-  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;});toast(ui('Component moved · Undo available','컴포넌트를 옮겼습니다 · 실행 취소 가능'));});
+  canvas.addEventListener('drop',e=>{const raw=e.dataTransfer?.getData(catalogMime);if(!raw)return;e.preventDefault();e.stopImmediatePropagation();canvas.classList.remove('drop-active');canvas.querySelectorAll('.drop-before').forEach(el=>el.classList.remove('drop-before'));const choice=parseCatalogChoice(raw);if(!choice){toast(ui('Invalid catalog selection','유효하지 않은 카탈로그 선택입니다'));return;}const before=(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId;const d=who(e);if(d)addBlock(choice.kind,d,before,choice);});
+  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;const d=who(e);if(!d)return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;},d,'edit.move');toast(ui('Component moved · Undo available','컴포넌트를 옮겼습니다 · 실행 취소 가능'));});
   canvas.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('drop-active'); const wrap = (e.target as HTMLElement).closest('.block-wrap'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); wrap?.classList.add('drop-before'); });
   canvas.addEventListener('dragleave', e => { if (!canvas.contains(e.relatedTarget as Node)) { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
-  canvas.addEventListener('drop', e => { e.preventDefault(); const kind = e.dataTransfer?.getData('application/aphrodite-component') as BlockKind; const before = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId; if (catalog.some(c => c.kind === kind)) addBlock(kind, before); else { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
+  canvas.addEventListener('drop', e => { e.preventDefault(); const kind = e.dataTransfer?.getData('application/aphrodite-component') as BlockKind; const before = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId; const d = who(e); if (catalog.some(c => c.kind === kind)) { if (d) addBlock(kind, d, before); } else { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
 }
 function pickFile(accept: string, handler: (file: File) => Promise<void>) {
   const input = document.createElement('input'); input.type = 'file'; input.accept = accept; input.hidden = true; input.dataset.upload = accept;
   document.querySelector('[data-upload]')?.remove(); document.body.append(input);
-  input.addEventListener('change', async () => { try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
+  input.addEventListener('change', async e => { if (!e.isTrusted) return; try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
 }
 async function readImage(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000) throw new Error('2MB 이하 PNG, JPG, WebP 이미지를 선택해주세요.');
@@ -923,24 +949,29 @@ function compareModal() {
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 /**
- * `trusted` says the person started this with their own input (the click event's isTrusted). Only the
- * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an agent's
- * el.click() — leaves it false, and an approve* or door action then refuses to run.
+ * `given` is who pressed: the person's own input, or the agent whose command pressed it
+ * (src/agent/dispatch.ts). It is read here, before the first await, and every edit this action makes —
+ * however long after — is recorded under it. Undefined is nobody: the action can still open a dialog
+ * or move the view, and commits nothing.
+ *
+ * `trusted` says the person started this with their own click (the click event's isTrusted). Only the
+ * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an
+ * agent's click — leaves it false, and an approve* or door action then refuses to run.
  */
-async function action(el: HTMLElement, trusted = false) {
+async function action(el: HTMLElement, given: Dispatch | undefined, trusted = false) {
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   // Who may edit is decided the same way: allowing, declining, the switch and disconnecting run only from the person's own input.
   if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
-  const by=trusted?'':commandCaller;
+  const d=given??NOBODY;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
      editor's business, not the archive's. */
   if(act&&await updates.handle(act))return;
-  if(act&&await archive.handle(act,el,pickFile,src=>{commit(()=>{project.reference=src;});referenceModal();}))return;
+  if(act&&await archive.handle(act,el,pickFile,src=>{commit(()=>{project.reference=src;},d,'edit.reference');referenceModal();}))return;
   switch (act) {
     case 'language-settings':showModal(ui('Language / 언어','Language / 언어'),ui('Interface and content are separate preferences.','앱 조작 언어와 콘텐츠 언어는 별개의 설정입니다.'),languageSettingsHtml(uiLanguage,screen==='editor'?(project.contentLanguage??'en'):undefined));break;
     case 'vault-open': vaultProjectId=el.dataset.id||project.id;vaultState=undefined;await showVault();break;
@@ -997,25 +1028,25 @@ async function action(el: HTMLElement, trusted = false) {
     case 'storage-info': showModal(ui('Where your work lives','작업이 저장되는 곳'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),`<div class="storage-path"><code>${esc(storagePath)}</code><button class="secondary-button" data-action="copy-storage-path">${icon('copy')}${ui('Copy path','경로 복사')}</button></div><ul class="storage-facts"><li>${icon('hard-drive')}<span><strong>library.json</strong> · ${ui('your current projects','현재 프로젝트 보관함')}</span></li><li>${icon('history')}<span><strong>library.previous.json</strong> · ${ui('the previous save, kept automatically','직전 저장본 · 자동 보관')}</span></li><li>${icon('folder-open')}<span><strong>project-vault-v1/</strong> · ${ui('per-project images and DESIGN.md snapshots (Files on a project card)','프로젝트별 이미지·DESIGN.md 스냅샷 (프로젝트 카드의 파일)')}</span></li></ul><div class="vibe-actions">${button('hub-backup','download',ui('Save a workspace backup','작업 공간 백업 저장'),'secondary-button')}${button('hub-recovery','download',ui('Save raw recovery files','원본 복구 파일 저장'),'secondary-button')}</div><p class="fine-print">${ui('If another window changed the files, this one refuses to overwrite them and shows a banner with reload and backup options.','다른 창이 파일을 바꾸면 이 창은 덮어쓰지 않고, 다시 불러오기·백업 옵션이 있는 배너를 표시합니다.')}</p>`);break;
     case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
-    case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id});refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
-    case 'insert-root': insertParent=undefined;recordRun('target:root');refreshAssemblyBar();break;
-    case 'assembly-empty': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},true,'assembly:new-page');closeModal();break;
+    case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
+    case 'insert-root': insertParent=undefined;recordRun('target:root',{},d);refreshAssemblyBar();break;
+    case 'assembly-empty': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},d,'edit.page-add',{source:'assembly:new-page'});closeModal();break;
     case 'assembly-brief': await saveFile('ASSEMBLY-BRIEF.md',assemblyBrief(project,selected,insertionTarget()),'text/markdown');break;
     case 'assembly-log': if(assemblyRun)await saveFile(`assembly-${assemblyRun.id}.json`,JSON.stringify({...assemblyRun,scope:'Editor receipts only; not a model trace, video, or usage report.'},null,2),'application/json');break;
-    case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 프로젝트로 돌아가세요.');break;}recordRun('review:requested',{approved:false});if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
-    case 'assembly-end': recordRun('run:ended');if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
+    case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 프로젝트로 돌아가세요.');break;}recordRun('review:requested',{approved:false},d);if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
+    case 'assembly-end': recordRun('run:ended',{},d);if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
-    case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;});toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
-    case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
-    case 'undo': history('undo',by); break;
-    case 'redo': history('redo',by); break;
+    case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
+    case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');toast('Pointer lab · 기존 페이지는 보존됩니다');break;
+    case 'undo': history('undo',d); break;
+    case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
-    case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
+    case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
     case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);break;}
-    case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn);btn.remove();break;}
+    case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
     case 'welcome-show': welcomeModal();break;
     case 'tour-start': closeModal();if(screen!=='editor'){toast(ui('Open a project first, then start the tour.','프로젝트를 먼저 연 뒤 둘러보기를 시작하세요.'));break;}onboarding={...onboarding,toured:false};startTour();break;
@@ -1025,32 +1056,32 @@ async function action(el: HTMLElement, trusted = false) {
     case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
     case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
-    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast('최대 30개 페이지를 지원합니다.');break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');});recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'});candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
-    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';});recordRun('proposal:accepted',{pageId:id,from,mode:'replace'});fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
-    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');});recordRun('proposal:kept',{pageId:id});fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
-    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:project.pages[0].id;selected='';}});recordRun('proposal:discarded',{pageId:id});toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
+    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast('최대 30개 페이지를 지원합니다.');break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
+    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
+    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
+    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:project.pages[0].id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
     case 'zoom-fit': fitAll();break;
     case 'zoom-frame': fitFrame(project.activePageId);break;
     case 'zoom-100': zoomCenter(1);break;
     case 'zoom-in': zoomCenter(stepZoom(camera.zoom,1));break;
     case 'zoom-out': zoomCenter(stepZoom(camera.zoom,-1));break;
-    case 'tidy-frames': commit(()=>{project.space=tidyFrames(project.space!,project.pages.map(p=>p.id));});recordRun('frame:tidied',{frames:project.pages.length});fitAll();toast(ui('Frames tidied into a row','프레임을 한 줄로 정렬했습니다'));break;
+    case 'tidy-frames': commit(()=>{project.space=tidyFrames(project.space!,project.pages.map(p=>p.id));},d,'edit.frame');recordRun('frame:tidied',{frames:project.pages.length},d);fitAll();toast(ui('Frames tidied into a row','프레임을 한 줄로 정렬했습니다'));break;
     case 'new-frame': showModal(ui('A new frame on the space.','공간 위에 새 프레임.'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
 
     case 'systems': designBridgeModal(); break;
-    case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
+    case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }, d, 'edit.system'); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
     case 'brief': briefModal(); break;
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
     case 'vibe-back': autofillModal();break;
-    case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();modalRoot.querySelector<HTMLFormElement>('#vibe-form')?.requestSubmit();break;}
+    case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form');if(form?.reportValidity())send(form,new SubmitEvent('submit',{bubbles:true,cancelable:true}),d);break;}
     case 'brand-kit': showModal(ui('Aphrodite Brand Kit','아프로디테 브랜드 리소스'),ui('Paper Muse · logo, colour, type, voice and cutouts','Paper Muse · 로고, 색, 서체, 목소리, 컷아웃'),brandHtml(uiLanguage),true); break;
     case 'apply-omd': {
       const before=fingerprint(project),id=el.dataset.source!;
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
       if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
-      commit(()=>{project.system=system;},true,'design:apply-source');closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+      commit(()=>{project.system=system;},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
     }
     case 'omd-issue': {
       const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
@@ -1069,18 +1100,18 @@ async function action(el: HTMLElement, trusted = false) {
     case 'apply-vibe': {
       if(!vibePending||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
       const plan=vibePending.plan;
-      commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},true,'vibe:apply');
-      recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false});
+      commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
+      recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false},d);
       vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();toast(plan.changes.length+'개 필드 적용 · Undo로 전체 복원');break;
     }
-    case 'add': addBlock(el.dataset.kind as BlockKind); break;
+    case 'add': addBlock(el.dataset.kind as BlockKind,d); break;
     case 'component-explorer': explorerModal();break;
     case 'explorer-variant-pick': explorerVariant=el.dataset.variant||explorerVariant;explorerModal();break;
     case 'explorer-reset': explorerFilter={...emptyCatalogFilter};explorerGroup='All';explorerModal(false);break;
     case 'explorer-group': explorerGroup=el.dataset.group!;explorerModal();break;
     case 'explorer-kind-pick': if(catalog.some(c=>c.kind===el.dataset.kind)){explorerKind=el.dataset.kind as BlockKind;explorerModal();modalRoot.querySelector<HTMLElement>(`[data-action="explorer-kind-pick"][data-kind="${explorerKind}"]`)?.focus();}break;
     case 'explorer-pin': {const c=parseCatalogChoice(JSON.stringify({kind:el.dataset.kind,provider:el.dataset.provider,variant:el.dataset.variant}));if(!c)break;const result=pinShelf(project,c);if(result==='added'){persist();await flushDisk();tab='components';shelfPageIndex=Math.floor(((project.shelf?.length??1)-1)/4);rerenderPreservingScroll(app,render);}refreshExplorerPins();toast(result==='full'?ui('Shelf full (12). Remove an item first.','선반이 가득 찼습니다(12개). 먼저 항목을 제거하세요.'):result==='duplicate'?ui('Already on this project shelf','이미 이 프로젝트 선반에 있습니다'):ui('Pinned. Keep comparing or assemble from shelf.','담았습니다. 계속 비교하거나 선반에서 조립하세요.'));break;}
-    case 'shelf-add': {const c=project.shelf?.[Number(el.dataset.index)];if(c)addBlock(c.kind,undefined,c);break;}
+    case 'shelf-add': {const c=project.shelf?.[Number(el.dataset.index)];if(c)addBlock(c.kind,d,undefined,c);break;}
     case 'shelf-page': shelfPageIndex=Number(el.dataset.index);rerenderPreservingScroll(app,render);app.querySelector<HTMLElement>(`.shelf-pagination [aria-current="page"]`)?.focus();break;
     case 'shelf-inspect': {const c=project.shelf?.[Number(el.dataset.index)];if(c)inspectChoice(c,'shelf');break;}
     case 'explorer-inspect': {const c=parseCatalogChoice(JSON.stringify({kind:el.dataset.kind,provider:el.dataset.provider,variant:el.dataset.variant}));if(c)inspectChoice(c,'catalog');break;}
@@ -1088,24 +1119,24 @@ async function action(el: HTMLElement, trusted = false) {
     case 'inspection-add': {
       if(!inspection)break;const review=inspection;
       if(review.projectId!==project.id||review.pageId!==project.activePageId||review.parentId!==insertionTarget())throw new Error(ui('Insertion context changed. Inspect again.','삽입 위치가 바뀌었습니다. 다시 확인해주세요.'));
-      closeModal();inspection=null;addBlock(review.choice.kind,undefined,review.choice);break;
+      closeModal();inspection=null;addBlock(review.choice.kind,d,undefined,review.choice);break;
     }
     case 'shelf-remove': if(project.shelf){project.shelf=project.shelf.filter((_,i)=>i!==Number(el.dataset.index));persist();await flushDisk();render();}break;
     case 'theme-review': themeReview(true);break;
     case 'proposal-blue': case 'proposal-green': themeDraft=themeProposal(project,act==='proposal-blue'?'#2255cc':'#176448',themeDraft?.candidate.system.font??project.system.font);themeReview();break;
-    case 'proposal-apply': if(themeDraft){const draft=themeDraft;commit(()=>applyThemeProposal(project,draft),true,'theme:draft-applied');closeModal();themeDraft=null;toast(ui('Theme draft applied. Direction approval still required.','테마 초안 적용. 디자인 방향 승인은 별도입니다.'));}break;
+    case 'proposal-apply': if(themeDraft){const draft=themeDraft;commit(()=>applyThemeProposal(project,draft),d,'edit.system',{source:'theme:draft-applied'});closeModal();themeDraft=null;toast(ui('Theme draft applied. Direction approval still required.','테마 초안 적용. 디자인 방향 승인은 별도입니다.'));}break;
     case 'proposal-full': if(themeDraft){showModal(ui('Proposed screen','제안 화면'),ui('Not applied · scroll to review the whole page','아직 미적용 · 스크롤하여 전체 페이지 확인'),`<iframe class="preview-frame" title="Proposed screen only" sandbox="allow-scripts"></iframe><button class="secondary-button" data-action="proposal-back">${ui('Back to comparison','비교로 돌아가기')}</button>`,true);mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,themeDraft.candidate,currentPage(themeDraft.candidate));}break;
     case 'proposal-back': themeReview();break;
     case 'proposal-export': if(themeDraft)await saveFile('aphrodite-theme-draft.zip',await exportBundle(themeDraft.candidate),'application/zip');break;
-    case 'explorer-add': closeModal();addBlock(el.dataset.kind as BlockKind,undefined,{provider:el.dataset.provider!,variant:el.dataset.variant!});break;
+    case 'explorer-add': closeModal();addBlock(el.dataset.kind as BlockKind,d,undefined,{provider:el.dataset.provider!,variant:el.dataset.variant!});break;
     case 'add-section': case 'assemble-focus': tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
-    case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }); break;
-    case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }); break;
-    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
+    case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }, d, 'edit.move'); break;
+    case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }, d, 'edit.duplicate'); break;
+    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }, d, 'edit.delete'); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
     case 'asset-category': {assetCategory=el.dataset.category as SampleCategory|'all'|'local';if(assetCategory==='local')await loadLocalLibrary();refreshLibraryPanel();break;}
-    case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'font-picker': fontQuery='';await loadFonts();fontPickerModal();break;
-    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;});closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
+    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
     case 'font-install': {
       const font=freeFonts.find(f=>f.id===el.dataset.id);if(!font)break;
       fontBusy=font.id;fontPickerModal();
@@ -1138,17 +1169,17 @@ async function action(el: HTMLElement, trusted = false) {
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;
-    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;});toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;});toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
-    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
+    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }, d, 'edit.image'); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
       if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
       const projectId=project.id,blockId=b.id;
-      const assign=(image:string)=>{const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},true,'collection:image');};
+      const assign=(image:string)=>{const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
       if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
     }
-    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { b.image = image; }); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
+    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
     case 'reference': referenceModal(); break;
-    case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); commit(() => { project.reference = data; }); referenceModal(); break; }
+    case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
     case 'analyze-reference': {
       if (!project.reference) break;
       const source = project.reference, generation = ++analysisGeneration;
@@ -1177,11 +1208,11 @@ async function action(el: HTMLElement, trusted = false) {
     case 'choose-direction': {
       if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; }
       const candidate = candidatePages[Number(el.dataset.index)]; if (!candidate) break;
-      commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; });
+      commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
       candidatePages = []; closeModal(); toast(ui('Direction added · Edit any component · Undo available','방향을 추가했습니다 · 컴포넌트를 편집하세요 · 실행 취소 가능')); break;
     }
-    case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { project.reference = image; }); referenceModal(); }); break;
-    case 'remove-reference': commit(() => { delete project.reference; }); referenceModal(); break;
+    case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { project.reference = image; }, d, 'edit.reference'); referenceModal(); }); break;
+    case 'remove-reference': commit(() => { delete project.reference; }, d, 'edit.reference'); referenceModal(); break;
     case 'import-md': pickFile('.md,.json,text/markdown,text/plain,application/json', async file => {
       const text = await file.text();
       // A design system arrives either as the document a person wrote or as the graph a tool emits.
@@ -1197,13 +1228,13 @@ async function action(el: HTMLElement, trusted = false) {
             ...(read.type ? {type: read.type} : {}),
             ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
           };
-        });
+        }, d, 'edit.system');
         closeModal();
         toast(importSummary(read.report, uiLanguage === 'ko'));
         return;
       }
       const s = importDesignMarkdown(text, file.name, project.system);
-      commit(() => { project.system = s; });
+      commit(() => { project.system = s; }, d, 'edit.system');
       closeModal();
       toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
     }); break;
@@ -1214,15 +1245,15 @@ async function action(el: HTMLElement, trusted = false) {
     case 'approve-export': {
       const andExport = el.dataset.action === 'approve-export';
       if (!andExport && isApproved(project)) { exportModal(); break; }
-      commit(() => { project.approvedFingerprint = fingerprint(project); });
+      commit(() => { project.approvedFingerprint = fingerprint(project); }, d, 'human.approve');
       if (andExport) exportModal(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
       break;
     }
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
-    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
-    case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
+    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    case 'preview': recordRun('preview:opened',{device,interactionCapture:false},d);showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
@@ -1248,8 +1279,8 @@ async function action(el: HTMLElement, trusted = false) {
     case 'new-project': await guardSwitch();showModal(ui('Room for something new.','새로운 것을 위한 자리.'), '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('A new page. The same point of view.','새 페이지. 같은 관점.'), '프로젝트의 디자인 시스템을 그대로 이어받습니다.', `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Make this page your own.','이 페이지를 당신답게.'), '페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.', `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
-    case 'duplicate-page': if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); break;
-    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
+    case 'duplicate-page': if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d, 'edit.page-duplicate'); closeModal(); break;
+    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }, d, 'edit.page-delete'); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
     case 'ask-allow': answerAsk(true);break;
@@ -1273,7 +1304,7 @@ document.addEventListener('click', e => {
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control, e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
@@ -1297,6 +1328,8 @@ document.addEventListener('change', e => {
   if(target.id==='explorer-kind'){explorerKind=target.value as BlockKind;explorerModal();modalRoot.querySelector<HTMLElement>('#explorer-kind')?.focus();return;}
   if(target.id==='inspection-width'&&inspection){const width=Number(target.value);if([375,768,960,1440].includes(width)){inspection.width=width;inspectionModal();modalRoot.querySelector<HTMLElement>('#inspection-width')?.focus();}return;}
   if(target.id==='explorer-variant'){explorerVariant=target.value;explorerModal();modalRoot.querySelector<HTMLElement>('#explorer-variant')?.focus();return;}
+  // Everything below changes the design: it is the person's own input, an agent's `type`, or a menu passing either on.
+  const d = who(e); if (!d) return;
   const b = currentPage(project).blocks.find(b => b.id === selected);
   const scroll = document.querySelector('#canvas-scroll')!.scrollTop;
   if (target.dataset.field && b) {
@@ -1304,7 +1337,7 @@ document.addEventListener('change', e => {
     if(!['title','text','label','eyebrow','description'].includes(key)||(key==='description'&&b.kind!=='products'))return;
     const value=target.value.slice(0,key==='eyebrow'?200:key==='description'?2000:20000);
     if (b[key] === value) return;
-    commit(() => { b[key] = value; b.filled = true; }, false);
+    commit(() => { b[key] = value; b.filled = true; }, d, 'edit.text', {updateUI: false});
     /* A person rewriting a field left no trace at all, so the taste file's sharpest section —
        what the machine wrote and the person changed — could never fill. One receipt per field per
        run: the count that matters is how many runs it happened in, not how many keystrokes. */
@@ -1338,28 +1371,30 @@ document.addEventListener('change', e => {
     syncStateAttributes();
     hydrateIcons();
   }
-  else if(target.id==='component-provider' && b && supportsProvider(target.value,b.kind)) commit(()=>{b.provider=target.value as keyof typeof providers;if(!supportsComponentTheme(b))delete b.theme;});
-  else if(target.id==='component-theme-mode'&&b&&supportsComponentTheme(b)&&['project','source','custom'].includes(target.value))commit(()=>{b.theme=target.value==='custom'?{mode:'custom',accent:componentAccent(b,project.system.accent)}:{mode:target.value as ComponentTheme['mode']};},true,'theme:component-policy');
-  else if(['component-theme-accent','component-theme-hex'].includes(target.id)&&b&&supportsComponentTheme(b)){if(!/^#[a-f0-9]{6}$/i.test(target.value)){target.value=componentAccent(b,project.system.accent);toast(ui('Use six-digit HEX, for example #2255cc','6자리 HEX를 입력하세요. 예: #2255cc'));return;}commit(()=>{b.theme={mode:'custom',accent:target.value};},true,'theme:component-color');}
-  else if(target.id==='parent-frame' && b && canParent(currentPage(project).blocks,b.id,target.value||undefined)) commit(()=>{b.parentId=target.value||undefined;});
-  else if(target.dataset.layout && b) {const layout={...b.layout,[target.dataset.layout]:Number(target.value)};if(target.dataset.layout==='width')delete layout.widthPx;if(validLayout(layout))commit(()=>{b.layout=layout;});else{toast('레이아웃 입력 범위를 확인해주세요.');render();}}
-  else if(target.dataset.kitOption==='layout-mode' && b?.kind==='frame' && ['flow','free'].includes(target.value)) commit(()=>{b.layout={...b.layout,mode:target.value as 'flow'|'free'};});
-  else if (target.id === 'hero-variant' && b?.kind === 'hero' && patternVariants('hero').includes(target.value)) commit(() => { b.variant = target.value; });
+  else if(target.id==='component-provider' && b && supportsProvider(target.value,b.kind)) commit(()=>{b.provider=target.value as keyof typeof providers;if(!supportsComponentTheme(b))delete b.theme;},d,'edit.component-theme');
+  else if(target.id==='component-theme-mode'&&b&&supportsComponentTheme(b)&&['project','source','custom'].includes(target.value))commit(()=>{b.theme=target.value==='custom'?{mode:'custom',accent:componentAccent(b,project.system.accent)}:{mode:target.value as ComponentTheme['mode']};},d,'edit.component-theme',{source:'theme:component-policy'});
+  else if(['component-theme-accent','component-theme-hex'].includes(target.id)&&b&&supportsComponentTheme(b)){if(!/^#[a-f0-9]{6}$/i.test(target.value)){target.value=componentAccent(b,project.system.accent);toast(ui('Use six-digit HEX, for example #2255cc','6자리 HEX를 입력하세요. 예: #2255cc'));return;}commit(()=>{b.theme={mode:'custom',accent:target.value};},d,'edit.component-theme',{source:'theme:component-color'});}
+  else if(target.id==='parent-frame' && b && canParent(currentPage(project).blocks,b.id,target.value||undefined)) commit(()=>{b.parentId=target.value||undefined;},d,'edit.layout');
+  else if(target.dataset.layout && b) {const layout={...b.layout,[target.dataset.layout]:Number(target.value)};if(target.dataset.layout==='width')delete layout.widthPx;if(validLayout(layout))commit(()=>{b.layout=layout;},d,'edit.layout');else{toast('레이아웃 입력 범위를 확인해주세요.');render();}}
+  else if(target.dataset.kitOption==='layout-mode' && b?.kind==='frame' && ['flow','free'].includes(target.value)) commit(()=>{b.layout={...b.layout,mode:target.value as 'flow'|'free'};},d,'edit.layout');
+  else if (target.id === 'hero-variant' && b?.kind === 'hero' && patternVariants('hero').includes(target.value)) commit(() => { b.variant = target.value; }, d, 'edit.variant');
   else if (target.dataset.kitOption && b) {
     const key=target.dataset.kitOption;
-    if (key==='variant' && patternVariants(b.kind).includes(target.value)) commit(()=>{b.variant=target.value;});
-    else if (['state','density','columns','media','mediaText','placeholder'].includes(key)) commit(()=>{b.options={...b.options,[key]:key==='columns'?Number(target.value):target.value.slice(0,key==='placeholder'?200:20000)} as PatternOptions;});
+    if (key==='variant' && patternVariants(b.kind).includes(target.value)) commit(()=>{b.variant=target.value;},d,'edit.variant');
+    else if (['state','density','columns','media','mediaText','placeholder'].includes(key)) commit(()=>{b.options={...b.options,[key]:key==='columns'?Number(target.value):target.value.slice(0,key==='placeholder'?200:20000)} as PatternOptions;},d,'edit.variant');
   }
   else if (target.dataset.token) {
     const token = target.dataset.token as 'accent' | 'background' | 'foreground' | SemanticToken;
-    commit(() => { (project.system as unknown as Record<string,string>)[token] = target.value; });
+    commit(() => { (project.system as unknown as Record<string,string>)[token] = target.value; }, d, 'edit.tokens');
   }
-  else if (target.id === 'font-select') commit(() => { project.system.font = target.value as 'serif' | 'sans'; });
-  else if (target.id === 'radius-select') commit(() => { project.system.radius = Number(target.value); });
+  else if (target.id === 'font-select') commit(() => { project.system.font = target.value as 'serif' | 'sans'; }, d, 'edit.tokens');
+  else if (target.id === 'radius-select') commit(() => { project.system.radius = Number(target.value); }, d, 'edit.tokens');
   document.querySelector('#canvas-scroll')!.scrollTop = scroll;
 });
 document.addEventListener('submit', async e => {
   e.preventDefault(); const form = e.target as HTMLFormElement; const data = new FormData(form); const name = String(data.get('name') ?? '').trim();
+  // Who sent it, read before any await. A form that changes the design does nothing for nobody.
+  const d = who(e);
   if(form.id==='reference-form'){
     const url=String(data.get('url')??'').trim();
     if(!/^https?:\/\//i.test(url)){toast(ui('An address has to start with http or https.','주소는 http 또는 https로 시작해야 합니다.'));return;}
@@ -1387,7 +1422,7 @@ document.addEventListener('submit', async e => {
     toast(id?ui('Workspace updated','작업 공간을 업데이트했습니다'):`‘${name}’ · ${ui('workspace created','작업 공간을 만들었습니다')}`);
     return;
   }
-  if(form.id==='frame-form'){if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(project.space!,preset,width);project.activePageId=created.id;selected='';});recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
+  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(project.space!,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
   if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
@@ -1396,9 +1431,11 @@ document.addEventListener('submit', async e => {
     try{saveUiLanguage(localStorage,nextUi);}catch{toast(ui('Could not save interface preference. Nothing changed.','언어 설정을 저장하지 못했습니다. 변경하지 않았습니다.'));return;}
     uiLanguage=nextUi;
     vibeFormDraft=null;
-    if(screen==='editor'&&isLanguage(nextContent)&&nextContent!==(project.contentLanguage??'en'))commit(()=>setContentLanguage(project,nextContent),false,'project:content-language');
+    if(d&&screen==='editor'&&isLanguage(nextContent)&&nextContent!==(project.contentLanguage??'en'))commit(()=>setContentLanguage(project,nextContent),d,'edit.content-language',{source:'project:content-language',updateUI:false});
     closeModal();render();toast(ui('Language preferences saved. Existing copy preserved.','언어 설정을 저장했습니다. 기존 문구는 유지됩니다.'));return;
   }
+  // The forms below change the design; `d!` there is this line's doing.
+  if (['brief-form', 'fill-form', 'rename-form', 'page-rename-form', 'page-form'].includes(form.id) && !d) return;
   if (['page-form', 'brief-form'].includes(form.id) && project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); return; }
   if (!['fill-form','vibe-form','assembly-run-form'].includes(form.id) && !name) { toast('이름을 입력해주세요.'); return; }
   if(form.id==='vault-note-form'){try{vaultState=await invoke<Vault>('vault_document',{projectId:vaultProjectId,name,text:String(data.get('text')??'')});await showVault(false);}catch(error){toast(String(error));}return;}
@@ -1417,21 +1454,21 @@ document.addEventListener('submit', async e => {
   }
   if (form.id === 'brief-form') {
     const brief = String(data.get('brief')).trim(); if (!brief) return;
-    commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }); closeModal(); toast(ui('Draft assembled · Auto fill로 분위기를 확인해보세요.','초안을 조립했습니다 · Get Vibe로 분위기를 확인해보세요.'));
+    commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }, d!, 'edit.brief'); closeModal(); toast(ui('Draft assembled · Auto fill로 분위기를 확인해보세요.','초안을 조립했습니다 · Get Vibe로 분위기를 확인해보세요.'));
   } else if (form.id === 'fill-form') {
     if (!data.has('copy') && !data.has('images')) { toast('채울 콘텐츠를 한 가지 이상 선택해주세요.'); return; }
     let changed = 0;
-    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }); closeModal(); toast(changed ? ui('Filled with local sample content · Undo available','로컬 샘플 콘텐츠로 채웠습니다 · 실행 취소 가능') : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
-  } else if (form.id === 'rename-form') { commit(() => { project.name = name; }); closeModal(); }
-  else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }); closeModal(); }
-  else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); }
+    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }, d!, 'edit.vibe'); closeModal(); toast(changed ? ui('Filled with local sample content · Undo available','로컬 샘플 콘텐츠로 채웠습니다 · 실행 취소 가능') : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
+  } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
+  else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
+  else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
   else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
+function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>send(item,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite.','Aphrodite에 오신 것을 환영합니다.'),ui('Shape before you build.','만들기 전에, 방향부터.'),welcomeHtml(uiLanguage),true);}
@@ -1476,24 +1513,31 @@ async function inlineAssets(html:string):Promise<string>{
   for(const [path,data] of seen)out=out.split(path).join(data);
   return out;
 }
-function agentState(who=commandCaller){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function agentState(who=''){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>,d:Dispatch){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,d,false);}finally{btn.remove();}}
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
 function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
 /**
- * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
- * ledger, one undo step and one receipt, or none of it lands. A batch written against a revision the
- * person has since changed is refused, with what changed, so the agent reads before it writes over.
+ * The 409 for a change an agent wrote against a revision the person has since changed: what changed
+ * in between, and the revision to send next, so the agent reads before it writes over. Undefined when
+ * the revision is current, or none was sent. `what` names the thing to send again.
  */
-function applyBatch(batch:Batch):Record<string,unknown>{
+function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
   const now=fingerprint(project);
-  if(batch.baseRevision&&batch.baseRevision!==now){
-    const since=changesSince(project.ledger,batch.baseRevision,{limit:20});
-    return {error:`the project changed since revision ${batch.baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the batch again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
-  }
+  if(!baseRevision||baseRevision===now)return undefined;
+  const since=changesSince(project.ledger,baseRevision,{limit:20});
+  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
+}
+/**
+ * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
+ * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent, its reason and
+ * the revision it read; a batch written against one the person has since changed is refused.
+ */
+function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
+  const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
   let failure:Extract<BatchResult,{ok:false}>|undefined;
   commit(()=>{
@@ -1501,12 +1545,12 @@ function applyBatch(batch:Batch):Record<string,unknown>{
     if(!result.ok){failure=result;return;}
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
-  },true,'agent:apply',batch.reason);
+  },d,'edit.apply',{source:'agent:apply'});
   if(failure){
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState()};
+  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1514,7 +1558,14 @@ const agentLook={
   click:(selector:string)=>{try{return actionUnder(document.querySelector<HTMLElement>(selector));}catch{return undefined;}},
   palette:(query:string)=>{try{return filterCommands(commandTable(paletteContext()),query,uiLanguage)[0]?.action;}catch{return undefined;}},
 };
-async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
+/**
+ * Every agent transport arrives here, naming the surface it came by: the loopback bridge (which MCP
+ * rides), the in-app agent, or `window.aphroditeAgent` in the page. The agent, its reason and the
+ * revision it read become one Dispatch, and every edit the command makes — through its own route, or
+ * through the buttons, fields and keys it presses — is recorded under it, however long after.
+ */
+async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefined,surface:AgentSurface):Promise<Record<string,unknown>>{
+  if(!isAgentSurface(surface))return {error:'an agent arrives on loopback, mcp or inApp'};
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
@@ -1568,18 +1619,24 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
-  commandCaller=who;stepRefused='';
+  // The reason and revision the parser checked; `apply` checks its own (parseBatch) and makes its Dispatch there.
+  const d=agentDispatch(who,surface,c.kind==='edit'||c.kind==='system'?{reason:c.reason,baseRevision:c.baseRevision}:c.kind==='act'||c.kind==='command'?{reason:c.reason}:{});
+  stepRefused='';
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
-    commandCaller='';
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
   }
   try{
     switch(c.kind){
-      case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
-      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};el.click();recordRun('agent:click',{selector:c.selector});break;}
-      case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
-      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(new KeyboardEvent('keydown',init));document.body.dispatchEvent(new KeyboardEvent('keyup',init));recordRun('agent:key',{key:c.key});break;}
-      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{});recordRun('agent:command',{query:c.query,command:hit.id});break;}
+      /* The screen verbs press, type and key through the same handlers the person's input reaches.
+         Every event they make carries `d`, so what it changes is the agent's even when the handler
+         waits before it commits — an agent's click used to be recorded as the person's for exactly that.
+         So does every event the browser fires while one is sent: the trusted submit of a submit button
+         the agent clicked. `type` moves focus before it sends, so a field the person leaves saves as theirs. */
+      case 'act':await actViaButton(c.action,c.data,d);recordRun('agent:act',{action:c.action,data:c.data},d);break;
+      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};if(!(el as HTMLButtonElement).disabled)send(el,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),d);recordRun('agent:click',{selector:c.selector},d);break;}
+      case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;send(el,new Event('input',{bubbles:true}),d);send(el,new Event('change',{bubbles:true}),d);if(c.submit&&el.form?.reportValidity())send(el.form,new SubmitEvent('submit',{bubbles:true,cancelable:true}),d);recordRun('agent:type',{selector:c.selector,length:c.text.length},d);break;}
+      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};send(document.body,new KeyboardEvent('keydown',init),d);send(document.body,new KeyboardEvent('keyup',init),d);recordRun('agent:key',{key:c.key},d);break;}
+      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{},d);recordRun('agent:command',{query:c.query,command:hit.id},d);break;}
       case 'references':{
         if(!nativeDesktop)return {error:'the reference archive is desktop only'};
         await archive.load(true);
@@ -1604,7 +1661,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
           const kept=await invoke<Record<string,unknown>>('references_add',{item:{kind:c.url?'link':'note',url:c.url,title:c.title,note:c.note,tags:c.tags,addedBy:caller},project:scope});
           await archive.load(true);
           if(tab==='archive')refreshLibraryPanel();
-          recordRun('agent:keep',{url:c.url,scope:c.scope});
+          recordRun('agent:keep',{url:c.url,scope:c.scope},d);
           return {kept};
         }catch(error){return {error:String(error)};}
       }
@@ -1617,14 +1674,14 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         try{await invoke('references_delete',{id:c.id,project:scope});}catch(error){return {error:String(error)};}
         await archive.load(true);
         if(tab==='archive')refreshLibraryPanel();
-        recordRun('agent:unkeep',{id:c.id});
+        recordRun('agent:unkeep',{id:c.id},d);
         return {removed:c.id};
       }
       case 'library':{
         if(!nativeDesktop)return {error:'the image library is desktop only'};
         const scope=c.scope==='project'?project.id:undefined;
-        if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id});}
-        if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope});}
+        if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id},d);}
+        if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope},d);}
         // Listing is a read: it must not redraw the screen under the person's hands.
         if(c.action==='list'){await loadLocalLibrary(true);}else{forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();}
         /* The fifty photographs the app ships with are in the person's picker but were invisible
@@ -1637,14 +1694,13 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
             ...sampleImages.map(sm=>({id:`sample:${sm.id}`,scope:'sample' as const,name:uiLanguage==='ko'?sm.ko:sm.en,category:sm.category,wide:sm.wide,mime:'image/webp'})),
           ]};
       }
-      case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},true,'agent:edit');recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length});break;}
+      case 'edit':{const stale=staleSince(d.baseRevision,'edit');if(stale)return stale;const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
       case 'ui':{
-        // Hand it to the verb's own handler: one door in, the same rules inside.
-        const result=await runAgentCommand(c.action,c.payload,who);
-        commandCaller='';
-        return result;
+        // Hand it to the verb's own handler: one door in, the same rules inside, the same surface.
+        return runAgentCommand(c.action,c.payload,who,surface);
       }
       case 'system':{
+        const stale=staleSince(d.baseRevision,'system');if(stale)return stale;
         let next:DesignSystem|undefined;
         if(c.id){
           const hit=systems.find(sy=>sy.id===c.id);
@@ -1663,8 +1719,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         }
         if(!next)return {error:'system changed nothing'};
         const before=project.system.name;
-        commit(()=>{project.system=next!;});
-        recordRun('agent:system',{from:before,to:next.name});
+        commit(()=>{project.system=next!;},d,'edit.system',{source:'agent:system'});
+        recordRun('agent:system',{from:before,to:next.name},d);
         render();
         return {system:{id:next.id,name:next.name,accent:next.accent,background:next.background,foreground:next.foreground,radius:next.radius,font:next.font}};
       }
@@ -1675,12 +1731,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
             const bytes=await exportBundle(project,resolveLocalBytes);
             const saved=await saveFile(fileName(project,'zip'),bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
-            recordRun('agent:export',{format:'files'});
+            recordRun('agent:export',{format:'files'},d);
             return {saved:fileName(project,'zip'),approved:isApproved(project)};
           }catch(error){return {error:String(error)};}
         }
         /* The words, not a zip an agent cannot open: the same four documents the bundle carries. */
-        recordRun('agent:export',{format:'contract'});
+        recordRun('agent:export',{format:'contract'},d);
         return {
           approved:isApproved(project),
           note:isApproved(project)?'Approved for this exact composition.':'DRAFT — the person has not approved this composition. Say so if you build from it.',
@@ -1692,27 +1748,27 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       }
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
-        if('error' in parsed){commandCaller='';return {error:parsed.error};}
-        const result=applyBatch(parsed.batch);
-        commandCaller='';
+        if('error' in parsed)return {error:parsed.error};
+        const result=applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
-  }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}
-  commandCaller='';
+  }catch(error){return {error:error instanceof Error?error.message:String(error)};}
   await new Promise(r=>setTimeout(r,60));
   // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
   if(stepRefused){const error=stepRefused;stepRefused='';return {error,status:403};}
   if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
-(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
+/* The same executor, in the page: the headless gates and a browser build reach it here. It arrives as
+   the loopback channel unless the caller says which agent surface it stands for; it is never the screen. */
+(window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string,surface:unknown='loopback')=>runAgentCommand(kind,payload,caller,surface as AgentSurface)};
 /* Registering the listener is itself a round trip to Rust. The channel must not advertise itself
    before this lands, or a request arriving in between is emitted into nothing and waits out the
    whole timeout — which is what an agent calling the moment it saw the endpoint file used to get. */
-const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller);try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
+const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller,'loopback');try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{
@@ -1855,7 +1911,8 @@ function mountSpace(){
         const x=origin.x+(ev.clientX-start.x)/camera.zoom,y=origin.y+(ev.clientY-start.y)/camera.zoom;
         frameEl.classList.remove('dragging');
         if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,'frame-move',{id:frameId})){frameEl.style.left=`${origin.x}px`;frameEl.style.top=`${origin.y}px`;toast(ui('Locked: the agent is scoped to another frame.','잠김: 에이전트가 다른 프레임에 한정되어 있습니다.'));return;}
-        commit(()=>{project.space=moveFrame(project.space!,frameId,x,y);},true,'frame:move');
+        const d=who(ev);if(!d){frameEl.style.left=`${origin.x}px`;frameEl.style.top=`${origin.y}px`;return;}
+        commit(()=>{project.space=moveFrame(project.space!,frameId,x,y);},d,'edit.frame',{source:'frame:move'});
         recordRun('frame:moved',{pageId:frameId,x:Math.round(x),y:Math.round(y)});
       }
     };
@@ -1863,8 +1920,9 @@ function mountSpace(){
   },{capture:true,signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
+    const d=who(e);if(!d)return;
     const id=sel.dataset.framePreset!;const preset=(isFramePreset(sel.value)?sel.value:'desktop') as FramePreset;
-    commit(()=>{const f=project.space!.frames[id];f.preset=preset;if(preset==='custom')f.width=clampWidth(f.width??1200);else delete f.width;});
+    commit(()=>{const f=project.space!.frames[id];f.preset=preset;if(preset==='custom')f.width=clampWidth(f.width??1200);else delete f.width;},d,'edit.frame');
     recordRun('frame:preset',{pageId:id,preset});
   },{signal});
 }
@@ -1893,9 +1951,9 @@ document.addEventListener('keydown', e => {
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }
-  if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
+  if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn,dispatchOf(e));}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn,dispatchOf(e));}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', e.isTrusted ? '' : commandCaller); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', who(e)); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selectBlock((e.target as HTMLElement).dataset.blockId!); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }

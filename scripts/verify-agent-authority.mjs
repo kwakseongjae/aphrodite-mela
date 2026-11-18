@@ -15,6 +15,8 @@ import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 const {agent, personClicks, personPresses, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
+/** `edit` needs a reason since 0.3-2b; what is checked here is the door, not the reason. */
+const WHY = 'verify-agent-authority: checking who may write.';
 
 check('reading works with nobody at the door', async () => {
   const state = await agent('state');
@@ -23,7 +25,7 @@ check('reading works with nobody at the door', async () => {
 });
 
 check('writing is refused with 423 and told how to proceed', async () => {
-  const refused = await agent('edit', {field: 'title', text: 'x'});
+  const refused = await agent('edit', {reason: WHY, field: 'title', text: 'x'});
   assert.equal(refused.status, 423, JSON.stringify(refused));
   assert.match(refused.error, /Connected mode|Agent mode/);
 });
@@ -93,7 +95,7 @@ check('the person allows it with one click, and the agent may write', async () =
   await press('ask-allow');
   assert.equal(await dialog(), '', 'the request is answered and gone');
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
-  const allowed = await agent('edit', {field: 'title', text: 'Asked and allowed'});
+  const allowed = await agent('edit', {reason: WHY, field: 'title', text: 'Asked and allowed'});
   assert.equal(allowed.status, undefined, JSON.stringify(allowed));
   await personPresses('agent-disconnect');
   await sleep(200);
@@ -209,7 +211,7 @@ check('the person declines, and the agent is told to stop asking', async () => {
   const refused = await agent('connect', {}, 'gemini');
   assert.equal(refused.status, 'declined');
   assert.match(refused.message, /Do not ask again/);
-  const write = await agent('edit', {field: 'title', text: 'x'}, 'gemini');
+  const write = await agent('edit', {reason: WHY, field: 'title', text: 'x'}, 'gemini');
   assert.equal(write.status, 423, 'and the door is still shut');
 });
 
@@ -227,27 +229,27 @@ check('the person turns it on, and the banner says so', async () => {
 });
 
 check('now the agent may write, and the write is not refused by the rule', async () => {
-  const allowed = await agent('edit', {field: 'title', text: 'Hello from the agent'});
+  const allowed = await agent('edit', {reason: WHY, field: 'title', text: 'Hello from the agent'});
   assert.equal(allowed.status, undefined, `the permission rule let it through: ${JSON.stringify(allowed)}`);
 });
 
 check('the person types, and takes the screen back', async () => {
   await personTypes('a');
   await sleep(60);
-  const refused = await agent('edit', {field: 'title', text: 'while you were typing'});
+  const refused = await agent('edit', {reason: WHY, field: 'title', text: 'while you were typing'});
   assert.equal(refused.status, 409, JSON.stringify(refused));
   assert.match(refused.error, /the person is using the screen/);
 });
 
 check('a few quiet seconds and the agent may write again', async () => {
   await sleep(5_400);
-  const allowed = await agent('edit', {field: 'title', text: 'back to work'});
+  const allowed = await agent('edit', {reason: WHY, field: 'title', text: 'back to work'});
   assert.equal(allowed.status, undefined, `expected the hold to have expired: ${JSON.stringify(allowed)}`);
 });
 
 check('a second agent is refused by name while the first holds it', async () => {
-  await agent('edit', {field: 'title', text: 'mine'}, 'claude-code');
-  const refused = await agent('edit', {field: 'title', text: 'mine too'}, 'astra');
+  await agent('edit', {reason: WHY, field: 'title', text: 'mine'}, 'claude-code');
+  const refused = await agent('edit', {reason: WHY, field: 'title', text: 'mine too'}, 'astra');
   assert.equal(refused.status, 409, JSON.stringify(refused));
   assert.match(refused.error, /claude-code/);
 });
@@ -256,7 +258,7 @@ check('disconnecting closes the door again', async () => {
   await personPresses('agent-disconnect');
   await sleep(120);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false);
-  const refused = await agent('edit', {field: 'title', text: 'x'});
+  const refused = await agent('edit', {reason: WHY, field: 'title', text: 'x'});
   assert.equal(refused.status, 423);
 });
 
@@ -281,7 +283,7 @@ check('the person allows an agent by name, and a restart remembers it', async ()
   assert.equal(await writes('claude-code'), 'on', 'still let in after the restart');
   const again = await agent('connect', {}, 'claude-code');
   assert.equal(again.status, 'already-open', 'and it is not asked again');
-  const write = await agent('edit', {field: 'title', text: 'remembered'}, 'claude-code');
+  const write = await agent('edit', {reason: WHY, field: 'title', text: 'remembered'}, 'claude-code');
   assert.notEqual(write.status, 423, JSON.stringify(write));
   assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the banner names who is let in, as a person knows it');
   await personClicks('agent-connect');
@@ -294,7 +296,7 @@ check('the person allows an agent by name, and a restart remembers it', async ()
 
 check('a different name is still asked, and cannot write meanwhile', async () => {
   assert.equal(await writes('astra'), 'off');
-  const refused = await agent('edit', {field: 'title', text: 'x'}, 'astra');
+  const refused = await agent('edit', {reason: WHY, field: 'title', text: 'x'}, 'astra');
   assert.equal(refused.status, 423, JSON.stringify(refused));
   assert.match(refused.error, /writing is off for astra/);
   const asked = await agent('connect', {}, 'astra');

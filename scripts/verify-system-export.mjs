@@ -9,6 +9,8 @@ import {openApp, runChecks, sleep} from './lib/headless.mjs';
 const {agent, evaluate, personClicks, personPresses, personSubmits, presses, close} =
   await openApp({port: 4187, cdp: 9338, profile: '/tmp/aphrodite-se-profile'});
 const checks = [];
+/** `system` needs a reason since 0.3-2b, as every edit an agent makes by name does. */
+const WHY = 'verify-system-export: repainting the project for the gate.';
 const check = (name, fn) => checks.push([name, fn]);
 const accent = () => evaluate(`document.querySelector('#design-canvas [style*="--brand"]')?.style.getPropertyValue('--brand')
   || getComputedStyle(document.querySelector('.design-page')).getPropertyValue('--brand')`);
@@ -26,14 +28,14 @@ check('a project is open and the person opens the door', async () => {
 });
 
 check('the design system is refused when it names nothing real', async () => {
-  const out = await agent('system', {id: 'not-a-system'});
+  const out = await agent('system', {reason: WHY, id: 'not-a-system'});
   assert.match(out.error ?? '', /no built-in system/);
   assert.match(out.error ?? '', /toss/, 'the refusal lists what there is');
 });
 
 check('an agent can swap the whole design system in one change', async () => {
   const before = await agent('state');
-  const out = await agent('system', {id: 'toss'});
+  const out = await agent('system', {reason: WHY, id: 'toss'});
   assert.equal(out.error, undefined, JSON.stringify(out));
   assert.equal(out.system.id, 'toss');
   await sleep(300);
@@ -57,13 +59,13 @@ check('it is one undo, not one per block', async () => {
 /* Half a palette is not a palette, so one bad value refuses the whole change — but the refusal has
    to name the field, or the caller is left guessing which of nine it was. */
 check('a token that is not a colour is refused by name', async () => {
-  const out = await agent('system', {tokens: {accent: '#112233', foreground: 'javascript:alert(1)'}});
+  const out = await agent('system', {reason: WHY, tokens: {accent: '#112233', foreground: 'javascript:alert(1)'}});
   assert.match(out.error ?? '', /"foreground"/, `the refusal should name the field: ${out.error}`);
   assert.match(out.error ?? '', /hex colour/);
 });
 
 check('a palette that is entirely colours lands', async () => {
-  const out = await agent('system', {tokens: {accent: '#112233', foreground: '#101010'}});
+  const out = await agent('system', {reason: WHY, tokens: {accent: '#112233', foreground: '#101010'}});
   assert.equal(out.error, undefined, JSON.stringify(out));
   assert.equal(out.system.accent, '#112233');
   assert.equal(out.system.foreground, '#101010');

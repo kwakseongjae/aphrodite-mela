@@ -35,7 +35,10 @@ export type Row = {
   input: Record<string, unknown>;
   reason: 'required' | 'optional' | 'none';
   revision: 'checked' | 'none';
-  /** The ledger sources the row writes today. Non-null exactly for edits that are not screen verbs. */
+  /**
+   * The ledger sources the row writes; `commit()` refuses any other. Non-null exactly for edits that
+   * are not screen verbs, and for approving. An `agent:` source is what an agent's own call writes.
+   */
   ledger: {sources: string[]} | null;
   author: 'transport' | 'person-only';
   surfaces: Record<Surface, boolean>;

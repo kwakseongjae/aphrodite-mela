@@ -3,7 +3,14 @@
  * and the agent drives the app through commands: over the loopback HTTP bridge in the desktop app
  * (forwarded here as `agent:command` events) or through `window.aphroditeAgent` in a browser build.
  * Commands are executed as programmatic DOM events, which the gate lets through (they are not `isTrusted`).
+ *
+ * Where the command table says a command takes a reason (src/agent/commands.mjs), it is read here: the
+ * edits `edit` and `system` need one and may send the `base_revision` they read, and the screen verbs
+ * `act` and `command` may carry one for whatever change they make.
  */
+import {missingField} from './errors';
+import {MAX_REASON} from '../ledger/types';
+
 export type AgentCommand=
   |{kind:'state'}
   |{kind:'contract';format?:'concise'|'detailed';pageId?:string}
@@ -15,18 +22,18 @@ export type AgentCommand=
   |{kind:'components'}
   |{kind:'apply';ops?:unknown[];patch?:unknown[];pageId?:string;reason?:unknown;baseRevision?:unknown}
   |{kind:'changes';since?:number|string;includeView?:boolean;limit?:number}
-  |{kind:'act';action:string;data:Record<string,string>}
+  |{kind:'act';action:string;data:Record<string,string>;reason?:string}
   |{kind:'click';selector:string}
   |{kind:'type';selector:string;text:string;submit?:boolean}
   |{kind:'key';key:string;code?:string;meta?:boolean;shift?:boolean;ctrl?:boolean;alt?:boolean}
-  |{kind:'command';query:string}
-  |{kind:'edit';field:EditableField;text:string;blockId?:string}
+  |{kind:'command';query:string;reason?:string}
+  |{kind:'edit';field:EditableField;text:string;blockId?:string;reason:string;baseRevision?:string}
   |{kind:'library';action:LibraryAction;id?:string;name?:string;base64?:string;scope?:'project'|'global'}
   |{kind:'references'}
   |{kind:'taste'}
   |{kind:'keep';url?:string;title?:string;note?:string;tags?:string[];scope?:'project'|'global'}
   |{kind:'unkeep';id:string}
-  |{kind:'system';id?:string;markdown?:string;name?:string;tokens?:Record<string,unknown>}
+  |{kind:'system';id?:string;markdown?:string;name?:string;tokens?:Record<string,unknown>;reason:string;baseRevision?:string}
   |{kind:'export';format?:'contract'|'files'}
   |{kind:'end'};
 
@@ -35,6 +42,22 @@ export type LibraryAction=typeof libraryActions[number];
 
 export const editableFields=['title','text','label','eyebrow','description'] as const;
 export type EditableField=typeof editableFields[number];
+
+/** The reason the person is shown beside a change: one sentence, required where the table says so. */
+function reasonOf(raw:unknown,required:boolean):{reason?:string}|{error:string}{
+  if(raw!==undefined&&raw!==null&&typeof raw!=='string')return {error:'reason must be text: one sentence for the person on why.'};
+  const reason=typeof raw==='string'?raw.trim():'';
+  if(!reason)return required?{error:missingField('reason','"reason": "The first line now says what the shop sells, as the brief asks."')+' The reason is shown to the person beside the change, so write it for them: one sentence on why.'}:{};
+  if(reason.length>MAX_REASON)return {error:`reason is ${reason.length} characters; keep it under ${MAX_REASON}.`};
+  return {reason};
+}
+/** The revision the agent last read, when it sent one: a change against an older one is refused with what changed. */
+function revisionOf(p:Record<string,unknown>):{baseRevision?:string}|{error:string}{
+  const raw=p.base_revision??p.baseRevision;
+  if(raw===undefined)return {};
+  if(typeof raw!=='string'||!raw||raw.length>100)return {error:'base_revision must be the revision string from aphrodite_get_contract or aphrodite_get_changes.'};
+  return {baseRevision:raw};
+}
 
 const SAFE_SELECTOR=/^[\w\s.#\[\]="'\-:>(),*+~^$|]+$/;
 const SAFE_ACTION=/^[a-z][a-z0-9-]{0,60}$/;
@@ -105,7 +128,8 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       if(!action||!SAFE_ACTION.test(action))return {error:'act needs "action" (kebab-case data-action name)'};
       const data:Record<string,string>={};
       if(p.data&&typeof p.data==='object')for(const [k,v] of Object.entries(p.data as Record<string,unknown>)){if(!/^[a-zA-Z][\w-]{0,40}$/.test(k))return {error:`bad data key "${k}"`};if(k.toLowerCase()==='action')return {error:'data may not name an action: the gate judges "action", so data cannot swap in another'};const s=str(v,2000);if(s===undefined)return {error:`data.${k} must be a string`};data[k]=s;}
-      return {command:{kind:'act',action,data}};
+      const why=reasonOf(p.reason,false);if('error' in why)return why;
+      return {command:{kind:'act',action,data,...why}};
     }
     case 'click':{
       const selector=str(p.selector,500);
@@ -126,7 +150,8 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
     case 'command':{
       const query=str(p.query,200);
       if(!query||!query.trim())return {error:'command needs "query" (palette search text)'};
-      return {command:{kind:'command',query:query.trim()}};
+      const why=reasonOf(p.reason,false);if('error' in why)return why;
+      return {command:{kind:'command',query:query.trim(),...why}};
     }
     case 'references': return {command:{kind:'references'}};
     case 'taste': return {command:{kind:'taste'}};
@@ -175,7 +200,9 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
         }
       }
       if(id&&!/^[a-z0-9-]{1,40}$/.test(id))return {error:'a system id is lowercase letters, digits and hyphens'};
-      return {command:{kind:'system',id,markdown,name,tokens}};
+      const why=reasonOf(p.reason,true);if('error' in why)return why;
+      const read=revisionOf(p);if('error' in read)return read;
+      return {command:{kind:'system',id,markdown,name,tokens,reason:why.reason!,...read}};
     }
     /* The contract by default, because an agent reading it needs the words, not a zip it cannot
        open. `files` writes the bundle the person would have downloaded. */
@@ -208,7 +235,9 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       if(text===undefined)return {error:'edit needs "text"'};
       const blockId=str(p.blockId,200);
       if(blockId!==undefined&&!/^[a-zA-Z0-9_-]{1,200}$/.test(blockId))return {error:'bad blockId'};
-      return {command:{kind:'edit',field,text,...(blockId?{blockId}:{})}};
+      const why=reasonOf(p.reason,true);if('error' in why)return why;
+      const read=revisionOf(p);if('error' in read)return read;
+      return {command:{kind:'edit',field,text,...(blockId?{blockId}:{}),reason:why.reason!,...read}};
     }
     default:return {error:`unknown command kind "${String(kind)}"`};
   }

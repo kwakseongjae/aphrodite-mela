@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 
-const {evaluate, send, agent, personClicks, close} = await openApp({port: 4201, cdp: 9361, profile: '/tmp/aphrodite-selection-profile'});
+const {evaluate, send, agent, personClicks, personPresses, close} = await openApp({port: 4201, cdp: 9361, profile: '/tmp/aphrodite-selection-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 
@@ -191,7 +191,8 @@ check('a deliberate drag on a handle still resizes', async () => {
    after a `.workflow` element that no longer exists, so the person never sees it (mounting it again
    belongs to the 0.3-F UI renewal). The check inserts an empty slot itself and watches it refresh. */
 check('the assembly bar follows the selection without a change being recorded', async () => {
-  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'add'; b.dataset.kind = 'frame'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  // The person's own press: since 0.3-2b a click no one vouches for opens things but changes nothing.
+  await personPresses('add', {kind: 'frame'});
   await sleep(600);
   const frame = await selectedId();
   assert.equal(await evaluate(`document.querySelector('[data-block-id="${frame}"]')?.dataset.kind`), 'frame', 'a layout frame was added and selected');

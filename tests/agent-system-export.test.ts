@@ -11,12 +11,36 @@ test('changing the design system and exporting are both writes',()=>{
 });
 
 test('system takes a built-in id, a DESIGN.md, or loose tokens — but not nothing',()=>{
-  const empty=parseAgentCommand('system',{});
+  const empty=parseAgentCommand('system',{reason:'Why.'});
   assert.ok('error' in empty);
   assert.match(empty.error,/needs/);
-  assert.ok('command' in parseAgentCommand('system',{id:'toss'}));
-  assert.ok('command' in parseAgentCommand('system',{markdown:'# Brand\n\naccent: #ff0000'}));
-  assert.ok('command' in parseAgentCommand('system',{tokens:{accent:'#ff0000'}}));
+  assert.ok('command' in parseAgentCommand('system',{id:'toss',reason:'Why.'}));
+  assert.ok('command' in parseAgentCommand('system',{markdown:'# Brand\n\naccent: #ff0000',reason:'Why.'}));
+  assert.ok('command' in parseAgentCommand('system',{tokens:{accent:'#ff0000'},reason:'Why.'}));
+});
+
+/* 0.3-2b: repainting the whole project is an edit like any other, so it says why and what it read. */
+test('system needs a reason, and carries the revision it was written against',()=>{
+  const bare=parseAgentCommand('system',{id:'toss'});
+  assert.ok('error' in bare);
+  assert.match(bare.error,/reason is required/);
+  assert.match((parseAgentCommand('system',{id:'toss',reason:'   '}) as {error:string}).error,/reason is required/);
+  assert.match((parseAgentCommand('system',{id:'toss',reason:42}) as {error:string}).error,/reason must be text/);
+  assert.match((parseAgentCommand('system',{id:'toss',reason:'x'.repeat(501)}) as {error:string}).error,/keep it under 500/);
+  assert.deepEqual(parseAgentCommand('system',{id:'toss',reason:'The person asked for it.',base_revision:'1:a:b'}),
+    {command:{kind:'system',id:'toss',markdown:undefined,name:undefined,tokens:undefined,reason:'The person asked for it.',baseRevision:'1:a:b'}});
+  assert.match((parseAgentCommand('system',{id:'toss',reason:'Why.',base_revision:7}) as {error:string}).error,/base_revision must be/);
+});
+
+test('edit needs a reason too, and act and command may carry one',()=>{
+  assert.match((parseAgentCommand('edit',{field:'title',text:'Hi'}) as {error:string}).error,/reason is required/);
+  assert.match((parseAgentCommand('edit',{field:'title',text:'Hi',reason:'Why.',base_revision:''}) as {error:string}).error,/base_revision must be/);
+  assert.deepEqual(parseAgentCommand('act',{action:'add',data:{kind:'cta'},reason:'Why.'}),{command:{kind:'act',action:'add',data:{kind:'cta'},reason:'Why.'}});
+  assert.deepEqual(parseAgentCommand('act',{action:'add'}),{command:{kind:'act',action:'add',data:{}}},'optional: none is fine');
+  assert.deepEqual(parseAgentCommand('command',{query:'Add CTA',reason:'Why.'}),{command:{kind:'command',query:'Add CTA',reason:'Why.'}});
+  assert.match((parseAgentCommand('command',{query:'Add CTA',reason:7}) as {error:string}).error,/reason must be text/);
+  // use_interface hands its payload to the verb's own parser, so a command through it keeps its reason.
+  assert.ok('command' in parseAgentCommand('ui',{action:'command',query:'Add CTA',reason:'Why.'}));
 });
 
 /** An id becomes a lookup key, never anything else. */

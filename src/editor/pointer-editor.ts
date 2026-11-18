@@ -4,7 +4,8 @@ import {localDelta,resizeBox,clamp,type Box,type Handle} from './geometry';
 import type {EditorCommand} from './commands';
 import {nearestGuide,edgeVelocity} from './assists';
 import './pointer-editor.css';
-type Options={canvas:HTMLElement;blocks:Block[];selected:string;select:(id:string)=>void;commit:(c:EditorCommand)=>boolean;announce:(s:string)=>void;report?:(event:{outcome:'cancelled'|'no-op'|'rejected';gesture:string})=>void};
+/** `commit` is handed the event that finished the gesture, so the editor can tell whose hands it was. */
+type Options={canvas:HTMLElement;blocks:Block[];selected:string;select:(id:string)=>void;commit:(c:EditorCommand,e:Event)=>boolean;announce:(s:string)=>void;report?:(event:{outcome:'cancelled'|'no-op'|'rejected';gesture:string})=>void};
 export function mountPointerEditor(o:Options):()=>void {
   const abort=new AbortController(),signal=abort.signal,canvas=o.canvas;
   canvas.classList.add('editor-design');
@@ -101,17 +102,17 @@ export function mountPointerEditor(o:Options):()=>void {
     }
     frame=requestAnimationFrame(()=>paint());
     const gesture=new AbortController(),gs=gesture.signal;
-    function commitKeepingViewport(command:EditorCommand){
+    function commitKeepingViewport(command:EditorCommand,ev:Event){
       const left=scroll.scrollLeft,top=scroll.scrollTop;
-      const changed=o.commit(command);
+      const changed=o.commit(command,ev);
       const replacement=document.querySelector<HTMLElement>('.canvas-scroll');
       if(replacement){replacement.scrollLeft=left;replacement.scrollTop=top;replacement.dispatchEvent(new Event('scroll'));}
       return changed;
     }
-    function finish(cancel:boolean){
+    function finish(cancel:boolean,ev?:Event){
       if(!active)return;active=false;cancelAnimationFrame(frame);gesture.abort();shield.remove();restoreStyle();restore=undefined;
       if(overlay.hasPointerCapture(e.pointerId))overlay.releasePointerCapture(e.pointerId);
-      if(cancel||!moved){
+      if(cancel||!moved||!ev){
         o.report?.({outcome:cancel?'cancelled':'no-op',gesture:handle!});position();if(cancel)say('취소됨 · 변경 사항 없음',true);else hud.hidden=true;
         // The press was a click, and it lands on whatever section is under it.
         const under=cancel?undefined:document.elementsFromPoint(last.x,last.y).map(hit=>hit.closest<HTMLElement>('[data-block-id]')).find(w=>!!w&&canvas.contains(w));
@@ -120,7 +121,7 @@ export function mountPointerEditor(o:Options):()=>void {
       }
       if(handle!=='move'){
         const layout={...block!.layout,widthPx:next.width,height:next.height};if(free){layout.x=next.x;layout.y=next.y;}
-        if(commitKeepingViewport({type:'resize',id:block!.id,layout}))o.announce(`크기 저장됨 · ${next.width} × ${next.height}px`);else o.announce('변경 사항 없음 · 기존 크기 유지');
+        if(commitKeepingViewport({type:'resize',id:block!.id,layout},ev))o.announce(`크기 저장됨 · ${next.width} × ${next.height}px`);else o.announce('변경 사항 없음 · 기존 크기 유지');
       }else{
         const r=canvas.getBoundingClientRect();
         if(last.x<r.left||last.x>r.right||last.y<r.top||last.y>r.bottom){o.report?.({outcome:'rejected',gesture:'move'});position();say('캔버스 밖입니다 · 이동 취소',true);return;}
@@ -131,11 +132,11 @@ export function mountPointerEditor(o:Options):()=>void {
           const container=canvas.querySelector<HTMLElement>(`[data-block-id="${parent.id}"] .layout-frame`)!;const pr=container.getBoundingClientRect();
           x=clamp(Math.round((moveLeft-pr.left)/scale),0,1500);y=clamp(Math.round((moveTop-pr.top)/scale),0,1500);
         }
-        if(commitKeepingViewport({type:'move',id:block!.id,parentId,beforeId:t?.kind==='frame'?undefined:t?.id,x,y}))o.announce('컴포넌트 이동됨 · Undo로 복구');else o.announce('이동할 수 없습니다 · 기존 위치 유지');
+        if(commitKeepingViewport({type:'move',id:block!.id,parentId,beforeId:t?.kind==='frame'?undefined:t?.id,x,y},ev))o.announce('컴포넌트 이동됨 · Undo로 복구');else o.announce('이동할 수 없습니다 · 기존 위치 유지');
       }
     }
     overlay.addEventListener('pointermove',ev=>{if(ev.pointerId===e.pointerId){last={x:ev.clientX,y:ev.clientY};alt=ev.altKey;}},{signal:gs});
-    overlay.addEventListener('pointerup',ev=>{if(ev.pointerId!==e.pointerId)return;last={x:ev.clientX,y:ev.clientY};alt=ev.altKey;paint(false);finish(false);},{signal:gs});
+    overlay.addEventListener('pointerup',ev=>{if(ev.pointerId!==e.pointerId)return;last={x:ev.clientX,y:ev.clientY};alt=ev.altKey;paint(false);finish(false,ev);},{signal:gs});
     overlay.addEventListener('pointercancel',()=>finish(true),{signal:gs});
     overlay.addEventListener('lostpointercapture',()=>finish(true),{signal:gs});
     window.addEventListener('keydown',ev=>{if(ev.key==='Escape'){ev.preventDefault();ev.stopImmediatePropagation();finish(true);}else if(ev.metaKey||ev.ctrlKey){ev.preventDefault();ev.stopImmediatePropagation();}},{capture:true,signal:gs});

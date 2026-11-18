@@ -13,8 +13,8 @@ test('parseAgentCommand validates every kind and rejects junk',()=>{
   assert.deepEqual(parseAgentCommand('type',{selector:'[data-field=title]',text:'hi',submit:true}),{command:{kind:'type',selector:'[data-field=title]',text:'hi',submit:true}});
   assert.deepEqual(parseAgentCommand('key',{key:'1',shift:true}),{command:{kind:'key',key:'1',code:undefined,meta:false,shift:true,ctrl:false,alt:false}});
   assert.deepEqual(parseAgentCommand('command',{query:' 버튼 추가 '}),{command:{kind:'command',query:'버튼 추가'}});
-  assert.deepEqual(parseAgentCommand('edit',{field:'title',text:'Hello'}),{command:{kind:'edit',field:'title',text:'Hello'}});
-  assert.deepEqual(parseAgentCommand('edit',{field:'text',text:'x',blockId:'abc-1'}),{command:{kind:'edit',field:'text',text:'x',blockId:'abc-1'}});
+  assert.deepEqual(parseAgentCommand('edit',{field:'title',text:'Hello',reason:' Why. '}),{command:{kind:'edit',field:'title',text:'Hello',reason:'Why.'}});
+  assert.deepEqual(parseAgentCommand('edit',{field:'text',text:'x',blockId:'abc-1',reason:'Why.',base_revision:'1:a:b'}),{command:{kind:'edit',field:'text',text:'x',blockId:'abc-1',reason:'Why.',baseRevision:'1:a:b'}});
   assert.match((parseAgentCommand('edit',{field:'image',text:'x'}) as {error:string}).error,/field/);
   assert.match((parseAgentCommand('dance',{}) as {error:string}).error,/unknown command kind/);
 });

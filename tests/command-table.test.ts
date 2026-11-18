@@ -31,9 +31,10 @@ test('every row is well formed',()=>{
   }
 });
 
-test('only an edit writes to the ledger, and every edit that is not a screen verb names its source',()=>{
+test('only an edit (and approving) writes to the ledger, and every edit that is not a screen verb names its source',()=>{
   for(const row of commands){
-    if(row.grade==='edit'&&!row.resolves){
+    // Approving writes the approval into the project: a change in the ledger, the person's alone.
+    if(row.grade==='edit'&&!row.resolves||row.id==='human.approve'){
       assert.ok(row.ledger&&row.ledger.sources.length>0,`${row.id} is an edit and names the ledger source it writes`);
       for(const s of row.ledger.sources)assert.match(s,/^[a-z]+(:[a-z-]+)?$/,`${row.id} source ${s}`);
     }else{
@@ -41,6 +42,24 @@ test('only an edit writes to the ledger, and every edit that is not a screen ver
     }
     if(row.reason!=='none'||row.revision!=='none')assert.equal(row.grade,'edit',`${row.id}: reasons and revisions belong to edits`);
   }
+});
+
+/* 0.3-2b: an edit an agent makes by name says why and what it read; a screen verb may say why. */
+test('every edit an agent makes by name needs a reason and checks the revision; act and command may carry a reason',()=>{
+  for(const row of commands.filter(r=>r.grade==='edit'&&r.route&&!r.resolves)){
+    assert.equal(row.reason,'required',`${row.id} needs a reason`);
+    assert.equal(row.revision,'checked',`${row.id} checks the revision`);
+    assert.ok((row.input.required as string[]|undefined)?.includes('reason'),`${row.id}'s schema says the reason is required`);
+    assert.ok((row.input.properties as Record<string,unknown>).base_revision,`${row.id}'s schema takes base_revision`);
+    assert.equal(row.ledger!.sources.filter(s=>s.startsWith('agent:')).length,1,`${row.id} names the one source an agent's call writes`);
+  }
+  for(const id of ['screen.act','screen.command','screen.ui']){
+    assert.equal(commandById[id].reason,'optional',id);
+    assert.ok((commandById[id].input.properties as Record<string,unknown>).reason,`${id}'s schema takes a reason`);
+  }
+  for(const id of ['screen.click','screen.type','screen.key'])assert.equal(commandById[id].reason,'none',id);
+  for(const row of commands)for(const s of row.ledger?.sources??[])
+    if(s.startsWith('agent:'))assert.ok(row.route&&!row.resolves,`${row.id}: only a row an agent reaches by name writes ${s}`);
 });
 
 test('what only the person may do is reachable only from the screen, by the person',()=>{
@@ -152,3 +171,15 @@ test('the bridge advertises exactly the table’s loopback routes, in the same o
 
 /** Row type is exported for the generated projections; keep it honest about optional parts. */
 const _row:Row=commands[0];void _row;
+
+test('an MCP tool hands the app the reason and the revision its row asks for',()=>{
+  // The gate drives every surface through window.aphroditeAgent, past this body: the tool's own projection is held here.
+  assert.ok(commands.some(r=>r.mcp&&r.reason==='required'),'some tool needs a reason');
+  for(const row of commands.filter(r=>r.mcp&&r.reason!=='none')){
+    const tool=toolByName[row.mcp!.name] as {name:string;body?:(args:Record<string,unknown>)=>Record<string,unknown>};
+    assert.ok(tool.body,`${tool.name} sends a body`);
+    const body=tool.body({...(row.example??{}),reason:'Why',base_revision:'1:a:b'});
+    assert.equal(body.reason,'Why',`${tool.name} passes the reason on`);
+    if(row.revision==='checked')assert.equal(body.base_revision,'1:a:b',`${tool.name} passes base_revision on`);
+  }
+});

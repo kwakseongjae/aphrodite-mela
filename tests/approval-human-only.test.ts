@@ -170,8 +170,8 @@ test('the gate reads a click off the live screen the way the click handler does'
   assert.match(main,/palette:\(query:string\)=>\{try\{return filterCommands\(commandTable\(paletteContext\(\)\),query,uiLanguage\)\[0\]\?\.action;/);
 });
 
-test('the click listener tells action() whether a person clicked',()=>{
-  assert.match(main,/void action\(control,\s*e\.isTrusted\)/);
+test('the click listener tells action() whether a person clicked, and who pressed',()=>{
+  assert.match(main,/void action\(control,\s*dispatchOf\(e\),\s*e\.isTrusted\)/);
 });
 
 test('action() refuses a human-only action no person started',()=>{
@@ -183,12 +183,15 @@ test('action() refuses a human-only action no person started',()=>{
 test('actViaButton never passes itself off as the person',()=>{
   const line=main.split('\n').find(l=>l.startsWith('async function actViaButton'));
   assert.ok(line);
-  assert.match(line,/await action\(btn,\s*false\)/);
+  assert.match(line,/,d:Dispatch\)\{/,'it presses for the agent whose command it runs');
+  assert.match(line,/await action\(btn,\s*d,\s*false\)/);
 });
 
 test('approvedFingerprint is written in exactly one place in main.ts',()=>{
   const sets=main.match(/approvedFingerprint\s*=(?!=)/g)??[];
   assert.equal(sets.length,1,`found ${sets.length} assignments; every approval must pass the one guarded case`);
+  // ...and it is recorded as the approve row, which commit() refuses to anyone but the person.
+  assert.match(main,/commit\(\(\) => \{ project\.approvedFingerprint = fingerprint\(project\); \}, d, 'human\.approve'\)/);
 });
 
 /* Undo and redo reach approval through history rather than a button: session.ts refuses an agent's
@@ -198,7 +201,8 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
   const start=main.indexOf('function history(');
   assert.ok(start>0);
   const body=main.slice(start,main.indexOf('\n}',start));
-  assert.match(body,/step\(project,direction,edits,author\(by\)\)/,'the step is asked as whoever asked for it');
+  assert.match(body,/step\(project,direction,edits,d\.author\)/,'the step is asked as whoever asked for it');
+  assert.ok(body.indexOf('refusal(d')<body.indexOf('step('),'and nobody named takes no step');
   assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefused=error\.message;return;\}/,'refused before the stack is popped');
   assert.ok(body.indexOf('HumanOnlyStep')<body.indexOf('.pop()'));
 });
@@ -206,16 +210,16 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
 test('runAgentCommand returns a refused step as the gate\'s 403',()=>{
   const start=main.indexOf('async function runAgentCommand');
   const body=main.slice(start,main.indexOf('\n}',start));
-  assert.match(body,/commandCaller=who;stepRefused='';/,'a stale refusal never answers the next command');
+  assert.match(body,/const d=agentDispatch\(who,[^\n]*\n\s*stepRefused='';/,'a stale refusal never answers the next command');
   assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*if\(stepRefused\)\{const error=stepRefused;stepRefused='';return \{error,status:403\};\}/,'checked after the wait, so a click has landed');
 });
 
-test('undo and redo name who asked: the key handler by isTrusted, action() before its first await',()=>{
-  assert.match(main,/history\(e\.shiftKey \? 'redo' : 'undo', e\.isTrusted \? '' : commandCaller\)/);
+test('undo and redo name who asked: the key handler by the event, action() before its first await',()=>{
+  assert.match(main,/history\(e\.shiftKey \? 'redo' : 'undo', who\(e\)\)/);
   const start=main.indexOf('async function action(');
-  const asked=main.indexOf("const by=trusted?'':commandCaller;",start);
+  const asked=main.indexOf('const d=given??NOBODY;',start);
   assert.ok(asked>start&&asked<main.indexOf('await ',start),'read before an agent\'s click returns');
-  assert.match(main,/case 'undo': history\('undo',by\); break;\n\s*case 'redo': history\('redo',by\); break;/);
+  assert.match(main,/case 'undo': history\('undo',d\); break;\n\s*case 'redo': history\('redo',d\); break;/);
 });
 
 test('the MCP interface tool and every bridge route funnel into runAgentCommand',()=>{
@@ -224,8 +228,8 @@ test('the MCP interface tool and every bridge route funnel into runAgentCommand'
   for(const path of ['/agent/ui','/agent/act','/agent/click','/agent/command'])
     assert.ok(bridgeRs.includes(`"POST ${path}",`),`${path} is a route`);
   assert.match(bridgeRs,/want_path\.strip_prefix\("\/agent\/"\)/,'the kind is the path after /agent/');
-  assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(/);
-  assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string\)=>runAgentCommand\(/);
+  assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(ev\.payload\.kind,ev\.payload\.payload,ev\.payload\.caller,'loopback'\)/);
+  assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string,surface:unknown='loopback'\)=>runAgentCommand\(/);
 });
 
 test('the ledger\'s patch, accepted back through apply_edits, cannot set the approval either',async()=>{

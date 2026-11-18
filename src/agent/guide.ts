@@ -43,6 +43,8 @@ export const playbook = [
   '',
   'Give every call a `reason`: one sentence, for the person, on why. It is shown beside the change and stays with it. Send the `revision` you last read as `base_revision`; if the person has changed the project since, nothing is applied and the reply lists what they changed, so you build on their work instead of writing over it.',
   '',
+  'The same holds for `aphrodite_set_design_system`: it needs a `reason` and takes the same `base_revision`. A `command` through `aphrodite_use_interface` may carry a `reason` too. Whatever you change, by any of these, is recorded under your name — never as the person\'s.',
+  '',
   'Target a component by its `block_id`, or by the literal `"selection"` for whatever the person has selected — that is your shared pointer with them.',
   '',
   '## Never',

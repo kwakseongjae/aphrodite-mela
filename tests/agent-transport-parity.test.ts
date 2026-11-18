@@ -18,7 +18,7 @@ const commands: [string, unknown][] = [
   ['type', {selector: 'input', text: 'hi'}],
   ['key', {key: '1', shift: true}],
   ['command', {query: 'hero 추가'}],
-  ['edit', {field: 'title', text: 'Hello'}],
+  ['edit', {field: 'title', text: 'Hello', reason: 'Parity.'}],
   ['library', {action: 'list'}],
   ['changes', {since: 3}],
   ['apply', {reason: 'Parity.', ops: [{op: 'delete', block_id: 'selection'}]}],
