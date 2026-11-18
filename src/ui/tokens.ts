@@ -92,8 +92,11 @@ export type Theme=keyof typeof themes;
  * 4.5 for text, 3 for large text and for graphics that carry meaning (WCAG 2.1, 1.4.3 and 1.4.11).
  * `text-3` is held to 3 because it is only for placeholders, disabled controls and meta that repeats
  * something said elsewhere; anything a person must read to act is text-2 or stronger.
+ *
+ * `short` names a theme where the approved value is known to fall under its minimum, and why that is
+ * tolerated for now. The test fails if such a pair starts passing, so a fix also removes the note.
  */
-export const pairs:{fg:string,bg:string,min:4.5|3,use:string}[]=[
+export const pairs:{fg:string,bg:string,min:4.5|3,use:string,short?:Partial<Record<'light'|'dark',string>>}[]=[
   {fg:'text-1',bg:'bg-panel',min:4.5,use:'본문, 제목'},
   {fg:'text-1',bg:'bg-app',min:4.5,use:'사이드바 본문'},
   {fg:'text-1',bg:'bg-raised',min:4.5,use:'모달, 메뉴'},
@@ -120,7 +123,7 @@ export const pairs:{fg:string,bg:string,min:4.5|3,use:string}[]=[
   {fg:'on-select',bg:'select',min:4.5,use:'선택 크기 표시'},
   {fg:'select',bg:'bg-canvas',min:3,use:'선택선 (그래픽)'},
   {fg:'focus',bg:'bg-panel',min:3,use:'키보드 포커스 고리 (그래픽)'},
-  {fg:'accent',bg:'bg-panel',min:3,use:'켜진 스위치, 연결된 카드 테두리 (그래픽)'},
+  {fg:'accent',bg:'bg-panel',min:3,use:'켜진 스위치, 연결된 카드 테두리 (그래픽)',short:{dark:'승인된 시안은 두 판에 같은 녹색을 쓴다(흰 글자 6.52:1을 지키려고). 어두운 판에서는 스위치의 손잡이 위치와 연결 카드의 "연결됨" 알약이 상태를 함께 알린다. F3에서 다시 본다.'}},
   {fg:'on-agent',bg:'agent',min:4.5,use:'에이전트 이름표'},
   {fg:'agent-text',bg:'bg-panel',min:4.5,use:'에이전트 상태 글자'},
   {fg:'agent-text',bg:'agent-soft',min:4.5,use:'에이전트 알약'},
