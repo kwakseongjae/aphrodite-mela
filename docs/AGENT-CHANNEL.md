@@ -78,7 +78,7 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 
 `page`로 만든 페이지는 **그 배치의 나머지 op이 향하는 곳이 된다** — 사람이 새 프레임을 만들면 그 안에 들어가는 것과 같다. 디자인 시스템은 그대로 이어받는다.
 
-`content`와 `fields`의 키는 `title`·`text`·`label`·`eyebrow`·`description`. `block_id` 자리에는 리터럴 `"selection"`을 쓸 수 있다 — 사람이 지금 고른 것이 곧 공유 포인터다. 한 번에 op 40개까지, 문자열 하나는 4,000자까지. 페이지를 고르는 열쇠는 `apply`만 `page_id`(`pageId`도 받는다)이고, `contract`와 `render`는 `pageId`다.
+`content`와 `fields`의 키는 `title`·`text`·`label`·`eyebrow`·`description`. `block_id` 자리에는 리터럴 `"selection"`을 쓸 수 있다 — 사람이 지금 고른 것이 곧 공유 포인터다. 한 번에 op 100개까지, 문자열 하나는 4,000자까지. 페이지를 고르는 열쇠는 `apply`만 `page_id`(`pageId`도 받는다)이고, `contract`와 `render`는 `pageId`다.
 
 `edit`·`act`·`click`·`type`·`key`·`command`는 따로 돌려줄 것이 없어 실행 뒤 `state`와 같은 것을 돌려준다.
 

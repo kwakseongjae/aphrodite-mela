@@ -30,6 +30,19 @@ test('a missing ops list says what one looks like',()=>{
   assert.match(bad({ops:Array.from({length:MAX_OPS+1},()=>({op:'delete',block_id:'a'}))}),new RegExp(`${MAX_OPS} allowed`));
 });
 
+/* 0.3-2 (§13.2-9): forty was a guess. A page holds up to a hundred blocks, so one batch may touch
+   every one of them; past that it is two changes, and the error says to split it. */
+test('a batch carries up to a hundred operations, and the tool tells an agent so',async()=>{
+  assert.equal(MAX_OPS,100,'the same bound as the blocks a page can hold');
+  assert.equal(ok({ops:Array.from({length:MAX_OPS},()=>({op:'delete',block_id:'a'}))}).ops.length,100);
+  assert.match(bad({ops:Array.from({length:101},()=>({op:'delete',block_id:'a'}))}),/101 operations is more than the 100 allowed/);
+  const {commandById}=await import('../src/agent/commands.mjs');
+  const {toolByName}=await import('../mcp/aphrodite-mcp/tools.mjs');
+  const maxItems=(schema:unknown)=>(schema as {properties:{ops:{maxItems:number}}}).properties.ops.maxItems;
+  assert.equal(maxItems(commandById['edit.apply'].input),MAX_OPS);
+  assert.equal(maxItems(toolByName.aphrodite_apply_edits.inputSchema),MAX_OPS);
+});
+
 test('an unknown component kind lists the real ones and suggests the nearest',()=>{
   const error=bad({ops:[{op:'add',component_kind:'hero-large'}]});
   assert.match(error,/unknown ops\[0\]\.component_kind "hero-large"/);

@@ -339,7 +339,7 @@ export const commands = [
         ops: {
           type: 'array',
           minItems: 1,
-          maxItems: 40,
+          maxItems: 100,
           description: 'The operations, applied in order.',
           items: {
             type: 'object',

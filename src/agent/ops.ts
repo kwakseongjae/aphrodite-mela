@@ -25,7 +25,7 @@ export type Op =
   | {op: 'frame'; page_id?: string; preset: FramePreset}
   | {op: 'page'; name: string; preset?: FramePreset; page_id?: string};
 
-export const MAX_OPS = 40;
+export const MAX_OPS = 100;
 export const MAX_TEXT = 4_000;
 /** The person's current selection, usable anywhere a block_id is. */
 export const SELECTION = 'selection';
