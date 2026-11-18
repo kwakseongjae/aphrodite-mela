@@ -33,15 +33,17 @@ const read = (kind, payload = {}) => agentOn('loopback', kind, payload);
 const seq = async () => (await read('changes', {limit: 1})).seq;
 const revision = async () => (await read('changes', {limit: 1})).revision;
 
-/** Runs `run` and returns the one change it made; fails if it made none, or more than one. */
-async function oneChange(label, run) {
+/** Runs `run` and returns the `count` changes it made, oldest first; fails if it made any other number. */
+async function changes(label, count, run) {
   const before = await seq();
   const result = await run();
   await sleep(350);
   const after = await read('changes', {since: before, include_view: true, limit: 20});
-  assert.equal(after.seq, before + 1, `${label}: the ledger moved by exactly one change (moved ${after.seq - before}); the call said ${JSON.stringify(result)?.slice(0, 300)}`);
-  return after.changes[0];
+  assert.equal(after.seq, before + count, `${label}: the ledger moved by exactly ${count} (moved ${after.seq - before}); the call said ${JSON.stringify(result)?.slice(0, 300)}`);
+  return after.changes;
 }
+/** Runs `run` and returns the one change it made; fails if it made none, or more than one. */
+const oneChange = async (label, run) => (await changes(label, 1, run))[0];
 
 /** Holds a change to the row it belongs to: the author, a source the row lists, and the reason. */
 function matches(label, change, {row, author, source, reason}) {
@@ -218,6 +220,82 @@ for (const surface of AGENT_SURFACES.filter(s => commandById['screen.ui'].surfac
 
 check('the screen verbs covered here are every one the table has', () => {
   assert.deepEqual(commands.filter(r => r.resolves).map(r => r.id).sort(), ['screen.act', 'screen.click', 'screen.command', 'screen.key', 'screen.type', 'screen.ui']);
+});
+
+/* ---- what the browser fires while an agent's command is sending events is the agent's ---- */
+
+/** The person's own press holds the screen for five seconds; an agent's next command waits that out. */
+const personLetsGo = () => sleep(5_300);
+/** The person typing into a field and staying in it: nothing is saved until focus leaves the field. */
+async function typeAndStay(selector, text) {
+  await pressAt(selector);
+  await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.focus(); el.select?.(); return true; })()`);
+  await send('Input.insertText', {text});
+  await sleep(200);
+}
+const sectionOf = async kind => `.space-frame.active .block-wrap[data-block-id="${await blockOf(kind)}"]`;
+
+check('click on a form’s submit button: the submit the browser fires for it is the agent’s, not the person’s', async () => {
+  // The browser sends that submit itself, as trusted, while the agent's click is being dispatched.
+  await personPresses('project');
+  await personLetsGo();
+  await read('type', {selector: '#rename-form [name="name"]', text: 'Renamed by an agent'});
+  const change = await oneChange('click submit', () => read('click', {selector: '#rename-form [type="submit"]'}));
+  matches('click submit', change, {row: 'edit.project-rename', author: AGENT, source: 'editor:change', reason: undefined});
+});
+
+check('click on the language settings’ save: the agent’s choice of content language is the agent’s', async () => {
+  await personPresses('language-settings');
+  await personLetsGo();
+  const menu = '#language-settings-form [name="contentLanguage"]';
+  await read('type', {selector: menu, text: await otherOption(menu)});
+  const change = await oneChange('click save', () => read('click', {selector: '#language-settings-form [type="submit"]'}));
+  matches('click save', change, {row: 'edit.content-language', author: AGENT, source: 'project:content-language', reason: undefined});
+});
+
+check('the person’s unsaved words are saved as theirs when an agent’s click moves the selection', async () => {
+  await select('hero');
+  const words = 'The person typed this and never left the field';
+  const before = await seq();
+  await typeAndStay('[data-field="title"]', words);
+  assert.equal(await seq(), before, 'typing alone saves nothing: the field saves as focus leaves it');
+  await personLetsGo();
+  const change = await oneChange('agent click elsewhere', async () => read('click', {selector: await sectionOf('features')}));
+  matches('agent click elsewhere', change, {row: 'edit.text', author: PERSON, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(change.ops).includes(words), `the change holds the person’s words: ${JSON.stringify(change.ops).slice(0, 300)}`);
+});
+
+check('the person’s unsaved words are theirs, and the field an agent types into is the agent’s', async () => {
+  await select('hero');
+  const words = 'The person was still writing this';
+  await typeAndStay('[data-field="title"]', words);
+  await personLetsGo();
+  const [theirs, agents] = await changes('agent types elsewhere', 2, () => read('type', {selector: '[data-field="text"]', text: 'An agent wrote this'}));
+  matches('the field the person left', theirs, {row: 'edit.text', author: PERSON, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(theirs.ops).includes(words), 'the person’s change holds the person’s words');
+  matches('the field the agent filled', agents, {row: 'edit.text', author: AGENT, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(agents.ops).includes('An agent wrote this'), 'the agent’s change holds the agent’s words');
+});
+
+check('an agent’s words typed over the person’s are the agent’s, and leaving the field saves nothing more', async () => {
+  await select('hero');
+  await typeAndStay('[data-field="title"]', 'Half a thought from the person');
+  await personLetsGo();
+  const [only] = await changes('agent types over, then clicks elsewhere', 1, async () => {
+    await read('type', {selector: '[data-field="title"]', text: 'The agent’s title'});
+    await read('click', {selector: await sectionOf('features')});
+  });
+  matches('typed over', only, {row: 'edit.text', author: AGENT, source: 'editor:change', reason: undefined});
+});
+
+check('a value an agent typed sends no change of the browser’s own when the person moves focus on', async () => {
+  // So an agent's words cannot come back as the person's by way of the field saving as it loses focus.
+  await select('hero');
+  await evaluate(`(() => { window.__ledgerChanges = []; document.querySelector('[data-field="title"]').addEventListener('change', e => window.__ledgerChanges.push(e.isTrusted)); return true; })()`);
+  await oneChange('agent types', () => read('type', {selector: '[data-field="title"]', text: 'Left in the field by an agent'}));
+  assert.equal(await evaluate(`document.activeElement?.dataset?.field ?? null`), 'title', 'the field is still focused');
+  await changes('the person clicks elsewhere', 0, async () => pressAt(await sectionOf('features')));
+  assert.deepEqual(await evaluate('window.__ledgerChanges'), [false], 'only the agent’s own change was sent');
 });
 
 /* ---- every edit row the person reaches, through one of its controls, by their own input ---- */

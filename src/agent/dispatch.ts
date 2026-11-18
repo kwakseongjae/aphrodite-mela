@@ -11,6 +11,12 @@
  * - The person is only ever on the screen (`ui`), and an agent never is.
  * - A `ui` Dispatch comes only from a trusted event. `personAt` makes it from `e.isTrusted` and keeps
  *   a note of it; `refusal` turns away one it did not make, so code cannot claim to be the person.
+ *
+ * `isTrusted` alone does not say the person did it. The browser fires some events itself, as trusted,
+ * because of something code did: the `submit` for a click on a submit button, the `input` and `change`
+ * for a click on a checkbox. So an event sent with `send` makes everything that arrives while it is
+ * being dispatched that sender's — except a `change` that saves what the person typed into a field,
+ * which is theirs however focus came to leave it (`watchTyping`).
  */
 import {UNKNOWN, type Author} from '../ledger/types';
 import {commandById, type Surface} from './commands.mjs';
@@ -32,13 +38,24 @@ export const NOBODY: Dispatch = Object.freeze({author: UNKNOWN, surface: 'ui'});
 const fromPerson = new WeakSet<Dispatch>();
 /** Events the app or an agent's command made, with the Dispatch of whoever caused them. */
 const carried = new WeakMap<Event, Dispatch>();
+/** Whoever `sendAs` is sending events for, only while it runs; undefined outside it. */
+let sending: Dispatch | undefined;
+/** Fields the person has typed into since they last sent a `change`, and the `change` events that save that typing. */
+const typedIn = new WeakSet<EventTarget>();
+const savesTyping = new WeakSet<Event>();
 
-/** The person at the screen, from their own input; undefined for any event the browser did not get from them. */
-export function personAt(e: Pick<Event, 'isTrusted'>): Dispatch | undefined {
-  if (e.isTrusted !== true) return undefined;
+function person(): Dispatch {
   const d: Dispatch = {author: PERSON, surface: 'ui'};
   fromPerson.add(Object.freeze(d));
   return d;
+}
+
+/**
+ * The person at the screen, from their own input; undefined for any event the browser did not get from
+ * them, and for every event while `sendAs` runs: a trusted event then is the browser's answer to code.
+ */
+export function personAt(e: Pick<Event, 'isTrusted'>): Dispatch | undefined {
+  return e.isTrusted === true && !sending ? person() : undefined;
 }
 
 /** An agent, on the transport its call arrived by, with the reason and revision it sent. */
@@ -47,19 +64,58 @@ export function agentDispatch(name: string, surface: AgentSurface, extra: {reaso
   return {author: {kind: 'agent', name}, surface, ...(extra.reason ? {reason: extra.reason} : {}), ...(extra.baseRevision ? {baseRevision: extra.baseRevision} : {})};
 }
 
-/** Who started this event: the person when the browser says it was them, otherwise whoever `carry` named, if anyone. */
+/**
+ * Who started this event: whoever `send` named for it; while `sendAs` runs, whoever it is sending for
+ * (the person's own typing excepted); otherwise the person when the browser says it was them.
+ */
 export function dispatchOf(e: Event): Dispatch | undefined {
-  return personAt(e) ?? carried.get(e);
+  const given = carried.get(e);
+  if (given) return given;
+  if (!sending) return personAt(e);
+  if (e.isTrusted && savesTyping.has(e)) return person();
+  return sending === NOBODY ? undefined : sending;
 }
 
 /**
- * Hands an event the app makes itself the Dispatch of whoever caused it: an agent's click or key, the
- * change a menu sends after the person picks from it, the click the palette sends when Enter is pressed.
+ * Runs `dispatch` with every event that arrives before it returns counted as `d`'s (nobody's when `d`
+ * is undefined). Only what happens before it returns: a callback that awaits would leave `sending` set
+ * for whatever else runs in between — the global 0.3-2b took away — so one that returns a promise throws.
+ */
+export function sendAs<T>(d: Dispatch | undefined, dispatch: () => T): T {
+  const outer = sending;
+  sending = d ?? NOBODY;
+  try {
+    const out = dispatch();
+    if (typeof (out as {then?: unknown} | null)?.then === 'function') throw new Error('sendAs covers what happens before it returns; it cannot wait');
+    return out;
+  } finally {
+    sending = outer;
+  }
+}
+
+/**
+ * Dispatches an event the app makes itself on behalf of whoever caused it: an agent's click, key or
+ * typing, the change a menu sends after the person picks from it, the click the palette sends when
+ * Enter is pressed. The event carries `d`, and so does whatever the browser fires because of it.
  * A `ui` Dispatch can be passed on this way but not made: `refusal` still asks where it came from.
  */
-export function carry<E extends Event>(e: E, d: Dispatch | undefined): E {
+export function send(target: EventTarget, e: Event, d: Dispatch | undefined): boolean {
   if (d) carried.set(e, d);
-  return e;
+  return sendAs(d, () => target.dispatchEvent(e));
+}
+
+/**
+ * Keeps track of what the person types, so that the `change` saving it is theirs even when an agent's
+ * command is what moved focus or the selection on. A value code sets sends no `change` when focus
+ * leaves, so an agent's words cannot come back this way as the person's (scripts/verify-ledger.mjs).
+ */
+export function watchTyping(on: Pick<EventTarget, 'addEventListener'>): void {
+  on.addEventListener('input', e => {
+    if (!e.target) return;
+    if (e.isTrusted && !sending && typeof (e as InputEvent).inputType === 'string') typedIn.add(e.target);
+    else if (sending) typedIn.delete(e.target);
+  }, true);
+  on.addEventListener('change', e => { if (e.target && typedIn.delete(e.target) && e.isTrusted) savesTyping.add(e); }, true);
 }
 
 /**

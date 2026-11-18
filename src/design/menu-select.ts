@@ -1,6 +1,6 @@
 import {esc} from '../html';
 import {icon} from '../design/icon';
-import {carry,dispatchOf} from '../agent/dispatch';
+import {dispatchOf,send} from '../agent/dispatch';
 
 /**
  * Custom dropdown that mirrors a native <select>. The native element stays in the DOM (hidden) so every
@@ -62,7 +62,7 @@ export function enhanceSelect(select:HTMLSelectElement):void{
     e.preventDefault();e.stopPropagation();
     const value=item.dataset.value??'';
     details.open=false;
-    if(select.value!==value){const who=dispatchOf(e);select.value=value;select.dispatchEvent(carry(new Event('input',{bubbles:true}),who));select.dispatchEvent(carry(new Event('change',{bubbles:true}),who));}
+    if(select.value!==value){const who=dispatchOf(e);select.value=value;send(select,new Event('input',{bubbles:true}),who);send(select,new Event('change',{bubbles:true}),who);}
     refresh(select);
   });
   details.addEventListener('keydown',e=>{

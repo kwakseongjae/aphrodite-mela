@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {PERSON,agentDispatch,carry,dispatchOf,personAt,refusal,sourceFor,type Dispatch} from '../src/agent/dispatch';
+import {NOBODY,PERSON,agentDispatch,dispatchOf,personAt,refusal,send,sendAs,sourceFor,watchTyping,type Dispatch} from '../src/agent/dispatch';
 import {commands} from '../src/agent/commands.mjs';
 
 /**
@@ -11,6 +11,10 @@ import {commands} from '../src/agent/commands.mjs';
  */
 const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
 const trusted={isTrusted:true} as Event;
+/** An event as the browser fires it: node lets a test say what only the browser can. */
+const fromBrowser=(type:string,init:Record<string,unknown>={})=>{const e=new Event(type);for(const [k,v] of Object.entries({isTrusted:true,...init}))Object.defineProperty(e,k,{value:v});return e;};
+/** Sends `e` to a fresh target and returns who its listener was told sent it. */
+function sentAs(e:Event,d:Dispatch|undefined){const t=new EventTarget();let seen:Dispatch|undefined;t.addEventListener(e.type,ev=>{seen=dispatchOf(ev);});send(t,e,d);return seen;}
 
 test('the person is whoever the browser says pressed, and nothing else',()=>{
   const d=personAt(trusted);
@@ -24,7 +28,7 @@ test('code cannot claim to be the person',()=>{
   const forged:Dispatch={author:{kind:'person',name:'you'},surface:'ui'};
   assert.match(refusal(forged)!,/person's own input/);
   // Passing it along on an event does not make it theirs either.
-  assert.match(refusal(dispatchOf(carry(new Event('change'),forged)))!,/person's own input/);
+  assert.match(refusal(sentAs(new Event('change'),forged))!,/person's own input/);
   assert.match(refusal({...personAt(trusted)!})!,/person's own input/,'a copy is not the one their event made');
 });
 
@@ -46,12 +50,53 @@ test('an agent is named on the transport it came by, with its reason and revisio
 
 test('an event the app makes for an agent carries that agent, and an event it makes for nobody carries nobody',()=>{
   const d=agentDispatch('claude-code','loopback');
-  const click=carry(new Event('click'),d);
-  assert.equal(dispatchOf(click),d);
-  assert.equal(dispatchOf(carry(new Event('click'),undefined)),undefined);
+  assert.equal(sentAs(new Event('click'),d),d);
+  assert.equal(sentAs(new Event('click'),undefined),undefined);
   // The person's own Dispatch passed on — the palette's Enter, a menu's change — is still theirs.
   const theirs=personAt(trusted)!;
-  assert.equal(refusal(dispatchOf(carry(new Event('change'),theirs))),undefined);
+  assert.equal(refusal(sentAs(new Event('change'),theirs)),undefined);
+});
+
+test('what the browser fires while an agent’s event is being sent is the agent’s, trusted or not',()=>{
+  const d=agentDispatch('claude-code','loopback');
+  // The submit a submit button's click makes the browser fire: trusted, and nobody carried it.
+  const t=new EventTarget();let submitted:Dispatch|undefined;
+  t.addEventListener('submit',e=>{submitted=dispatchOf(e);});
+  t.addEventListener('click',()=>{t.dispatchEvent(fromBrowser('submit'));});
+  send(t,new Event('click'),d);
+  assert.equal(submitted,d);
+  assert.equal(sendAs(d,()=>personAt(trusted)),undefined,'nobody is the person while code is sending');
+  assert.equal(sendAs(undefined,()=>dispatchOf(fromBrowser('change'))),undefined,'sent for nobody, it is nobody\'s');
+  assert.equal(refusal(dispatchOf(fromBrowser('click'))),undefined,'and once it has been sent, the person is the person again');
+});
+
+test('sendAs covers only what happens before it returns',()=>{
+  const a=agentDispatch('a','loopback'),b=agentDispatch('b','mcp');
+  assert.equal(sendAs(a,()=>sendAs(b,()=>dispatchOf(fromBrowser('click')))),b,'the inner sender, inside');
+  assert.equal(sendAs(a,()=>{sendAs(b,()=>0);return dispatchOf(fromBrowser('click'));}),a,'the outer one again after');
+  assert.throws(()=>sendAs(a,()=>{throw new Error('boom');}),/boom/);
+  assert.notEqual(dispatchOf(fromBrowser('click')),a,'a throw does not leave it set');
+  assert.throws(()=>sendAs(a,()=>Promise.resolve()),/cannot wait/);
+  assert.notEqual(dispatchOf(fromBrowser('click')),a,'nor does a promise');
+  assert.equal(NOBODY.author.kind,'unknown');
+});
+
+test('the change that saves what the person typed is theirs, even while an agent is sending',()=>{
+  const field=new EventTarget(),other=new EventTarget(),d=agentDispatch('claude-code','loopback');
+  // Each field is watched on itself here; in the app, the window watches every field's events as they pass.
+  for(const t of [field,other])watchTyping(t);
+  const at=(target:EventTarget,e:Event)=>{let seen:Dispatch|undefined;const take=(ev:Event)=>{seen=dispatchOf(ev);};target.addEventListener(e.type,take);target.dispatchEvent(e);target.removeEventListener(e.type,take);return seen;};
+  const typing=()=>fromBrowser('input',{inputType:'insertText'});
+  // The person types; an agent's click moves the selection, and the field saves as it loses focus.
+  at(field,typing());
+  assert.equal(refusal(sendAs(d,()=>at(field,fromBrowser('change')))),undefined,'the person’s words');
+  assert.equal(sendAs(d,()=>at(field,fromBrowser('change'))),d,'once saved, a second change is not theirs');
+  // A field the person never typed into, or a checkbox the agent clicked, is the agent's.
+  assert.equal(sendAs(d,()=>at(other,fromBrowser('change'))),d);
+  // The agent typing over the person's words takes the field: its change is the agent's.
+  at(field,typing());
+  sendAs(d,()=>at(field,new Event('input')));
+  assert.equal(sendAs(d,()=>at(field,fromBrowser('change'))),d);
 });
 
 test('a source comes from the row the edit belongs to',()=>{

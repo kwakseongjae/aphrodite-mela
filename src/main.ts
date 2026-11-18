@@ -76,7 +76,7 @@ import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
-import {agentDispatch,carry,dispatchOf,isAgentSurface,refusal,sourceFor,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
+import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -246,6 +246,7 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
 }
 /** Who an event comes from, when that is someone who may change the design: the person's own input, or an agent's command it carries. */
 function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusal(d)?d:undefined;}
+watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
 function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
@@ -1059,7 +1060,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
     case 'vibe-back': autofillModal();break;
-    case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form');if(form?.reportValidity())form.dispatchEvent(carry(new SubmitEvent('submit',{bubbles:true,cancelable:true}),d));break;}
+    case 'vibe-retry-replace': {if(!vibeFormDraft)break;vibeFormDraft.set('replace','on');autofillModal();const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form');if(form?.reportValidity())send(form,new SubmitEvent('submit',{bubbles:true,cancelable:true}),d);break;}
     case 'brand-kit': showModal(ui('Aphrodite Brand Kit','아프로디테 브랜드 리소스'),ui('Paper Muse · logo, colour, type, voice and cutouts','Paper Muse · 로고, 색, 서체, 목소리, 컷아웃'),brandHtml(uiLanguage),true); break;
     case 'apply-omd': {
       const before=fingerprint(project),id=el.dataset.source!;
@@ -1453,7 +1454,7 @@ document.addEventListener('submit', async e => {
 let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>item.dispatchEvent(carry(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e)));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
+function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>send(item,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite.','Aphrodite에 오신 것을 환영합니다.'),ui('Shape before you build.','만들기 전에, 방향부터.'),welcomeHtml(uiLanguage),true);}
@@ -1614,11 +1615,13 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     switch(c.kind){
       /* The screen verbs press, type and key through the same handlers the person's input reaches.
          Every event they make carries `d`, so what it changes is the agent's even when the handler
-         waits before it commits — an agent's click used to be recorded as the person's for exactly that. */
+         waits before it commits — an agent's click used to be recorded as the person's for exactly that.
+         So does every event the browser fires while one is sent: the trusted submit of a submit button
+         the agent clicked. `type` moves focus before it sends, so a field the person leaves saves as theirs. */
       case 'act':await actViaButton(c.action,c.data,d);recordRun('agent:act',{action:c.action,data:c.data},d);break;
-      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};if(!(el as HTMLButtonElement).disabled)el.dispatchEvent(carry(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),d));recordRun('agent:click',{selector:c.selector},d);break;}
-      case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(carry(new Event('input',{bubbles:true}),d));el.dispatchEvent(carry(new Event('change',{bubbles:true}),d));if(c.submit&&el.form?.reportValidity())el.form.dispatchEvent(carry(new SubmitEvent('submit',{bubbles:true,cancelable:true}),d));recordRun('agent:type',{selector:c.selector,length:c.text.length},d);break;}
-      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(carry(new KeyboardEvent('keydown',init),d));document.body.dispatchEvent(carry(new KeyboardEvent('keyup',init),d));recordRun('agent:key',{key:c.key},d);break;}
+      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};if(!(el as HTMLButtonElement).disabled)send(el,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),d);recordRun('agent:click',{selector:c.selector},d);break;}
+      case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;send(el,new Event('input',{bubbles:true}),d);send(el,new Event('change',{bubbles:true}),d);if(c.submit&&el.form?.reportValidity())send(el.form,new SubmitEvent('submit',{bubbles:true,cancelable:true}),d);recordRun('agent:type',{selector:c.selector,length:c.text.length},d);break;}
+      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};send(document.body,new KeyboardEvent('keydown',init),d);send(document.body,new KeyboardEvent('keyup',init),d);recordRun('agent:key',{key:c.key},d);break;}
       case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{},d);recordRun('agent:command',{query:c.query,command:hit.id},d);break;}
       case 'references':{
         if(!nativeDesktop)return {error:'the reference archive is desktop only'};
