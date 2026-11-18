@@ -13,6 +13,7 @@
  *   node scripts/verify-ledger.mjs
  */
 import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
 import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {commands, commandById} from '../src/agent/commands.mjs';
 
@@ -307,6 +308,9 @@ check('a menu change sent for the person cannot be sent again', async () => {
 });
 
 check('a file reaches a picker the person opened only from the file chooser', async () => {
+  // A file the chooser hands over (CDP's DOM.setFileInputFiles sends the browser's own, trusted change)
+  // lands as the person's; the same picker given a file by script and a change of its own takes nothing.
+  const png = fileURLToPath(new URL('../public/brand/apple-mark.png', import.meta.url));
   await send('Page.enable');
   await send('Page.setInterceptFileChooserDialog', {enabled: true});
   try {
@@ -320,13 +324,24 @@ check('a file reaches a picker the person opened only from the file chooser', as
       const blob = await new Promise(r => c.toBlob(r, 'image/png')); const t = new DataTransfer(); t.items.add(new File([blob], 'agent.png', {type: 'image/png'}));
       const input = document.querySelector('input[type=file][data-upload]'); input.files = t.files; input.dispatchEvent(new Event('change', {bubbles: true}));
       await new Promise(r => setTimeout(r, 800)); return true; })()`));
+    await evaluate(`(() => { window.__ledgerFileChange = null; document.querySelector('input[type=file][data-upload]').addEventListener('change', e => { window.__ledgerFileChange = e.isTrusted; }); return true; })()`);
+    const chosen = await oneChange('the person chooses a file', async () => {
+      const {result: {root}} = await send('DOM.getDocument', {depth: 0});
+      const {result: {nodeId}} = await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[type=file][data-upload]'});
+      await send('DOM.setFileInputFiles', {nodeId, files: [png]});
+      await sleep(800);
+    });
+    assert.equal(await evaluate('window.__ledgerFileChange'), true, 'the chooser’s change is the browser’s own');
+    matches('the person chooses a file', chosen, {row: 'edit.reference', author: PERSON, reason: undefined});
+    // The person row below starts from a project with no reference.
+    await personPresses('remove-reference');
+    await sleep(300);
   } finally {
     await evaluate(`document.querySelector('input[type=file][data-upload]')?.remove(), true`);
     await send('Page.setInterceptFileChooserDialog', {enabled: false});
     for (let i = 0; i < 3 && await evaluate(`document.querySelector('#modal-root').children.length`); i++) await closeDialogs();
   }
 });
-
 
 /* ---- every edit row the person reaches, through one of its controls, by their own input ---- */
 
