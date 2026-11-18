@@ -7,7 +7,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initialProject, type Project} from '../src/model.ts';
-import {upsertProject, libraryRefusal, utf8Length, LIBRARY_LIMIT_BYTES, BROWSER_LIBRARY_ESTIMATE, type Library} from '../src/workspace/library.ts';
+import {upsertProject, libraryRefusal, rememberSaved, utf8Length, LIBRARY_LIMIT_BYTES, BROWSER_LIBRARY_ESTIMATE, type Library} from '../src/workspace/library.ts';
 
 const DESKTOP = {limit: LIBRARY_LIMIT_BYTES, unit: 'bytes' as const};
 const BROWSER = {limit: BROWSER_LIBRARY_ESTIMATE, unit: 'chars' as const};
@@ -41,11 +41,33 @@ test('a batch that does not grow the design is never refused for the library, ev
   assert.equal(libraryRefusal(library, before, {...before, name: 'Same length'.slice(0, before.name.length)}, DESKTOP), undefined);
 });
 
-test('a small change to a small library is let through without measuring the library again', () => {
+/** How many times JSON.stringify runs while `fn` does. */
+function serializations(fn: () => void): number {
+  const original = JSON.stringify;
+  let calls = 0;
+  JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => { calls++; return original(...args); }) as typeof JSON.stringify;
+  try { fn(); } finally { JSON.stringify = original; }
+  return calls;
+}
+
+test('a small change to a library saved small is let through without measuring the library again', () => {
   const p = initialProject(), library = libraryOf(p);
-  const known = {libraryChars: JSON.stringify(library).length, designChars: JSON.stringify(p).length};
-  assert.equal(libraryRefusal(library, p, {...p, name: 'Renamed'}, DESKTOP, known), undefined);
-  assert.equal(libraryRefusal(library, p, {...p, name: 'Renamed'}, BROWSER, known), undefined);
+  rememberSaved(library, JSON.stringify(library).length);
+  const after = {...p, name: 'Renamed'};
+  assert.equal(serializations(() => assert.equal(libraryRefusal(library, p, after, DESKTOP, JSON.stringify(after).length), undefined)), 1, 'only the new design, which the caller already measures');
+  assert.equal(libraryRefusal(library, p, after, BROWSER, JSON.stringify(after).length), undefined);
+});
+
+/* Codex 3rd review: the remembered size outlived the library it measured. A library read again from disk
+   — grown meanwhile by another window — is a different object, so nothing is remembered for it. */
+test('a library read again from disk is measured, not taken for the size the last one was saved at', () => {
+  const small = initialProject(), saved = libraryOf(small);
+  rememberSaved(saved, JSON.stringify(saved).length);
+  const other = korean(7);
+  const disk = upsertProject(JSON.parse(JSON.stringify(saved)) as Library, other);
+  const grown = {...small, pages: [...small.pages, {id: 'free-x', name: 'Grown', blocks: [], kind: 'html' as const, html: 'x'.repeat(200_000)}]};
+  assert.equal(libraryRefusal(saved, small, grown, DESKTOP, JSON.stringify(grown).length), undefined, 'against the small library it fits');
+  assert.match(libraryRefusal(disk, small, grown, DESKTOP, JSON.stringify(grown).length) ?? '', /bytes/, 'against what is on disk now it does not');
 });
 
 test('the browser build holds the library to an estimate of local storage, in characters', () => {

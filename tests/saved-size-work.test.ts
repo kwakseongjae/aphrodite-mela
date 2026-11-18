@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {initialProject, MAX_PROJECT} from '../src/model.ts';
 import {fitSaved, emptyLedger, LEDGER_RESERVE} from '../src/ledger/ledger.ts';
 import {begin, end, newHistory} from '../src/ledger/session.ts';
-import {upsertProjectMeasured, upsertProject, libraryRefusal, LIBRARY_LIMIT_BYTES} from '../src/workspace/library.ts';
+import {upsertProjectMeasured} from '../src/workspace/library.ts';
 
 /** How many times JSON.stringify runs while `fn` does. */
 function serializations(fn: () => void): number {
@@ -41,10 +41,4 @@ test('a save measures the project it writes, and the session passes that on to t
   p.name = 'Renamed again';
   const measured = serializations(() => end(p, before2, {author: {kind: 'person', name: 'you'}, source: 'editor:change'}, history));
   assert.ok(designs < measured, `${designs} serializations with the size known, ${measured} without`);
-});
-
-test('an agent\'s batch on a small library is checked without serializing the library', () => {
-  const p = initialProject(), library = upsertProject({version: 1, entries: []}, p);
-  const known = {libraryChars: 50_000, designChars: 20_000};
-  assert.equal(serializations(() => libraryRefusal(library, p, {...p, name: 'Renamed'}, {limit: LIBRARY_LIMIT_BYTES, unit: 'bytes'}, known)), 0);
 });

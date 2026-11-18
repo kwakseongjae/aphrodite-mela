@@ -59,16 +59,23 @@ export function utf8Length(text:string):number{
 }
 export type LibraryLimit={limit:number;unit:'bytes'|'chars'};
 /**
+ * How long each library was, in characters, when it was handed to storage (main.ts saveLibrary). Kept
+ * with the object rather than beside it: a library read again from disk, imported or swapped is another
+ * object, so nothing is remembered for it and the next batch measures it.
+ */
+const savedChars=new WeakMap<Library,number>();
+export function rememberSaved(library:Library,chars:number):void{savedChars.set(library,chars);}
+/**
  * Why saving the library with `after` (a design) in place of `before` would not fit where it is kept, or
  * undefined when it would — measured from above, without recording the change: the library with this
  * project's design and no history, plus the most a history can take (LEDGER_RESERVE characters, three
- * bytes each at worst). `known`, the library's length as last saved and the new design's, answers
- * without measuring the library again when even the sum of the two leaves room. A change that does not
+ * bytes each at worst). When this very library was saved (rememberSaved) and the caller gives the new
+ * design's length, even the sum of the two leaving room answers without measuring the library again. A change that does not
  * grow the design is never refused for this: making something smaller is always taken.
  */
-export function libraryRefusal(library:Library,before:Project,after:Project,{limit,unit}:LibraryLimit,known?:{libraryChars:number;designChars:number}):string|undefined{
-  const measure=unit==='bytes'?utf8Length:(s:string)=>s.length,most=unit==='bytes'?3:1;
-  if(known&&most*(known.libraryChars+known.designChars+LEDGER_RESERVE)<=limit)return undefined;
+export function libraryRefusal(library:Library,before:Project,after:Project,{limit,unit}:LibraryLimit,designChars?:number):string|undefined{
+  const measure=unit==='bytes'?utf8Length:(s:string)=>s.length,most=unit==='bytes'?3:1,libraryChars=savedChars.get(library);
+  if(libraryChars!==undefined&&designChars!==undefined&&most*(libraryChars+designChars+LEDGER_RESERVE)<=limit)return undefined;
   const design={...after,ledger:undefined};
   const size=measure(JSON.stringify(upsertProject(library,design)))+most*LEDGER_RESERVE;
   if(size<=limit)return undefined;
