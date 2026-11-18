@@ -11,7 +11,12 @@ export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
 export type Change = {
   /** Its own, never reused: what 0.5's folders and branches name a change by. */
   id: string;
-  /** The change this one was made on top of: the one before it in this ledger, unless it came from another copy. */
+  /**
+   * The change this one was made on top of: the one before it in this ledger, unless it came from another
+   * copy. Once compact() has dropped the oldest headers, the first change left names a parent that is no
+   * longer in the ledger. That is expected: history is cut at the front, and a missing parent means "made
+   * on something older than what is kept", never a broken link (0.5 reads branches from this).
+   */
   parent?: string;
   seq: number;
   at: string;
