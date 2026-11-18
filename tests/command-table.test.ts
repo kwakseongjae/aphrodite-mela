@@ -72,8 +72,19 @@ test('a route, a tool and a surface flag say the same thing',()=>{
     assert.equal(!!row.mcp,row.surfaces.mcp,`${row.id}: an MCP row has a tool block and only it does`);
     if(row.mcp)assert.ok(row.surfaces.loopback,`${row.id}: every tool is a route onto the loopback channel`);
     if(row.route)assert.ok(row.kind,`${row.id}: a routed row names the kind the gate judges it as`);
-    assert.equal(row.surfaces.inApp,false,`${row.id}: the in-app panel is not on main yet`);
+    if(row.surfaces.inApp)assert.ok(row.mcp,`${row.id}: the in-app agent is offered MCP tools, so an in-app row is one`);
   }
+});
+
+/* The panel's agent (feat/chatgpt-in-app, src/ai/tools.ts) is offered the MCP tools minus its
+   PANEL_EXCLUDED set: asking for the door, driving the interface, and changing the archive or deleting
+   a picture are the person's to do. That set is this column now; nothing on main reads it yet. */
+test('the in-app agent is offered every tool but the five the panel leaves out',()=>{
+  const offered=commands.filter(r=>r.surfaces.inApp).map(r=>r.mcp!.name).sort();
+  const left=commands.filter(r=>r.surfaces.mcp&&!r.surfaces.inApp).map(r=>r.mcp!.name).sort();
+  assert.deepEqual(left,['aphrodite_delete_image','aphrodite_forget_reference','aphrodite_keep_reference','aphrodite_request_connection','aphrodite_use_interface']);
+  assert.equal(offered.length,13);
+  for(const row of commands.filter(r=>r.surfaces.inApp))assert.notEqual(row.grade,'human');
 });
 
 test('rows that share a gate kind agree on its grade',()=>{
