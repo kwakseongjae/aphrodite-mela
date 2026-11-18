@@ -44,7 +44,7 @@ const key = async (key, code, vk) => {
   await sleep(200);
 };
 const press = async action => {
-  const p = await evaluate(`(() => { const r = document.querySelector('#modal-root [data-action="${action}"]').getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const hit = document.elementFromPoint(x, y); if (hit?.dataset.action !== '${action}') throw new Error('${action} is covered by ' + hit?.outerHTML.slice(0, 120)); return {x, y}; })()`);
+  const p = await evaluate(`(() => { const r = document.querySelector('#modal-root [data-action="${action}"]').getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const hit = document.elementFromPoint(x, y); if (hit?.closest('[data-action]')?.dataset.action !== '${action}') throw new Error('${action} is covered by ' + hit?.outerHTML.slice(0, 120)); return {x, y}; })()`);
   for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'])
     await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
   await sleep(250);
@@ -137,6 +137,37 @@ check('a request left open is not replaced by the next asker, and Allow lets in 
   }
   assert.equal(await writes('zed'), 'on', 'the name on screen is the one let in');
   assert.equal(await writes('windsurf'), 'off');
+  await personPresses('agent-disconnect');
+  await sleep(150);
+});
+
+check('while a request is open, nothing but the person answers or closes it', async () => {
+  await agent('connect', {}, 'claude-code');
+  await sleep(200);
+  await press('ask-allow');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'asked');
+  await sleep(200);
+  assert.match(await dialog(), /kiro/);
+  // An allowed agent driving buttons that would close or replace a dialog.
+  for (const action of ['welcome-dismiss', 'systems', 'home']) {
+    const r = await agent('act', {action}, 'claude-code');
+    assert.equal(r.status, 409, `${action} waits for the person's answer: ${JSON.stringify(r)}`);
+  }
+  assert.equal((await agent('command', {query: 'commands'}, 'claude-code')).status, 409);
+  assert.equal((await agent('key', {key: 'k', meta: true}, 'claude-code')).status, 409);
+  // Its edits are not dialogs, so they go on — and leave the request where it is.
+  const edit = await agent('apply', {reason: 'still working', ops: []}, 'claude-code');
+  assert.notEqual(edit.status, 409, JSON.stringify(edit));
+  await sleep(150);
+  assert.match(await dialog(), /kiro/, 'the request is still on screen');
+  // Script in the page closing it is not the person either: the request comes back, still unanswered.
+  await personClicks('welcome-dismiss');
+  await sleep(200);
+  assert.match(await dialog(), /kiro/, 'the request is back, not declined');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'waiting', 'and nothing was recorded for the person');
+  await press('close-modal');
+  assert.equal(await dialog(), '');
+  assert.equal((await agent('connect', {}, 'kiro')).status, 'declined', 'the person\'s own × is Not now');
   await personPresses('agent-disconnect');
   await sleep(150);
 });
@@ -260,7 +291,7 @@ check('no agent can answer for the person or change the list — not even an all
   // Nor can it close the dialog, which would answer Not now for the person.
   for (const selector of ['#modal-root .modal-backdrop', '#modal-root [data-action="close-modal"]']) {
     const r = await agent('click', {selector}, 'claude-code');
-    assert.equal(r.status, undefined, `the click itself goes through the gate: ${JSON.stringify(r)}`);
+    assert.equal(r.status, 409, `a click waits while the request is open: ${JSON.stringify(r)}`);
   }
   await sleep(200);
   assert.match(await dialog(), /astra/, 'the request is still waiting for the person');
