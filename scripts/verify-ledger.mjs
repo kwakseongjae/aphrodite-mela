@@ -306,6 +306,28 @@ check('a menu change sent for the person cannot be sent again', async () => {
     s.value = [...s.options].find(o => o.value !== s.value).value; s.dispatchEvent(window.__ledgerSaved); return true; })()`));
 });
 
+check('a file reaches a picker the person opened only from the file chooser', async () => {
+  await send('Page.enable');
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  try {
+    await personPresses('reference');
+    await sleep(300);
+    await personPresses('upload-reference');
+    await sleep(300);
+    assert.equal(await evaluate(`!!document.querySelector('input[type=file][data-upload]')`), true, 'the picker is waiting for a file');
+    await changes('a script hands the picker a file', 0, () => evaluate(`(async () => {
+      const c = document.createElement('canvas'); c.width = c.height = 8; c.getContext('2d').fillRect(0, 0, 8, 8);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png')); const t = new DataTransfer(); t.items.add(new File([blob], 'agent.png', {type: 'image/png'}));
+      const input = document.querySelector('input[type=file][data-upload]'); input.files = t.files; input.dispatchEvent(new Event('change', {bubbles: true}));
+      await new Promise(r => setTimeout(r, 800)); return true; })()`));
+  } finally {
+    await evaluate(`document.querySelector('input[type=file][data-upload]')?.remove(), true`);
+    await send('Page.setInterceptFileChooserDialog', {enabled: false});
+    for (let i = 0; i < 3 && await evaluate(`document.querySelector('#modal-root').children.length`); i++) await closeDialogs();
+  }
+});
+
+
 /* ---- every edit row the person reaches, through one of its controls, by their own input ---- */
 
 const toDirections = async () => {

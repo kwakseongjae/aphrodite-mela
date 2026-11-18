@@ -910,7 +910,7 @@ function bindDragAndDrop() {
 function pickFile(accept: string, handler: (file: File) => Promise<void>) {
   const input = document.createElement('input'); input.type = 'file'; input.accept = accept; input.hidden = true; input.dataset.upload = accept;
   document.querySelector('[data-upload]')?.remove(); document.body.append(input);
-  input.addEventListener('change', async () => { try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
+  input.addEventListener('change', async e => { if (!e.isTrusted) return; try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
 }
 async function readImage(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000) throw new Error('2MB 이하 PNG, JPG, WebP 이미지를 선택해주세요.');
