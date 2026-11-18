@@ -33,6 +33,9 @@ test('the guide says what is true right now and what to do about it',()=>{
   const held=guideFor(status({mode:'connected',holder:'astra',canWrite:false}));
   assert.match(held,/held by astra/);
   assert.match(guideFor(status({pageCount:1,approved:true})),/1 page · approved/);
+  const home=guideFor(status({screen:'home'}));
+  assert.match(home,/window is on Home/);
+  assert.doesNotMatch(home,/빛공방/);
 });
 
 test('an agent may ask once, and a refusal holds',()=>{

@@ -17,18 +17,18 @@ concurrency:
 
 jobs:
   checks:
-    # Two runners, because tauri.conf.json promises macOS 13 and nothing was testing that promise.
-    # macos-13 is also the only Intel image GitHub offers — 14 and 15 are Apple Silicon — so this one
-    # entry covers both gaps at once: the oldest OS we claim, on the architecture we cross-build for
-    # but had never executed. fail-fast is off so a break on one is not hidden by the other.
+    # Two runners, one per architecture we ship. GitHub retired the macos-13 and macos-14 images
+    # (by 2026-11 jobs on them were refused or sat queued forever), so the oldest macOS we promise in
+    # tauri.conf.json is no longer something CI can run; macos-15-intel keeps the Intel build
+    # executed. fail-fast is off so a break on one is not hidden by the other.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             triple: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-15-intel
             triple: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4

@@ -73,6 +73,7 @@ fn caller_label(headers: &[Header]) -> String {
 pub const ROUTES: &[&str] = &[
     "GET /agent/state",
     "GET /agent/contract",
+    "GET /agent/changes",
     "GET /agent/tokens",
     "GET /agent/render",
     "GET /agent/guide",
@@ -210,6 +211,7 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
             let kind = match (request.method(), path) {
                 (Method::Get, "/agent/state") => "state",
                 (Method::Get, "/agent/contract") => "contract",
+                (Method::Get, "/agent/changes") => "changes",
                 (Method::Get, "/agent/tokens") => "tokens",
                 (Method::Get, "/agent/render") => "render",
                 (Method::Get, "/agent/guide") => "guide",

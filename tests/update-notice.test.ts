@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,koParticle,CHECK_INTERVAL,type UpdateInfo,progressLabel} from '../src/update-notice';
+import {shouldCheck,shouldOffer,formatSize,updateNoticeHtml,koParticle,CHECK_INTERVAL,keepsCard,type UpdateInfo,progressLabel} from '../src/update-notice';
 
 const offer:UpdateInfo={current:'0.1.5',latest:'0.1.6',newer:true,name:'Aphrodite_0.1.6_aarch64.dmg',url:'https://github.com/kwakseongjae/aphrodite-mela/releases/download/v0.1.6/Aphrodite_0.1.6_aarch64.dmg',size:12_600_000,notes:'https://github.com/kwakseongjae/aphrodite-mela/releases/tag/v0.1.6'};
 
@@ -50,7 +50,13 @@ test('one card, four states, and never more than one thing to press',()=>{
   assert.doesNotMatch(working,/update-more/,'the menu is gone while it works');
 
   const installing=updateNoticeHtml(info,'installing','ko');
-  assert.ok(installing.includes('스스로 다시 열립니다'));
+  assert.ok(installing.includes('자리에 놓는 중'));
+  const restart=updateNoticeHtml(info,'restart','ko');
+  assert.ok(restart.includes('지금 다시 시작할까요?'));
+  assert.ok(restart.includes('data-action="update-relaunch"'));
+  assert.ok(restart.includes('data-action="update-later"'));
+  assert.doesNotMatch(restart,/data-action="update-dismiss"/,'later is not a skipped version');
+  assert.doesNotMatch(restart,/스스로 다시 열립니다/);
   const failed=updateNoticeHtml(info,'failed','en','Network unreachable');
   assert.ok(failed.includes('Network unreachable')&&failed.includes('Try again'));
 });
@@ -92,7 +98,7 @@ test('a version number takes the particle its last digit calls for',()=>{
    an older release that published no manifest, or an app that cannot write over itself. */
 test('the card leads with installing in place and keeps the disk image behind it',()=>{
   const info={current:'0.1.5',latest:'0.2.0',newer:true,url:'https://example.com/a.dmg',name:'a.dmg',size:24_000_000,notes:'https://example.com/notes'};
-  for(const [lang,install,fallback] of [['en','Install and restart','Download the disk image'],['ko','설치하고 재시작','디스크 이미지로 받기']] as const){
+  for(const [lang,install,fallback] of [['en','Install','Download the disk image'],['ko','설치하기','디스크 이미지로 받기']] as const){
     const html=updateNoticeHtml(info,'offer',lang);
     assert.match(html,/data-action="update-install"/);
     assert.ok(html.includes(install),`${lang} offers to install in place`);
@@ -100,8 +106,16 @@ test('the card leads with installing in place and keeps the disk image behind it
     assert.ok(html.includes(fallback),`${lang} still offers the disk image`);
   }
   const installing=updateNoticeHtml(info,'installing','ko');
-  assert.ok(installing.includes('스스로 다시 열립니다'),'it says the app will come back by itself');
+  assert.ok(installing.includes('자리에 놓는 중'),'installing does not restart on its own');
   assert.doesNotMatch(installing,/data-action="update-install"/,'nothing to press while it installs');
+  const restart=updateNoticeHtml(info,'restart','en');
+  assert.match(restart,/data-action="update-relaunch"/);
+  assert.match(restart,/data-action="update-later"/);
+  assert.doesNotMatch(restart,/data-action="update-relaunch"[\s\S]*data-action="update-relaunch"/);
+  assert.equal(keepsCard('working','working'),true);
+  assert.equal(keepsCard('installing','installing'),true);
+  assert.equal(keepsCard('working','installing'),false,'a new state still draws a new card');
+  assert.equal(keepsCard('offer','working'),false);
 });
 
 test('progress is only claimed when the size is known',()=>{

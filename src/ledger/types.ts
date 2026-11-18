@@ -1,0 +1,93 @@
+/**
+ * The shapes the ledger is saved in, what is left out of them, and the reader for them. Kept apart
+ * from the ledger logic so the project model can read a saved ledger without importing what records one.
+ */
+import type {PatchOp} from './patch';
+
+/** `unknown` is a change caught after the fact (an edit made outside `commit()`): nobody can say whose it was. */
+export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
+export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
+export type Change = {
+  id: string;
+  seq: number;
+  at: string;
+  author: Author;
+  /** Where it came from: `editor:change`, `pointer:move`, `agent:apply`, `undo`, … */
+  source: string;
+  reason?: string;
+  ops: PatchOp[];
+  anchors: {pages: string[]; nodes: string[]};
+  baseRevision: string;
+  revision: string;
+  /** Only where the person was looking moved — the page they opened, a frame dragged on the space. */
+  view: boolean;
+  undoes?: number;
+  redoes?: number;
+  /** The ops were dropped to keep the ledger within budget; what, who and why remain. */
+  compacted?: true;
+  /** Size of this entry as saved, in characters of JSON. */
+  size: number;
+};
+export type Ledger = {seq: number; changes: Change[]};
+export const MAX_REASON = 500;
+/** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
+export const LEDGER_BUDGET = 1_200_000;
+const MAX_INLINE_DATA = 2_000;
+
+/**
+ * Replaces uploaded pictures, however small, and other long `data:` strings with a marker that keeps
+ * their size. Used for what is saved and shown, never for undo.
+ */
+export function slim<T>(value: T): T {
+  if (typeof value === 'string') return (/^data:image\//i.test(value) || (value.startsWith('data:') && value.length > MAX_INLINE_DATA) ? {$omitted: 'data-url', bytes: value.length} : value) as T;
+  if (Array.isArray(value)) return value.map(slim) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
+  return value;
+}
+
+/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
+export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
+  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
+  for (const change of ledger.changes) {
+    if (total <= budget) break;
+    if (change.compacted) continue;
+    total -= change.size;
+    change.ops = [];
+    change.compacted = true;
+    change.size = 0;
+    change.size = JSON.stringify(change).length;
+    total += change.size;
+  }
+  // Headers alone can outgrow the budget after very long histories; the oldest go first.
+  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
+}
+
+const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
+
+/**
+ * Reads a saved ledger. A ledger that does not hold together is dropped rather than refused: losing
+ * the history of a project is bad, being unable to open the project is worse.
+ */
+export function readLedger(raw: unknown): Ledger | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const l = raw as Ledger;
+  if (!Number.isInteger(l.seq) || l.seq < 0 || !Array.isArray(l.changes) || l.changes.length > 20_000) return undefined;
+  let last = 0;
+  for (const c of l.changes) {
+    if (!c || typeof c !== 'object' || !Number.isInteger(c.seq) || c.seq <= last || c.seq > l.seq) return undefined;
+    last = c.seq;
+    if (!isStr(c.id, 100) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
+    if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
+    if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
+    if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
+    if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;
+  }
+  // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
+  const read: Ledger = {seq: l.seq, changes: l.changes.map(c => {
+    const kept = {...c, ops: slim(c.ops), size: 0};
+    kept.size = JSON.stringify(kept).length;
+    return kept;
+  })};
+  compact(read);
+  return read;
+}

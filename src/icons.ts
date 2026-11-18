@@ -81,9 +81,11 @@ import {
   Upload,
   WandSparkles,
   X,
+  RotateCw,
 } from 'lucide';
 
 export const icons = {
+  RotateCw,
   Archive,
   ArrowDown,
   ArrowLeft,

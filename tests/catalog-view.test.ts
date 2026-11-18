@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject,fingerprint} from '../src/model';
 import {catalogView} from '../src/design/catalog-view';
+import {patternVariants} from '../src/patterns';
 test('catalog has exact accessible provider choices without changing the project',()=>{
  const p=initialProject(),before=fingerprint(p),calls:string[]=[];
  const html=catalogView(p,'button','outline','Input',(en)=>en,c=>{calls.push(c.provider);return '<div>preview</div>';});
@@ -33,4 +34,25 @@ test('catalog cards expose data-kind and the index is grouped by catalog heading
  const calendar=catalogView(p,'calendar','week','All',en=>en,()=>'x');
  assert.match(calendar,/<article class="explorer-card" data-kind="calendar"/);
  assert.match(calendar,/data-preview-size="data"/);
+});
+test('a single-implementation kind shows every layout as its own card',()=>{
+ const p=initialProject(),seen:string[]=[];
+ const html=catalogView(p,'hero','split','Layout',en=>en,c=>{seen.push(c.variant);return `<div>${c.variant}</div>`;});
+ const layouts=[...patternVariants('hero')];
+ assert.deepEqual(seen,layouts);
+ assert.equal(html.match(/class="explorer-card"/g)?.length,layouts.length);
+ assert.ok(html.includes('data-catalog-layout="gallery"'));
+ assert.ok(html.includes('aria-label="Add own hero quiet"'));
+ assert.ok(html.includes('data-variant="full-bleed"'));
+ assert.ok(!html.includes('id="explorer-variant"'));
+});
+test('several implementations stay a comparison of one variation',()=>{
+ const html=catalogView(initialProject(),'button','outline','Input',en=>en,()=>'x');
+ assert.ok(html.includes('data-catalog-layout="compare"'));
+ assert.ok(html.includes('id="explorer-variant"'));
+ assert.equal(html.match(/class="explorer-card"/g)?.length,5);
+ const filtered=catalogView(initialProject(),'button','outline','Input',en=>en,()=>'x',{query:'',provider:'own'});
+ assert.ok(filtered.includes('data-catalog-layout="compare"'));
+ assert.equal(filtered.match(/class="explorer-card"/g)?.length,1);
+ assert.ok(filtered.includes('id="explorer-variant"'));
 });

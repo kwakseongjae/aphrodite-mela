@@ -10,7 +10,7 @@
  * is long; it resists because nothing in it ever recorded what it depended on.
  */
 import {invoke} from '@tauri-apps/api/core';
-import {shouldCheck, shouldOffer, updateNoticeHtml, progressLabel, koParticle,
+import {shouldCheck, shouldOffer, updateNoticeHtml, progressLabel, koParticle, keepsCard,
         SKIP_KEY, CHECKED_KEY, OFF_KEY, type UpdateInfo, type NoticeState} from '../update-notice';
 
 /** Everything the update card needs from the app around it. */
@@ -30,7 +30,30 @@ export function createUpdates(host: UpdateHost) {
   let updateInfo:UpdateInfo|undefined,updateState:NoticeState='offer',updateDetail='',updateFile='';
   function paintUpdate(){
     if(!updateInfo){updateRoot.hidden=true;updateRoot.innerHTML='';return;}
-    updateRoot.hidden=false;updateRoot.innerHTML=updateNoticeHtml(updateInfo,updateState,host.korean()?'ko':'en',updateDetail);host.hydrateIcons();
+    updateRoot.hidden=false;
+    const html=updateNoticeHtml(updateInfo,updateState,host.korean()?'ko':'en',updateDetail);
+    const current=updateRoot.querySelector<HTMLElement>('.update-card');
+    // Replacing the card on every percent replays its entrance, which reads as the card flashing.
+    if(current&&keepsCard(current.dataset.state as NoticeState,updateState)){
+      const holder=document.createElement('div');
+      holder.innerHTML=html;
+      const next=holder.querySelector('.update-card');
+      const line=current.querySelector('p');
+      const nextLine=next?.querySelector('p');
+      if(line&&nextLine)line.textContent=nextLine.textContent??'';
+      const bar=current.querySelector<HTMLElement>('.update-bar');
+      const nextBar=next?.querySelector<HTMLElement>('.update-bar');
+      const fill=current.querySelector<HTMLElement>('.update-bar i');
+      const nextFill=next?.querySelector<HTMLElement>('.update-bar i');
+      if(bar&&nextBar){
+        if(nextBar.hasAttribute('data-indeterminate'))bar.setAttribute('data-indeterminate','true');
+        else bar.removeAttribute('data-indeterminate');
+      }
+      if(fill&&nextFill)fill.style.width=nextFill.style.width;
+      return;
+    }
+    updateRoot.innerHTML=html;
+    host.hydrateIcons();
   }
   function closeUpdate(){updateInfo=undefined;updateDetail='';paintUpdate();}
   /** Asks the release feed, at most every few hours and only in the desktop app. Silence on failure:
@@ -55,7 +78,7 @@ export function createUpdates(host: UpdateHost) {
   async function handle(action: string): Promise<boolean> {
     switch(action){
           case 'update-install': {
-            if(updateState==='working'||updateState==='installing')break;
+            if(updateState==='working'||updateState==='installing'||updateState==='restart')break;
             updateState='working';updateDetail='';paintUpdate();
             try{
               const {check}=await import('@tauri-apps/plugin-updater');
@@ -67,11 +90,16 @@ export function createUpdates(host: UpdateHost) {
                 else if(event.event==='Progress'){got+=event.data.chunkLength??0;const label=progressLabel(got,total,host.korean()?'ko':'en');if(label!==updateDetail){updateDetail=label;paintUpdate();}}
                 else if(event.event==='Finished'){updateState='installing';updateDetail='';paintUpdate();}
               });
-              const {relaunch}=await import('@tauri-apps/plugin-process');
-              await relaunch();
+              updateState='restart';updateDetail='';paintUpdate();
             }catch(error){updateState='failed';updateDetail=String(error);paintUpdate();}
             break;
           }
+          case 'update-relaunch': {
+            try{const {relaunch}=await import('@tauri-apps/plugin-process');await relaunch();}
+            catch(error){host.toast(String(error));}
+            break;
+          }
+          case 'update-later': closeUpdate();host.toast(host.ui('The new version starts the next time you open Aphrodite.','새 버전은 다음에 열 때 시작합니다.'));break;
           case 'update-download': {
             if(!updateInfo?.url||!updateInfo.name||updateState==='working')break;
             updateState='working';updateDetail='';paintUpdate();

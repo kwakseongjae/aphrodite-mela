@@ -47,7 +47,8 @@ Open Aphrodite first: the server reads `~/Library/Application Support/studio.aph
 | `aphrodite_list_components` | read | The kinds and variants available to add |
 | `aphrodite_list_images` | read | The local picture library |
 | `aphrodite_get_render` | read | A picture of the page as it will actually be seen, drawn off screen at the width you ask for |
-| `aphrodite_apply_edits` | write | Add, update, move, delete components — a whole change in one call |
+| `aphrodite_get_changes` | read | Every change since a point — the person's own edits included — with who made it and why |
+| `aphrodite_apply_edits` | write | Add, update, move, delete components — a whole change in one call, with a `reason` the person sees, against the `base_revision` you last read |
 | `aphrodite_use_interface` | write | Reach the app's own interface when the tools above cannot say it — a dialog, Preview, Export, a setting, a shortcut |
 | `aphrodite_add_image` | write | Put a picture in the library |
 | `aphrodite_delete_image` | write, destructive | Remove one |

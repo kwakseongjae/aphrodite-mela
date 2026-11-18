@@ -13,6 +13,8 @@ export type GuideStatus = {
   approved: boolean;
   canWrite: boolean;
   askedRecently: boolean;
+  /** Omitted means the editor is open. Home is said explicitly. */
+  screen?: 'home' | 'editor';
 };
 
 /** The unchanging part: what this is and how to work with it. */
@@ -25,6 +27,7 @@ export const playbook = [
   '1. `aphrodite_get_contract` — what is on the canvas, and what the person has selected. Every other call takes ids from it.',
   '2. `aphrodite_get_tokens` — the CSS variables the page is painted with, if you are writing code for this design.',
   '3. `aphrodite_list_components` — the kinds and variants you may add.',
+  '4. `aphrodite_get_changes` — what changed since you last looked, the person\'s own edits on the canvas included. Call it at the start of every turn with the `seq` from your last reply.',
   '',
   '## Reading is always open. Changing is not.',
   'Reading needs nothing. Changing needs the person to have opened the door, in one of two ways:',
@@ -35,6 +38,8 @@ export const playbook = [
   '',
   '## Making a change',
   'Send the whole change as one `aphrodite_apply_edits` call. It lands as a single undo step and a single receipt, so the person can take back your work in one press. If any operation in it is wrong, none of them are applied.',
+  '',
+  'Give every call a `reason`: one sentence, for the person, on why. It is shown beside the change and stays with it. Send the `revision` you last read as `base_revision`; if the person has changed the project since, nothing is applied and the reply lists what they changed, so you build on their work instead of writing over it.',
   '',
   'Target a component by its `block_id`, or by the literal `"selection"` for whatever the person has selected — that is your shared pointer with them.',
   '',
@@ -51,7 +56,9 @@ export function guideFor(status: GuideStatus): string {
     playbook,
     '',
     '## Right now',
-    `- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`,
+    ...(status.screen === 'home'
+      ? ['- The window is on Home, the list of projects. No page is open.']
+      : [`- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`]),
     `- Mode: ${status.mode}${status.holder ? ` · the screen is held by ${status.holder}` : ''}`,
   ];
   if (status.canWrite) {

@@ -13,7 +13,8 @@ export type AgentCommand=
   |{kind:'connect'}
   |{kind:'ui';action:'command'|'click'|'type'|'key';payload:Record<string,unknown>}
   |{kind:'components'}
-  |{kind:'apply';ops:unknown[];pageId?:string}
+  |{kind:'apply';ops?:unknown[];patch?:unknown[];pageId?:string;reason?:unknown;baseRevision?:unknown}
+  |{kind:'changes';since?:number|string;includeView?:boolean;limit?:number}
   |{kind:'act';action:string;data:Record<string,string>}
   |{kind:'click';selector:string}
   |{kind:'type';selector:string;text:string;submit?:boolean}
@@ -75,10 +76,29 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       return {command:{kind:'contract',format,...(pageId?{pageId}:{})}};
     }
     case 'apply':{
-      // The ops themselves are validated by parseOps, which owns the vocabulary and its error text.
-      if(!Array.isArray(p.ops))return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
+      // The batch itself — ops, patch, reason, base_revision — is validated by parseBatch, which owns
+      // the vocabulary and its error text. Here only the shape of the envelope is checked.
+      if(p.ops!==undefined&&!Array.isArray(p.ops))return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
+      if(p.patch!==undefined&&!Array.isArray(p.patch))return {error:'apply "patch" must be a list of ops, as aphrodite_get_changes returns them'};
+      if(p.ops===undefined&&p.patch===undefined)return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
       const pageId=str(p.page_id??p.pageId,200);
-      return {command:{kind:'apply',ops:p.ops,...(pageId?{pageId}:{})}};
+      return {command:{kind:'apply',...(p.ops!==undefined?{ops:p.ops as unknown[]}:{}),...(p.patch!==undefined?{patch:p.patch as unknown[]}:{}),...(pageId?{pageId}:{}),reason:p.reason,baseRevision:p.base_revision??p.baseRevision}};
+    }
+    case 'changes':{
+      // since: a sequence number from an earlier reply, or a revision string. Query strings arrive as text.
+      const raw=p.since;
+      let since:number|string|undefined;
+      if(raw!==undefined&&raw!==''){
+        const n=typeof raw==='number'?raw:typeof raw==='string'&&/^\d{1,9}$/.test(raw)?Number(raw):undefined;
+        if(n!==undefined&&Number.isInteger(n)&&n>=0)since=n;
+        else if(typeof raw==='string'&&raw.length<=100)since=raw;
+        else return {error:'changes since must be a sequence number or a revision from an earlier reply'};
+      }
+      const view=p.include_view??p.includeView;
+      const includeView=view===true||view==='true';
+      const lim=p.limit===undefined?undefined:Number(p.limit);
+      if(lim!==undefined&&(!Number.isInteger(lim)||lim<1||lim>200))return {error:'changes limit must be between 1 and 200'};
+      return {command:{kind:'changes',...(since!==undefined?{since}:{}),...(includeView?{includeView}:{}),...(lim?{limit:lim}:{})}};
     }
     case 'act':{
       const action=str(p.action,80);
@@ -191,6 +211,30 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       return {command:{kind:'edit',field,text,...(blockId?{blockId}:{})}};
     }
     default:return {error:`unknown command kind "${String(kind)}"`};
+  }
+}
+
+/**
+ * What a click on `el` would run. The document click handler acts on the nearest [data-action]
+ * ancestor-or-self, so a selector that lands on the label inside Approve direction still approves.
+ */
+export function actionUnder(el:{closest(selector:string):unknown}|null|undefined):string|undefined{
+  const hit=el?.closest('[data-action]') as {dataset?:{action?:string}}|null|undefined;
+  return hit?.dataset?.action||undefined;
+}
+
+/**
+ * The data-action a command would end up running, so the gate judges the effect rather than the verb it
+ * arrived as. `look` answers from the live screen: what a selector lands on, which palette entry a query
+ * picks. `ui` is the MCP interface tool's door and is judged by the command inside it.
+ */
+export function reachedAction(c:AgentCommand,look:{click(selector:string):string|undefined;palette(query:string):string|undefined}):string|undefined{
+  switch(c.kind){
+    case 'act':return c.action;
+    case 'click':return look.click(c.selector);
+    case 'command':return look.palette(c.query);
+    case 'ui':{const inner=parseAgentCommand(c.action,c.payload);return 'error' in inner?undefined:reachedAction(inner.command,look);}
+    default:return undefined;
   }
 }
 

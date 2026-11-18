@@ -10,7 +10,9 @@ import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/
 import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
-import {pinShelf,preserveShelf,shelfPage} from './design/shelf';
+import {pinShelf,shelfPage} from './design/shelf';
+import {begin,end,newHistory,step,HumanOnlyStep} from './ledger/session';
+import type {Author} from './ledger/ledger';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -53,11 +55,13 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
-import {designContract,designTokens,componentVocabulary} from './agent/contract';
-import {parseOps,SELECTION,type Op} from './agent/ops';
+import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
+import {parseBatch,type Batch} from './agent/ops';
+import {runBatch,type BatchResult} from './agent/apply';
+import {changesSince,designOf,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,CONNECT_KEY,type AskState} from './agent/guide';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
@@ -71,7 +75,7 @@ import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock'
 import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
-import {parseAgentCommand,isHumanHatch,bridgeExamples,type AgentCommand} from './agent/bridge';
+import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -143,7 +147,8 @@ const archive=createArchive({
 });
 let device: 'desktop' | 'mobile' = 'desktop';
 let query = '';
-let undoStack: string[] = [], redoStack: string[] = [];
+/** Undo, redo and the ledger's view of the last committed state (src/ledger/session.ts). */
+let edits = newHistory();
 let lastSaved = true;
 let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
@@ -157,7 +162,7 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
 /** How much of the 12 hours is left, in the person's language. Read at paint time so it counts down as
  *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
-let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
+let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
@@ -210,17 +215,35 @@ async function showVault(refresh=true){
   showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
-function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
-function commit(change: () => void, updateUI = true,source='editor:change') {
-  const before = JSON.stringify(project),pageBefore=project.activePageId;
-  change();
-  if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
+function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+/** Who an edit belongs to: the agent whose command is running, or the person at the screen. */
+function author(by=commandCaller):Author{return by?{kind:'agent',name:by}:{kind:'person',name:'you'};}
+/**
+ * Every edit passes through here. What changed is read off the project before and after (see
+ * src/ledger/patch.ts), recorded in the ledger with who did it, and becomes one undo step. A page's
+ * frame comes and goes with the page, here rather than in render(), which would be an edit outside
+ * the ledger (recorded as untracked, and clearing redo).
+ */
+function commit(change: () => void, updateUI = true,source='editor:change',reason?:string) {
+  const who=author(),before = begin(project,edits),pageBefore=project.activePageId;
+  change();ensureSpace(project);
+  const recorded=end(project,before,{author:who,source,reason},edits);
+  if (recorded) { persist();recordRun(source,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
-function history(direction: 'undo' | 'redo') {
-  const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
-  const snapshot = from.pop(); if (!snapshot) return;
-  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+/** `by` is the agent that asked for the step, or '' for the person. */
+function history(direction: 'undo' | 'redo',by=commandCaller) {
+  const before=project;let done;
+  try{done=step(project,direction,edits,author(by));}
+  catch(error){
+    // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
+    if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
+    // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
+    (direction==='undo'?edits.undo:edits.redo).pop();
+    toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
+  }
+  if(!done)return;
+  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
@@ -264,13 +287,13 @@ function syncStateAttributes(){
     approval:screen==='editor'?(isApproved(project)?'approved':'draft'):'',
     viewport:device==='mobile'?'mobile':'desktop',
     modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
-    undo:String(undoStack.length),redo:String(redoStack.length),mode:editorMode,
+    undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
   };
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
   if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
 }
-function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:undoStack.length>0,canRedo:redoStack.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
+function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:edits.undo.length>0,canRedo:edits.redo.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:project.pages.map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId}))};}
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do on this page, in one list. Type to filter.','이 화면에서 할 수 있는 모든 일. 입력해서 걸러내세요.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
@@ -809,9 +832,17 @@ function compareModal() {
   comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
-async function action(el: HTMLElement) {
+/**
+ * `trusted` says the person started this with their own input (the click event's isTrusted). Only the
+ * document click listener can know that; every programmatic caller — actViaButton, shortcuts, an agent's
+ * el.click() — leaves it false, and an approve* action then refuses to run.
+ */
+async function action(el: HTMLElement, trusted = false) {
+  if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
+  // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
+  const by=trusted?'':commandCaller;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
@@ -884,8 +915,8 @@ async function action(el: HTMLElement) {
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
     case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;});toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
     case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
-    case 'undo': history('undo'); break;
-    case 'redo': history('redo'); break;
+    case 'undo': history('undo',by); break;
+    case 'redo': history('redo',by); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
@@ -1086,9 +1117,15 @@ async function action(el: HTMLElement) {
     }); break;
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
-    case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
-    case 'approve-human-only': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
-    case 'approve-export': commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
+    // Reached only from the person's own click: humanOnlyBlocked() at the top of action() refuses the rest.
+    case 'approve':
+    case 'approve-export': {
+      const andExport = el.dataset.action === 'approve-export';
+      if (!andExport && isApproved(project)) { exportModal(); break; }
+      commit(() => { project.approvedFingerprint = fingerprint(project); });
+      if (andExport) exportModal(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
+      break;
+    }
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
@@ -1143,7 +1180,7 @@ document.addEventListener('click', e => {
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
@@ -1346,133 +1383,71 @@ async function inlineAssets(html:string):Promise<string>{
   for(const [path,data] of seen)out=out.split(path).join(data);
   return out;
 }
-function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function agentState(){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,false);}finally{btn.remove();}}
+/** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
+function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
+/** A change as an agent reads it from aphrodite_get_changes. */
+function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
 /**
- * One operation against a page. Returns an error string rather than throwing, so the batch can be
- * abandoned cleanly and nothing is left half-applied.
+ * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
+ * ledger, one undo step and one receipt, or none of it lands. A batch written against a revision the
+ * person has since changed is refused, with what changed, so the agent reads before it writes over.
  */
-function runOp(page:Page,op:Op):string|undefined{
-  const blocks=page.blocks;
-  const find=(id:string)=>blocks.find(b=>b.id===(id===SELECTION?selected:id));
-  if(op.op==='add'){
-    if(blocks.length>=100)return 'this page already has 100 components, which is the limit.';
-    const kind=op.component_kind as BlockKind;
-    const block=makeBlock(kind);
-    if(op.variant)block.variant=op.variant;
-    if(supportsProvider(project.system.id,kind))block.provider=project.system.id;
-    const before=op.before_block_id?blocks.find(b=>b.id===op.before_block_id):undefined;
-    if(op.before_block_id&&!before)return `no component ${op.before_block_id} on this page; before_block_id must name one of its components.`;
-    block.parentId=before?(before.kind==='frame'?before.id:before.parentId):undefined;
-    if(!canParent([...blocks,block],block.id,block.parentId))return 'that frame cannot nest any deeper.';
-    for(const [field,text] of Object.entries(op.content??{}))(block as unknown as Record<string,string>)[field]=text;
-    const at=before&&before.kind!=='frame'?blocks.indexOf(before):-1;
-    blocks.splice(at<0?blocks.length:at,0,block);
-    selected=block.id;
-    return undefined;
+function applyBatch(batch:Batch):Record<string,unknown>{
+  const now=fingerprint(project);
+  if(batch.baseRevision&&batch.baseRevision!==now){
+    const since=changesSince(project.ledger,batch.baseRevision,{limit:20});
+    return {error:`the project changed since revision ${batch.baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the batch again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
   }
-  if(op.op==='update'){
-    const block=find(op.block_id);
-    if(!block)return op.block_id===SELECTION?'nothing is selected. Pass a block_id from the contract, or ask the person to select something.':`no component ${op.block_id} on this page.`;
-    if(op.fields.description!==undefined&&block.kind!=='products')return 'description belongs to a collection component; this one is a '+block.kind+'.';
-    if(op.image!==undefined){
-      if(!['hero','products'].includes(block.kind))return `a picture belongs to a hero or a collection; this one is a ${block.kind}.`;
-      if(op.image===''){block.image='';}
-      else{
-        // `sample:desk-lamp` names one the app ships with; anything else must be a library id.
-        const src=op.image.startsWith('sample:')?sampleSrc(op.image.slice('sample:'.length)):localRef(op.image);
-        if(!safeImage(src))return unknownValue('image',op.image,['sample:<id> from aphrodite_list_images','a library id from aphrodite_list_images','"" to clear it']);
-        block.image=src;
-      }
-    }
-    if(op.variant!==undefined){
-      const variants=patternVariants(block.kind);
-      if(!variants.includes(op.variant))return unknownValue('variant',op.variant,variants,`This is a ${block.kind}.`);
-      block.variant=op.variant;
-    }
-    for(const [field,text] of Object.entries(op.fields))(block as unknown as Record<string,string>)[field]=text;
-    return undefined;
-  }
-  if(op.op==='move'){
-    const block=find(op.block_id);
-    if(!block)return `no component ${op.block_id} on this page.`;
-    const from=blocks.indexOf(block),to=from+(op.direction==='up'?-1:1);
-    if(to<0||to>=blocks.length)return `that component is already ${op.direction==='up'?'first':'last'}.`;
-    [blocks[from],blocks[to]]=[blocks[to],blocks[from]];
-    return undefined;
-  }
-  if(op.op==='delete'){
-    const block=find(op.block_id);
-    if(!block)return `no component ${op.block_id} on this page.`;
-    blocks.forEach(child=>{if(child.parentId===block.id)child.parentId=block.parentId;});
-    blocks.splice(blocks.indexOf(block),1);
-    if(selected===block.id)selected='';
-    return undefined;
-  }
-  if(op.op==='page'){
-    // With a page_id it renames one; without, it makes one. Either way the design system carries
-    // over untouched, because a page is a frame on the same space, not a new project.
-    if(op.page_id!==undefined){
-      const target=project.pages.find(p=>p.id===op.page_id);
-      if(!target)return `no page ${op.page_id}. Take an id from the contract.`;
-      target.name=op.name;
-      if(op.preset!==undefined){ensureSpace(project);const f=project.space!.frames[target.id];if(f)f.preset=op.preset;}
-      return undefined;
-    }
-    if(project.pages.length>=30)return 'this project already has 30 pages, which is the limit.';
-    ensureSpace(project);
-    const created:Page={id:uid(),name:op.name,blocks:[]};
-    project.pages.push(created);
-    project.space!.frames[created.id]=nextFramePosition(project.space!,op.preset??'desktop',framePresets.find(p=>p.id===(op.preset??'desktop'))?.width??1200);
-    project.activePageId=created.id;
-    return undefined;
-  }
-  ensureSpace(project);
-  const frame=project.space!.frames[op.page_id??page.id];
-  if(!frame)return `no page ${op.page_id} to resize.`;
-  frame.preset=op.preset;
-  return undefined;
-}
-
-/** A batch: all of it lands as one undo step and one receipt, or none of it lands. */
-function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
-  const page=pageId?project.pages.find(p=>p.id===pageId):currentPage(project);
-  if(!page)return {error:`no page "${pageId}". This project has: ${project.pages.map(p=>p.id).join(', ')}`};
-  const before=JSON.parse(JSON.stringify(project)) as Project;
-  const snapshot=JSON.stringify(project);
-  const selectedBefore=selected;
-  let failure:{index:number;error:string}|undefined;
+  const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
+  let failure:Extract<BatchResult,{ok:false}>|undefined;
   commit(()=>{
-    let target=project.pages.find(p=>p.id===page.id)!;
-    for(const [index,op] of ops.entries()){
-      const error=runOp(target,op);
-      if(error){failure={index,error};break;}
-      /* Making a page moves the batch onto it, the way a person making a frame lands inside it.
-         Without this, "make a mobile page and put a hero on it" quietly puts the hero back on the
-         page they started from. */
-      if(op.op==='page'&&op.page_id===undefined)target=currentPage(project);
-    }
-    // Nothing half-applied: put the project back and let commit see no change at all.
-    if(failure){project=JSON.parse(snapshot) as Project;selected=selectedBefore;}
-  },true,'agent:apply');
-  if(failure)return {error:`ops[${failure.index}]: ${failure.error}`,failed_at:failure.index,applied:0};
-  return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
+    const result=runBatch(project,batch,selected);
+    if(!result.ok){failure=result;return;}
+    project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+    selected=result.selected;
+  },true,'agent:apply',batch.reason);
+  if(failure){
+    const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
+    return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
+  }
+  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState()};
 }
 
+/** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
+const agentLook={
+  click:(selector:string)=>{try{return actionUnder(document.querySelector<HTMLElement>(selector));}catch{return undefined;}},
+  palette:(query:string)=>{try{return filterCommands(commandTable(paletteContext()),query,uiLanguage)[0]?.action;}catch{return undefined;}},
+};
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
   const who=normalizeCaller(caller);
-  const verdict=judge(gateFor(c),who,currentAuthority());
+  // Approving is judged here, before the lease or anything else moves: every agent door (the loopback
+  // bridge, MCP, window.aphroditeAgent) arrives through this one function.
+  const verdict=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
   if(c.kind==='state')return agentState();
-  if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
-  if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
+  if(c.kind==='contract'){
+    if(screen!=='editor')return closedCanvas(project);
+    return {ok:true,screen:'editor',visible:true,...revisionInfo(),...designContract(project,selected,{format:c.format,pageId:c.pageId})};
+  }
+  if(c.kind==='tokens'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    return {ok:true,...designTokens(project,themeVars(project))};
+  }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
+  if(c.kind==='changes'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
+    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:found.changes.map(publicChange)};
+  }
   if(c.kind==='render'){
+    if(screen!=='editor')return closedRender();
     if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
     const page=c.pageId?project.pages.find(x=>x.id===c.pageId):currentPage(project);
     if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
@@ -1489,13 +1464,17 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
-  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed',screen:screen==='editor'?'editor':'home'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,agentMode(),askState,Date.now());
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:agentMode()};
   }
-  commandCaller=who;
+  commandCaller=who;stepRefused='';
+  if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
+    commandCaller='';
+    return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
+  }
   try{
     switch(c.kind){
       case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
@@ -1614,9 +1593,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
         };
       }
       case 'apply':{
-        const parsed=parseOps({ops:c.ops,page_id:c.pageId});
+        const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed){commandCaller='';return {error:parsed.error};}
-        const result=applyOps(parsed.ops,parsed.pageId);
+        const result=applyBatch(parsed.batch);
         commandCaller='';
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
@@ -1625,8 +1604,10 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     }
   }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}
   commandCaller='';
-  if(agentMode()==='connected')bumpConnect(who);
   await new Promise(r=>setTimeout(r,60));
+  // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
+  if(stepRefused){const error=stepRefused;stepRefused='';return {error,status:403};}
+  if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
 (window as unknown as {aphroditeAgent:unknown}).aphroditeAgent={run:(kind:unknown,payload?:unknown,caller?:string)=>runAgentCommand(kind,payload,caller)};
@@ -1807,7 +1788,7 @@ document.addEventListener('keydown', e => {
   }
   if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', e.isTrusted ? '' : commandCaller); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
@@ -1834,7 +1815,7 @@ async function reloadFromDisk(){
   if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your projects are back.','찾았습니다. 프로젝트가 돌아왔습니다.'));}
   else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
   const entry=library.entries.find(e=>e.project.id===project.id);
-  if(entry&&screen==='editor')openProject(entry.project);else{screen='home';undoStack=[];redoStack=[];}
+  if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
   render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
 }
 async function boot(){
