@@ -1,0 +1,332 @@
+<!doctype html>
+<!-- Development only: every token and part of the app's design system, in both themes.
+     Served by `npm run dev` at /ui-gallery.html; the app build (index.html) does not include it.
+     #light or #dark in the address picks a theme; without one the page follows the Mac. -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI 견본 · Aphrodite</title>
+<script>
+  (function () { var t = location.hash.slice(1); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
+</script>
+<link rel="stylesheet" href="/src/ui/tokens.css">
+<link rel="stylesheet" href="/src/ui/components.css">
+<link rel="stylesheet" href="/src/ui/gallery.css">
+</head>
+<body class="ui-root ui-gallery">
+<div class="ui-gallery-sheet">
+
+  <header>
+    <div class="ui-gallery-top">
+      <span class="ui-caps">0.3-F2 · 앱 디자인 시스템 견본 (개발용)</span>
+      <div class="ui-seg" role="group" aria-label="판">
+        <button class="ui-seg-item" data-theme-pick="">Mac 따라</button>
+        <button class="ui-seg-item" data-theme-pick="light">밝게</button>
+        <button class="ui-seg-item" data-theme-pick="dark">어둡게</button>
+      </div>
+    </div>
+    <h1 class="ui-gallery-h1">토큰과 부품</h1>
+    <p class="ui-gallery-lead">원천은 <span class="ui-mono">src/ui/tokens.ts</span> 하나입니다. 이 페이지의 색 견본과 대비 표는 그 파일에서 바로 그립니다. 밝은 판과 어두운 판은 같은 이름의 역할 토큰이 다른 원값을 가리킬 뿐입니다.</p>
+  </header>
+
+  <!-- ── 색 ─────────────────────────────────────────── -->
+  <section class="ui-gallery-sec">
+    <div class="ui-gallery-sec-head"><h2>색</h2><p>중립 12단계는 녹색 쪽으로 아주 조금 기운 회색입니다. 강조색은 하나(녹색 = 주 동작), 사람의 선택은 파랑, 에이전트는 금색.</p></div>
+    <h3 class="ui-gallery-h3">중립</h3>
+    <div class="ui-gallery-ramp" id="ramp"></div>
+    <h3 class="ui-gallery-h3">역할 (지금 보이는 판)</h3>
+    <div class="ui-gallery-roles" id="roles"></div>
+    <h3 class="ui-gallery-h3">글자와 바탕의 대비 (WCAG 2.1, 원천에서 계산)</h3>
+    <table class="ui-gallery-table">
+      <thead><tr><th>보기</th><th>글자</th><th>바탕</th><th>기준</th><th>밝은 판</th><th>어두운 판</th><th>쓰는 곳</th></tr></thead>
+      <tbody id="pairs"></tbody>
+    </table>
+  </section>
+
+  <!-- ── 글자 ───────────────────────────────────────── -->
+  <section class="ui-gallery-sec">
+    <div class="ui-gallery-sec-head"><h2>글자</h2><p>Pretendard Variable 한 가족(앱에 들어 있음, 네트워크에서 받지 않음). 단계 6개, 굵기 400 · 500 · 600. 기본은 13.</p></div>
+    <div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>28</b><span>36 · 600 · 화면 제목</span></div><div class="ui-text-28" style="font-weight: var(--ui-w-semibold)">캔버스 위의 디자인이 주인공입니다 Quiet tools 1440</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>20</b><span>28 · 600 · 홈 제목, 모달 제목</span></div><div class="ui-text-20" style="font-weight: var(--ui-w-semibold)">무엇을 만들까요? Recent projects 3/5</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>15</b><span>22 · 600 / 400 · 섹션 머리, 안내 문장</span></div><div class="ui-text-15">이미 쓰는 구독을 연결하면 그 한도로 일합니다. ChatGPT Plus · Pro</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>13</b><span>20 · 400 / 500 · 기본. 본문, 버튼, 목록</span></div><div class="ui-text-13">후기 섹션을 컬렉션 아래에 넣었습니다. Undo ⌘Z · 0123456789</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>12</b><span>16 · 400–600 · 패널 머리, 속성, 설명</span></div><div class="ui-text-12">이유 · 같은 바탕의 섹션이 이어지면서 선이 두 번 겹쳤습니다. W 1440 H 173</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>11</b><span>16 · 400 / 500 · 메타, 알약, 크기 표시</span></div><div class="ui-text-11">Claude · 방금 · 데스크톱 1440 · 41%</div></div>
+      <div class="ui-gallery-type"><div class="ui-gallery-type-meta"><b>고정폭</b><span>11 · 경로, 코드, 토큰 이름</span></div><div class="ui-mono">~/projects/bitgongbang · --ui-accent: var(--ui-green-500)</div></div>
+    </div>
+  </section>
+
+  <!-- ── 간격 · 모서리 · 그림자 ─────────────────────── -->
+  <section class="ui-gallery-sec">
+    <div class="ui-gallery-sec-head"><h2>간격 · 모서리 · 그림자</h2><p>4 단위 7단계. 모서리 셋(4 조작부 · 8 카드와 패널 · 12 창과 요청 입력창)과 알약 모양. 그림자 둘(패널 · 창). 누르는 대상은 28 이상(28 · 32 · 40).</p></div>
+    <div class="ui-gallery-space">
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-1)"></i><span>4</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-2)"></i><span>8</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-3)"></i><span>12</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-4)"></i><span>16</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-5)"></i><span>24</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-6)"></i><span>32</span></div>
+      <div class="ui-gallery-sp"><i style="width: var(--ui-space-7)"></i><span>48</span></div>
+    </div>
+    <div class="ui-gallery-shapes">
+      <div class="ui-gallery-shape" style="border-radius: var(--ui-radius-1)"><b>4</b><span>radius-1 · 버튼, 입력, 줄</span></div>
+      <div class="ui-gallery-shape" style="border-radius: var(--ui-radius-2)"><b>8</b><span>radius-2 · 카드, 패널, 메뉴</span></div>
+      <div class="ui-gallery-shape" style="border-radius: var(--ui-radius-3)"><b>12</b><span>radius-3 · 창, 요청 입력창</span></div>
+      <div class="ui-gallery-shape ui-gallery-lift" style="box-shadow: var(--ui-shadow-panel)"><b>패널</b><span>shadow-panel · 도구 막대, 메뉴</span></div>
+      <div class="ui-gallery-shape ui-gallery-lift" style="box-shadow: var(--ui-shadow-window)"><b>창</b><span>shadow-window · 모달, 시트</span></div>
+    </div>
+  </section>
+
+  <!-- ── 부품 ───────────────────────────────────────── -->
+  <section class="ui-gallery-sec">
+    <div class="ui-gallery-sec-head"><h2>부품과 상태</h2><p>모든 부품은 위의 토큰만 씁니다. 상태 칸의 호버 · 눌림 · 포커스는 <span class="ui-mono">.is-hover</span> 같은 보기용 클래스로 멈춰 둔 것이고, 실제 마우스와 키보드에도 똑같이 반응합니다(Tab으로 포커스 고리를 확인).</p></div>
+
+    <h3 class="ui-gallery-h3">버튼 · 종류 × 상태</h3>
+    <table class="ui-gallery-table ui-gallery-matrix">
+      <thead><tr><th></th><th>기본</th><th>호버</th><th>눌림</th><th>비활성</th><th>포커스</th></tr></thead>
+      <tbody>
+        <tr><th>주</th><td><button class="ui-btn ui-btn-primary">이 Claude Code로 연결</button></td><td><button class="ui-btn ui-btn-primary is-hover">이 Claude Code로 연결</button></td><td><button class="ui-btn ui-btn-primary is-pressed">이 Claude Code로 연결</button></td><td><button class="ui-btn ui-btn-primary" disabled>이 Claude Code로 연결</button></td><td><button class="ui-btn ui-btn-primary is-focus">이 Claude Code로 연결</button></td></tr>
+        <tr><th>보조</th><td><button class="ui-btn ui-btn-secondary"><i data-lucide="play" class="ui-icon ui-icon-sm"></i>미리보기</button></td><td><button class="ui-btn ui-btn-secondary is-hover"><i data-lucide="play" class="ui-icon ui-icon-sm"></i>미리보기</button></td><td><button class="ui-btn ui-btn-secondary is-pressed"><i data-lucide="play" class="ui-icon ui-icon-sm"></i>미리보기</button></td><td><button class="ui-btn ui-btn-secondary" disabled><i data-lucide="play" class="ui-icon ui-icon-sm"></i>미리보기</button></td><td><button class="ui-btn ui-btn-secondary is-focus"><i data-lucide="play" class="ui-icon ui-icon-sm"></i>미리보기</button></td></tr>
+        <tr><th>조용한</th><td><button class="ui-btn ui-btn-quiet">나중에 연결하기</button></td><td><button class="ui-btn ui-btn-quiet is-hover">나중에 연결하기</button></td><td><button class="ui-btn ui-btn-quiet is-pressed">나중에 연결하기</button></td><td><button class="ui-btn ui-btn-quiet" disabled>나중에 연결하기</button></td><td><button class="ui-btn ui-btn-quiet is-focus">나중에 연결하기</button></td></tr>
+        <tr><th>위험</th><td><button class="ui-btn ui-btn-danger"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>프로젝트 지우기</button></td><td><button class="ui-btn ui-btn-danger is-hover"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>프로젝트 지우기</button></td><td><button class="ui-btn ui-btn-danger is-pressed"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>프로젝트 지우기</button></td><td><button class="ui-btn ui-btn-danger" disabled><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>프로젝트 지우기</button></td><td><button class="ui-btn ui-btn-danger is-focus"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>프로젝트 지우기</button></td></tr>
+      </tbody>
+    </table>
+    <h3 class="ui-gallery-h3">버튼 · 크기 (28 · 32 · 40) · 아이콘 버튼</h3>
+    <div class="ui-gallery-row ui-gallery-wide">
+      <button class="ui-btn ui-btn-primary">28 기본</button>
+      <button class="ui-btn ui-btn-primary ui-btn-md">32 중간</button>
+      <button class="ui-btn ui-btn-primary ui-btn-lg">40 온보딩</button>
+      <button class="ui-btn ui-btn-secondary ui-btn-small-text">작은 글자</button>
+      <span class="ui-gallery-row">
+        <button class="ui-icon-btn" aria-label="찾기"><i data-lucide="search" class="ui-icon"></i></button>
+        <button class="ui-icon-btn is-hover" aria-label="호버"><i data-lucide="search" class="ui-icon"></i></button>
+        <button class="ui-icon-btn is-pressed" aria-label="눌림"><i data-lucide="search" class="ui-icon"></i></button>
+        <button class="ui-icon-btn is-on" aria-label="켜짐"><i data-lucide="search" class="ui-icon"></i></button>
+        <button class="ui-icon-btn is-focus" aria-label="포커스"><i data-lucide="search" class="ui-icon"></i></button>
+        <button class="ui-icon-btn" disabled aria-label="비활성"><i data-lucide="search" class="ui-icon"></i></button>
+      </span>
+      <span class="ui-kbd">⌘L</span><span class="ui-kbd">⌘Z</span>
+    </div>
+
+    <div class="ui-gallery-grid">
+      <div>
+        <h3 class="ui-gallery-h3">입력 · 글 상자</h3>
+        <div class="ui-gallery-stack">
+          <div><label class="ui-label" for="g-name">프로젝트 이름</label><input class="ui-input" id="g-name" placeholder="예: 빛공방 랜딩"></div>
+          <div><label class="ui-label">호버</label><input class="ui-input is-hover" value="빛공방 랜딩"></div>
+          <div><label class="ui-label">API 키</label><input class="ui-input is-focus" value="sk-ant-•••• •••• 4f2a"><p class="ui-help">키는 이 Mac의 키체인에만 저장됩니다.</p></div>
+          <div><label class="ui-label">폴더</label><input class="ui-input is-error" aria-invalid="true" value="~/projects/없는-폴더"><p class="ui-help is-error">이 폴더를 찾을 수 없습니다.</p></div>
+          <div><label class="ui-label">계정</label><input class="ui-input" disabled value="개인 계정 · Claude Max"></div>
+          <div><label class="ui-label" for="g-note">메모</label><textarea class="ui-textarea" id="g-note" placeholder="이 페이지에 대해 남길 말"></textarea></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="ui-gallery-h3">선택 · 스위치 · 세그먼트 · 탭</h3>
+        <div class="ui-gallery-stack">
+          <div><label class="ui-label" for="g-model">모델</label><span class="ui-select"><select id="g-model"><option>Claude</option><option>ChatGPT</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
+          <div><span class="ui-select is-focus"><select aria-label="포커스"><option>포커스</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
+          <div><span class="ui-select"><select aria-label="비활성" disabled><option>비활성 (select에 disabled)</option></select><i data-lucide="chevron-down" class="ui-icon ui-icon-sm"></i></span></div>
+          <div class="ui-gallery-row ui-gallery-wide">
+            <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input" checked><span class="ui-switch-track"></span>켜짐</label>
+            <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input"><span class="ui-switch-track"></span>꺼짐</label>
+            <label class="ui-switch is-hover"><input type="checkbox" role="switch" class="ui-switch-input"><span class="ui-switch-track"></span>호버</label>
+            <label class="ui-switch is-focus"><input type="checkbox" role="switch" class="ui-switch-input" checked><span class="ui-switch-track"></span>포커스</label>
+            <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input" checked disabled><span class="ui-switch-track"></span>비활성</label>
+          </div>
+          <div class="ui-seg" role="group" aria-label="방향">
+            <button class="ui-seg-item" aria-pressed="true"><i data-lucide="arrow-right" class="ui-icon ui-icon-xs"></i>가로</button>
+            <button class="ui-seg-item is-hover" aria-pressed="false"><i data-lucide="arrow-down" class="ui-icon ui-icon-xs"></i>세로</button>
+            <button class="ui-seg-item is-focus" aria-pressed="false"><i data-lucide="layout-grid" class="ui-icon ui-icon-xs"></i>격자</button>
+          </div>
+          <div class="ui-seg" role="radiogroup" aria-label="선택과 포커스가 겹침">
+            <button class="ui-seg-item is-focus" role="radio" aria-checked="true">선택 + 포커스</button>
+            <button class="ui-seg-item" role="radio" aria-checked="false">다른 항목</button>
+          </div>
+          <div class="ui-seg ui-seg-md" role="group" aria-label="에이전트"><button class="ui-seg-item" aria-pressed="true">Claude</button><button class="ui-seg-item" aria-pressed="false">ChatGPT</button></div>
+          <div class="ui-tabs" role="tablist" style="padding: 0">
+            <button class="ui-tab" role="tab" aria-selected="true">속성</button>
+            <button class="ui-tab is-hover" role="tab" aria-selected="false">변경 기록 <span class="ui-tab-count">12</span></button>
+            <button class="ui-tab is-focus" role="tab" aria-selected="false">에셋 · 레퍼런스</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 class="ui-gallery-h3">칩 · 상태 알약 · 점 · 아바타</h3>
+        <div class="ui-gallery-stack">
+          <div class="ui-gallery-row">
+            <button class="ui-chip"><i data-lucide="layout-template" class="ui-icon ui-icon-sm"></i>랜딩 페이지</button>
+            <button class="ui-chip is-on" aria-pressed="true"><i data-lucide="file-text" class="ui-icon ui-icon-sm"></i>브리핑 문서</button>
+            <button class="ui-chip ui-chip-dashed"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i>레퍼런스</button>
+          </div>
+          <div class="ui-gallery-row">
+            <button class="ui-chip ui-chip-sm is-hover">호버</button>
+            <button class="ui-chip ui-chip-sm is-pressed">눌림</button>
+            <button class="ui-chip ui-chip-sm is-focus">포커스</button>
+            <button class="ui-chip ui-chip-sm" disabled>비활성</button>
+          </div>
+          <div class="ui-gallery-row">
+            <span class="ui-pill ui-pill-ok"><i data-lucide="check" class="ui-icon ui-icon-xs"></i>연결됨</span>
+            <span class="ui-pill ui-pill-agent"><span class="ui-dot ui-dot-agent"></span>작업 중 3/5</span>
+            <span class="ui-pill ui-pill-warn">한도 80%</span>
+            <span class="ui-pill ui-pill-danger">연결 끊김</span>
+            <span class="ui-pill ui-pill-select">선택 2</span>
+            <span class="ui-pill ui-pill-accent">현재</span>
+            <span class="ui-pill">Plus · Pro 구독</span>
+          </div>
+          <div class="ui-gallery-row">
+            <span class="ui-dot"></span><span class="ui-dot ui-dot-ok"></span><span class="ui-dot ui-dot-agent"></span><span class="ui-dot ui-dot-select"></span><span class="ui-dot ui-dot-accent"></span>
+            <span class="ui-avatar ui-avatar-agent">C</span><span class="ui-avatar">나</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="ui-gallery-h3">띠 · 알림</h3>
+    <div class="ui-gallery-banners">
+      <div class="ui-banner ui-banner-ok"><i data-lucide="circle-check" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">Claude에 연결했습니다.</p><p class="ui-banner-text">개인 계정 · Claude Max. 요청은 Claude에게만 갑니다.</p></div></div>
+      <div class="ui-banner ui-banner-warn"><i data-lucide="triangle-alert" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">이번 주 Claude 한도의 80%를 썼습니다.</p><p class="ui-banner-text">한도가 차면 ChatGPT로 이어서 하거나, 한도가 다시 차는 금요일 오전 9시까지 기다립니다.</p></div><button class="ui-btn ui-btn-quiet ui-btn-small-text">자세히</button></div>
+      <div class="ui-banner ui-banner-danger"><i data-lucide="circle-x" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">Claude Code를 찾을 수 없습니다.</p><p class="ui-banner-text">터미널에서 지웠거나 옮겼을 수 있습니다. 다시 찾거나 앱 안에서 로그인하세요.</p></div><button class="ui-btn ui-btn-secondary ui-btn-small-text">다시 찾기</button></div>
+      <div class="ui-banner ui-banner-agent"><i data-lucide="loader-circle" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">Claude가 이 페이지를 고치는 중입니다.</p><p class="ui-banner-text">그동안 손으로 고친 것도 함께 기록됩니다. 멈추면 지금까지의 변경은 남습니다.</p></div><button class="ui-btn ui-btn-secondary ui-btn-small-text"><i data-lucide="square" class="ui-icon ui-icon-xs"></i>멈춤</button></div>
+      <div class="ui-banner"><i data-lucide="file-text" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">보통 띠</p><p class="ui-banner-text">상태가 아닌 안내는 바탕색 없이 가라앉은 바탕에.</p></div></div>
+    </div>
+    <div class="ui-gallery-row" style="margin-top: var(--ui-space-4)"><div class="ui-toast" role="status">변경 3개를 되돌렸습니다<button class="ui-btn ui-btn-quiet ui-btn-small-text">다시 적용</button></div></div>
+
+    <div class="ui-gallery-grid ui-gallery-two">
+      <div>
+        <h3 class="ui-gallery-h3">모달</h3>
+        <div class="ui-gallery-stage">
+          <div class="ui-modal" role="dialog" aria-labelledby="g-m-t">
+            <div class="ui-modal-body">
+              <h2 class="ui-modal-title" id="g-m-t">터미널의 Codex가 이 프로젝트를 편집하려고 합니다</h2>
+              <p class="ui-modal-text">~/projects/bitgongbang 에서 MCP로 요청했습니다. 허용하면 Codex의 편집이 바로 캔버스에 들어오고, 모든 변경은 기록되어 ⌘Z로 되돌릴 수 있습니다.</p>
+              <label class="ui-switch ui-text-12" style="margin-top: var(--ui-space-4)"><input type="checkbox" role="switch" class="ui-switch-input" checked><span class="ui-switch-track"></span>Codex를 기억하고 다음부터 묻지 않기</label>
+            </div>
+            <div class="ui-modal-foot"><button class="ui-btn ui-btn-quiet">거절</button><button class="ui-btn ui-btn-primary">허용</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 class="ui-gallery-h3">패널 머리 · 목록 줄</h3>
+        <div class="ui-card ui-gallery-card">
+          <div class="ui-panel-head"><h3 class="ui-panel-title">레이어</h3><button class="ui-icon-btn" aria-label="찾기"><i data-lucide="search" class="ui-icon ui-icon-sm"></i></button><button class="ui-icon-btn" aria-label="더하기"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i></button></div>
+          <div class="ui-gallery-list">
+            <button class="ui-row"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>기본 줄<span class="ui-row-meta">기본</span></button>
+            <button class="ui-row is-hover"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>마우스를 올린 줄<span class="ui-row-meta">호버</span></button>
+            <button class="ui-row is-selected"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>사람이 선택한 줄<span class="ui-row-meta">선택</span></button>
+            <button class="ui-row is-pressed"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>누르고 있는 줄<span class="ui-row-meta">눌림</span></button>
+            <button class="ui-row is-on"><i data-lucide="folder" class="ui-icon ui-icon-sm"></i>지금 보는 곳<span class="ui-row-meta">현재</span></button>
+            <button class="ui-row is-agent"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>에이전트가 그리는 줄<span class="ui-row-meta">그리는 중</span></button>
+            <button class="ui-row is-focus"><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>키보드로 온 줄<span class="ui-row-meta">포커스</span></button>
+            <button class="ui-row" disabled><i data-lucide="layout-panel-top" class="ui-icon ui-icon-sm"></i>비활성 줄<span class="ui-row-meta">비활성</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ui-gallery-grid ui-gallery-two">
+      <div>
+        <h3 class="ui-gallery-h3">연결 카드</h3>
+        <div class="ui-gallery-stack">
+          <section class="ui-connect is-connected">
+            <div class="ui-connect-head"><span class="ui-connect-mark">C</span><h2 class="ui-connect-name">Claude</h2><span class="ui-pill ui-pill-ok"><i data-lucide="check" class="ui-icon ui-icon-xs"></i>연결됨</span></div>
+            <div class="ui-connect-found"><i data-lucide="circle-user-round" class="ui-icon ui-icon-sm"></i><div><p style="margin: 0; font-weight: var(--ui-w-medium)">개인 계정 · Claude Max</p><p class="ui-text-12" style="margin: 0; color: var(--ui-text-2)">이 Mac의 Claude Code로 일합니다.</p></div></div>
+            <div class="ui-connect-actions"><button class="ui-btn ui-btn-secondary">계정 바꾸기</button><button class="ui-btn ui-btn-quiet">연결 끊기</button></div>
+          </section>
+          <section class="ui-connect">
+            <div class="ui-connect-head"><span class="ui-connect-mark">G</span><h2 class="ui-connect-name">ChatGPT</h2></div>
+            <p class="ui-connect-desc">Plus · Pro 구독으로 로그인하면 그 한도로 일합니다.</p>
+            <div class="ui-connect-actions"><button class="ui-btn ui-btn-primary ui-btn-md">ChatGPT로 로그인</button><button class="ui-btn ui-btn-quiet">나중에 연결하기</button></div>
+          </section>
+        </div>
+      </div>
+      <div>
+        <h3 class="ui-gallery-h3">요청 입력창 · 도구 막대</h3>
+        <div class="ui-gallery-stack">
+          <div class="ui-composer ui-composer-compact">
+            <textarea class="ui-composer-input" aria-label="요청" placeholder="만들 것을 적어 주세요. 예: 이번 주 검수 내용을 브리핑 문서 한 장으로 정리해 줘"></textarea>
+            <div class="ui-composer-foot">
+              <button class="ui-attach"><i data-lucide="paperclip" class="ui-icon ui-icon-sm"></i>첨부</button>
+              <button class="ui-attach is-hover"><i data-lucide="file-text" class="ui-icon ui-icon-sm"></i>DESIGN.md</button>
+              <span class="ui-composer-push"></span>
+              <button class="ui-btn ui-btn-quiet ui-btn-small-text">Claude <i data-lucide="chevron-down" class="ui-icon ui-icon-xs"></i></button>
+              <button class="ui-send" aria-label="보내기"><i data-lucide="arrow-up" class="ui-icon"></i></button>
+            </div>
+          </div>
+          <div class="ui-composer ui-composer-compact is-focus">
+            <textarea class="ui-composer-input" aria-label="요청">히어로 제목을 한 줄로 줄여 줘</textarea>
+            <div class="ui-composer-foot">
+              <span class="ui-working"><span class="ui-dot ui-dot-agent"></span>Claude가 작업 중 · 3/5</span>
+              <span class="ui-composer-push"></span>
+              <button class="ui-send" disabled aria-label="보내기"><i data-lucide="arrow-up" class="ui-icon"></i></button>
+              <button class="ui-btn ui-btn-secondary"><i data-lucide="square" class="ui-icon ui-icon-xs"></i>멈춤</button>
+            </div>
+          </div>
+          <div class="ui-gallery-row">
+            <div class="ui-toolbar" role="toolbar" aria-label="도구">
+              <button class="ui-icon-btn is-on" aria-pressed="true" aria-label="선택"><i data-lucide="mouse-pointer-2" class="ui-icon"></i></button>
+              <button class="ui-icon-btn" aria-label="손"><i data-lucide="hand" class="ui-icon"></i></button>
+              <button class="ui-icon-btn is-hover" aria-label="프레임"><i data-lucide="frame" class="ui-icon"></i></button>
+              <button class="ui-icon-btn" aria-label="이미지"><i data-lucide="image" class="ui-icon"></i></button>
+              <button class="ui-icon-btn is-focus" aria-label="글자"><i data-lucide="type" class="ui-icon"></i></button>
+              <span class="ui-toolbar-sep"></span>
+              <button class="ui-icon-btn" aria-label="되돌리기"><i data-lucide="undo-2" class="ui-icon"></i></button>
+              <button class="ui-icon-btn" disabled aria-label="다시 하기"><i data-lucide="redo-2" class="ui-icon"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="ui-gallery-foot">Aphrodite 0.3-F2 · 글꼴 Pretendard Variable (SIL OFL 1.1) · 아이콘 Lucide (ISC)</footer>
+</div>
+
+<script type="module">
+  import {createIcons, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
+  import {primitives, pairs, resolve} from '/src/ui/tokens.ts';
+  import {contrastRatio} from '/src/design/contrast.ts';
+
+  createIcons({icons: {Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
+
+  const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+  const swatch = name => el('i', {style: `background: var(--ui-${name})`});
+
+  const ramp = document.getElementById('ramp');
+  for (const name of Object.keys(primitives).filter(n => /^n-\d+$/.test(n)))
+    ramp.append(el('div', {className: 'ui-gallery-sw'}, swatch(name), el('b', {}, name.slice(2)), el('span', {className: 'ui-gallery-hex'}, primitives[name])));
+
+  const theme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const roleUse = {accent: '주 동작: 주 버튼, 켜진 스위치, 현재 단계', 'accent-soft': '현재 도구, 지난 단계', select: '사람의 선택 · 안내선', 'select-soft': '선택한 레이어 줄', agent: '에이전트 커서 · 이름표 · 진행', 'agent-soft': '에이전트가 방금 바꾼 줄', 'ok-text': '연결됨, 저장됨', 'warn-text': '한도, 오래된 변경', danger: '지우기, 연결 실패', focus: '키보드 포커스 고리'};
+  const drawRoles = () => {
+    const box = document.getElementById('roles'); box.replaceChildren();
+    for (const [name, use] of Object.entries(roleUse))
+      box.append(el('div', {className: 'ui-gallery-role'}, swatch(name), el('div', {}, el('b', {}, name), el('span', {className: 'ui-gallery-hex'}, resolve(theme(), name) ?? ''), el('span', {className: 'ui-text-11', style: 'color: var(--ui-text-3)'}, use))));
+  };
+
+  const body = document.getElementById('pairs');
+  for (const p of pairs) {
+    const cell = t => {
+      const r = contrastRatio(resolve(t, p.fg), resolve(t, p.bg)), ok = r >= p.min;
+      const pill = ok ? el('span', {className: 'ui-pill ui-pill-ok'}, p.min === 3 ? '3:1 통과' : 'AA 통과') : el('span', {className: 'ui-pill ui-pill-warn', title: p.short?.[t] ?? ''}, '미달 · 사유 있음');
+      return el('td', {}, el('span', {className: 'ui-gallery-ratio'}, `${r.toFixed(2)}:1`), pill);
+    };
+    body.append(el('tr', {},
+      el('td', {}, el('span', {className: 'ui-gallery-pv', style: `color: var(--ui-${p.fg}); background: var(--ui-${p.bg})`}, 'Aa 가나 123')),
+      el('td', {className: 'ui-gallery-mono'}, p.fg), el('td', {className: 'ui-gallery-mono'}, p.bg), el('td', {className: 'ui-gallery-mono'}, String(p.min)),
+      cell('light'), cell('dark'), el('td', {style: 'color: var(--ui-text-2)'}, p.use)));
+  }
+
+  const picks = [...document.querySelectorAll('[data-theme-pick]')];
+  const sync = () => { const t = document.documentElement.dataset.theme || ''; for (const b of picks) b.setAttribute('aria-pressed', String(b.dataset.themePick === t)); drawRoles(); };
+  for (const b of picks) b.addEventListener('click', () => {
+    if (b.dataset.themePick) document.documentElement.dataset.theme = b.dataset.themePick; else delete document.documentElement.dataset.theme;
+    history.replaceState(null, '', b.dataset.themePick ? `#${b.dataset.themePick}` : location.pathname); sync();
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', sync);
+  sync();
+  document.documentElement.dataset.ready = '1';
+</script>
+</body>
+</html>
