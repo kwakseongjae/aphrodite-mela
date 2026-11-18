@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync,readdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
 
 /**
@@ -10,6 +11,8 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  * of distinct colours and distinct font sizes each held on 2026-11-18, when the system came in; F3–F5
  * move screens over and lower the pins as they go. A count that grows fails. A count that shrinks fails
  * too, asking for the pin to come down in the same change, so the ground gained is not given back.
+ * `set` is a short hash of the sorted colours and sizes themselves, so swapping one for a new one fails
+ * even though the counts hold.
  *
  * Legacy is every .css under src/ except src/ui at any depth (the system, which tests/ui-components.test.ts
  * checks instead), src/generated and src/vendor (built or copied from elsewhere); tests/support/css.ts sorts them. A new .css file there has no pin and fails: put new styles in src/ui.
@@ -19,15 +22,15 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  * canvas and in the page it exports (render.ts reads all three), not the app's own screens: moving a
  * screen to src/ui never lowers them, and what a design may look like is not this system's to pin.
  */
-const pins:Record<string,{colours:number,sizes:number}>={
-  'agent/agent.css':{colours:10,sizes:2},
-  'design/component-explorer.css':{colours:92,sizes:15},
-  'design/studio.css':{colours:29,sizes:11},
-  'editor/pointer-editor.css':{colours:9,sizes:3},
-  'reference.css':{colours:22,sizes:7},
-  'style.css':{colours:341,sizes:32},
-  'workspace/home.css':{colours:82,sizes:29},
-  'workspace/vault.css':{colours:3,sizes:3},
+const pins:Record<string,{colours:number,sizes:number,set:string}>={
+  'agent/agent.css':{colours:10,sizes:2,set:'fc3b5d95'},
+  'design/component-explorer.css':{colours:92,sizes:15,set:'4d09978a'},
+  'design/studio.css':{colours:29,sizes:11,set:'bb0be265'},
+  'editor/pointer-editor.css':{colours:9,sizes:3,set:'b1cb6424'},
+  'reference.css':{colours:22,sizes:7,set:'2d3a2d22'},
+  'style.css':{colours:341,sizes:32,set:'dc87d1b2'},
+  'workspace/home.css':{colours:82,sizes:29,set:'11944e9e'},
+  'workspace/vault.css':{colours:3,sizes:3,set:'dda54f2f'},
 };
 
 const namedRe=new RegExp(`(?<![\\w-])(${namedColours.join('|')})(?![\\w-])`,'gi');
@@ -99,16 +102,36 @@ test('the canvas stylesheets left out of the count are the ones the exported pag
   }
 });
 
+/** The first eight hex digits of a sha-256 over a sheet's sorted colours and sorted sizes. */
+export function setOf(css:string){
+  return createHash('sha256').update([...colours(css)].sort().join('\n')+'\n--\n'+[...sizes(css)].sort().join('\n')).digest('hex').slice(0,8);
+}
+
+/** What is wrong with one older sheet against its pin, as lines to report. */
+function drift(file:string,css:string,pin:{colours:number,sizes:number,set:string}){
+  const report:string[]=[];
+  const now={colours:colours(css).size,sizes:sizes(css).size},set=setOf(css);
+  for(const key of ['colours','sizes'] as const){
+    if(now[key]>pin[key])report.push(file+': '+now[key]+' distinct '+key+', more than the '+pin[key]+' pinned. Use the src/ui tokens instead.');
+    if(now[key]<pin[key])report.push(file+': '+now[key]+' distinct '+key+', fewer than the '+pin[key]+' pinned. Lower the pin to '+now[key]+', with set \''+set+'\', in tests/ui-ratchet.test.ts.');
+  }
+  if(!report.length&&set!==pin.set)report.push(file+': the same counts, but a colour or size was swapped for a new one (set '+set+', pinned '+pin.set+'). Use the src/ui tokens instead.');
+  return report;
+}
+
+test('the ratchet sees a colour swapped for a new one, not only a count that grows',()=>{
+  const before='.a{color:#111;background:#222;font-size:12px}',after='.a{color:#111;background:#333;font-size:12px}';
+  const pin={colours:2,sizes:1,set:setOf(before)};
+  assert.deepEqual(drift('x.css',before,pin),[]);
+  assert.equal(drift('x.css',after,pin).length,1);
+  assert.equal(drift('x.css','.a{color:#111;background:#222;font-size:13px}',pin).length,1,'a size swapped too');
+});
+
 test('no older stylesheet gains a colour or a font size, and one that loses one lowers its pin',()=>{
   const report:string[]=[];
   for(const file of legacy){
-    const css=readFileSync(new URL(file,src),'utf8');
-    const now={colours:colours(css).size,sizes:sizes(css).size},pin=pins[file];
-    if(!pin)continue;
-    for(const key of ['colours','sizes'] as const){
-      if(now[key]>pin[key])report.push(`${file}: ${now[key]} distinct ${key}, more than the ${pin[key]} pinned. Use the src/ui tokens instead.`);
-      if(now[key]<pin[key])report.push(`${file}: ${now[key]} distinct ${key}, fewer than the ${pin[key]} pinned. Lower the pin to ${now[key]} in tests/ui-ratchet.test.ts.`);
-    }
+    const pin=pins[file];
+    if(pin)report.push(...drift(file,readFileSync(new URL(file,src),'utf8'),pin));
   }
   assert.deepEqual(report,[]);
 });
