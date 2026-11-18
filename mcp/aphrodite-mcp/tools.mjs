@@ -9,6 +9,19 @@
 /** Tools are namespaced so they stay distinct among whatever else a client has loaded. */
 export const PREFIX = 'aphrodite_';
 
+/**
+ * The name this client goes by in the app — on the request the person answers, in the banner and in
+ * every receipt — taken from its own `initialize` (`clientInfo.name`). It is what the program says
+ * about itself, so it is cleaned the way the app cleans it (src/agent/authority.ts normalizeCaller),
+ * with spaces kept as hyphens, and it may never be `human`. Nothing usable falls back to `mcp-client`.
+ */
+export const FALLBACK_CALLER = 'mcp-client';
+export function callerName(clientInfo) {
+  const raw = typeof clientInfo?.name === 'string' ? clientInfo.name : '';
+  const cleaned = raw.toLowerCase().replace(/[\s_.]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/, '');
+  return !cleaned || cleaned === 'human' ? FALLBACK_CALLER : cleaned;
+}
+
 const READ = {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false};
 const WRITE = {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false};
 const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false};

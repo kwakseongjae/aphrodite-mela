@@ -14,7 +14,7 @@ import {createInterface} from 'node:readline';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {toolManifest, toolByName} from './tools.mjs';
+import {toolManifest, toolByName, callerName, FALLBACK_CALLER} from './tools.mjs';
 import {promptManifest, promptByName} from './prompts.mjs';
 
 const NAME = 'aphrodite';
@@ -37,6 +37,8 @@ const ENDPOINT_FILE = process.env.APHRODITE_ENDPOINT_FILE
   || join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
 const NOT_RUNNING = 'Aphrodite is not running. Ask the person to open the app, then try again.';
 
+/** Who this client is, as it said at `initialize`. Every call carries it so the person sees the real name. */
+let caller = FALLBACK_CALLER;
 const log = message => process.stderr.write(`[aphrodite-mcp] ${message}\n`);
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const reply = (id, result) => send({jsonrpc: '2.0', id, result});
@@ -92,7 +94,7 @@ async function callTool(name, args) {
     headers: {
       Authorization: `Bearer ${where.token}`,
       'Content-Type': 'application/json',
-      'X-Aphrodite-Agent': 'claude-code',
+      'X-Aphrodite-Agent': caller,
     },
   };
   if (tool.route.method === 'POST') {
@@ -136,6 +138,7 @@ async function handle(message) {
   const isRequest = id !== undefined && id !== null;
   switch (method) {
     case 'initialize': {
+      caller = callerName(params?.clientInfo);
       const asked = params?.protocolVersion;
       const version = KNOWN_VERSIONS.includes(asked) ? asked : KNOWN_VERSIONS[0];
       return reply(id, {

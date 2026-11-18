@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 // The server is plain JavaScript with no dependencies, so a client needs nothing installed to run it.
-import {tools,toolManifest,PREFIX} from '../mcp/aphrodite-mcp/tools.mjs';
+import {tools,toolManifest,PREFIX,callerName} from '../mcp/aphrodite-mcp/tools.mjs';
 
 const agentRs=readFileSync(new URL('../src-tauri/src/agent.rs',import.meta.url),'utf8');
 const routes=[...agentRs.matchAll(/"(GET|POST) (\/agent\/[a-z]+)"/g)].map(m=>`${m[1]} ${m[2]}`);
@@ -71,4 +71,17 @@ test('the manifest carries no plumbing a client should not see',()=>{
     assert.equal((tool as Record<string,unknown>).route,undefined,'the route stays server-side');
     assert.equal((tool as Record<string,unknown>).body,undefined);
   }
+});
+
+/* 0.3-1b owner review: every MCP client reached the app as `claude-code`, so a request from Codex said
+   Claude. The name now comes from the client's own `initialize`, cleaned the way the app cleans it. */
+test('the agent name is the one the client gave at initialize',()=>{
+  assert.equal(callerName({name:'claude-code',version:'2.1.0'}),'claude-code');
+  assert.equal(callerName({name:'codex-mcp-client'}),'codex-mcp-client');
+  assert.equal(callerName({name:'Claude Desktop'}),'claude-desktop','spaces become hyphens rather than vanishing');
+  assert.equal(callerName({name:'cursor_vscode'}),'cursor-vscode');
+  assert.equal(callerName({name:'  !!!  '}),'mcp-client','nothing usable falls back to a plain name');
+  assert.equal(callerName(undefined),'mcp-client');
+  assert.equal(callerName({name:'human'}),'mcp-client','a client cannot pass itself off as the person');
+  assert.equal(callerName({name:'x'.repeat(80)}).length,32);
 });

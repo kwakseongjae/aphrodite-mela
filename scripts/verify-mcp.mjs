@@ -171,6 +171,45 @@ check('a leftover endpoint file is not trusted, even when its port now answers',
   }
 });
 
+/**
+ * The app names a request by the `X-Aphrodite-Agent` header, and the person is asked about that name.
+ * It used to be the constant `claude-code` for every client, so Codex asked as Claude. A stand-in app
+ * (alive: this process's pid) records the header for a client that introduced itself, and one that did not.
+ */
+check('a call carries the name the client gave at initialize, not a fixed one', async () => {
+  const seen = [];
+  const app = createServer((req, response) => {
+    seen.push(req.headers['x-aphrodite-agent']);
+    response.writeHead(200, {'Content-Type': 'application/json'});
+    response.end(JSON.stringify({schema: 'aphrodite.contract/1'}));
+  });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const port = app.address().port;
+  const file = join(tmpdir(), `aphrodite-caller-${process.pid}.json`);
+  writeFileSync(file, JSON.stringify({schema: 'aphrodite.agent-endpoint/1', port, token: 't'.repeat(48), pid: process.pid, base: `http://127.0.0.1:${port}`}));
+  const ask = async clientInfo => {
+    const child = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {stdio: ['pipe', 'pipe', 'ignore'], env: {...process.env, APHRODITE_ENDPOINT_FILE: file}});
+    try {
+      const out = createInterface({input: child.stdout});
+      const answered = new Promise((resolve, reject) => {
+        out.on('line', line => { try { const m = JSON.parse(line); if (m.id === 2) resolve(m); } catch {} });
+        setTimeout(() => reject(new Error('no answer')), 8000);
+      });
+      child.stdin.write(`${JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {protocolVersion: '2025-06-18', capabilities: {}, ...(clientInfo ? {clientInfo} : {})}})}\n`);
+      child.stdin.write(`${JSON.stringify({jsonrpc: '2.0', id: 2, method: 'tools/call', params: {name: 'aphrodite_get_contract', arguments: {}}})}\n`);
+      await answered;
+    } finally { child.kill('SIGKILL'); }
+  };
+  try {
+    await ask({name: 'codex-mcp-client', version: '0.50.0'});
+    await ask(undefined);
+  } finally {
+    app.close();
+    rmSync(file, {force: true});
+  }
+  assert.deepEqual(seen, ['codex-mcp-client', 'mcp-client']);
+});
+
 check('the guide arrives as prose, not as an escaped string inside JSON', async () => {
   const {result} = await request('tools/call', {name: 'aphrodite_guide', arguments: {}});
   const text = result.content[0].text;
