@@ -14,8 +14,8 @@
  */
 import {fingerprint, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, forSaving, MAX_REASON, slim, type Author, type Change, type Ledger} from './types';
-export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
+import {compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 
@@ -32,6 +32,17 @@ export function hasOmitted(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   if ((value as {$omitted?: unknown}).$omitted !== undefined) return true;
   return Object.values(value).some(hasOmitted);
+}
+
+/**
+ * How many components and pages one change is anchored to at most. Anchors point the canvas at what a
+ * change touched; past this many it touched the whole page anyway, and the cap is what keeps one header
+ * small enough that the saved ledger never outgrows its reserve (LEDGER_RESERVE).
+ */
+export const MAX_ANCHORS = {nodes: 500, pages: 60};
+function anchored(ops: PatchOp[]): {pages: string[]; nodes: string[]} {
+  const all = anchorsOf(ops);
+  return {pages: all.pages.slice(0, MAX_ANCHORS.pages), nodes: all.nodes.slice(0, MAX_ANCHORS.nodes)};
 }
 
 export type ChangeMeta = {author: Author; source: string; reason?: string; undoes?: number; redoes?: number; at?: string; id?: string};
@@ -53,7 +64,7 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
     source: meta.source.slice(0, 80),
     ...(reason ? {reason} : {}),
     ops: slim(forSaving(ops)),
-    anchors: anchorsOf(ops),
+    anchors: anchored(ops),
     baseRevision: fingerprint(before),
     revision: fingerprint(after),
     view: isViewOnly(ops, before, after),
@@ -61,7 +72,7 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
     ...(meta.redoes !== undefined ? {redoes: meta.redoes} : {}),
     size: 0,
   };
-  change.size = JSON.stringify(change).length;
+  change.size = sizeOf(change);
   ledger.seq = seq;
   ledger.changes.push(change);
   compact(ledger);

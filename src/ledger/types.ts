@@ -36,6 +36,13 @@ export type Ledger = {seq: number; changes: Change[]};
 export const MAX_REASON = 500;
 /** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
 export const LEDGER_BUDGET = 1_200_000;
+/**
+ * The most a saved ledger adds to a saved project: its budget, which compact() holds the serialized
+ * ledger to, and the `,"ledger":` that carries it. The newest header alone always fits the budget
+ * (record() anchors a change to at most MAX_ANCHORS components), so no recording can exceed this:
+ * what a project may hold of design is MAX_PROJECT less this, known before a change is made.
+ */
+export const LEDGER_RESERVE = LEDGER_BUDGET + ',"ledger":'.length;
 const MAX_INLINE_DATA = 2_000;
 
 /**
@@ -47,6 +54,16 @@ export function slim<T>(value: T): T {
   if (Array.isArray(value)) return value.map(slim) as T;
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, slim(v)])) as T;
   return value;
+}
+
+/**
+ * The length of an entry as saved, its own `size` included: the field holds a number whose digits are
+ * part of what it counts, so the count settles on itself.
+ */
+export function sizeOf(change: Change): number {
+  let size = 0;
+  for (let n = -1; n !== size;) { n = size; size = JSON.stringify({...change, size: n}).length; }
+  return size;
 }
 
 /**
@@ -72,15 +89,19 @@ export function forSaving(ops: PatchOp[]): PatchOp[] {
   });
 }
 
-/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
+/**
+ * Drops the ops of the oldest entries, then the oldest headers, until the ledger serializes to at most
+ * `budget` characters — brackets, commas and the sequence number counted. The newest header is kept;
+ * it fits any budget the ledger is given in practice (see LEDGER_RESERVE).
+ */
 export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
-  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
+  // {"seq":N,"changes":[…]} — the entries, a comma between each two, and the frame around them.
+  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0) + Math.max(0, ledger.changes.length - 1) + 21 + String(ledger.seq).length;
   const drop = (change: Change) => {
     total -= change.size;
     change.ops = [];
     change.compacted = true;
-    change.size = 0;
-    change.size = JSON.stringify(change).length;
+    change.size = sizeOf(change);
     total += change.size;
   };
   // One change bigger than a quarter of the budget (a whole page of html, say) gives up its own ops
@@ -91,7 +112,7 @@ export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
     if (!change.compacted) drop(change);
   }
   // Headers alone can outgrow the budget after very long histories; the oldest go first.
-  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
+  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size + 1;
 }
 
 const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
@@ -122,7 +143,7 @@ export function readLedger(raw: unknown): Ledger | undefined {
     const parent = c.parent ?? previous;
     previous = id;
     const kept = {...c, id, ...(parent ? {parent} : {}), ops: slim(forSaving(c.ops)), size: 0};
-    kept.size = JSON.stringify(kept).length;
+    kept.size = sizeOf(kept);
     return kept;
   })};
   compact(read);
