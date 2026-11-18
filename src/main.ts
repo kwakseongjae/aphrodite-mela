@@ -11,7 +11,7 @@ import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
 import {pinShelf,shelfPage} from './design/shelf';
-import {begin,end,newHistory,step,HumanOnlyStep} from './ledger/session';
+import {begin,end,newHistory,stepForScreen,HumanOnlyStep,StepDoesNotFit} from './ledger/session';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -263,16 +263,18 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
   const before=project;let done;
-  try{done=step(project,direction,edits,d.author);}
+  try{done=stepForScreen(project,direction,edits,d.author);}
   catch(error){
     // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
     if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
+    // The design it would show could not be saved: nothing moved, and the step stays where it was.
+    if(error instanceof StepDoesNotFit){toast(ui('That step would make the project too big to save, so nothing changed.','그 단계는 프로젝트를 저장할 수 없을 만큼 크게 만들어, 아무것도 바꾸지 않았습니다.'));return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
     (direction==='undo'?edits.undo:edits.redo).pop();
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
   if(!done)return;
-  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  project=done.project;persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 /** `d`, when an agent's, names it on the receipt. */
@@ -1727,7 +1729,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         if(c.tokens){
           // The same guard the file import uses: anything that is not a colour is dropped, not trusted.
           const merged={...(next??project.system),...c.tokens} as DesignSystem;
-          const cleaned=parseProject(JSON.stringify({...project,system:merged}));
+          const cleaned=parseProject(JSON.stringify({...designOf(project),system:merged}));
           next=cleaned.system;
         }
         if(!next)return {error:'system changed nothing'};

@@ -201,10 +201,13 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
   const start=main.indexOf('function history(');
   assert.ok(start>0);
   const body=main.slice(start,main.indexOf('\n}',start));
-  assert.match(body,/step\(project,direction,edits,d\.author\)/,'the step is asked as whoever asked for it');
-  assert.ok(body.indexOf('refusal(d')<body.indexOf('step('),'and nobody named takes no step');
+  assert.match(body,/stepForScreen\(project,direction,edits,d\.author\)/,'the step is asked as whoever asked for it, the way the screen takes it');
+  assert.ok(body.indexOf('refusal(d')<body.indexOf('stepForScreen('),'and nobody named takes no step');
   assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefused=error\.message;return;\}/,'refused before the stack is popped');
   assert.ok(body.indexOf('HumanOnlyStep')<body.indexOf('.pop()'));
+  // 0.3-P1 Codex 4th review: a step whose design cannot be saved moves nothing, and the whole project — history included — is not parsed before the save fits it.
+  assert.ok(body.indexOf('StepDoesNotFit')>0&&body.indexOf('StepDoesNotFit')<body.indexOf('.pop()'),'a step that does not fit is not popped');
+  assert.doesNotMatch(body,/parseProject\(JSON\.stringify\(done\.project\)\)/);
 });
 
 test('runAgentCommand returns a refused step as the gate\'s 403',()=>{
