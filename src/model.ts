@@ -94,8 +94,10 @@ const renamedVariants: Record<string, Record<string, string>> = {
   cta: { halves: 'panel' },   // 2026-09-16 · collided with the `split` cta that was already there
   moacard: { cover: 'banner' }, // 2026-09-16 · a task card has no picture; what it does is run the tag to the edge
 };
+/** What a saved project holds at most, design and history together, in characters of JSON. */
+export const MAX_PROJECT = 20_000_000;
 export function parseProject(raw: string): Project {
-  if (raw.length > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.');
+  if (raw.length > MAX_PROJECT) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);

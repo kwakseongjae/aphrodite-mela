@@ -39,10 +39,16 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
+/** What the app's own library file takes at most (src-tauri/src/workspace.rs refuses to write more). */
+export const LIBRARY_LIMIT=40_000_000;
+/** About what a browser keeps in local storage for one site; the browser build saves the library there. An estimate: browsers differ. */
+export const BROWSER_LIBRARY_LIMIT=5_000_000;
+/** How many characters the library would save at with `project` in it as it is now: what to hold a change to before it is made. */
+export function librarySizeWith(library:Library,project:Project):number{return JSON.stringify(upsertProject(library,project)).length;}
 export function writeLibrary(storage:LocalStore,library:Library):void{
   // One atomic localStorage write: quota errors cannot leave a half-written index.
   const raw=JSON.stringify(library);
-  if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
+  if(raw.length>LIBRARY_LIMIT)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }
 export function cloneProject(project:Project):Project{

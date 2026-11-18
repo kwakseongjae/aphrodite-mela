@@ -6,7 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
-import {currentPage, makeBlock, parseProject, safeImage, uid, type BlockKind, type Page, type Project} from '../model';
+import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
 import {patternVariants} from '../patterns';
@@ -14,13 +14,17 @@ import {sampleSrc} from '../design/sample-images';
 import {localRef} from '../design/local-images';
 import {ensureSpace, framePresets, nextFramePosition} from '../editor/space';
 import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
-import {designOf} from '../ledger/ledger';
+import {designOf, emptyLedger, record, MAX_REASON, type Ledger} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
 import {htmlProblem, isFreePage, MAX_PAGE_HTML} from '../free-page';
 
-/** `created` is every page the batch made, in order, so the agent can address what it just made. */
-export type BatchResult = {ok: true; project: Project; selected: string; created: string[]} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+/**
+ * `created` is every page the batch made, in order, so the agent can address what it just made.
+ * `history` is the project's ledger as it would be saved with this change in it, for measuring what
+ * saving takes; the change itself is recorded by the caller.
+ */
+export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; history: Ledger} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
 type Focus = {selected: string; created: string[]};
 
 /** A free page's html, written by an op: held to what a page may store, or an error sentence. */
@@ -202,5 +206,11 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     }
     if (!next.pages.some(p => p.blocks.some(b => b.id === focus.selected))) focus.selected = '';
   }
-  return {ok: true, project: next, selected: focus.selected, created: focus.created};
+  // What is saved is the design and its history together, so that is what is held to a project's cap:
+  // the change is recorded on a copy of the ledger, the way commit() will record it, and measured.
+  const history = JSON.parse(JSON.stringify(project.ledger ?? emptyLedger())) as Ledger;
+  record(history, designOf(project), next, {author: {kind: 'agent', name: 'a'.repeat(100)}, source: 'agent:apply', reason: 'r'.repeat(MAX_REASON)});
+  const saved = JSON.stringify(next).length + JSON.stringify(history).length + 20;
+  if (saved > MAX_PROJECT) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the project would save at ${saved.toLocaleString('en')} characters with its history, past the ${MAX_PROJECT.toLocaleString('en')} a project holds. Make the page smaller, or split the work across pages or another project.`};
+  return {ok: true, project: next, selected: focus.selected, created: focus.created, history};
 }

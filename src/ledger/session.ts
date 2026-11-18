@@ -13,7 +13,7 @@
 import type {Project} from '../model';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject} from './patch';
-import {designOf, emptyLedger, record, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
+import {designOf, emptyLedger, fitSaved, record, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
 
 export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
 
@@ -38,6 +38,7 @@ function reconcile(project: Project, history: History): Project {
     const drift = diffProject(history.last, designOf(project));
     if (drift.length) {
       record(ledgerOf(project), history.last, designOf(project), {author: UNKNOWN, source: 'untracked'}, drift);
+      fitSaved(project);
       history.last = clone(project);
       history.redo = [];
     }
@@ -54,6 +55,7 @@ export function begin(project: Project, history: History): Project {
 export function end(project: Project, before: Project, meta: {author: Author; source: string; reason?: string}, history: History): Change | null {
   const done = record(ledgerOf(project), before, designOf(project), meta);
   if (!done) return null;
+  fitSaved(project);
   history.undo.push(done.undo);
   if (history.undo.length > UNDO_LIMIT) history.undo.shift();
   history.redo = [];
@@ -91,6 +93,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   from.pop();
   (direction === 'undo' ? history.redo : history.undo).push(entry);
   next.ledger = ledger;
+  fitSaved(next);
   history.last = clone(next);
   // A step that changes nothing (its effect was already gone) still moves the stacks, and records nothing.
   return {project: next, change: done ? done.change : null};
