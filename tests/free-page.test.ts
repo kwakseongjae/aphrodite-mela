@@ -41,6 +41,20 @@ test('a page that breaks the free-page rules is refused', () => {
   ] as const) assert.throws(() => parseProject(withPage(page as Record<string, unknown>)), Error, why);
 });
 
+test('a copied project keeps its html pages and their text-diff history, and opens', async () => {
+  const {cloneProject} = await import('../src/workspace/library.ts');
+  const {begin, end, newHistory} = await import('../src/ledger/session.ts');
+  const p = parseProject(withPage({kind: 'html', html: '<p>one</p>\n<p>two</p>\n'.repeat(200)}));
+  const history = newHistory(p);
+  const before = begin(p, history);
+  p.pages[1].html = p.pages[1].html!.replace('<p>two</p>', '<p>three</p>');
+  end(p, before, {author: {kind: 'person', name: 'you'}, source: 'editor:change'}, history);
+  const copy = cloneProject(p);
+  assert.equal(copy.pages[1].html, p.pages[1].html);
+  assert.deepEqual(copy.ledger?.changes.map(c => c.ops[0].op), ['text']);
+  assert.doesNotThrow(() => parseProject(JSON.stringify(copy)));
+});
+
 test('a media item is a hash, a type and a size', () => {
   const p = parseProject(withPage({kind: 'media', media: {src: `media:${SHA}`, mime: 'video/mp4', width: 640, height: 360, duration: 5.2}}));
   const page = p.pages.find(x => x.id === 'free-1')!;
