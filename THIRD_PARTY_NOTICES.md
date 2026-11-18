@@ -22,9 +22,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 https://github.com/nexu-io/open-design — workflow reference, inspected 2026-09-08. The repository identifies Apache-2.0 licensing. No OpenDesign source code was copied or vendored into this prototype.
 
+## Bundled UI font
+
+`public/fonts/PretendardVariable.woff2` — Pretendard Variable by Kil Hyung-jin (https://github.com/orioncactus/pretendard), the typeface of the app's own interface (`src/ui/components.css`). Copyright (c) 2021, Kil Hyung-jin, with Reserved Font Name Pretendard. Licensed under the SIL Open Font License, Version 1.1; the full licence ships beside the file as `public/fonts/LICENSE.txt` and is available at https://scripts.sil.org/OFL . Aphrodite does not modify the file; it is loaded from the app bundle, never from the network.
+
 ## Installable fonts
 
-The app can install these families on request. Each is distributed under the SIL Open Font License 1.1 or Apache-2.0 and is downloaded from the upstream project's own repository, then copied into the user's `~/Library/Fonts`. Aphrodite does not redistribute them: Pretendard, Noto Sans KR, Noto Serif KR, Gowun Dodum, Gowun Batang, IBM Plex Sans KR, Nanum Myeongjo, Inter, Source Serif 4, IBM Plex Mono, JetBrains Mono, Space Grotesk, Fraunces, Libre Baskerville. The catalogue with each licence and source lives in `src/design/fonts.ts`.
+The app can install these families on request. Each is distributed under the SIL Open Font License 1.1 or Apache-2.0 and is downloaded from the upstream project's own repository, then copied into the user's `~/Library/Fonts`. Aphrodite does not redistribute them (the one exception is the interface font above, which is bundled): Pretendard, Noto Sans KR, Noto Serif KR, Gowun Dodum, Gowun Batang, IBM Plex Sans KR, Nanum Myeongjo, Inter, Source Serif 4, IBM Plex Mono, JetBrains Mono, Space Grotesk, Fraunces, Libre Baskerville. The catalogue with each licence and source lives in `src/design/fonts.ts`.
 
 ## Generated sample photography
 

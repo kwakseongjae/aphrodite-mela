@@ -4,6 +4,14 @@
  * .is-hover, .is-pressed, .is-disabled and .is-focus so the gallery can show each one at rest.
  * Guide: docs/UI-SYSTEM.md. Tests: tests/ui-components.test.ts, tests/ui-contrast.test.ts. */
 
+/* Pretendard Variable (SIL OFL 1.1, public/fonts/LICENSE.txt), shipped with the app. Declaring a face
+ * does not load it; only a part that uses --ui-font-sans does. */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920; font-style: normal; font-display: block;
+}
+
 /* ── Root ──────────────────────────────────────────────────────── */
 .ui-root {
   color-scheme: var(--ui-color-scheme);

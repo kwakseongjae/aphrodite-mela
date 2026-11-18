@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync} from 'node:fs';
 
 const dir=new URL('../src/ui/',import.meta.url);
 const sheets=readdirSync(dir).filter(f=>f.endsWith('.css')&&f!=='tokens.css');
@@ -72,4 +72,24 @@ test('every interactive part shows a keyboard focus ring',()=>{
   const focus=css.match(/([^{}]*:focus-(?:visible|within)[^{}]*)\{[^}]*var\(--ui-focus\)/g)?.join(',')??'';
   for(const part of ['ui-btn','ui-icon-btn','ui-chip','ui-seg-item','ui-tab','ui-row','ui-attach','ui-send','ui-switch','ui-input','ui-textarea','ui-select','ui-composer'])
     assert.match(focus,new RegExp(`\\.${part}\\b[^,]*:focus`),`.${part} has no :focus-visible or :focus-within rule in the focus colour`);
+});
+
+/**
+ * The app's typeface ships with it. A url() that reaches the network would make the window depend on
+ * a connection and tell a server every time it opens.
+ */
+test('every file the new sheets load is bundled in public/, and none comes from the network',()=>{
+  const urls=sheets.flatMap(file=>[...strip(read(file)).matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/g)].map(m=>m[1]));
+  assert.ok(urls.some(u=>u.endsWith('.woff2')),'the bundled typeface is declared');
+  for(const url of urls){
+    assert.match(url,/^\/[\w./-]+$/,`${url} is not a path inside the app`);
+    assert.ok(existsSync(new URL(`../public${url}`,import.meta.url)),`${url} is not in public/`);
+  }
+  assert.ok(existsSync(new URL('../public/fonts/LICENSE.txt',import.meta.url)),'the OFL travels with the font file');
+});
+
+test('the bundled face is named so that no design on the canvas picks it up by accident',()=>{
+  // Designs name `Pretendard` (src/design/fonts.ts). Declaring that name would swap their Hangul.
+  const families=sheets.flatMap(file=>[...strip(read(file)).matchAll(/@font-face\s*\{[^}]*font-family:\s*["']?([^"';]+)["']?/g)].map(m=>m[1]));
+  assert.deepEqual(families,['Pretendard Variable']);
 });
