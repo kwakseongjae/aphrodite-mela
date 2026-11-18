@@ -94,7 +94,8 @@ test('a hunk that no longer fits is refused, and nothing is applied', () => {
     assert.throws(() => applyPatch(p, [{op: 'text', on: 'page', page_id: 'free-1', field: 'html', hunks} as PatchOp]), PatchError, JSON.stringify(hunks));
     assert.equal(JSON.stringify(p), frozen);
   }
-  assert.throws(() => applyPatch(initialProject(), [{op: 'text', on: 'page', page_id: initialProject().pages[0].id, field: 'html', hunks: [{at: 0, remove: '', insert: 'x'}]}]), PatchError, 'a section page has no html to splice');
+  const sections = initialProject();
+  assert.throws(() => applyPatch(sections, [{op: 'text', on: 'page', page_id: sections.pages[0].id, field: 'html', hunks: [{at: 0, remove: '', insert: 'x'}]}]), /has no html/, 'a section page has no html to splice');
 });
 
 test('one paragraph edited on a 47,000-character page is recorded in under 2,000 characters, and the saved copy keeps no removed text', () => {

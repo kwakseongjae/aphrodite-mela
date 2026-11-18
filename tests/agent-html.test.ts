@@ -4,7 +4,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {initialProject, fingerprint, isApproved, type Project} from '../src/model.ts';
+import {initialProject, fingerprint, isApproved, makeBlock, type Project} from '../src/model.ts';
 import {parseBatch, type Batch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
 import {htmlWindow} from '../src/free-page.ts';
@@ -103,8 +103,8 @@ test('what an html page may hold is checked where it is written: no paths on thi
   assert.ok(!grown.ok && /2,000,000/.test(grown.error), 'two passages growing past the cap');
   const patched = runBatch(project, batch({patch: [{op: 'set', on: 'page', page_id: id, field: 'html', value: '<img src="file:///etc/x.png">'}]}), '');
   assert.ok(!patched.ok && /media:/.test(patched.error), 'a patch is held to the same rule');
-  const sections = runBatch(project, batch({patch: [{op: 'insert_block', page_id: id, index: 0, block: project.pages[0].blocks[0]}]}), '');
-  assert.ok(!sections.ok, 'a patch cannot put sections on an html page');
+  const sections = runBatch(project, batch({patch: [{op: 'insert_block', page_id: id, index: 0, block: makeBlock('cta')}]}), '');
+  assert.ok(!sections.ok && /has no sections/.test(sections.error), sections.ok ? 'a patch cannot put sections on an html page' : sections.error);
 });
 
 test('no html path writes the approval: a changed page is simply not the one the person approved', () => {
