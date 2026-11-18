@@ -1,4 +1,4 @@
-import { createIcons } from 'lucide';
+import { createIcons, createElement } from 'lucide';
 /** Last-resort crash surface: a blank webview hides everything, so uncaught errors are painted into the page. */
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
@@ -195,6 +195,8 @@ const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}
 const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
+/** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
+function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
 let toasts:Toast[]=[];let toastId=0;
 const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
 function paintToasts(){
@@ -537,7 +539,7 @@ function render() {
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
     </main>
-    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${inspectorPanelHtml()}</aside>
   </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`;
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -547,6 +549,34 @@ function render() {
   mountSpace();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
+  decorateInspector(page);
+  if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
+  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  mountPointer(canvas as HTMLElement,page);
+}
+function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+function inspectorPanelHtml(){const page=currentPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml();}
+/**
+ * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
+ * canvas on every click — the page flashed and every picture reloaded. Only what shows the selection
+ * changes: the outline and its handles, the marks on the section and its layer, and the inspector.
+ * A field being edited in the inspector has already been saved by its own `change` as focus left it.
+ */
+function selectBlock(id:string){
+  selected=id;
+  const canvas=app.querySelector<HTMLElement>('#design-canvas'),aside=app.querySelector<HTMLElement>('.inspector');
+  if(screen!=='editor'||!canvas||!aside){render();return;}
+  const page=currentPage(project);
+  canvas.querySelectorAll<HTMLElement>('.block-wrap[data-block-id]').forEach(el=>el.classList.toggle('selected',el.dataset.blockId===id));
+  app.querySelectorAll<HTMLElement>('.layer[data-layer-id]').forEach(el=>el.classList.toggle('selected',el.dataset.layerId===id));
+  aside.querySelectorAll(':scope>:not(.inspector-grip,.inspector-top,.inspector-toggle)').forEach(el=>el.remove());
+  aside.insertAdjacentHTML('beforeend',inspectorPanelHtml());decorateInspector(page);
+  hydrateIconsIn(aside);syncStateAttributes();
+  mountPointer(canvas,page);
+}
+/** What the inspector adds for the selected block once it is drawn. render() and selectBlock() both call it. */
+function decorateInspector(page:Page){
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
@@ -565,16 +595,12 @@ function render() {
     app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',library+layout);
     if(b.kind==='frame')app.querySelector('.component-contract-id')?.insertAdjacentHTML('afterend',select('variant',ui('Frame recipe','프레임 레시피'),patternVariants('frame'),b.variant??'default')+'<p class="panel-description">app-* 레시피는 열·간격 규칙을 고정합니다. 일반 레이아웃 편집은 default로 전환하세요.</p>');
   }
-  if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   if(inspected&&supportsComponentTheme(inspected)){
    const mode=inspected.theme?.mode??'project';
    const effect=primaryEffect(inspected);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<p class="panel-description" role="status">${ui('Primary affects: ','메인 색상 적용 영역: ')}${ui(effect,({'fill':'채움 배경','text-border':'글자·테두리 (ghost는 글자)','border':'테두리만','neutral':'중립형 — 현재 변형의 기본 글자·배경에는 미적용'} as Record<string,string>)[effect])}</p>${mode==='custom'?`<label class="edit-field">${ui('HEX','HEX')}<input id="component-theme-hex" aria-label="Component primary hex" value="${componentAccent(inspected,project.system.accent)}" maxlength="7" pattern="#[a-fA-F0-9]{6}"></label>`:''}`);
    app.querySelector('#component-provider')?.closest('label')?.insertAdjacentHTML('afterend',`<label class="edit-field">${ui('Component primary color','컴포넌트 메인 색상')}<select id="component-theme-mode" aria-label="Component color policy"><option value="project" ${mode==='project'?'selected':''}>${ui('Follow project','프로젝트 색상 적용')}</option><option value="source" ${mode==='source'?'selected':''}>${ui('Adapter baseline','어댑터 기본색')}</option><option value="custom" ${mode==='custom'?'selected':''}>${ui('Custom color','개별 색상 지정')}</option></select></label>${mode==='custom'?`<label class="edit-field">${ui('Custom primary','개별 메인 색상')}<input type="color" id="component-theme-accent" aria-label="Component custom primary" value="${componentAccent(inspected,project.system.accent)}"></label>`:''}<p class="panel-description">${ui('Primary only. Fonts and surfaces still follow existing adapters. Baseline is not a full original DS.','메인 색상만 변경합니다. 폰트·표면색은 기존 어댑터를 따릅니다. 기본색은 원본 DS 전체 복원이 아닙니다.')}<br>${componentAccent(inspected,project.system.accent)}</p>`);
   }
-  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
-  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},true,'layer:move');app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
-  disposePointerEditor=mountPointerEditor({canvas:canvas as HTMLElement,blocks:page.blocks,selected,select:id=>{if(selected!==id){selected=id;render();}},commit:command=>{let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},true,`pointer:${command.type}`);return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});
 }
 function libraryHtml() {
   if (tab === 'archive') return referencesPanelHtml(archive.entries(), archive.scope(), uiLanguage === 'ko', nativeDesktop);
@@ -919,7 +945,7 @@ async function action(el: HTMLElement, trusted = false) {
     case 'redo': history('redo',by); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
-    case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
+    case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
     case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);break;}
@@ -1183,7 +1209,7 @@ document.addEventListener('click', e => {
   if (control) { e.preventDefault(); void action(control, e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
-  if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
+  if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
 });
 document.addEventListener('contextmenu',e=>{
   if(screen!=='home')return;const card=(e.target as HTMLElement).closest<HTMLElement>('[data-project-id]');if(!card)return;
@@ -1713,7 +1739,7 @@ function mountSpace(){
     const done=(ev:PointerEvent)=>{
       space.removeEventListener('pointermove',draw);space.removeEventListener('pointerup',done);space.removeEventListener('pointercancel',done);
       const rect=box.getBoundingClientRect();box.remove();
-      if(!dragging){if(selected){selected='';render();}return;}
+      if(!dragging){if(selected)selectBlock('');return;}
       // One selection model: keep the block the marquee covers most.
       let best:{id:string;area:number}|undefined;
       for(const el of Array.from(document.querySelectorAll<HTMLElement>('.space-frame.active [data-block-id]'))){
@@ -1724,8 +1750,8 @@ function mountSpace(){
         if(area>0&&(!best||area>best.area))best={id:el.dataset.blockId!,area};
       }
       const next=best?.id??'';
-      if(next!==selected){selected=next;render();recordRun('marquee:select',{selected:next||null});}
-      else if(!next&&selected){selected='';render();}
+      if(next!==selected){selectBlock(next);recordRun('marquee:select',{selected:next||null});}
+      else if(!next&&selected)selectBlock('');
     };
     space.addEventListener('pointermove',draw,{signal});space.addEventListener('pointerup',done,{signal});space.addEventListener('pointercancel',done,{signal});
   },{signal});
@@ -1791,7 +1817,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', e.isTrusted ? '' : commandCaller); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
-  else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
+  else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selectBlock((e.target as HTMLElement).dataset.blockId!); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
 });
 installPatternRuntime(document);
 installMenuSelects(document);
