@@ -56,7 +56,7 @@ Open Aphrodite first: the server reads `~/Library/Application Support/studio.aph
 ## What it will not do
 
 - **Approve a direction.** That is the person's decision and no tool here can make it.
-- **Let itself in.** Reading is always open; editing needs the person to open the door. An agent may *ask* — `aphrodite_request_connection` puts a line at the top of their app with the agent's name on it, and they allow or decline with one click — but nothing here can open it unasked. One request stands at a time and a decline holds for a few minutes, so a prompt cannot become a nag.
+- **Let itself in.** Reading is always open; editing needs the person to open the door. An agent may *ask* — `aphrodite_request_connection` puts a dialog in the middle of their app with the agent's name on it, and they allow or decline with one click — but nothing here can open it unasked. One request stands at a time and a decline holds for a few minutes, so a prompt cannot become a nag.
 - **Decide anything.** Permission is the app's judgement (`src/agent/authority.ts`), so the same request made with `curl` meets the same answer. Nothing here can be relaxed by a client.
 
 ## Checking it

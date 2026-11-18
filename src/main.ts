@@ -163,7 +163,7 @@ let connectMode=allowedAgents.length>0;
 function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(n=>n===ANYONE?ui('any agent','모든 에이전트'):n).join(', ');}
-let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;
+let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
@@ -339,7 +339,7 @@ function toggleNight(){
 }
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}${askBannerHtml()}`;}
+function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
@@ -348,12 +348,6 @@ function refreshBanners(){
   const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
-}
-
-/** An agent asking to be let in. A line at the top, not a dialog: it must never interrupt a drag. */
-function askBannerHtml(){
-  if(!askState||askState.answered!=='pending'||callerMode(askState.by)!=='design')return '';
-  return `<div class="ask-banner" role="status">${icon('bot')}<strong>${esc(askState.by)}</strong><span class="connect-sep">·</span><span>${ui('would like to edit alongside you','함께 편집하기를 요청합니다')}</span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes any of it','화면은 그대로 쓰시면 됩니다 · 무엇이든 ⌘Z로 되돌립니다')}</span><span class="connect-fill"></span><button type="button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="ask-allow" data-action="ask-allow">${ui('Allow','허용')}</button></div>`;
 }
 
 /** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
@@ -727,8 +721,38 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { const asking=askOpen(); analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+  // Closing the request any way but Allow is Not now: it must not linger unanswered, nor come straight back.
+  if(asking&&askState?.answered==='pending'){askState={...askState,answered:'declined',at:Date.now()};toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));}
+  offerAsk();
 }
+function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
+/**
+ * An agent asking to be let in, as a dialog in the middle of the screen. It waits for its moment: not
+ * over another dialog the person is using (it shows when that one closes), and not in the middle of a
+ * press, where making the page inert would cancel the person's drag.
+ */
+function offerAsk(){if(!askState||askState.answered!=='pending'||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by);}
+function askModal(by:string){
+  showModal(`<code class="ask-name">${esc(by)}</code>`,ui('would like to edit alongside you','함께 편집하기를 요청합니다'),
+    `<div class="ask-dialog"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · You can disconnect it in Settings','다음부터는 묻지 않습니다 · 설정에서 끊을 수 있습니다')}</span></li></ul>`+
+    `<div class="ask-actions"><button type="button" class="secondary-button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="primary-button" data-action="ask-allow">${ui('Allow','허용')}</button></div></div>`);
+  modalRoot.querySelector('.modal')?.classList.add('ask-modal');
+  // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
+  toasts=[];paintToasts();
+  modalRoot.querySelector<HTMLElement>('[data-action="ask-allow"]')?.focus();
+}
+/** The person's answer. Only their own input reaches here (doorActions in authority.ts; the keys check isTrusted). */
+function answerAsk(allow:boolean){
+  if(!askState)return;const by=askState.by;
+  askState={...askState,answered:allow?'allowed':'declined',at:allow?askState.at:Date.now()};
+  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
+  if(askOpen())closeModal();
+  refreshBanners();
+  toast(allow?`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
+}
+document.addEventListener('pointerdown',()=>{pointerHeld=true;},true);
+for(const type of ['pointerup','pointercancel'])document.addEventListener(type,()=>{pointerHeld=false;setTimeout(offerAsk,0);},true);
 function systemModal() {
   showModal(ui('Start with a point of view.','관점부터 정하세요.'), '시스템을 바꾸면 모든 페이지의 색상과 스타일이 함께 바뀝니다.', `<div class="systems-grid">${systems.map(s => `<button class="system-option ${project.system.id === s.id ? 'active' : ''}" data-action="choose-system" data-system="${s.id}"><div class="system-preview" style="background:${s.background};color:${s.foreground};--preview-accent:${s.accent}"><span style="font-family:${s.font === 'serif' ? 'Georgia' : 'Arial'}">Aa</span><i style="background:${s.accent}"></i><i style="background:${s.foreground}"></i></div><div><strong>${s.name}</strong>${project.system.id === s.id ? icon('circle-check') : icon('arrow-up-right')}</div><p>${s.description}</p></button>`).join('')}</div><div class="modal-note">Material / shadcn / SEED / Astryx를 고르면 지원되는 새 컴포넌트에 어댑터가 기본 적용됩니다. 기존 컴포넌트는 Implementation에서 선택하세요. Karrot inspired / Toss는 색상 참조 프리셋입니다.</div>${button('import-md', 'file-up', 'Import a design system', 'secondary-button full-width')}<p class="fine-print">${ui('A DESIGN.md, or a design-system graph as .json. Named colours are painted; the rest is kept with the project so a round trip loses nothing.','DESIGN.md 또는 디자인 시스템 그래프(.json). 이름이 맞는 색은 화면에 적용하고, 나머지는 프로젝트에 그대로 보관해 왕복해도 잃지 않습니다.')}</p>`);
 }
@@ -1161,7 +1185,7 @@ async function action(el: HTMLElement, trusted = false) {
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
-    case 'close-modal': closeModal(); break;
+    case 'close-modal': if(askOpen()&&!trusted)break; closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': await reloadFromDisk(); break;
@@ -1190,8 +1214,8 @@ async function action(el: HTMLElement, trusted = false) {
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = project.pages[0].id; selected = ''; }); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'ask-allow': {if(!askState)break;const by=askState.by;askState={...askState,answered:'allowed'};setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;refreshBanners();toast(`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`);break;}
-    case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;refreshBanners();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
+    case 'ask-allow': answerAsk(true);break;
+    case 'ask-decline': answerAsk(false);break;
     case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
     case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${name===ANYONE?ui('Any agent','모든 에이전트'):name} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
     case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
@@ -1206,7 +1230,7 @@ document.addEventListener('click', e => {
   document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open],details.folio-help[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   const link=target.closest<HTMLAnchorElement>('a[href^="https://github.com/"]');
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
-  if (target.classList.contains('modal-backdrop')) { closeModal(); return; }
+  if (target.classList.contains('modal-backdrop')) { if(askOpen()&&!e.isTrusted)return; closeModal(); return; }
   const chip=target.closest<HTMLElement>('[data-toast]');
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
@@ -1498,7 +1522,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
   if(c.kind==='guide')return {ok:true,guide:guideFor({mode:callerMode(who),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:callerMode(who)!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed',screen:screen==='editor'?'editor':'home'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,callerMode(who),askState,Date.now());
-    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};offerAsk();if(!askOpen())toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
   commandCaller=who;stepRefused='';
@@ -1802,6 +1826,13 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
+  // Enter allows and Esc is Not now, from the person's own keyboard only: a key an agent sends is dropped.
+  if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
+    if(!e.isTrusted){e.preventDefault();return;}
+    const on=document.activeElement as HTMLElement|null;
+    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
+    e.preventDefault();answerAsk(e.key==='Enter');return;
+  }
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }

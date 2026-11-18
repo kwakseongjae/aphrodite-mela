@@ -38,7 +38,7 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | Route | 파라미터 | Does | 권한 |
 |---|---|---|---|
 | `GET /agent/guide` | — | 플레이북과 지금 상태를 한 덩이로: 어느 프로젝트·몇 페이지·모드·화면을 쥔 주체·쓰기 가능 여부. `{ok, guide}`. 여기서 시작하면 된다. | 물음 |
-| `POST /agent/connect` | `{}` | 사람 화면에 요청자 이름이 박힌 한 줄을 띄운다. `{ok, status, message, mode}` — `status`는 `asked` / `waiting`(이미 서 있는 요청) / `declined`(5분 유지) / `already-open`(이미 열려 있음). | 물음 |
+| `POST /agent/connect` | `{}` | 사람 화면 가운데에 요청자 이름이 박힌 창을 띄운다(사람이 다른 창을 쓰는 중이거나 누르고 있는 중이면 끝난 뒤에). 허용하면 그 이름을 기억한다. `{ok, status, message, mode}` — `status`는 `asked` / `waiting`(이미 서 있는 요청) / `declined`(5분 유지) / `already-open`(이미 열려 있음). | 물음 |
 | `GET /agent/contract` | `?format=detailed&pageId=…` | 디자인 계약: 페이지·프레임·컴포넌트(`block_id`, kind, variant, 카피), 디자인 시스템, **사람이 지금 선택한 것**. 기본은 concise, 큰 프로젝트는 잘리고 어떻게 좁혀 물을지 알려준다. 이미지 바이트는 절대 싣지 않는다(`inline:image/png:24000`처럼 설명만). | 읽기 |
 | `GET /agent/tokens` | — | 토큰과 **실제 CSS 변수명**(`--brand`, `--heading`). 생성 코드가 매직 넘버 대신 토큰을 쓰게. | 읽기 |
 | `GET /agent/components` | — | 조립 어휘: kind × 변형 × 프로바이더. `aphrodite.components/1` — `component_kind`, `name`, `group`, `variants`, `providers`. | 읽기 |

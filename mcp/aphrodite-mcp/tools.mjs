@@ -33,7 +33,7 @@ export const tools = [
     name: 'aphrodite_request_connection',
     title: 'Ask to edit alongside the person',
     description: [
-      'Ask the person to let you change the design. A line appears at the top of their app with your name on it, and they allow or decline with one click.',
+      'Ask the person to let you change the design. A dialog appears in the middle of their app with your name on it, and they allow or decline with one click. Once allowed, your name is remembered until they disconnect it.',
       '',
       'Call it once, when an edit came back saying writing is off. Then tell the person in your own words what you would like to change while they decide — that is what makes them comfortable saying yes.',
       'Asking again straight away does nothing: one request stands at a time, and a decline holds for a few minutes. This is deliberate. Nothing here can open the door on its own.',
