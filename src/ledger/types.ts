@@ -70,15 +70,20 @@ export function forSaving(ops: PatchOp[]): PatchOp[] {
 /** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
 export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
   let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
-  for (const change of ledger.changes) {
-    if (total <= budget) break;
-    if (change.compacted) continue;
+  const drop = (change: Change) => {
     total -= change.size;
     change.ops = [];
     change.compacted = true;
     change.size = 0;
     change.size = JSON.stringify(change).length;
     total += change.size;
+  };
+  // One change bigger than a quarter of the budget (a whole page of html, say) gives up its own ops
+  // first; otherwise it would take every older change's with it and still not fit.
+  for (const change of ledger.changes) if (total > budget && !change.compacted && change.size > budget / 4) drop(change);
+  for (const change of ledger.changes) {
+    if (total <= budget) break;
+    if (!change.compacted) drop(change);
   }
   // Headers alone can outgrow the budget after very long histories; the oldest go first.
   while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;

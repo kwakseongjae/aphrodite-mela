@@ -11,6 +11,7 @@ import {forSaving, shortHash, readLedger, LEDGER_BUDGET} from '../src/ledger/typ
 import {begin, end, step, newHistory} from '../src/ledger/session.ts';
 import {emptyLedger, UNDO_LIMIT} from '../src/ledger/ledger.ts';
 import {parseBatch} from '../src/agent/ops.ts';
+import {runBatch} from '../src/agent/apply.ts';
 
 const PERSON = {kind: 'person' as const, name: 'you'};
 const AGENT = {kind: 'agent' as const, name: 'claude-code'};
@@ -142,6 +143,34 @@ test('300 edits in a row keep every change\'s ops in the saved ledger, and undo 
   }
 });
 
+test('one change bigger than a quarter of the budget gives up its own ops, not every older change\'s', () => {
+  const p = freeProject(bigPage()), history = newHistory(p);
+  for (let n = 0; n < 50; n++) {
+    const before = begin(p, history);
+    p.pages[1].html = editParagraph(p.pages[1].html!, n % 30, `n${n}`);
+    end(p, before, {author: PERSON, source: 'editor:change'}, history);
+  }
+  const before = begin(p, history);
+  p.pages[1].html = '<main>' + Array.from({length: 40_000}, (_, i) => `<p>line ${i} of a whole new page</p>`).join('\n') + '</main>';
+  assert.ok(p.pages[1].html.length > LEDGER_BUDGET);
+  const big = end(p, before, {author: AGENT, source: 'agent:apply', reason: 'A whole new page.'}, history)!;
+  const changes = p.ledger!.changes;
+  assert.equal(changes.at(-1)!.id, big.id);
+  assert.equal(changes.at(-1)!.compacted, true, 'the big change keeps who, what and why, but not its ops');
+  assert.equal(changes.slice(0, -1).filter(c => c.compacted).length, 0, 'every older change keeps its ops');
+  const undone = step(p, 'undo', history, PERSON)!;
+  assert.equal(undone.project.pages[1].html, before.pages[1].html, 'undo is exact all the same');
+});
+
+test('the line diff gives up on edits scattered everywhere and records one passage, which still replays exactly', () => {
+  const page = Array.from({length: 4000}, (_, i) => `<p id="r${i}">row ${i}</p>`).join('\n');
+  const edited = page.split('\n').map((line, i) => i % 3 ? line : line.replace('row', 'ROW')).join('\n');
+  const hunks = textHunks(page, edited);
+  assert.equal(hunks.length, 1, 'more edits than the diff will chase become one passage from the first to the last');
+  assert.equal(applyText(page, hunks), edited);
+  assert.equal(applyText(edited, textHunks(edited, page)), page);
+});
+
 test('random edit histories undo and redo through the session without a character out of place', () => {
   for (let seed = 1; seed <= 60; seed++) {
     const r = rng(seed * 31);
@@ -166,6 +195,12 @@ test('an agent can send a recorded text change back as a patch, in either form',
   const change = end(p, before, {author: PERSON, source: 'editor:change'}, history)!;
   const parsed = parseBatch({reason: 'Replay the person\'s edit on the copy.', patch: json(change.ops)});
   assert.ok('batch' in parsed, 'error' in parsed ? parsed.error : '');
+  if (!('batch' in parsed)) return;
+  const replayed = runBatch(json(before), parsed.batch, '');
+  assert.ok(replayed.ok, replayed.ok ? '' : replayed.error);
+  if (replayed.ok) assert.equal(replayed.project.pages[1].html, p.pages[1].html, 'the saved form replays onto a copy through the same path an agent uses');
+  const moved = runBatch(p, parsed.batch, '');
+  assert.ok(!moved.ok && /no longer what passage 0 took out/.test(moved.error), 'replayed onto a page that has moved on, it is refused');
   for (const bad of [
     {op: 'text', on: 'project', page_id: 'free-1', field: 'html', hunks: [{at: 0, remove: '', insert: 'x'}]},
     {op: 'text', on: 'page', page_id: 'free-1', field: 'name', hunks: [{at: 0, remove: '', insert: 'x'}]},
