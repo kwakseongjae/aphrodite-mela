@@ -14,17 +14,16 @@ import {sampleSrc} from '../design/sample-images';
 import {localRef} from '../design/local-images';
 import {ensureSpace, framePresets, nextFramePosition} from '../editor/space';
 import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
-import {designOf, emptyLedger, record, MAX_REASON, type Ledger} from '../ledger/ledger';
+import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
 import {htmlProblem, isFreePage, MAX_PAGE_HTML} from '../free-page';
 
 /**
  * `created` is every page the batch made, in order, so the agent can address what it just made.
- * `history` is the project's ledger as it would be saved with this change in it, for measuring what
- * saving takes; the change itself is recorded by the caller.
+ * `designChars` is how long the resulting design serializes to, for measuring what saving takes.
  */
-export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; history: Ledger} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
 type Focus = {selected: string; created: string[]};
 
 /** A free page's html, written by an op: held to what a page may store, or an error sentence. */
@@ -170,7 +169,7 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
 }
 
 function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
-  let next = JSON.parse(JSON.stringify(designOf(project))) as Project;
+  let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
   const focus: Focus = {selected, created: []};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
@@ -185,7 +184,8 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     }
     // What the ops made is held to what a saved project must be, as the patch is below: thirty pages of
     // 2MB would not fit in one, and a project that cannot be saved cannot be undone into either.
-    try { parseProject(JSON.stringify(next)); }
+    json = JSON.stringify(next);
+    try { parseProject(json); }
     catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
@@ -206,11 +206,10 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     }
     if (!next.pages.some(p => p.blocks.some(b => b.id === focus.selected))) focus.selected = '';
   }
-  // What is saved is the design and its history together, so that is what is held to a project's cap:
-  // the change is recorded on a copy of the ledger, the way commit() will record it, and measured.
-  const history = JSON.parse(JSON.stringify(project.ledger ?? emptyLedger())) as Ledger;
-  record(history, designOf(project), next, {author: {kind: 'agent', name: 'a'.repeat(100)}, source: 'agent:apply', reason: 'r'.repeat(MAX_REASON)});
-  const saved = JSON.stringify(next).length + JSON.stringify(history).length + 20;
-  if (saved > MAX_PROJECT) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the project would save at ${saved.toLocaleString('en')} characters with its history, past the ${MAX_PROJECT.toLocaleString('en')} a project holds. Make the page smaller, or split the work across pages or another project.`};
-  return {ok: true, project: next, selected: focus.selected, created: focus.created, history};
+  // What is saved is the design and its history, and the history never takes more than LEDGER_RESERVE
+  // (src/ledger/types.ts). So the design alone is held to the rest: a batch that lands is a project that
+  // saves and opens, whoever records it and with whatever reason.
+  const designChars = (batch.patch?.length || !json ? JSON.stringify(next) : json).length;
+  if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
+  return {ok: true, project: next, selected: focus.selected, created: focus.created, designChars};
 }

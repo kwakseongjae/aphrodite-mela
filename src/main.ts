@@ -61,7 +61,7 @@ import {designContract,designTokens,componentVocabulary,closedCanvas,closedRende
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {isFreePage} from './free-page';
-import {changesSince,designOf,type Change} from './ledger/ledger';
+import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
@@ -1546,7 +1546,7 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
     const result=runBatch(project,batch,selected);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first: past what the library holds, nothing lands.
-    const limit=diskQueue?LIBRARY_LIMIT:BROWSER_LIBRARY_LIMIT,size=librarySizeWith(library,{...result.project,ledger:result.history});
+    const limit=diskQueue?LIBRARY_LIMIT:BROWSER_LIBRARY_LIMIT,size=librarySizeWith(library,result.project)+LEDGER_RESERVE;
     if(size>limit){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:`with this change the saved projects would come to ${size.toLocaleString('en')} characters, past the ${limit.toLocaleString('en')} ${diskQueue?'the app\'s library file':'this browser\'s storage'} holds. Make the page smaller or split it, or ask the person to export or remove a project.`};return;}
     created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
