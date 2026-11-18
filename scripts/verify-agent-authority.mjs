@@ -10,9 +10,9 @@
  *   node scripts/verify-agent-authority.mjs
  */
 import assert from 'node:assert/strict';
-import {openApp, runChecks, sleep} from './lib/headless.mjs';
+import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 
-const {agent, personClicks, personTypes, evaluate, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
+const {agent, personClicks, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 
@@ -30,7 +30,8 @@ check('writing is refused with 423 and told how to proceed', async () => {
 
 check('an agent cannot open the door for itself', async () => {
   const refused = await agent('act', {action: 'agent-connect-toggle'});
-  assert.equal(refused.status, 423, 'flipping the switch is a write like any other');
+  assert.equal(refused.status, 403, 'flipping the switch is the person\'s, like approving');
+  assert.match(refused.error, /the person's to decide/);
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'no banner appeared');
 });
 
@@ -116,6 +117,82 @@ check('disconnecting closes the door again', async () => {
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false);
   const refused = await agent('edit', {field: 'title', text: 'x'});
   assert.equal(refused.status, 423);
+});
+
+/* 0.3-1b: an agent the person allowed is remembered by name — no clock, across a restart — until they
+   disconnect it. A reload of the page stands in for the restart: the app reads its state back from
+   storage exactly as it does at launch. */
+const restart = async () => {
+  await send('Page.reload', {ignoreCache: true});
+  await sleep(800);
+  await waitFor(() => evaluate('!!window.aphroditeAgent && !!document.querySelector("#app")'), 'the app to boot again');
+};
+const writes = async caller => (await agent('state', {}, caller)).state.writes;
+
+check('the person allows an agent by name, and a restart remembers it', async () => {
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  await sleep(200);
+  await personClicks('ask-allow');
+  await sleep(200);
+  assert.equal(await writes('claude-code'), 'on');
+  await restart();
+  assert.equal(await writes('claude-code'), 'on', 'still let in after the restart');
+  const again = await agent('connect', {}, 'claude-code');
+  assert.equal(again.status, 'already-open', 'and it is not asked again');
+  const write = await agent('edit', {field: 'title', text: 'remembered'}, 'claude-code');
+  assert.notEqual(write.status, 423, JSON.stringify(write));
+  assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('claude-code')), true, 'the banner names who is let in');
+});
+
+check('a different name is still asked, and cannot write meanwhile', async () => {
+  assert.equal(await writes('astra'), 'off');
+  const refused = await agent('edit', {field: 'title', text: 'x'}, 'astra');
+  assert.equal(refused.status, 423, JSON.stringify(refused));
+  assert.match(refused.error, /writing is off for astra/);
+  const asked = await agent('connect', {}, 'astra');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+});
+
+check('no agent can answer for the person or change the list — not even an allowed one', async () => {
+  for (const caller of ['astra', 'claude-code']) {
+    for (const action of ['ask-allow', 'ask-decline', 'agent-connect-toggle', 'agent-disconnect', 'agent-forget']) {
+      const refused = await agent('act', {action, data: {name: 'claude-code'}}, caller);
+      assert.equal(refused.status, 403, `${caller} ${action}: ${JSON.stringify(refused)}`);
+    }
+    const clicked = await agent('click', {selector: '[data-action="ask-allow"]'}, caller);
+    assert.equal(clicked.status, 403, `${caller} clicking Allow: ${JSON.stringify(clicked)}`);
+  }
+  assert.equal(await writes('astra'), 'off', 'astra is still out');
+  assert.equal(await writes('claude-code'), 'on', 'and claude-code is still in');
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-allowed-agents'))`), ['claude-code'], 'the remembered list did not move');
+  await personClicks('ask-decline');
+  await sleep(200);
+});
+
+check('disconnecting forgets the name, and the next request asks again', async () => {
+  await personClicks('agent-disconnect');
+  await sleep(200);
+  assert.equal(await evaluate(`localStorage.getItem('aphrodite-allowed-agents')`), null, 'nothing is remembered');
+  await restart();
+  assert.equal(await writes('claude-code'), 'off');
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+});
+
+check('the person can disconnect one agent and keep another', async () => {
+  await personClicks('ask-allow');
+  await sleep(150);
+  await agent('connect', {}, 'astra');
+  await sleep(150);
+  await personClicks('ask-allow');
+  await sleep(150);
+  assert.equal(await writes('astra'), 'on');
+  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'agent-forget'; b.dataset.name = 'astra'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await sleep(150);
+  assert.equal(await writes('astra'), 'off', 'astra is out');
+  assert.equal(await writes('claude-code'), 'on', 'claude-code stays');
+  await personClicks('agent-disconnect');
 });
 
 

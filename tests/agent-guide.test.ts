@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {playbook,guideFor,considerAsk,connectUntil,connectActive,connectRemaining,connectLeftLabel,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
+import {playbook,guideFor,considerAsk,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
 
 const NOW=1_700_000_000_000;
 const status=(over:Partial<GuideStatus>={}):GuideStatus=>({mode:'design',holder:null,projectName:'빛공방',pageCount:2,approved:false,canWrite:false,askedRecently:false,...over});
@@ -64,25 +64,14 @@ test('asking when the door is already open says so instead of prompting the pers
   assert.equal(considerAsk('claude-code','connected',{by:'x',at:NOW,answered:'declined'},NOW).status,'already-open','a stale refusal never blocks an open door');
 });
 
-test('an allowed connection is remembered for a working day, then lapses',()=>{
-  const until=connectUntil(NOW);
-  assert.equal(connectActive(String(until),NOW),true);
-  assert.equal(connectActive(String(until),until-1),true);
-  assert.equal(connectActive(String(until),until+1),false,'it lapses on its own');
-  assert.equal(connectActive(null,NOW),false,'nothing remembered means closed');
-  assert.equal(connectActive('not a time',NOW),false);
-  assert.equal(connectActive('0',NOW),false);
-  assert.match(connectRemaining(String(until),NOW,true),/12시간 남음/);
-  assert.match(connectRemaining(String(until),until-60*60*1000,false),/about 1h left/);
-  assert.equal(connectRemaining(String(until),until+1,true),'','a lapsed one says nothing');
+test('a refusal holds back the agent that was refused, not every other one',()=>{
+  const declined:AskState={by:'astra',at:NOW,answered:'declined'};
+  assert.equal(considerAsk('astra','design',declined,NOW+1000).status,'declined');
+  assert.equal(considerAsk('claude-code','design',declined,NOW+1000).status,'asked','another name may still ask');
+  const pending:AskState={by:'astra',at:NOW,answered:'pending'};
+  assert.equal(considerAsk('claude-code','design',pending,NOW+1000).status,'waiting','but only one request is on the screen at a time');
 });
 
-test('the switch says how long the permission still has to run',()=>{
-  assert.equal(connectLeftLabel(connectUntil(NOW)-NOW,false),'for 12 hours · 12 h left','a fresh allow shows the whole span');
-  assert.equal(connectLeftLabel(3*60*60*1000+59*60*1000,true),'12시간 동안 · 3시간 남음','hours round down: never promise more time than is left');
-  assert.equal(connectLeftLabel(60*60*1000-1,false),'for 12 hours · 59 min left','under an hour it counts in minutes');
-  assert.equal(connectLeftLabel(30*1000,true),'12시간 동안 · 1분 미만 남음');
-  assert.equal(connectLeftLabel(30*1000,false),'for 12 hours · under a minute left');
-  assert.equal(connectLeftLabel(0,false),'','a lapsed one says nothing');
-  assert.equal(connectLeftLabel(Number('not a time')-NOW,true),'','nor does an unreadable one');
+test('the playbook tells an agent its name is remembered once allowed',()=>{
+  assert.match(playbook,/remembered, across restarts, until they disconnect it/);
 });
