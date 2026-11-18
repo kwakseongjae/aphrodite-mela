@@ -82,15 +82,19 @@ export function rules(css:string):Rule[]{
   const walk=(text:string,media:string)=>{
     let i=0;
     while(i<text.length){
-      const open=text.indexOf('{',i);
-      if(open<0)break;
+      const open=text.indexOf('{',i),semi=text.indexOf(';',i);
+      // A statement at-rule (@import, @layer a;) would change what the rules after it mean.
+      if(semi>=0&&(open<0||semi<open)){const statement=text.slice(i,semi).trim();if(statement)throw new Error('cannot read "'+statement+'" outside a rule');i=semi+1;continue;}
+      if(open<0){if(text.slice(i).trim())throw new Error('cannot read "'+text.slice(i).trim()+'"');break;}
       const prelude=text.slice(i,open).trim();
       let depth=1,j=open+1;
       for(;j<text.length&&depth;j++){if(text[j]==='{')depth++;else if(text[j]==='}')depth--;}
       const body=text.slice(open+1,j-1);
       i=j;
       if(/^@(media|supports|container)\b/.test(prelude)){walk(body,prelude.replace(/\s+/g,' '));continue;}
-      if(prelude.startsWith('@'))continue;
+      if(/^@(font-face|keyframes)\b/.test(prelude))continue;
+      if(prelude.startsWith('@'))throw new Error('cannot read the at-rule "'+prelude+'"');
+      if(body.includes('{'))throw new Error('cannot read a rule nested inside "'+prelude+'"');
       const decls:Rule['decls']={};
       for(const d of body.split(';')){
         const c=d.indexOf(':');if(c<0)continue;
@@ -243,6 +247,8 @@ export function winner(all:Rule[],chain:El[],prop:string,media:string[]=[]):Rule
   return best&&{...best.r,prop:best.prop};
 }
 export const value=(all:Rule[],chain:El[],prop:string,media:string[]=[])=>{const w=winner(all,chain,prop,media);return w?.decls[w.prop].value;};
+/** Each way the sheet can be read: with no condition true, then with each of its @media conditions true on its own. */
+export const conditions=(all:Rule[])=>[[],...[...new Set(all.map(r=>r.media).filter(Boolean))].map(m=>[m])];
 
 /**
  * The classes of a sheet sorted into parts, variants and children, from how they are named and used.
@@ -311,7 +317,7 @@ export const describe=(chain:El[])=>chain.map(e=>(e.element?'::'+e.element:'')+[
 
 
 /** What a part draws, read for contrast: a colour on what is behind it. */
-export type Drawn={fg:string,bg:string,kind:'text'|'meta'|'graphic',where:string,rule:string};
+export type Drawn={fg:string,bg:string,kind:'text'|'meta'|'graphic',where:string,rule:string,rules:string[]};
 export type DrawPolicy={
   /** Is this colour a role that resolves to a solid colour in both themes? Others (a scrim) cannot be read. */
   solid:(role:string)=>boolean,
@@ -333,6 +339,8 @@ export type DrawPolicy={
  * behind it in the sheet is read on bg-panel, the surface the parts are drawn on. Not read: a disabled
  * part (WCAG exempts inactive controls), a background or colour that is not a token (color-mix(), a
  * translucent scrim), filter (the danger button's hover) and box-shadow (rings, the agent dot's halo).
+ * The sheet is read with no @media condition true, then with each one true on its own. `rules` lists
+ * every rule that drew the pair.
  */
 export function drawn(css:string,policy:DrawPolicy){
   const all=rules(css),out=new Map<string,Drawn>(),unread=new Set<string>();
@@ -342,32 +350,39 @@ export function drawn(css:string,policy:DrawPolicy){
     const m=v.trim().match(/^var\(--ui-([\w-]+)\)$/);
     return m&&policy.solid(m[1])?m[1]:'?';
   };
-  const behind=(chain:El[],upTo:number)=>{
-    for(let j=upTo;j>=1;j--){const r=role(value(all,chain.slice(0,j),'background'));if(r===undefined||r===null)continue;return r;}
-    return 'bg-panel';
-  };
-  const colour=(chain:El[])=>{
-    for(let j=chain.length;j>=1;j--){const w=winner(all,chain.slice(0,j),'color');if(!w)continue;const r=role(w.decls[w.prop].value);if(r===null)continue;return {role:r??'?',rule:w.selector};}
-    return {role:'text-1',rule:'.ui-root'};
-  };
-  const put=(d:Drawn)=>{if(d.fg==='?'||d.bg==='?'){unread.add(d.where);return;}const k=d.fg+'/'+d.bg+'/'+d.kind;if(!out.has(k))out.set(k,d);};
-  for(const chain of scenarios(all)){
-    if(disabled(chain))continue;
-    const target=chain.at(-1)!,host=target.element?chain.at(-2):undefined,where=describe(chain),n=chain.length;
-    if(policy.fills(target,host)){
-      const fill=role(value(all,chain,'background'));
-      if(fill)put({fg:fill,bg:behind(chain,n-1),kind:'graphic',where,rule:winner(all,chain,'background')!.selector});
-      continue;
+  for(const media of conditions(all)){
+    const behind=(chain:El[],upTo:number)=>{
+      for(let j=upTo;j>=1;j--){const r=role(value(all,chain.slice(0,j),'background',media));if(r===undefined||r===null)continue;return r;}
+      return 'bg-panel';
+    };
+    const colour=(chain:El[])=>{
+      for(let j=chain.length;j>=1;j--){const w=winner(all,chain.slice(0,j),'color',media);if(!w)continue;const r=role(w.decls[w.prop].value);if(r===null)continue;return {role:r??'?',rule:w.selector};}
+      return {role:'text-1',rule:'.ui-root'};
+    };
+    const put=(d:Omit<Drawn,'rules'>)=>{
+      if(d.fg==='?'||d.bg==='?'){unread.add(d.where);return;}
+      const k=d.fg+'/'+d.bg+'/'+d.kind;
+      if(!out.has(k))out.set(k,{...d,rules:[]});
+      if(!out.get(k)!.rules.includes(d.rule))out.get(k)!.rules.push(d.rule);
+    };
+    for(const chain of scenarios(all)){
+      if(disabled(chain))continue;
+      const target=chain.at(-1)!,host=target.element?chain.at(-2):undefined,where=describe(chain),n=chain.length;
+      if(policy.fills(target,host)){
+        const fill=role(value(all,chain,'background',media));
+        if(fill)put({fg:fill,bg:behind(chain,n-1),kind:'graphic',where,rule:winner(all,chain,'background',media)!.selector});
+        continue;
+      }
+      const border=winner(all,chain,'border',media);
+      if(border){
+        const v=border.decls[border.prop].value;
+        const named=[...v.matchAll(/var\(--ui-([\w-]+)\)/g)].map(m=>m[1]).filter(r=>policy.colours.includes(r));
+        for(const r of named)if(!policy.decorative.includes(r))put({fg:policy.solid(r)?r:'?',bg:behind(chain,n-1),kind:'graphic',where,rule:border.selector});
+      }
+      if(policy.silent(target)||(target.element&&target.element!=='placeholder'))continue;
+      const c=colour(chain);
+      put({fg:c.role,bg:behind(chain,n),kind:target.classes.has('ui-icon')?'graphic':policy.meta(c.rule)?'meta':'text',where,rule:c.rule});
     }
-    const border=winner(all,chain,'border');
-    if(border){
-      const v=border.decls[border.prop].value;
-      const named=[...v.matchAll(/var\(--ui-([\w-]+)\)/g)].map(m=>m[1]).filter(r=>policy.colours.includes(r));
-      for(const r of named)if(!policy.decorative.includes(r))put({fg:policy.solid(r)?r:'?',bg:behind(chain,n-1),kind:'graphic',where,rule:border.selector});
-    }
-    if(policy.silent(target)||(target.element&&target.element!=='placeholder'))continue;
-    const c=colour(chain);
-    put({fg:c.role,bg:behind(chain,n),kind:target.classes.has('ui-icon')?'graphic':policy.meta(c.rule)?'meta':'text',where,rule:c.rule});
   }
   return {pairs:[...out.values()],unread:[...unread]};
 }

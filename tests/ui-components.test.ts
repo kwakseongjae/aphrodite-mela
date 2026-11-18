@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
-import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths,hasFlag} from './support/css';
+import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths,hasFlag,conditions} from './support/css';
 
 /** Every sheet the system owns: any .css under src/ui at any depth, but the generated tokens.css. */
 const src=new URL('../src/',import.meta.url);
@@ -44,6 +44,9 @@ test('the scope check refuses a selector that styles something outside the parts
   for(const selector of ['.ui-a','.ui-a:hover:not(:disabled)','.ui-root *','.ui-root *::before','.ui-a > b','.ui-switch:has(.ui-switch-input:disabled)',
     '.ui-select:has(> select:disabled)','.ui-x + .ui-y','.ui-x .a ~ .b','.ui-gallery-matrix tbody tr + tr td','.ui-a::placeholder'])
     assert.deepEqual(outOfScope(selector+'{x:1}'),[],selector);
+  // What the reader cannot see into, it refuses rather than skips.
+  for(const sheet of ['@layer x{button{color:var(--ui-text-1)}}','.ui-a{& ~ #app{x:1}}','@layer a; button{x:1}','@import "other.css"; .ui-a{x:1}','.ui-a{x:1} button'])
+    assert.throws(()=>outOfScope(sheet),/cannot read/,sheet);
 });
 
 test('the scope check reads selectors the way a browser would',()=>{
@@ -114,13 +117,13 @@ export function ringsLost(css:string){
       const s=c.at(-1)!;s.classes.forEach(k=>t.classes.add(k));s.attrs.forEach((v,k)=>t.attrs.set(k,v));s.states.forEach(k=>t.states.add(k));
       if(s.prev)t.prev=[el([...(t.prev??[]).flatMap(p=>[...p.classes]),...s.prev.flatMap(p=>[...p.classes])],[...(t.prev??[]).flatMap(p=>[...p.states]),...s.prev.flatMap(p=>[...p.states])])];
     }
-    for(const chain of [...seen,all_at_once])for(const from of ['keyboard','gallery'] as const){
-      const c=focused(chain.map(clone),how,from);
-      const shadow=value(all,c,'box-shadow')??'none';
-      if(!shadow.includes('var(--ui-focus)'))lost.push(describe(c)+': box-shadow '+shadow);
+    for(const media of conditions(all))for(const chain of [...seen,all_at_once])for(const from of ['keyboard','gallery'] as const){
+      const c=focused(chain.map(clone),how,from),when=media.length?' in '+media[0]:'';
+      const shadow=value(all,c,'box-shadow',media)??'none';
+      if(!shadow.includes('var(--ui-focus)'))lost.push(describe(c)+when+': box-shadow '+shadow);
       // Forced-colours mode drops box-shadow and paints a transparent outline in the system colour.
-      const outline=value(all,c,'outline')??'none';
-      if(outline!=='var(--ui-ring) solid transparent')lost.push(describe(c)+': outline '+outline);
+      const outline=value(all,c,'outline',media)??'none';
+      if(outline!=='var(--ui-ring) solid transparent')lost.push(describe(c)+when+': outline '+outline);
     }
   }
   return lost;
@@ -157,6 +160,8 @@ test('the ring check sees a state rule that replaces the ring',()=>{
   const sheet='.ui-seg-item:focus-visible, .ui-seg-item.is-focus { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-focus); }\n'+
     '.ui-seg-item.is-on, .ui-seg-item[aria-checked="true"] { box-shadow: var(--ui-shadow-seg); }';
   assert.deepEqual(ringsLost(sheet).length,6,'on, aria-checked and both at once, from the keyboard and in the gallery');
+  const media=ringsLost(sheet.split('\n')[0]+'\n@media (forced-colors: active) { .ui-seg-item.is-focus { box-shadow: none; } }');
+  assert.ok(media.length&&media.every(l=>l.includes(' in @media (forced-colors: active)')),'a rule inside @media is read too');
 });
 
 /**
@@ -172,12 +177,12 @@ const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
 };
 export function litWhileDisabled(css:string){
   const all=rules(css),lit:string[]=[];
-  for(const [part,ways] of Object.entries(disabledWays))for(const way of ways){
+  for(const media of conditions(all))for(const [part,ways] of Object.entries(disabledWays))for(const way of ways){
     const at=[el([part,...(way.classes??[])],way.states??[])];
     for(const pointer of ['hover','active']){
       const on=at.map(clone);on[0].states.add(pointer);
       for(const prop of ['background','border','color','box-shadow','filter'])
-        if(value(all,on,prop)!==value(all,at,prop))lit.push(describe(on)+': '+prop+' '+value(all,on,prop));
+        if(value(all,on,prop,media)!==value(all,at,prop,media))lit.push(describe(on)+': '+prop+' '+value(all,on,prop,media));
     }
   }
   return lit;
