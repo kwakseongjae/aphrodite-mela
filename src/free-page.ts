@@ -71,35 +71,57 @@ export function htmlProblem(html: string): string | undefined {
 }
 
 const ENTITIES: Record<string, string> = {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' '};
-function words(html: string): string {
-  return html.replace(/<[^>]*>/g, ' ')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e: string) => {
-      if (e[0] !== '#') return ENTITIES[e.toLowerCase()] ?? all;
-      const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1));
-      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
-    })
-    .replace(/\s+/g, ' ').trim();
+function decoded(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e: string) => {
+    if (e[0] !== '#') return ENTITIES[e.toLowerCase()] ?? all;
+    const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
+  });
 }
-const BLOCK = /<\/?(?:address|article|aside|blockquote|br|caption|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|header|hr|main|nav|ol|p|pre|section|summary|table|tbody|tfoot|thead|ul)(?=[\s/>])[^>]*>/gi;
+const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'head']);
+const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'caption', 'dd', 'details', 'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'tfoot', 'thead', 'ul']);
 
 /**
  * The words of a page, for an agent that wants what it says rather than how it is built: headings as
  * `#`, list items as `-`, table rows as `| a | b |`, one paragraph per block. Scripts, styles and
- * drawings are left out.
+ * drawings are left out. One pass over the tags, so a page that leaves them open costs no more to read.
  */
 export function pageText(html: string): string {
-  const s = html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|template|noscript|svg|head)(?=[\s>])[\s\S]*?<\/\1\s*>/gi, ' ')
-    .replace(/<tr(?=[\s>])[^>]*>([\s\S]*?)<\/tr\s*>/gi, (_all, row: string) => `\n\n| ${[...row.matchAll(/<t[dh](?=[\s>])[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi)].map(cell => words(cell[1])).join(' | ')} |\n\n`)
-    .replace(/<h([1-6])(?=[\s>])[^>]*>([\s\S]*?)<\/h\1\s*>/gi, (_all, level: string, body: string) => `\n\n${'#'.repeat(Number(level))} ${words(body)}\n\n`)
-    .replace(/<li(?=[\s>])[^>]*>/gi, '\n\n- ').replace(/<\/li\s*>/gi, '\n\n')
-    .replace(BLOCK, '\n\n');
-  const paragraphs = s.split(/\n\s*\n/).map(p => {
-    const lead = p.match(/^\s*(#{1,6} |- |\| )/)?.[1] ?? '';
-    const body = words(lead ? p.replace(/^\s*(#{1,6} |- |\| )/, '') : p);
-    return body ? lead + body : '';
-  }).filter(Boolean);
+  const paragraphs: string[] = [];
+  let words = '', lead = '', cells = 0;
+  const flush = () => {
+    const text = decoded(words).replace(/\s+/g, ' ').trim();
+    if (text && /[^|\s]/.test(text)) paragraphs.push(lead + text);
+    words = ''; lead = '';
+  };
+  for (let i = 0; i < html.length;) {
+    const open = html.indexOf('<', i);
+    if (open < 0) { words += html.slice(i); break; }
+    words += html.slice(i, open);
+    if (html.startsWith('<!--', open)) { const close = html.indexOf('-->', open + 4); i = close < 0 ? html.length : close + 3; words += ' '; continue; }
+    if (html[open + 1] === '!' || html[open + 1] === '?') { const close = html.indexOf('>', open); i = close < 0 ? html.length : close + 1; continue; }
+    const tag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(html.slice(open, open + 40));
+    if (!tag) { words += '<'; i = open + 1; continue; }
+    const close = html.indexOf('>', open);
+    if (close < 0) break;
+    i = close + 1;
+    const closing = tag[1] === '/', name = tag[2].toLowerCase();
+    if (!closing && SKIPPED.has(name)) {
+      const end = new RegExp(`</${name}\\s*>`, 'gi');
+      end.lastIndex = i;
+      const hit = end.exec(html);
+      i = hit ? hit.index + hit[0].length : html.length;
+      words += ' ';
+      continue;
+    }
+    if (/^h[1-6]$/.test(name)) { flush(); if (!closing) lead = '#'.repeat(Number(name[1])) + ' '; }
+    else if (name === 'li') { flush(); if (!closing) lead = '- '; }
+    else if (name === 'tr') { if (closing) { words += ' |'; flush(); } else { flush(); lead = '| '; cells = 0; } }
+    else if ((name === 'td' || name === 'th') && !closing) { if (cells++ > 0) words += ' | '; }
+    else if (BLOCKS.has(name)) flush();
+    else words += ' ';
+  }
+  flush();
   return paragraphs.length ? paragraphs.join('\n\n') + '\n' : '';
 }
 

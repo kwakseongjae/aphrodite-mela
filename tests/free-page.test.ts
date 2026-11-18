@@ -65,6 +65,21 @@ test('the words of a page, without its scripts and styles', () => {
   const text = pageText('<html><head><style>p{color:red}</style><script>alert(1)</script></head><body><h1>Q3 &amp; next</h1><p>One <b>bold</b> line.</p><ul><li>First</li><li>Second</li></ul><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table></body></html>');
   assert.equal(text, '# Q3 & next\n\nOne bold line.\n\n- First\n\n- Second\n\n| A | B |\n\n| 1 | 2 |\n');
   assert.doesNotMatch(text, /alert|color/);
+  assert.equal(pageText(`<div style="${'color:red;'.repeat(400)}">Long style</div><p>a < b</p>`), 'Long style\n\na < b\n', 'a long tag is a tag, and a lone < is a character');
+});
+
+test('reading the words of a 2MB page takes one pass, however its tags are left open', () => {
+  for (const [what, html] of [
+    ['rows never closed', '<table>' + '<tr><td>cell'.repeat(150_000)],
+    ['a comment never closed', '<p>start</p><!--' + 'x'.repeat(1_900_000)],
+    ['scripts never closed', '<script>'.repeat(200_000)],
+    ['headings never closed', '<h2>title'.repeat(180_000)],
+    ['tags that never end', '<p>text</p>' + '<a'.repeat(900_000)],
+  ] as const) {
+    const t0 = performance.now();
+    pageText(html);
+    assert.ok(performance.now() - t0 < 1_500, `${what}: ${Math.round(performance.now() - t0)}ms`);
+  }
 });
 
 test('a window onto a long page says where it is and whether there is more', () => {
