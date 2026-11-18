@@ -3,7 +3,8 @@
  * viewed through a camera (pan + zoom). Pure functions only; DOM wiring lives in main.ts.
  */
 export type FramePreset='desktop'|'tablet'|'mobile'|'custom';
-export type FrameLayout={x:number;y:number;preset:FramePreset;width?:number};
+/** `height` is an html page's own: a section page is as tall as its sections. */
+export type FrameLayout={x:number;y:number;preset:FramePreset;width?:number;height?:number};
 export type Space={frames:Record<string,FrameLayout>};
 export type Camera={x:number;y:number;zoom:number};
 export type Box={x:number;y:number;width:number;height:number};
@@ -32,6 +33,7 @@ export function validFrameLayout(v:unknown):v is FrameLayout{
   if(!Number.isFinite(f.x)||!Number.isFinite(f.y)||Math.abs(f.x)>MAX_COORD||Math.abs(f.y)>MAX_COORD)return false;
   if(!isFramePreset(f.preset))return false;
   if(f.width!==undefined&&(!Number.isFinite(f.width)||f.width<240||f.width>3200))return false;
+  if(f.height!==undefined&&(!Number.isFinite(f.height)||f.height<100||f.height>20000))return false;
   return true;
 }
 /** Drops invalid frame entries instead of throwing: a broken layout must never brick a project. */
@@ -42,7 +44,7 @@ export function sanitizeSpace(v:unknown):Space|undefined{
   const frames:Record<string,FrameLayout>={};
   for(const [id,layout] of Object.entries(raw)){
     if(!/^[a-zA-Z0-9_-]{1,200}$/.test(id)||!validFrameLayout(layout))continue;
-    frames[id]={x:Math.round(layout.x),y:Math.round(layout.y),preset:layout.preset,...(layout.width!==undefined?{width:clampWidth(layout.width)}:{})};
+    frames[id]={x:Math.round(layout.x),y:Math.round(layout.y),preset:layout.preset,...(layout.width!==undefined?{width:clampWidth(layout.width)}:{}),...(layout.height!==undefined?{height:Math.round(layout.height)}:{})};
   }
   return {frames};
 }

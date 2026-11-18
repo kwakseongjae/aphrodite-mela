@@ -19,7 +19,7 @@ test('a batch of every operation parses into a typed list',()=>{
 });
 
 test('every op kind names a control a person could use',()=>{
-  for(const kind of opKinds)assert.ok(opControl[kind]?.name,`${kind} has no control`);
+  for(const kind of opKinds){const c=opControl[kind];assert.ok(c.kind==='not-yet'?c.until:c.name,`${kind} has no control`);}
   assert.equal(Object.keys(opControl).length,opKinds.length,'no mapping for an op that does not exist');
 });
 
@@ -137,7 +137,8 @@ test('every op a batch can carry has a control a person could use',async()=>{
   const {opKinds,opControl}=await import('../src/agent/ops');
   for(const kind of opKinds){
     assert.ok(opControl[kind],`${kind} has no control`);
-    assert.ok(opControl[kind].name.length,`${kind}'s control has no name`);
+    const c=opControl[kind];
+    assert.ok(c.kind==='not-yet'?c.why.length:c.name.length,`${kind}'s control has no name`);
   }
 });
 

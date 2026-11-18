@@ -60,6 +60,7 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
+import {isFreePage} from './free-page';
 import {changesSince,designOf,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -840,6 +841,7 @@ function exportModal(view = 'prompt') {
   if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
 }
 function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
+  if (isFreePage(currentPage(project))) { toast(ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
   const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
@@ -1539,10 +1541,11 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
 function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
   const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-  let failure:Extract<BatchResult,{ok:false}>|undefined;
+  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
   commit(()=>{
     const result=runBatch(project,batch,selected);
     if(!result.ok){failure=result;return;}
+    created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
   },d,'edit.apply',{source:'agent:apply'});
@@ -1550,7 +1553,7 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */

@@ -243,13 +243,13 @@ export function isViewOnly(ops: readonly PatchOp[], before: Project, after: Proj
     if (op.op !== 'set' || op.on !== 'project') return false;
     if (viewFields.includes(op.field)) return true;
     if (op.field !== 'space') return false;
-    // Dragging a frame around the space moves x and y; its preset and width are the design's.
+    // Dragging a frame around the space moves x and y; its preset, width and height are the design's.
     const was = before.space?.frames ?? {}, now = after.space?.frames ?? {};
     const ids = new Set([...Object.keys(was), ...Object.keys(now)]);
     return [...ids].every(id => {
       const a = was[id], b = now[id];
       if (!a || !b) return false;
-      return a.preset === b.preset && a.width === b.width;
+      return a.preset === b.preset && a.width === b.width && a.height === b.height;
     });
   });
 }

@@ -17,11 +17,52 @@ import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
+import {htmlProblem, isFreePage} from '../free-page';
 
-export type BatchResult = {ok: true; project: Project; selected: string} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+/** `created` is every page the batch made, in order, so the agent can address what it just made. */
+export type BatchResult = {ok: true; project: Project; selected: string; created: string[]} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+type Focus = {selected: string; created: string[]};
+
+/** A free page's html, written by an op: held to what a page may store, or an error sentence. */
+function setHtml(target: Page, html: string): string | undefined {
+  const problem = htmlProblem(html);
+  if (problem) return problem;
+  target.html = html;
+  return undefined;
+}
+
+/**
+ * The ops that write html. A page is made whole, replaced whole, or changed one exact passage at a
+ * time; a passage that is not on the page, or is there more than once without `all`, changes nothing.
+ * Making a page does not move the person to it: they are looking where they were looking.
+ */
+function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_set' | 'html_replace'}>, focus: Focus): string | undefined {
+  if (op.op === 'html_page') {
+    if (project.pages.length >= 30) return 'this project already has 30 pages, which is the limit.';
+    const created: Page = {id: uid(), name: op.name, blocks: [], kind: 'html', html: ''};
+    const refused = setHtml(created, op.html);
+    if (refused) return refused;
+    ensureSpace(project);
+    project.pages.push(created);
+    const frame = nextFramePosition(project.space!, op.width === undefined ? 'desktop' : 'custom', op.width);
+    project.space!.frames[created.id] = op.height === undefined ? frame : {...frame, height: op.height};
+    focus.created.push(created.id);
+    return undefined;
+  }
+  const target = project.pages.find(p => p.id === op.page_id);
+  if (!target) return `no page ${op.page_id}. Take an html page id from aphrodite_get_contract, or from the reply that made it.`;
+  if (!isFreePage(target)) return `page ${op.page_id} is a section page, not an html page. Its sections change with add, update, move and delete; html_set and html_replace change an html page.`;
+  if (op.op === 'html_set') return setHtml(target, op.html);
+  const count = target.html.split(op.find).length - 1;
+  if (!count) return `the passage to find is not on page ${op.page_id}. Read the page again with aphrodite_get_page_html (it may have changed) and send the exact text.`;
+  if (count > 1 && !op.all) return `the passage to find is on page ${op.page_id} ${count} times. Send a longer passage that is there once, or "all": true to change every one.`;
+  return setHtml(target, op.all ? target.html.split(op.find).join(op.replace) : target.html.replace(op.find, () => op.replace));
+}
 
 /** One operation against a page of `project`, which it changes in place. Returns an error sentence, or nothing. */
-function runOp(project: Project, page: Page, op: Op, focus: {selected: string}): string | undefined {
+function runOp(project: Project, page: Page, op: Op, focus: Focus): string | undefined {
+  if (op.op === 'html_page' || op.op === 'html_set' || op.op === 'html_replace') return runHtmlOp(project, op, focus);
+  if (isFreePage(page) && ['add', 'update', 'move', 'delete'].includes(op.op)) return `page ${page.id} is an html page, which has no sections. Change it with html_set or html_replace.`;
   const blocks = page.blocks;
   const find = (id: string) => blocks.find(b => b.id === (id === SELECTION ? focus.selected : id));
   if (op.op === 'add') {
@@ -92,6 +133,7 @@ function runOp(project: Project, page: Page, op: Op, focus: {selected: string}):
     ensureSpace(project);
     const created: Page = {id: uid(), name: op.name, blocks: []};
     project.pages.push(created);
+    focus.created.push(created.id);
     project.space!.frames[created.id] = nextFramePosition(project.space!, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
     project.activePageId = created.id;
     return undefined;
@@ -109,7 +151,7 @@ function runOp(project: Project, page: Page, op: Op, focus: {selected: string}):
  */
 export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project;
-  const focus = {selected};
+  const focus: Focus = {selected, created: []};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};
@@ -121,6 +163,10 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
          page they started from. */
       if (op.op === 'page' && op.page_id === undefined) target = currentPage(next);
     }
+    // What the ops made is held to what a saved project must be, as the patch is below: thirty pages of
+    // 2MB would not fit in one, and a project that cannot be saved cannot be undone into either.
+    try { parseProject(JSON.stringify(next)); }
+    catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
     try { next = applyPatch(next, batch.patch); }
@@ -131,7 +177,12 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
     // A patch can say anything the model can hold, so the result is held to what a saved project must be.
     try { next = parseProject(JSON.stringify(next)); }
     catch (error) { return {ok: false, index: -1, part: 'patch', error: `the patch would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
+    const was = new Map(project.pages.map(p => [p.id, p.html]));
+    for (const page of next.pages) {
+      const problem = typeof page.html === 'string' && page.html !== was.get(page.id) ? htmlProblem(page.html) : undefined;
+      if (problem) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: ${problem}`};
+    }
     if (!next.pages.some(p => p.blocks.some(b => b.id === focus.selected))) focus.selected = '';
   }
-  return {ok: true, project: next, selected: focus.selected};
+  return {ok: true, project: next, selected: focus.selected, created: focus.created};
 }

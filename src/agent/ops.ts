@@ -15,21 +15,25 @@ import {patternVariants} from '../patterns';
 import {framePresets, type FramePreset} from '../editor/space';
 import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
+import {MAX_PAGE_HTML} from '../free-page';
 
-export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page';
+export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace';
 export type Op =
   | {op: 'add'; component_kind: string; variant?: string; before_block_id?: string; content?: Partial<Record<EditableField, string>>}
   | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string; image?: string}
   | {op: 'move'; block_id: string; direction: 'up' | 'down'}
   | {op: 'delete'; block_id: string}
   | {op: 'frame'; page_id?: string; preset: FramePreset}
-  | {op: 'page'; name: string; preset?: FramePreset; page_id?: string};
+  | {op: 'page'; name: string; preset?: FramePreset; page_id?: string}
+  | {op: 'html_page'; name: string; html: string; width?: number; height?: number}
+  | {op: 'html_set'; page_id: string; html: string}
+  | {op: 'html_replace'; page_id: string; find: string; replace: string; all?: boolean};
 
 export const MAX_OPS = 100;
 export const MAX_TEXT = 4_000;
 /** The person's current selection, usable anywhere a block_id is. */
 export const SELECTION = 'selection';
-export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame', 'page'];
+export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame', 'page', 'html_page', 'html_set', 'html_replace'];
 
 /**
  * The control a person would reach for to do the same thing as each op — a button with a data-action,
@@ -39,7 +43,11 @@ export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'f
  * of these controls really exists: an op with no way for a person to do it would leave an agent that
  * reads labels off the screen quietly behind.
  */
-export type OpControl = {kind: 'action' | 'attribute'; name: string};
+export type OpControl = {kind: 'action' | 'attribute'; name: string} | {kind: 'not-yet'; until: string; why: string};
+/* Writing a page's html has no control a person can reach yet: hand editing inside a page is 0.4 (plan
+   §16.4), and until then an agent writes the html and a person reads, undoes and decides. Each of these
+   is a named exception, pinned by tests/agent-op-actions.test.ts, not a gap that can quietly grow. */
+const HAND_EDITING: OpControl = {kind: 'not-yet', until: '0.4', why: 'a person edits inside an html page by hand from 0.4; until then they see the page, undo it and decide'};
 export const opControl: Record<OpKind, OpControl> = {
   add: {kind: 'action', name: 'add'},
   update: {kind: 'attribute', name: 'data-field'},
@@ -47,6 +55,9 @@ export const opControl: Record<OpKind, OpControl> = {
   delete: {kind: 'action', name: 'delete-block'},
   page: {kind: 'action', name: 'new-frame'},
   frame: {kind: 'attribute', name: 'data-frame-preset'},
+  html_page: HAND_EDITING,
+  html_set: HAND_EDITING,
+  html_replace: HAND_EDITING,
 };
 
 const str = (value: unknown, max = MAX_TEXT): string | undefined =>
@@ -87,6 +98,37 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
     return {error: unknownValue(`${where}.op`, String(o.op ?? ''), opKinds)};
   }
   switch (kind as OpKind) {
+    /* A free page: made with its whole document, replaced whole, or changed one exact passage at a time.
+       What the html may hold is the app's to say once it is in place (src/free-page.ts). */
+    case 'html_page': {
+      const name = str(o.name, 60);
+      if (!name) return {error: `${where}.name is required: give the page a name, for example "Briefing".`};
+      const html = str(o.html, MAX_PAGE_HTML);
+      if (html === undefined) return {error: `${where}.html must be the page's whole document, a string of at most ${MAX_PAGE_HTML.toLocaleString('en')} characters.`};
+      const op: Extract<Op, {op: 'html_page'}> = {op: 'html_page', name, html};
+      for (const [key, low, high] of [['width', 240, 3200], ['height', 100, 20_000]] as const) {
+        if (o[key] === undefined) continue;
+        const n = o[key];
+        if (typeof n !== 'number' || !Number.isFinite(n) || n < low || n > high) return {error: `${where}.${key} is a number of pixels from ${low} to ${high}.`};
+        op[key] = Math.round(n);
+      }
+      return {op};
+    }
+    case 'html_set':
+    case 'html_replace': {
+      const page = str(o.page_id, 200);
+      if (!page || !ID.test(page)) return {error: missingField(`${where}.page_id`, '"page_id": "<an html page id from aphrodite_get_contract>"')};
+      if (kind === 'html_set') {
+        const html = str(o.html, MAX_PAGE_HTML);
+        if (html === undefined) return {error: `${where}.html must be the page's whole document, a string of at most ${MAX_PAGE_HTML.toLocaleString('en')} characters.`};
+        return {op: {op: 'html_set', page_id: page, html}};
+      }
+      const find = str(o.find, MAX_PAGE_HTML), replace = str(o.replace, MAX_PAGE_HTML);
+      if (!find) return {error: `${where}.find must be the exact passage to change, as aphrodite_get_page_html returns it (not empty).`};
+      if (replace === undefined) return {error: missingField(`${where}.replace`, '"replace": "<what goes in its place>"')};
+      if (o.all !== undefined && typeof o.all !== 'boolean') return {error: `${where}.all is true or false.`};
+      return {op: {op: 'html_replace', page_id: page, find, replace, ...(o.all ? {all: true} : {})}};
+    }
     case 'add': {
       const componentKind = str(o.component_kind, 60);
       if (!componentKind) return {error: missingField(`${where}.component_kind`, '"component_kind": "hero"')};
