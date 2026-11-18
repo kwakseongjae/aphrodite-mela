@@ -18,8 +18,13 @@ function rng(seed: number) {
 /** What the ledger adds to a saved project: its key and the ledger itself. */
 const share = (p: Project) => JSON.stringify(p).length - JSON.stringify({...p, ledger: undefined}).length;
 
-test('the reserve is the budget and the key that carries the ledger, and a ledger that fits its budget fits the reserve', () => {
-  assert.equal(LEDGER_RESERVE, LEDGER_BUDGET + ',"ledger":'.length);
+test('a ledger filled to its budget adds no more than the reserve to the saved project', () => {
+  const p = initialProject(), history = newHistory(p);
+  p.pages.push({id: 'free-1', name: 'Briefing', blocks: [], kind: 'html', html: 'x'});
+  p.ledger = emptyLedger();
+  for (let i = 0; i < 30; i++) { const before = begin(p, history); p.pages[1].html = String.fromCharCode(65 + i).repeat(50_000); end(p, before, {author: AGENT, source: 'agent:apply', reason: 'r'.repeat(500)}, history); }
+  assert.ok(share(p) > LEDGER_BUDGET * 0.9, `the ledger is at its budget (${share(p)})`);
+  assert.ok(share(p) <= LEDGER_RESERVE);
 });
 
 test('after any recording, on random histories of every size of change, the saved ledger is within the reserve', () => {
