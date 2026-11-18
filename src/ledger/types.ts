@@ -123,6 +123,21 @@ export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
   while (total > budget && ledger.changes.length) total -= ledger.changes.shift()!.size + (ledger.changes.length ? 1 : 0);
 }
 
+/**
+ * How many components and pages one change is anchored to at most. Anchors point the canvas at what a
+ * change touched; past this many it touched the whole page anyway, and the cap is what keeps one header
+ * small enough that the saved ledger never outgrows its reserve (LEDGER_RESERVE).
+ */
+export const MAX_ANCHORS = {nodes: 500, pages: 60};
+/** Anchors held to MAX_ANCHORS, saying so when some were left out: a reader takes such a change to have touched its pages whole. */
+export function capAnchors(anchors: {pages: string[]; nodes: string[]; truncated?: true}): Change['anchors'] {
+  const truncated = anchors.truncated || anchors.pages.length > MAX_ANCHORS.pages || anchors.nodes.length > MAX_ANCHORS.nodes;
+  return {pages: anchors.pages.slice(0, MAX_ANCHORS.pages), nodes: anchors.nodes.slice(0, MAX_ANCHORS.nodes), ...(truncated ? {truncated: true as const} : {})};
+}
+const ID_SHAPE = /^[a-zA-Z0-9_-]{1,200}$/;
+const ids = (v: unknown) => Array.isArray(v) && v.every(x => typeof x === 'string' && ID_SHAPE.test(x));
+const whole = (v: unknown) => v === undefined || (Number.isInteger(v) && (v as number) > 0);
+
 const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
 
 /**
@@ -141,7 +156,8 @@ export function readLedger(raw: unknown): Ledger | undefined {
     if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
     if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
-    if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;
+    if (!c.anchors || !ids(c.anchors.pages) || !ids(c.anchors.nodes) || (c.anchors.truncated !== undefined && c.anchors.truncated !== true)) return undefined;
+    if (!whole(c.undoes) || !whole(c.redoes) || (c.compacted !== undefined && c.compacted !== true)) return undefined;
   }
   // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
   // A ledger saved before changes had ids gets them here, made from what each change already says so every read agrees.
@@ -150,7 +166,13 @@ export function readLedger(raw: unknown): Ledger | undefined {
     const id = c.id ?? `legacy-${c.seq}-${shortHash(`${c.at}|${c.baseRevision}|${c.revision}`)}`;
     const parent = c.parent ?? previous;
     previous = id;
-    const kept = {...c, id, ...(parent ? {parent} : {}), ops: slim(forSaving(c.ops)), size: 0};
+    // Only the fields a change has are carried, and its anchors are held to the cap a change recorded now has.
+    const kept: Change = {
+      id, ...(parent ? {parent} : {}), seq: c.seq, at: c.at, author: {kind: c.author.kind, name: c.author.name}, source: c.source,
+      ...(c.reason !== undefined ? {reason: c.reason} : {}), ops: slim(forSaving(c.ops)), anchors: capAnchors(c.anchors),
+      baseRevision: c.baseRevision, revision: c.revision, view: c.view,
+      ...(c.undoes !== undefined ? {undoes: c.undoes} : {}), ...(c.redoes !== undefined ? {redoes: c.redoes} : {}), ...(c.compacted ? {compacted: true as const} : {}), size: 0,
+    };
     kept.size = sizeOf(kept);
     return kept;
   })};

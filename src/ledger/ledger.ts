@@ -14,8 +14,8 @@
  */
 import {fingerprint, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
-export {readLedger, compact, slim, forSaving, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
+import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 
@@ -34,19 +34,8 @@ export function hasOmitted(value: unknown): boolean {
   return Object.values(value).some(hasOmitted);
 }
 
-/**
- * How many components and pages one change is anchored to at most. Anchors point the canvas at what a
- * change touched; past this many it touched the whole page anyway, and the cap is what keeps one header
- * small enough that the saved ledger never outgrows its reserve (LEDGER_RESERVE).
- */
-export const MAX_ANCHORS = {nodes: 500, pages: 60};
 function anchored(ops: PatchOp[]): Change['anchors'] {
   return capAnchors(anchorsOf(ops));
-}
-/** Anchors held to MAX_ANCHORS, saying so when some were left out: a reader takes such a change to have touched its pages whole. */
-export function capAnchors(anchors: {pages: string[]; nodes: string[]}): Change['anchors'] {
-  const truncated = anchors.pages.length > MAX_ANCHORS.pages || anchors.nodes.length > MAX_ANCHORS.nodes;
-  return {pages: anchors.pages.slice(0, MAX_ANCHORS.pages), nodes: anchors.nodes.slice(0, MAX_ANCHORS.nodes), ...(truncated ? {truncated: true as const} : {})};
 }
 
 export type ChangeMeta = {author: Author; source: string; reason?: string; undoes?: number; redoes?: number; at?: string; id?: string};

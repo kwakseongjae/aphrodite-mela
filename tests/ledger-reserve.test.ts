@@ -77,6 +77,30 @@ test('a change anchored to fewer components than it touched says so', () => {
   assert.equal('truncated' in one.anchors, false, 'a change anchored to everything it touched says nothing more');
 });
 
+/* Codex 3rd review: a ledger saved before anchors were capped can carry thousands of them in one header,
+   which compact cannot shrink. Read, it is held to the same cap and the same fields as one recorded now. */
+test('a ledger read from a file is held to the anchor cap and to the fields a change has, so it fits the reserve', () => {
+  const p = initialProject(), history = newHistory(p);
+  p.ledger = emptyLedger();
+  const before = begin(p, history);
+  p.name = 'Renamed';
+  end(p, before, {author: PERSON, source: 'editor:change'}, history);
+  const old = JSON.parse(JSON.stringify(p.ledger)) as {seq: number; changes: Record<string, unknown>[]};
+  const id = (k: number) => `${String(k).padStart(6, '0')}${'n'.repeat(194)}`;
+  old.changes[0].anchors = {pages: Array.from({length: 60}, (_, i) => `p${i}`.padEnd(200, 'p')), nodes: Array.from({length: 6000}, (_, k) => id(k))};
+  old.changes[0].junk = 'x'.repeat(500_000);
+  const read = readLedger(old)!;
+  assert.ok(read, 'read, not dropped');
+  assert.ok(JSON.stringify(read).length <= LEDGER_BUDGET, `${JSON.stringify(read).length} characters`);
+  assert.deepEqual([read.changes[0].anchors.nodes.length, read.changes[0].anchors.truncated], [500, true]);
+  assert.equal('junk' in read.changes[0], false, 'a field a change does not have is not carried');
+  for (const bad of [{pages: [42], nodes: []}, {pages: [], nodes: ['has spaces']}, {pages: [], nodes: [], truncated: 'yes'}]) {
+    const broken = JSON.parse(JSON.stringify(p.ledger)) as {changes: Record<string, unknown>[]};
+    broken.changes[0].anchors = bad;
+    assert.equal(readLedger(broken), undefined, JSON.stringify(bad));
+  }
+});
+
 test('compact counts what the ledger serializes to, brackets and commas included', () => {
   const p = initialProject(), history = newHistory(p);
   p.ledger = emptyLedger();
