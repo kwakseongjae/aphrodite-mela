@@ -44,6 +44,24 @@ test('only an edit (and approving) writes to the ledger, and every edit that is 
   }
 });
 
+/* 0.3-2b: an edit an agent makes by name says why and what it read; a screen verb may say why. */
+test('every edit an agent makes by name needs a reason and checks the revision; act and command may carry a reason',()=>{
+  for(const row of commands.filter(r=>r.grade==='edit'&&r.route&&!r.resolves)){
+    assert.equal(row.reason,'required',`${row.id} needs a reason`);
+    assert.equal(row.revision,'checked',`${row.id} checks the revision`);
+    assert.ok((row.input.required as string[]|undefined)?.includes('reason'),`${row.id}'s schema says the reason is required`);
+    assert.ok((row.input.properties as Record<string,unknown>).base_revision,`${row.id}'s schema takes base_revision`);
+    assert.equal(row.ledger!.sources.filter(s=>s.startsWith('agent:')).length,1,`${row.id} names the one source an agent's call writes`);
+  }
+  for(const id of ['screen.act','screen.command','screen.ui']){
+    assert.equal(commandById[id].reason,'optional',id);
+    assert.ok((commandById[id].input.properties as Record<string,unknown>).reason,`${id}'s schema takes a reason`);
+  }
+  for(const id of ['screen.click','screen.type','screen.key'])assert.equal(commandById[id].reason,'none',id);
+  for(const row of commands)for(const s of row.ledger?.sources??[])
+    if(s.startsWith('agent:'))assert.ok(row.route&&!row.resolves,`${row.id}: only a row an agent reaches by name writes ${s}`);
+});
+
 test('what only the person may do is reachable only from the screen, by the person',()=>{
   const human=commands.filter(r=>r.grade==='human');
   assert.ok(human.length>=2);

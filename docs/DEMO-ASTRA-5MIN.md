@@ -64,7 +64,7 @@
   curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"features 추가"}'
   curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"call to action 추가"}'
   curl -s -X POST "$BASE/agent/click"   "${H[@]}" -d '{"selector":".space-frame.active [data-kind=hero]"}'
-  curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"eyebrow","text":"A NEW PERSPECTIVE ON LIGHT"}'
+  curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"eyebrow","text":"A NEW PERSPECTIVE ON LIGHT","reason":"The eyebrow names the direction the person chose."}'
   curl -s -X POST "$BASE/agent/key"     "${H[@]}" -d '{"key":"1","shift":true}'
   ```
 - 확인: 명령마다 프레임이 바뀌고 콘솔 타임라인에 `agent:command`, `agent:edit` 영수증이 최신순으로 쌓인다. 배너의 기록 수가 올라간다.

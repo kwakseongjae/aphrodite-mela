@@ -1506,17 +1506,23 @@ function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger
 /** A change as an agent reads it from aphrodite_get_changes. */
 function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
 /**
+ * The 409 for a change an agent wrote against a revision the person has since changed: what changed
+ * in between, and the revision to send next, so the agent reads before it writes over. Undefined when
+ * the revision is current, or none was sent. `what` names the thing to send again.
+ */
+function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
+  const now=fingerprint(project);
+  if(!baseRevision||baseRevision===now)return undefined;
+  const since=changesSince(project.ledger,baseRevision,{limit:20});
+  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
+}
+/**
  * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
- * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent and its reason. A
- * batch written against a revision the person has since changed is refused, with what changed, so the
- * agent reads before it writes over.
+ * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent, its reason and
+ * the revision it read; a batch written against one the person has since changed is refused.
  */
 function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
-  const now=fingerprint(project);
-  if(batch.baseRevision&&batch.baseRevision!==now){
-    const since=changesSince(project.ledger,batch.baseRevision,{limit:20});
-    return {error:`the project changed since revision ${batch.baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the batch again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
-  }
+  const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
   let failure:Extract<BatchResult,{ok:false}>|undefined;
   commit(()=>{
@@ -1539,8 +1545,8 @@ const agentLook={
 };
 /**
  * Every agent transport arrives here, naming the surface it came by: the loopback bridge (which MCP
- * rides), the in-app agent, or `window.aphroditeAgent` in the page. The agent and the surface become
- * one Dispatch, and every edit the command makes — through its own route, or
+ * rides), the in-app agent, or `window.aphroditeAgent` in the page. The agent, its reason and the
+ * revision it read become one Dispatch, and every edit the command makes — through its own route, or
  * through the buttons, fields and keys it presses — is recorded under it, however long after.
  */
 async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefined,surface:AgentSurface):Promise<Record<string,unknown>>{
@@ -1598,7 +1604,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
-  const d=agentDispatch(who,surface);
+  // The reason and revision the parser checked; `apply` checks its own (parseBatch) and makes its Dispatch there.
+  const d=agentDispatch(who,surface,c.kind==='edit'||c.kind==='system'?{reason:c.reason,baseRevision:c.baseRevision}:c.kind==='act'||c.kind==='command'?{reason:c.reason}:{});
   stepRefused='';
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
@@ -1670,12 +1677,13 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
             ...sampleImages.map(sm=>({id:`sample:${sm.id}`,scope:'sample' as const,name:uiLanguage==='ko'?sm.ko:sm.en,category:sm.category,wide:sm.wide,mime:'image/webp'})),
           ]};
       }
-      case 'edit':{const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
+      case 'edit':{const stale=staleSince(d.baseRevision,'edit');if(stale)return stale;const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
       case 'ui':{
         // Hand it to the verb's own handler: one door in, the same rules inside, the same surface.
         return runAgentCommand(c.action,c.payload,who,surface);
       }
       case 'system':{
+        const stale=staleSince(d.baseRevision,'system');if(stale)return stale;
         let next:DesignSystem|undefined;
         if(c.id){
           const hit=systems.find(sy=>sy.id===c.id);

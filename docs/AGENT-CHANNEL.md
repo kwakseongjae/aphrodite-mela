@@ -45,11 +45,11 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | `GET /agent/render` | `?width=&height=&pageId=` | 페이지 그림. `{ok, page_id, width, height, mime:"image/png", png:<base64>}`. `width` 240–2000(기본은 그 페이지 프레임 너비), `height` 320–6000(기본은 `width`×1.6). **뷰포트**라서 긴 페이지는 아래가 잘린다 — 더 보려면 높이를 키워 다시 부른다. 앱 자신의 WebKit이 화면 밖(−9000, −9000)의 창에 따로 그려 찍는다: 사람의 창은 움직이지 않고 패널·독·줌도 찍히지 않는다. 레이아웃을 1.5초 기다리고 촬영은 10초에 포기한다(채널 자체는 30초). macOS 데스크톱 앱 전용. | 읽기 |
 | `POST /agent/apply` | `{"ops":[…],"page_id":"…"}` | 배치 편집. **전부 적용되거나 하나도 안 된다.** undo 하나, 영수증 하나. 성공은 `{ok, applied, receipt, state}`, 실패는 `{error, failed_at, applied:0}`. op는 아래 표 참고. | 쓰기 |
 | `GET /agent/state` | — | `#app`의 data 속성 + **권한 두 칸**. `connection`(`design`·`connected`·`delegated`)과 `writes`(`on`·`off`)가 문이 열렸는지 답한다. **`mode`는 권한이 아니라 에디터 탭**(design·dev·agent)이고 두 개념이 `design`이라는 단어를 공유하니 섞지 말 것. 그 밖에 `page`·`frame`·`camera`·`selectedId`·`selectedKind` 등, delegation 요약, 최근 영수증 10개(`seq`·`kind`·`at`). 에이전트 모드가 꺼져 있어도 답한다. `connection`·`writes`는 **묻는 에이전트 기준**이다 — 다른 이름만 허용돼 있으면 `design`·`off`. `writes:on`은 **문**이 열렸다는 뜻이지 지금 내 차례라는 뜻은 아니다 — 리스를 남이 쥐고 있으면 개별 쓰기는 409. | 읽기 |
-| `POST /agent/ui` | `{"action":"command\|click\|type\|key", …그 동사의 필드}` | 의미 단위 도구로 표현되지 않는 것을 인터페이스로 직접 한다(대화상자 열기, Preview·Export, 설정, 단축키). 안쪽 동사의 파서와 권한을 그대로 탄다 — 문 하나, 규칙 하나. | 쓰기 |
-| `POST /agent/command` | `{"query":"hero 추가"}` | Runs the best palette match (same search as ⌘K: commands, "Add <component>", "Go to frame · …"). | 쓰기 |
-| `POST /agent/act` | `{"action":"add","data":{"kind":"cta"}}` | Dispatches a `data-action` exactly like a click on a button with those data attributes. | 쓰기 |
-| `POST /agent/click` | `{"selector":".space-frame.active [data-kind=hero]"}` | `element.click()` on the first match. Use it to select blocks (`[data-block-id]`), open frame labels, press buttons. | 쓰기 |
-| `POST /agent/edit` | `{"field":"title","text":"…","blockId":"optional"}` | Sets `title / text / label / eyebrow / description` on the selected block (or `blockId`) through the normal commit (undoable, receipted). | 쓰기 |
+| `POST /agent/ui` | `{"action":"command\|click\|type\|key", …그 동사의 필드}` | 의미 단위 도구로 표현되지 않는 것을 인터페이스로 직접 한다(대화상자 열기, Preview·Export, 설정, 단축키). 안쪽 동사의 파서와 권한을 그대로 탄다 — 문 하나, 규칙 하나. `command`는 `reason`을 실을 수 있다. | 쓰기 |
+| `POST /agent/command` | `{"query":"hero 추가","reason":"선택"}` | Runs the best palette match (same search as ⌘K: commands, "Add <component>", "Go to frame · …"). An optional `reason` is kept with the change it makes. | 쓰기 |
+| `POST /agent/act` | `{"action":"add","data":{"kind":"cta"},"reason":"선택"}` | Dispatches a `data-action` exactly like a click on a button with those data attributes. An optional `reason` is kept with the change it makes. | 쓰기 |
+| `POST /agent/click` | `{"selector":".space-frame.active [data-kind=hero]"}` | A click on the first match. Use it to select blocks (`[data-block-id]`), open frame labels, press buttons. | 쓰기 |
+| `POST /agent/edit` | `{"field":"title","text":"…","blockId":"optional","reason":"필수","base_revision":"선택"}` | Sets `title / text / label / eyebrow / description` on the selected block (or `blockId`) through the normal commit (undoable, receipted). Needs a `reason`; a `base_revision` older than the project is refused with `409` and the changes since, as `apply` is. | 쓰기 |
 | `POST /agent/type` | `{"selector":"input[name=name]","text":"…","submit":true}` | Fills a form control that is currently in the DOM (dialog forms) and optionally submits its form. | 쓰기 |
 | `POST /agent/key` | `{"key":"1","shift":true}` (`code`·`meta`·`ctrl`·`alt`도 받는다) | Synthesises a key press on the document (`"Escape"`, `"k"` with `meta`, `"1"` with `shift` = fit all). | 쓰기 |
 | `POST /agent/library` | `{"action":"list\|delete\|import","scope":"project\|global","id":…,"name":…,"base64":…}` | 그림 보관함. `list`는 **앱이 들고 있는 사진 50장(`scope:"sample"`, id `sample:desk-lamp`)과 로컬 폴더의 것을 함께** 돌려준다 — `{ok, dir, images:[{id, scope, name, width, height, mime}]}`. 샘플은 읽기 전용이라 `delete`·`import`는 로컬 것에만 해당하고, `delete`는 16자리 id를 요구한다. 이 id를 그대로 `apply`의 `update.image`에 넣으면 사진이 붙는다. | 읽기(list) / 쓰기 |
@@ -57,7 +57,7 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | `GET /agent/taste` | — | 취향 파일(`taste.md`). 동의가 꺼져 있으면 `{consent:"off", taste:null, note}`만 온다 — 숨기는 게 아니라 **없는** 것이다. 켜져 있으면 마크다운 원문과 `consent`. **기본값을 고르는 데 쓰고, 보여줄 것을 좁히는 데는 쓰지 않는다** — 세 방향 중 하나는 언제나 프로필과 어긋나게 남는다. | 읽기 |
 | `POST /agent/keep` | `{"url":"https://…","title":"…","note":"왜 좋은지","tags":["editorial"],"scope":"project\|global"}` | 찾은 것을 아카이브에 넣는다. `url`·`title`·`note` 중 하나는 있어야 하고, 주소는 http(s)만 받는다. **아무것도 가져오지 않는다** — 넘긴 것만 저장하고, 페이지를 읽는 건 사람이 카드의 「가져오기」를 누를 때뿐이다. 영수증에 `agent:keep`으로 남는다. | 쓰기 |
 | `POST /agent/unkeep` | `{"id":"3fc91b608b8b93c4"}` | 아카이브에서 하나를 뺀다. id는 `/agent/references`가 준 16자리. 넣기만 되고 빼기가 안 되면 에이전트의 실수가 사람 아카이브에 영원히 남는다. | 쓰기 |
-| `POST /agent/system` | `{"id":"toss"}` · `{"markdown":"…DESIGN.md…","name":"…"}` · `{"tokens":{"accent":"#344e41"}}` | 디자인 시스템을 바꾼다. 내장 8개(`mui` `shadcn` `seed` `astryx` `atelier` `karrot` `toss` `mono`), DESIGN.md 가져오기, 토큰 개별 지정. **모든 페이지의 모든 블록이 다시 칠해지는 가장 큰 편집**이라 한 번의 변경·한 번의 실행 취소로 들어간다. 색이 아닌 값은 버린다. | 쓰기 |
+| `POST /agent/system` | `{"id":"toss","reason":"…"}` · `{"markdown":"…DESIGN.md…","name":"…","reason":"…"}` · `{"tokens":{"accent":"#344e41"},"reason":"…"}` | 디자인 시스템을 바꾼다. 내장 8개(`mui` `shadcn` `seed` `astryx` `atelier` `karrot` `toss` `mono`), DESIGN.md 가져오기, 토큰 개별 지정. **모든 페이지의 모든 블록이 다시 칠해지는 가장 큰 편집**이라 한 번의 변경·한 번의 실행 취소로 들어간다. 색이 아닌 값은 버린다. `reason`은 필수이고 원장에 `agent:system`으로 남는다. `base_revision`이 지금보다 낡았으면 `apply`처럼 `409`와 그 사이의 변경을 돌려준다. | 쓰기 |
 | `POST /agent/export` | `{"format":"contract"}`(기본) · `{"format":"files"}` | 빌드 계약. 기본은 **글**이다 — `PROMPT.md`·`DESIGN.md`·`tokens.json`·SCENE을 그대로 돌려준다(에이전트는 zip을 못 연다). `files`는 번들을 저장 대화상자로 쓴다. 응답의 `approved`가 `false`면 **초안이라고 말해야 한다** — 승인은 사람의 클릭이고 채널로는 안 된다. | 쓰기 |
 | `POST /agent/end` | — | Ends Agent mode from the agent side (`ended-by-agent`). `{ok, ended:true}`. 평소(design)에는 끝낼 것이 없어 **409**. | 모드가 켜져 있을 때만 |
 
@@ -82,6 +82,8 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 
 `edit`·`act`·`click`·`type`·`key`·`command`는 따로 돌려줄 것이 없어 실행 뒤 `state`와 같은 것을 돌려준다.
 
+이 채널로 들어온 명령이 만든 변경은 — 이름으로 부른 `apply`·`edit`·`system`이든, 버튼·입력란·키를 대신 누른 `act`·`click`·`type`·`key`·`command`든 — 원장에 **그 에이전트의 이름으로** 남는다. 누른 버튼의 처리기가 기다렸다가 기록해도 마찬가지다(0.3-2b 전에는 그 경우 사람 `you`로 남았다).
+
 Typical run:
 
 ```sh
@@ -92,7 +94,7 @@ H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
 curl -s "$BASE/agent/state" "${H[@]}"
 curl -s -X POST "$BASE/agent/command" "${H[@]}" -d '{"query":"features 추가"}'
 curl -s -X POST "$BASE/agent/click"   "${H[@]}" -d '{"selector":".space-frame.active [data-kind=hero]"}'
-curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"title","text":"빛으로 완성하는 공간"}'
+curl -s -X POST "$BASE/agent/edit"    "${H[@]}" -d '{"field":"title","text":"빛으로 완성하는 공간","reason":"브리프의 첫 문장을 제목으로 옮긴다."}'
 curl -s -X POST "$BASE/agent/key"     "${H[@]}" -d '{"key":"1","shift":true}'
 curl -s -X POST "$BASE/agent/end"     "${H[@]}"
 ```
