@@ -46,6 +46,7 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
   const reason = meta.reason?.trim().slice(0, MAX_REASON);
   const change: Change = {
     id: meta.id ?? crypto.randomUUID(),
+    ...(ledger.changes.length ? {parent: ledger.changes[ledger.changes.length - 1].id} : {}),
     seq,
     at: meta.at ?? new Date().toISOString(),
     author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},

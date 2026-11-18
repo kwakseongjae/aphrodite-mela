@@ -8,7 +8,10 @@ import type {PatchOp} from './patch';
 export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
 export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
 export type Change = {
+  /** Its own, never reused: what 0.5's folders and branches name a change by. */
   id: string;
+  /** The change this one was made on top of: the one before it in this ledger, unless it came from another copy. */
+  parent?: string;
   seq: number;
   at: string;
   author: Author;
@@ -95,15 +98,20 @@ export function readLedger(raw: unknown): Ledger | undefined {
   for (const c of l.changes) {
     if (!c || typeof c !== 'object' || !Number.isInteger(c.seq) || c.seq <= last || c.seq > l.seq) return undefined;
     last = c.seq;
-    if (!isStr(c.id, 100) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
+    if ((c.id !== undefined && !isStr(c.id, 100)) || (c.parent !== undefined && !isStr(c.parent, 100)) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
     if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
     if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
     if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;
   }
   // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
+  // A ledger saved before changes had ids gets them here, made from what each change already says so every read agrees.
+  let previous: string | undefined;
   const read: Ledger = {seq: l.seq, changes: l.changes.map(c => {
-    const kept = {...c, ops: slim(forSaving(c.ops)), size: 0};
+    const id = c.id ?? `legacy-${c.seq}-${shortHash(`${c.at}|${c.baseRevision}|${c.revision}`)}`;
+    const parent = c.parent ?? previous;
+    previous = id;
+    const kept = {...c, id, ...(parent ? {parent} : {}), ops: slim(forSaving(c.ops)), size: 0};
     kept.size = JSON.stringify(kept).length;
     return kept;
   })};

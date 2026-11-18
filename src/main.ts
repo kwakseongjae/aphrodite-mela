@@ -1519,7 +1519,7 @@ async function actViaButton(actionName:string,data:Record<string,string>,d:Dispa
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
-function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
+function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{}),seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
 /**
  * The 409 for a change an agent wrote against a revision the person has since changed: what changed
  * in between, and the revision to send next, so the agent reads before it writes over. Undefined when
