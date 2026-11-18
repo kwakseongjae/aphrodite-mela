@@ -109,6 +109,9 @@ export function send(target: EventTarget, e: Event, d: Dispatch | undefined): bo
   }
 }
 
+/** Whether the person has typed into this field since it last sent a `change`: words not yet saved. */
+export const typedInto = (target: EventTarget): boolean => typedIn.has(target);
+
 /**
  * Keeps track of what the person types, so that the `change` saving it is theirs even when an agent's
  * command is what moved focus or the selection on. A value code sets sends no `change` when focus

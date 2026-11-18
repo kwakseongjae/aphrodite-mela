@@ -299,6 +299,43 @@ check('a value an agent typed sends no change of the browser’s own when the pe
   assert.deepEqual(await evaluate('window.__ledgerChanges'), [false], 'only the agent’s own change was sent');
 });
 
+check('the person’s unsaved words are saved as theirs before an agent’s edit redraws the editor', async () => {
+  // The redraw replaces the field; a field removed while focused never sends its change.
+  await select('hero');
+  const words = 'Still being written when the agent added a section';
+  const before = await seq();
+  await typeAndStay('[data-field="title"]', words);
+  assert.equal(await seq(), before, 'typing alone saves nothing');
+  await personLetsGo();
+  const [theirs, agents] = await changes('agent adds a CTA', 2, () => read('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'cta'}]}));
+  matches('the person’s words, first', theirs, {row: 'edit.text', author: PERSON, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(theirs.ops).includes(words), `the change holds the person’s words: ${JSON.stringify(theirs.ops).slice(0, 300)}`);
+  matches('then the agent’s add', agents, {row: 'edit.apply', author: AGENT, source: 'agent:apply', reason: WHY});
+});
+
+check('the person’s unsaved words are saved as theirs before an agent redraws the editor without an edit', async () => {
+  await select('hero');
+  const words = 'Still being written when the agent switched a tab';
+  await typeAndStay('[data-field="title"]', words);
+  await personLetsGo();
+  const change = await oneChange('agent switches the library tab', () => read('act', {action: 'tab', data: {tab: 'components'}}));
+  matches('the person’s words', change, {row: 'edit.text', author: PERSON, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(change.ops).includes(words), 'the change holds the person’s words');
+});
+
+check('an agent’s ⌘Z while the person has unsaved words saves them first, as theirs, and then undoes the newest change', async () => {
+  await select('hero');
+  const words = 'Still being written when the agent pressed undo';
+  await typeAndStay('[data-field="title"]', words);
+  await personLetsGo();
+  const [theirs, undo] = await changes('agent ⌘Z', 2, () => read('key', {key: 'z', meta: true}));
+  matches('the person’s words, first', theirs, {row: 'edit.text', author: PERSON, source: 'editor:change', reason: undefined});
+  assert.ok(JSON.stringify(theirs.ops).includes(words), 'the change holds the person’s words');
+  matches('then the agent’s undo', undo, {row: 'edit.undo', author: AGENT, source: 'undo', reason: undefined});
+  assert.equal(undo.undoes, theirs.seq, 'the undo takes back the newest change, which is the person’s words: a redo brings them back');
+  await oneChange('the person’s redo', () => presses('z', 4 | 8));
+});
+
 check('a menu change sent for the person cannot be sent again', async () => {
   // Captured as it passes, then sent again by script with a different value: nobody is named for the second.
   await evaluate(`(() => { window.__ledgerSaved = null; window.addEventListener('change', e => { if (e.target.id === 'radius-select') window.__ledgerSaved = e; }, true); return true; })()`);

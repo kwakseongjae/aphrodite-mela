@@ -76,7 +76,7 @@ import {helpMenuHtml} from './editor/help-menu';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
-import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
+import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
@@ -124,6 +124,8 @@ const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-red
 let project: Project = initialProject();
 try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
+/** The block the inspector's fields were last drawn for. */
+let inspectedId:string|undefined;
 let tab: 'components' | 'layers' | 'assets' | 'archive' = 'components';
 /* The reference archive and taste.md, with every dependency they have on the editor written down
    rather than reached for. See src/workspace/archive.ts. */
@@ -238,18 +240,27 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
   const refused=refusal(d,row);if(refused)throw new Error(refused);
   const from=sourceFor(row,source);
   if(d.author.kind!=='agent'&&from.startsWith('agent:'))throw new Error(`${from} is an agent's source`);
+  if(updateUI)saveTyping();
   const before = begin(project,edits),pageBefore=project.activePageId;
   change();ensureSpace(project);
   const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
   if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'},d); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
+/**
+ * A field the person typed into and has not left is saved, as their own change, before anything draws
+ * the editor over it. A field removed while focused sends no `change` in WebKit, and in Chrome sends it
+ * after the redraw, onto whatever is selected by then. Its own `change` has already cleared it, so
+ * saving it here never comes back here.
+ */
+function saveTyping(){const typing=document.activeElement;if(typing instanceof HTMLElement&&typing.closest('.inspector')&&typedInto(typing))typing.blur();}
 /** Who an event comes from, when that is someone who may change the design: the person's own input, or an agent's command it carries. */
 function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusal(d)?d:undefined;}
 watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
 function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
+  saveTyping();
   const before=project;let done;
   try{done=step(project,direction,edits,d.author);}
   catch(error){
@@ -512,6 +523,8 @@ function hubRefresh(){
   hydrateIcons();syncStateAttributes();
 }
 function render() {
+  // Only onto the block the inspector was drawn for: the field's change saves onto the selection.
+  if(inspectedId===selected)saveTyping();
   disposePointerEditor?.();
   /* The official-library runtime is a lazy chunk now. Ask for it the moment a page needs one, and
      draw again when it lands — until then those blocks show a frame that says it is coming. The
@@ -592,6 +605,7 @@ function selectBlock(id:string){
 }
 /** What the inspector adds for the selected block once it is drawn. render() and selectBlock() both call it. */
 function decorateInspector(page:Page){
+  inspectedId=selected;
   const inspected = page.blocks.find(b => b.id === selected);
   if (inspected) {
     const identity = componentIdentity(inspected);
