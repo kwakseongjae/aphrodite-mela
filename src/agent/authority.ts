@@ -6,6 +6,8 @@
  * the same request made with `curl` meets the same answer. Reading is always allowed; writing needs
  * the person to have opened the door (Connected mode) or handed the screen over entirely (Agent mode).
  */
+import {gradeOfKind, kindsOfGrade} from './commands.mjs';
+
 export type Mode =
   | 'design'      // nobody has been given the screen
   | 'connected'   // the person keeps working; an agent may edit alongside them
@@ -19,14 +21,22 @@ export type Holder = {label: string; since: number};
 export type Authority = {mode: Mode; holder: Holder | null; now: number; allowed?: readonly string[]};
 export type Verdict = {allow: true; hold: Holder | null} | {allow: false; status: 403 | 409 | 423; error: string};
 
-export const readKinds = ['state', 'contract', 'tokens', 'components', 'images', 'render', 'references', 'taste', 'changes'] as const;
-/**
- * Commands that neither read the design nor change it: they ask the person something. Asking is
- * always allowed — an agent that cannot even say "may I?" would be worse than one that can — but the
- * app rate-limits the asking so a prompt can never become a nag, and the answer is always a click.
+/*
+ * Which kind is a read and which a write is the command table's to say (commands.mjs): each row that
+ * an agent can reach by name carries the kind this rule is asked about and a grade. The lists below
+ * are projections of it, kept for the tests and anything else that wants to iterate them.
  */
-export const askKinds = ['guide', 'connect'] as const;
-export const writeKinds = ['apply', 'system', 'export', 'edit', 'act', 'click', 'type', 'key', 'command', 'library', 'ui', 'keep', 'unkeep'] as const;
+/** `end` hands the screen back and has a rule of its own in judge(), whatever its row is graded. */
+const OWN_RULE = 'end';
+export const readKinds: readonly string[] = kindsOfGrade('read').filter(kind => kind !== OWN_RULE);
+/**
+ * Commands that put a choice in front of the person. Asking is always allowed — an agent that cannot
+ * even say "may I?" would be worse than one that can — but the app rate-limits the asking so a prompt
+ * can never become a nag, and the answer is always a click.
+ */
+export const askKinds: readonly string[] = kindsOfGrade('choose');
+/** Edits that land in the ledger and things that reach outside it: both need the door open. */
+export const writeKinds: readonly string[] = kindsOfGrade('edit', 'outside');
 
 /** The person's own hold expires quickly — one keystroke should not lock an agent out for a minute. */
 export const HUMAN_IDLE_MS = 5_000;
@@ -35,7 +45,7 @@ export const LEASE_IDLE_MS = 90_000;
 export const HUMAN = 'human';
 
 export function isRead(kind: string): boolean {
-  return (readKinds as readonly string[]).includes(kind);
+  return readKinds.includes(kind);
 }
 
 /**
@@ -122,10 +132,10 @@ export function gateFor(command: {kind: string; action?: string}, reaches?: stri
   return command.kind;
 }
 export function isWrite(kind: string): boolean {
-  return (writeKinds as readonly string[]).includes(kind);
+  return writeKinds.includes(kind);
 }
 export function isAsk(kind: string): boolean {
-  return (askKinds as readonly string[]).includes(kind);
+  return askKinds.includes(kind);
 }
 
 /**
@@ -161,13 +171,16 @@ export function judge(kind: string, caller: string, a: Authority): Verdict {
   // Before anything else, and in every mode: not the open door, not a lease, not Agent mode.
   if (kind === HUMAN_ONLY_KIND) return {allow: false, status: 403, error: HUMAN_ONLY_ERROR};
   if (kind === DOOR_KIND) return {allow: false, status: 403, error: DOOR_ERROR};
-  if (isRead(kind) || isAsk(kind)) return {allow: true, hold: a.holder};
-  if (kind === 'end') {
+  if (kind === OWN_RULE) {
     return a.mode === 'design'
       ? {allow: false, status: 409, error: 'nothing to end: Agent mode is not running.'}
       : {allow: true, hold: null};
   }
-  if (!isWrite(kind)) return {allow: false, status: 403, error: `unknown command kind "${kind}".`};
+  const grade = gradeOfKind(kind);
+  // A row graded human that is not one of the two above is refused the same way.
+  if (grade === 'human') return {allow: false, status: 403, error: HUMAN_ONLY_ERROR};
+  if (grade === 'read' || grade === 'choose') return {allow: true, hold: a.holder};
+  if (grade !== 'edit' && grade !== 'outside') return {allow: false, status: 403, error: `unknown command kind "${kind}".`};
   if (a.mode === 'delegated') return {allow: true, hold: a.holder};
   if (a.mode === 'design') {
     return {

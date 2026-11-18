@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {commands,grades,surfaceNames,commandById,gradeOfKind,kindsOfGrade,loopbackRoutes,mcpTools,type Row} from '../src/agent/commands.mjs';
 import {tools,toolByName} from '../mcp/aphrodite-mcp/tools.mjs';
 import {parseAgentCommand} from '../src/agent/bridge';
-import {judge,gateFor,HUMAN_ONLY_KIND,DOOR_KIND,type Authority} from '../src/agent/authority';
+import {judge,gateFor,isRead,isWrite,isAsk,readKinds,askKinds,writeKinds,HUMAN_ONLY_KIND,DOOR_KIND,type Authority} from '../src/agent/authority';
 
 /**
  * 0.3-2: one command = one row of src/agent/commands.mjs. These tests hold the table to its own rules
@@ -104,6 +104,20 @@ test('each grade meets the permission rule the way the grade says, with nobody a
     else assert.fail(`${row.id}: a ${row.grade} row has no gate kind`);
   }
   assert.deepEqual(kindsOfGrade('human').sort(),[DOOR_KIND,HUMAN_ONLY_KIND].sort());
+});
+
+test('the permission rule reads its kinds from the table’s grades, not from lists of its own',()=>{
+  const same=(a:readonly string[],b:readonly string[])=>assert.deepEqual([...a].sort(),[...b].sort());
+  same(readKinds,kindsOfGrade('read').filter(k=>k!=='end'));
+  same(askKinds,kindsOfGrade('choose'));
+  same(writeKinds,kindsOfGrade('edit','outside'));
+  for(const row of commands.filter(r=>r.kind&&r.kind!=='end')){
+    assert.equal(isRead(row.kind!),row.grade==='read',`${row.id} isRead`);
+    assert.equal(isAsk(row.kind!),row.grade==='choose',`${row.id} isAsk`);
+    assert.equal(isWrite(row.kind!),row.grade==='edit'||row.grade==='outside',`${row.id} isWrite`);
+  }
+  const source=readFileSync(new URL('../src/agent/authority.ts',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/Kinds = \[/,'no hand-kept kind list is left to drift from the table');
 });
 
 test('the MCP tool list is the table’s projection, in the order a client is shown it',()=>{
