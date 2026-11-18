@@ -63,6 +63,7 @@ import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {changesSince,designOf,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
+import {describeCaller} from './agent/callers';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
@@ -162,7 +163,7 @@ let allowedAgents:string[]=[];try{allowedAgents=readAllowed(localStorage.getItem
 let connectMode=allowedAgents.length>0;
 function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
-function allowedText(){return allowedAgents.map(n=>n===ANYONE?ui('any agent','모든 에이전트'):n).join(', ');}
+function allowedText(){return allowedAgents.map(callerText).join(', ');}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let stepRefused='';let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
@@ -173,7 +174,7 @@ function bumpConnect(by:string){
   connectWrites++;
   const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
   if(count)count.textContent=String(connectWrites);
-  if(who)who.textContent=by;
+  if(who)who.textContent=callerText(by);
   if(!count)render();
 }
 let tokensOpen=false;
@@ -209,7 +210,8 @@ function paintToasts(){
   const wait=nextExpiry(toasts,Date.now());
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
 }
-function toast(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
+/** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
+function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
 function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
@@ -268,7 +270,7 @@ function agentConnectModal(){
     `<p class="panel-description">${ui('An agent on this Mac can always read this project — its pages, components and tokens. To let one edit while you keep working, turn this on. You keep the screen the whole time: your own typing takes priority, and ⌘Z undoes an agent edit like any other.','이 Mac의 에이전트는 이 프로젝트를 언제나 읽을 수 있습니다. 페이지·컴포넌트·토큰이요. 사용자가 계속 작업하는 동안 에이전트가 편집도 하게 하려면 이 스위치를 켜세요. 화면은 내내 사용자 것입니다. 사용자의 입력이 우선하고, 에이전트의 편집도 ⌘Z로 되돌립니다.')}</p>`+
     `<div class="connect-switch"><div><strong>${ui('Let an agent edit alongside me','에이전트가 함께 편집하도록 허용')}</strong><small>${on?`${ui('On','켜짐')} · ${esc(allowedText())} · ${ui('Remembered until you disconnect. Turning it off disconnects every agent.','연결을 끊을 때까지 기억합니다. 끄면 모든 에이전트의 연결이 끊깁니다.')}`:ui('Off. Agents can read but not change anything.','꺼짐. 에이전트는 읽을 수만 있습니다.')}</small></div>`+
     `<button type="button" class="${on?'primary-button':'secondary-button'}" data-action="agent-connect-toggle" aria-pressed="${on}">${on?ui('On','켜짐'):ui('Off','꺼짐')}</button></div>`+
-    (allowedAgents.length?`<ul class="connect-allowed" aria-label="${ui('Agents you let in','허용한 에이전트')}">${allowedAgents.map(n=>`<li><code>${esc(n===ANYONE?ui('any agent','모든 에이전트'):n)}</code><button type="button" class="secondary-button" data-action="agent-forget" data-name="${esc(n)}">${ui('Disconnect','연결 끊기')}</button></li>`).join('')}</ul>`:'')+
+    (allowedAgents.length?`<ul class="connect-allowed" aria-label="${ui('Agents you let in','허용한 에이전트')}">${allowedAgents.map(n=>`<li><span><strong>${esc(callerText(n))}</strong>${n===ANYONE?'':` <code>${esc(n)}</code>`}</span><button type="button" class="secondary-button" data-action="agent-forget" data-name="${esc(n)}">${ui('Disconnect','연결 끊기')}</button></li>`).join('')}</ul>`:'')+
     `<div class="modal-note">${ui('Agent mode is the other way to hand over: it locks people out entirely and gives the agent the whole screen. This switch does not do that.','에이전트 모드는 다른 방식의 위임입니다. 사람을 완전히 잠그고 화면 전체를 에이전트에게 넘깁니다. 이 스위치는 그렇게 하지 않습니다.')}</div>`+
     (nativeDesktop&&channel?`<details><summary>${ui('Channel details','채널 정보')}</summary><pre class="export-code">${esc(bridgeExamples(channel,endpointFile))}</pre></details>`:''),
     true);
@@ -355,7 +357,7 @@ function connectBannerHtml(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
   const holder=lease&&lease.label!==HUMAN?lease.label:'',left=allowedText()?`${ui('allowed','허용')} ${esc(allowedText())}`:'';
-  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder||ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
+  return `<div class="connect-banner" role="status">${icon('bot')}<strong>${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" data-action="agent-disconnect">${ui('Disconnect','연결 끊기')}</button></div>`;
 }
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
@@ -748,9 +750,22 @@ let askSeq=0;
  * press, where making the page inert would cancel the person's drag.
  */
 function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by,askState.id);}
+/** A program's name as a person knows it ("Codex", not "codex-mcp-client"); the switch reads as any agent. */
+function callerText(raw:string){return raw===ANYONE?ui('any agent','모든 에이전트'):describeCaller(raw).name;}
+/**
+ * The request, written for someone who has never heard of an agent channel: which program, where it
+ * runs, that it can already read, that allowing starts nothing new. The name the program sent stays
+ * on it, small, because that name is all the app actually knows — it is what the program says.
+ */
 function askModal(by:string,id:string){
-  showModal(`<code class="ask-name">${esc(by)}</code>`,ui('would like to edit alongside you','함께 편집하기를 요청합니다'),
-    `<div class="ask-dialog" data-ask-id="${esc(id)}" data-ask-by="${esc(by)}"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · Disconnect it in Help (?) → Agent connection','다음부터는 묻지 않습니다 · 도움말(?) → 에이전트 연결에서 끊을 수 있습니다')}</span></li></ul>`+
+  const who=describeCaller(by),n=esc(who.name),ga=who.known?(who.name.endsWith('Desktop')?'이':'가'):'이(가)';
+  const from=who.source==='terminal'?ui(`${n}, running in a terminal on this Mac, connected to Aphrodite over MCP.`,`이 Mac의 터미널에서 실행 중인 ${n}${ga} MCP로 Aphrodite에 연결했습니다.`)
+    :who.source==='mcp'?ui(`${n}, running on this Mac, connected to Aphrodite over MCP.`,`이 Mac에서 실행 중인 ${n}${ga} MCP로 Aphrodite에 연결했습니다.`)
+    :who.source==='in-app'?ui(`This comes from the ${n} chat inside Aphrodite.`,`Aphrodite 안의 ${n} 대화에서 온 요청입니다.`)
+    :ui('A program on this Mac connected to Aphrodite. All it says about itself is its name.','이 Mac의 어떤 프로그램이 Aphrodite에 연결했습니다. 스스로 밝힌 이름 말고는 알 수 없습니다.');
+  showModal(ui(`${n} wants to edit this project with you`,`${n}${ga} 이 프로젝트를 함께 편집하려고 합니다`),`${from} ${ui('It can already read; if you allow it, it can make changes too.','읽기는 이미 할 수 있고, 허용하면 고칠 수도 있습니다.')}`,
+    `<div class="ask-dialog" data-ask-id="${esc(id)}" data-ask-by="${esc(by)}"><ul class="ask-points"><li>${icon('wand-sparkles')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings')}<span>${ui('You will not be asked again · Disconnect it in Help (?) → Agent connection','다음부터는 묻지 않습니다 · 도움말(?) → 에이전트 연결에서 끊을 수 있습니다')}</span></li><li>${icon('monitor')}<span>${ui('Allowing starts nothing new: the connection exists only on this Mac, while Aphrodite is open.','허용해도 새로 켜지는 것은 없습니다. 이 연결은 Aphrodite가 열려 있는 동안 이 Mac 안에서만 열려 있습니다.')}</span></li></ul>`+
+    `<p class="ask-raw">${ui('Connection name','연결 이름')}: <code class="ask-name">${esc(by)}</code>${who.known?'':` (${ui('unknown program','알 수 없는 프로그램')})`}</p>`+
     `<div class="ask-actions"><button type="button" class="secondary-button" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="primary-button" data-action="ask-allow">${ui('Allow','허용')}</button></div></div>`);
   modalRoot.querySelector('.modal')?.classList.add('ask-modal');
   // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
@@ -770,7 +785,7 @@ function answerAsk(allow:boolean){
   if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
   closeAsk();
   refreshBanners();
-  toast(allow?`${by} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
+  toast(allow?`${callerText(by)} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
 }
 document.addEventListener('pointerdown',()=>{pointerHeld=true;},true);
 for(const type of ['pointerup','pointercancel'])document.addEventListener(type,()=>{pointerHeld=false;setTimeout(offerAsk,0);},true);
@@ -1240,7 +1255,7 @@ async function action(el: HTMLElement, trusted = false) {
     case 'ask-allow': answerAsk(true);break;
     case 'ask-decline': answerAsk(false);break;
     case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${name===ANYONE?ui('Any agent','모든 에이전트'):name} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
+    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
     case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
@@ -1550,7 +1565,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Prom
     // A waiting request whose agent has since been let in some other way (the switch) has nothing left to ask.
     if(askState?.answered==='pending'&&!askShown()&&callerMode(askState.by)!=='design')askState={...askState,answered:'allowed'};
     const outcome=considerAsk(who,callerMode(who),askState,Date.now());
-    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
+    if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
   commandCaller=who;stepRefused='';

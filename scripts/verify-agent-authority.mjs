@@ -66,6 +66,12 @@ check('an agent can ask, and the request waits for the dialog the person is in',
 check('the request reaches the person with its name on it, in the middle of the screen', async () => {
   const text = await dialog();
   assert.match(text, /claude-code/, 'the request is on their screen once the welcome closes');
+  // The person reads which program it is and where it runs; the raw name it sent stays, small, in code type.
+  assert.match(await evaluate(`document.querySelector('#modal-root .ask-modal #modal-title').textContent`), /^Claude Code/, 'the heading names the program');
+  assert.match(text, /터미널|terminal/, 'and where it runs');
+  assert.match(text, /MCP/);
+  assert.match(text, /새로 켜지는 것은 없습니다|starts nothing new/, 'allowing launches nothing');
+  assert.equal(await evaluate(`document.querySelector('#modal-root .ask-name').textContent`), 'claude-code', 'the name it gave itself is shown as such');
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#modal-root .ask-name')).fontFamily.includes('monospace')`), true, 'the name is set in code type');
   assert.match(text, /⌘Z/);
   assert.match(text, /not be asked again|다음부터는 묻지 않습니다/);
@@ -169,6 +175,7 @@ check('while a request is open, nothing but the person answers or closes it', as
   assert.equal((await agent('connect', {}, 'kiro')).status, 'asked');
   await sleep(200);
   assert.match(await dialog(), /kiro/);
+  assert.match(await dialog(), /알 수 없는 프로그램|unknown program/, 'a name the app does not know is said to be unknown');
   // An allowed agent driving buttons that would close or replace a dialog.
   for (const action of ['welcome-dismiss', 'systems', 'home']) {
     const r = await agent('act', {action}, 'claude-code');
@@ -276,7 +283,13 @@ check('the person allows an agent by name, and a restart remembers it', async ()
   assert.equal(again.status, 'already-open', 'and it is not asked again');
   const write = await agent('edit', {field: 'title', text: 'remembered'}, 'claude-code');
   assert.notEqual(write.status, 423, JSON.stringify(write));
-  assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('claude-code')), true, 'the banner names who is let in');
+  assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the banner names who is let in, as a person knows it');
+  await personClicks('agent-connect');
+  await sleep(250);
+  const listed = await evaluate(`document.querySelector('#modal-root .connect-allowed')?.textContent ?? ''`);
+  assert.match(listed, /Claude Code/, 'Help → Agent connection lists it the same way');
+  assert.match(listed, /claude-code/, 'with the name it sent');
+  await key('Escape', 'Escape', 27);
 });
 
 check('a different name is still asked, and cannot write meanwhile', async () => {
