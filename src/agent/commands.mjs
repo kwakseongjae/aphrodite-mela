@@ -1235,13 +1235,23 @@ export const commands = [
     controls: [action('explorer-pin'), action('shelf-remove')],
   },
   {
+    /* Opening the files writes them too: the project's snapshot and DESIGN.md are synced to disk first. */
     id: 'outside.vault',
-    label: {en: 'Write a document into the project’s files', ko: '프로젝트 파일에 문서 쓰기'},
+    label: {en: 'Open the project’s files, or write a document into them', ko: '프로젝트 파일 열기·문서 쓰기'},
     grade: 'outside',
     input: {type: 'object', properties: {name: {type: 'string'}, text: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('vault-note'), form('vault-note-form'), action('vault-import')],
+    controls: [action('vault-open'), action('vault-refresh'), action('vault-back'), action('vault-note'), form('vault-note-form'), action('vault-import')],
+  },
+  {
+    id: 'outside.open-elsewhere',
+    label: {en: 'Open an address or a folder in another app', ko: '다른 앱에서 주소·폴더 열기'},
+    grade: 'outside',
+    input: {type: 'object', properties: {id: {type: 'string'}}, additionalProperties: false},
+    ...plain,
+    surfaces: UI,
+    controls: [action('reference-open'), action('local-reveal')],
   },
   {
     id: 'outside.fonts',
@@ -1319,10 +1329,10 @@ export const commands = [
     field('explorer-kind'), field('explorer-variant'), field('inspection-width'),
   ]),
   chrome('chrome.library', 'Browse pictures and references', '사진·레퍼런스 둘러보기', [
-    action('asset-category'), action('local-scope'), action('local-refresh'), action('local-reveal'), action('reference-scope'), action('reference-open'), action('taste'),
+    action('asset-category'), action('local-scope'), action('local-refresh'), action('reference-scope'), action('taste'),
   ]),
-  chrome('chrome.vault', 'Browse the project’s files', '프로젝트 파일 둘러보기', [
-    action('vault-open'), action('vault-refresh'), action('vault-back'), action('vault-read'),
+  chrome('chrome.vault', 'Read a file from the project’s files', '프로젝트 파일 읽기', [
+    action('vault-read'),
   ]),
   chrome('chrome.theme-draft', 'Compare colour and font drafts', '색·서체 초안 비교', [
     action('theme-review'), action('proposal-blue'), action('proposal-green'), action('proposal-full'), action('proposal-back'), field('proposal-color'), field('proposal-font'),
