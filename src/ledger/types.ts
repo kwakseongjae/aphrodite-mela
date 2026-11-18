@@ -25,7 +25,8 @@ export type Change = {
   source: string;
   reason?: string;
   ops: PatchOp[];
-  anchors: {pages: string[]; nodes: string[]};
+  /** What it touched, for pointing the canvas at it; `truncated` when it touched more than MAX_ANCHORS and only that many are named. */
+  anchors: {pages: string[]; nodes: string[]; truncated?: true};
   baseRevision: string;
   revision: string;
   /** Only where the person was looking moved — the page they opened, a frame dragged on the space. */

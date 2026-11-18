@@ -40,9 +40,13 @@ export function hasOmitted(value: unknown): boolean {
  * small enough that the saved ledger never outgrows its reserve (LEDGER_RESERVE).
  */
 export const MAX_ANCHORS = {nodes: 500, pages: 60};
-function anchored(ops: PatchOp[]): {pages: string[]; nodes: string[]} {
-  const all = anchorsOf(ops);
-  return {pages: all.pages.slice(0, MAX_ANCHORS.pages), nodes: all.nodes.slice(0, MAX_ANCHORS.nodes)};
+function anchored(ops: PatchOp[]): Change['anchors'] {
+  return capAnchors(anchorsOf(ops));
+}
+/** Anchors held to MAX_ANCHORS, saying so when some were left out: a reader takes such a change to have touched its pages whole. */
+export function capAnchors(anchors: {pages: string[]; nodes: string[]}): Change['anchors'] {
+  const truncated = anchors.pages.length > MAX_ANCHORS.pages || anchors.nodes.length > MAX_ANCHORS.nodes;
+  return {pages: anchors.pages.slice(0, MAX_ANCHORS.pages), nodes: anchors.nodes.slice(0, MAX_ANCHORS.nodes), ...(truncated ? {truncated: true as const} : {})};
 }
 
 export type ChangeMeta = {author: Author; source: string; reason?: string; undoes?: number; redoes?: number; at?: string; id?: string};

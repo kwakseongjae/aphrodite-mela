@@ -64,6 +64,19 @@ test('the newest header alone always fits: a change touching every component the
   assert.deepEqual([p.ledger!.changes.length, p.ledger!.seq], [0, change.seq], 'with no room even for one, the history empties and keeps its count');
 });
 
+test('a change anchored to fewer components than it touched says so', () => {
+  const p = initialProject(), history = newHistory(p);
+  p.ledger = emptyLedger();
+  let before = begin(p, history);
+  p.pages[0].blocks.push(...Array.from({length: 600}, () => makeBlock('cta')));
+  const many = end(p, before, {author: PERSON, source: 'editor:change'}, history)!;
+  assert.deepEqual([many.anchors.nodes.length, many.anchors.truncated], [500, true]);
+  before = begin(p, history);
+  p.pages[0].blocks[0].title = 'One';
+  const one = end(p, before, {author: PERSON, source: 'editor:change'}, history)!;
+  assert.equal('truncated' in one.anchors, false, 'a change anchored to everything it touched says nothing more');
+});
+
 test('compact counts what the ledger serializes to, brackets and commas included', () => {
   const p = initialProject(), history = newHistory(p);
   p.ledger = emptyLedger();

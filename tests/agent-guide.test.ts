@@ -99,6 +99,8 @@ test('the tools say the same as the playbook: apply_edits leads with html, list_
   assert.ok(apply.indexOf('html_page')<apply.indexOf('add, update'),'html first, sections after');
   assert.match(tool('aphrodite_list_components'),/material/);
   assert.match(tool('aphrodite_get_changes'),/parent/,'a change names the one it was made on');
+  assert.match(tool('aphrodite_get_changes'),/truncated/,'a change anchored to only some of what it touched says so');
+  assert.match(playbook,/truncated/,'and the playbook says how to read it');
 });
 
 test('the playbook tells an agent its name is remembered once allowed',()=>{
