@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {initialProject, type Project} from '../src/model.ts';
 import {parseAgentCommand} from '../src/agent/bridge.ts';
 import {isRead} from '../src/agent/authority.ts';
-import {pageHtmlRead, pageTextRead, designContract, renderRefusal} from '../src/agent/contract.ts';
+import {pageHtmlRead, pageTextRead, designContract, renderRefusal, changesForReply, REPLY_OPS} from '../src/agent/contract.ts';
 import {commandById} from '../src/agent/commands.mjs';
 
 const HTML = '<!doctype html><html><body><h1>Week 47</h1><p>Shipped the ledger.</p><script>1</script></body></html>';
@@ -58,4 +58,21 @@ test('a picture of an html page waits for the frame that holds it (P2), and says
   const p = project();
   assert.match(renderRefusal(p.pages[1]) ?? '', /aphrodite_get_page_html/);
   assert.equal(renderRefusal(p.pages[0]), undefined);
+});
+
+/* 0.3-P1-fix1: a reply that lists changes keeps their ops to 200,000 characters in all, leaving out the
+   biggest first. The ledger itself is not touched; what was left out is read from the page as it is now. */
+test('the changes in a reply carry at most 200,000 characters of ops, the biggest left out first', () => {
+  const change = (seq: number, chars: number) => ({seq, anchors: {pages: ['free-1'], nodes: []}, size: chars + 300, ops: [{op: 'set', on: 'page', page_id: 'free-1', field: 'html', value: 'x'.repeat(chars)}]});
+  const small = [change(1, 1_000), change(2, 2_000)];
+  assert.deepEqual(changesForReply(small), {changes: small}, 'a reply under the limit is left as it is');
+  const mixed = [change(1, 150_000), change(2, 5_000), change(3, 120_000), change(4, 90_000)];
+  const reply = changesForReply(mixed);
+  const kept = reply.changes.filter(c => !('ops_omitted' in c));
+  assert.ok(JSON.stringify(kept.map(c => (c as {ops: unknown}).ops)).length <= REPLY_OPS);
+  assert.deepEqual(reply.changes.map(c => 'ops_omitted' in c ? c.seq : -c.seq), [1, -2, 3, -4], 'the two biggest go, in place, the rest stay');
+  const omitted = reply.changes[0] as Record<string, unknown>;
+  assert.deepEqual([omitted.ops_omitted, omitted.size, omitted.ops, omitted.anchors], [true, 150_300, undefined, {pages: ['free-1'], nodes: []}]);
+  assert.match(reply.note ?? '', /aphrodite_get_page_html/);
+  assert.equal(mixed[0].ops.length, 1, 'the changes passed in are not touched');
 });

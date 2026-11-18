@@ -57,7 +57,7 @@ import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
-import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal} from './agent/contract';
+import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {isFreePage} from './free-page';
@@ -1521,7 +1521,7 @@ async function actViaButton(actionName:string,data:Record<string,string>,d:Dispa
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
-function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{}),seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
+function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{}),seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),size:c.size,ops:c.ops};}
 /**
  * The 409 for a change an agent wrote against a revision the person has since changed: what changed
  * in between, and the revision to send next, so the agent reads before it writes over. Undefined when
@@ -1530,8 +1530,8 @@ function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{
 function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
   const now=fingerprint(project);
   if(!baseRevision||baseRevision===now)return undefined;
-  const since=changesSince(project.ledger,baseRevision,{limit:20});
-  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
+  const since=changesSince(project.ledger,baseRevision,{limit:20}),listed=changesForReply(since.changes.map(publicChange));
+  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:listed.changes,...(listed.note?{note:listed.note}:{}),more:since.more};
 }
 /**
  * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
@@ -1602,7 +1602,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   if(c.kind==='changes'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
-    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:found.changes.map(publicChange)};
+    const listed=changesForReply(found.changes.map(publicChange));
+    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:listed.changes,...(listed.note?{note:listed.note}:{})};
   }
   if(c.kind==='render'){
     if(screen!=='editor')return closedRender();

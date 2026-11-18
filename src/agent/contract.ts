@@ -212,6 +212,32 @@ export function renderRefusal(page: Page): string | undefined {
     : `page ${page.id} is a media item; there is no page to draw.`;
 }
 
+/** How many characters of ops one reply listing changes carries at most. */
+export const REPLY_OPS = 200_000;
+const OPS_OMITTED_NOTE = 'Some changes are listed without their ops (ops_omitted), to keep this reply small; their who, why, anchors and size are here. To see what they did, read the page as it is now with aphrodite_get_page_html.';
+
+/**
+ * The changes a reply lists (aphrodite_get_changes, a stale batch's 409), with their ops kept to
+ * REPLY_OPS characters in all: past that the biggest lose their ops first, in place, and say so with
+ * `ops_omitted`. Only the reply is trimmed; the ledger keeps what it keeps.
+ */
+export function changesForReply<T extends {ops: unknown[]}>(changes: T[], limit = REPLY_OPS): {changes: (T | (Omit<T, 'ops'> & {ops_omitted: true}))[]; note?: string} {
+  const sizes = changes.map(c => JSON.stringify(c.ops).length);
+  let total = sizes.reduce((sum, n) => sum + n, 0);
+  if (total <= limit) return {changes};
+  const dropped = new Set<number>();
+  for (const i of sizes.map((_, i) => i).sort((a, b) => sizes[b] - sizes[a])) {
+    if (total <= limit) break;
+    dropped.add(i);
+    total -= sizes[i];
+  }
+  return {changes: changes.map((c, i) => {
+    if (!dropped.has(i)) return c;
+    const {ops: _ops, ...rest} = c;
+    return {...rest, ops_omitted: true as const};
+  }), note: OPS_OMITTED_NOTE};
+}
+
 /** The vocabulary an agent composes with: every component kind, its variants and its providers. */
 export function componentVocabulary() {
   return {

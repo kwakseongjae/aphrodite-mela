@@ -206,6 +206,7 @@ export const commands = [
         'Undo does not erase anything here: it appears as its own change that names the one it took back (`undoes`). Changes that only moved the view — opening another page, dragging a frame around the space — are left out unless you pass include_view.',
         'Each change has its own `id` and names the change it was made on as `parent`. A change to a page\'s html is a text diff ({"op": "text"}): the passages that changed, each with `at`, `insert`, and the length and hash of what it took out.',
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
+        'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
         '',
         'Example: {"since": 12} — or {} for the latest 50, or {"since": "1830:4fa1c2:9b0e11"} with a revision you were given.',
       ].join('\n'),
