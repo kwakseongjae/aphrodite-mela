@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
-import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths} from './support/css';
+import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths,hasFlag} from './support/css';
 
 /** Every sheet the system owns: any .css under src/ui at any depth, but the generated tokens.css. */
 const src=new URL('../src/',import.meta.url);
@@ -118,6 +118,9 @@ export function ringsLost(css:string){
       const c=focused(chain.map(clone),how,from);
       const shadow=value(all,c,'box-shadow')??'none';
       if(!shadow.includes('var(--ui-focus)'))lost.push(describe(c)+': box-shadow '+shadow);
+      // Forced-colours mode drops box-shadow and paints a transparent outline in the system colour.
+      const outline=value(all,c,'outline')??'none';
+      if(outline!=='var(--ui-ring) solid transparent')lost.push(describe(c)+': outline '+outline);
     }
   }
   return lost;
@@ -151,9 +154,54 @@ test('every interactive part keeps its keyboard focus ring in every state',()=>{
 });
 
 test('the ring check sees a state rule that replaces the ring',()=>{
-  const sheet='.ui-seg-item:focus-visible, .ui-seg-item.is-focus { outline: none; box-shadow: 0 0 0 var(--ui-ring) var(--ui-focus); }\n'+
+  const sheet='.ui-seg-item:focus-visible, .ui-seg-item.is-focus { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-focus); }\n'+
     '.ui-seg-item.is-on, .ui-seg-item[aria-checked="true"] { box-shadow: var(--ui-shadow-seg); }';
   assert.deepEqual(ringsLost(sheet).length,6,'on, aria-checked and both at once, from the keyboard and in the gallery');
+});
+
+/**
+ * A disabled part does not answer the pointer: hovering or pressing it changes nothing it draws. A row
+ * can be a button (:disabled) or another element (.is-disabled); a select box is disabled through the
+ * native <select> inside it, and then also looks disabled.
+ */
+const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
+  'ui-btn':[{states:['disabled']}],'ui-icon-btn':[{states:['disabled']}],'ui-chip':[{states:['disabled']}],'ui-seg-item':[{states:['disabled']}],
+  'ui-tab':[{states:['disabled']}],'ui-attach':[{states:['disabled']}],'ui-send':[{states:['disabled']}],'ui-input':[{states:['disabled']}],'ui-textarea':[{states:['disabled']}],
+  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],
+  'ui-select':[{states:[hasFlag('> select:disabled')]},{classes:['is-disabled']}],
+};
+export function litWhileDisabled(css:string){
+  const all=rules(css),lit:string[]=[];
+  for(const [part,ways] of Object.entries(disabledWays))for(const way of ways){
+    const at=[el([part,...(way.classes??[])],way.states??[])];
+    for(const pointer of ['hover','active']){
+      const on=at.map(clone);on[0].states.add(pointer);
+      for(const prop of ['background','border','color','box-shadow','filter'])
+        if(value(all,on,prop)!==value(all,at,prop))lit.push(describe(on)+': '+prop+' '+value(all,on,prop));
+    }
+  }
+  return lit;
+}
+
+test('a disabled part does not light up under the pointer',()=>{
+  assert.deepEqual(litWhileDisabled(system),[]);
+});
+
+test('a select box whose select is disabled looks disabled',()=>{
+  const all=rules(system);
+  for(const prop of ['background','color'])
+    assert.equal(value(all,[el(['ui-select'],[hasFlag('> select:disabled')])],prop),value(all,[el(['ui-select','is-disabled'])],prop),prop);
+});
+
+/** Motion is decoration: with reduced motion asked for, nothing in the parts moves or fades. */
+const reduced='@media (prefers-reduced-motion: reduce)';
+test('every transition stops when the system asks for reduced motion',()=>{
+  const all=rules(system),moving:string[]=[];
+  for(const chain of scenarios(all)){
+    const t=value(all,chain,'transition');
+    if(t&&t!=='none'&&value(all,chain,'transition',[reduced])!=='none')moving.push(describe(chain)+': '+t);
+  }
+  assert.deepEqual(moving,[]);
 });
 
 /**

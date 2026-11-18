@@ -46,11 +46,12 @@
 .ui-caps { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); letter-spacing: var(--ui-track-caps); color: var(--ui-text-3); font-weight: var(--ui-w-medium); }
 
 /* ── Focus: one ring for every part a keyboard can reach ───────── */
+/* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
 .ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus,
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
-  outline: none; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
+  outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
 /* A state that draws its own shadow keeps it under the ring, rather than replacing the ring. */
 .ui-seg-item.is-on:focus-visible, .ui-seg-item.is-on.is-focus, .ui-seg-item[aria-pressed="true"]:focus-visible, .ui-seg-item[aria-pressed="true"].is-focus,
@@ -63,9 +64,9 @@
 }
 /* Fields draw focus on their own edge: the box is already a boundary. */
 .ui-input:focus-visible, .ui-input.is-focus, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
-  outline: none; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus);
+  outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus);
 }
-.ui-composer:focus-within, .ui-composer.is-focus { border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus), var(--ui-shadow-panel); }
+.ui-composer:focus-within, .ui-composer.is-focus { outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus), var(--ui-shadow-panel); }
 
 /* ── Buttons ───────────────────────────────────────────────────── */
 .ui-btn {
@@ -124,9 +125,9 @@
 .ui-textarea { appearance: none; display: block; min-height: calc(var(--ui-control-md) * 3); padding: var(--ui-space-2) var(--ui-space-3); resize: vertical; }
 .ui-input::placeholder, .ui-textarea::placeholder { color: var(--ui-text-3); opacity: 1; }
 .ui-input:hover:not(:disabled):not(:focus), .ui-input.is-hover, .ui-textarea:hover:not(:disabled):not(:focus), .ui-textarea.is-hover,
-.ui-select:hover:not(.is-disabled):not(:focus-within), .ui-select.is-hover { border-color: var(--ui-text-3); }
+.ui-select:hover:not(.is-disabled):not(:focus-within):not(:has(> select:disabled)), .ui-select.is-hover { border-color: var(--ui-text-3); }
 .ui-input.is-error, .ui-input[aria-invalid="true"], .ui-textarea.is-error, .ui-textarea[aria-invalid="true"], .ui-select.is-error { border-color: var(--ui-danger-line); }
-.ui-input:disabled, .ui-input.is-disabled, .ui-textarea:disabled, .ui-textarea.is-disabled, .ui-select.is-disabled { background: var(--ui-bg-sunken); color: var(--ui-text-3); }
+.ui-input:disabled, .ui-input.is-disabled, .ui-textarea:disabled, .ui-textarea.is-disabled, .ui-select.is-disabled, .ui-select:has(> select:disabled) { background: var(--ui-bg-sunken); color: var(--ui-text-3); }
 /* A native <select> inside a box, so the box can draw the chevron and the focus edge. */
 .ui-select { position: relative; height: var(--ui-control-md); padding: 0; }
 .ui-select > select {
@@ -265,14 +266,15 @@
   border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13);
 }
 .ui-row > .ui-icon { color: var(--ui-text-2); }
-.ui-row:hover, .ui-row.is-hover { background: var(--ui-bg-hover); }
-.ui-row:active, .ui-row.is-pressed { background: var(--ui-bg-active); }
+/* :where() keeps these at the weight of .ui-row:hover, so the current, selected and agent fills below still win. */
+.ui-row:hover:where(:not(:disabled):not(.is-disabled)), .ui-row.is-hover { background: var(--ui-bg-hover); }
+.ui-row:active:where(:not(:disabled):not(.is-disabled)), .ui-row.is-pressed { background: var(--ui-bg-active); }
 .ui-row.is-on, .ui-row[aria-current="true"], .ui-row[aria-current="page"] { background: var(--ui-bg-active); font-weight: var(--ui-w-medium); }
 .ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon { color: var(--ui-text-1); }
 .ui-row.is-selected, .ui-row[aria-selected="true"] { background: var(--ui-select-soft); }
 .ui-row.is-agent { background: var(--ui-agent-soft); }
 /* Meta in a lit row moves up a step: text-3 does not keep 3:1 on the hover, pressed, current and selected fills. */
-.ui-row:hover > .ui-row-meta, .ui-row.is-hover > .ui-row-meta, .ui-row:active > .ui-row-meta, .ui-row.is-pressed > .ui-row-meta,
+.ui-row:hover:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-hover > .ui-row-meta, .ui-row:active:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-pressed > .ui-row-meta,
 .ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta,
 .ui-row.is-selected > .ui-row-meta, .ui-row[aria-selected="true"] > .ui-row-meta { color: var(--ui-text-2); }
 .ui-row.is-agent > .ui-row-meta { color: var(--ui-agent-text); }
@@ -327,3 +329,8 @@
 .ui-toolbar { display: inline-flex; align-items: center; gap: calc(var(--ui-space-1) / 2); padding: var(--ui-space-1); background: var(--ui-bg-raised); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-panel); }
 .ui-toolbar > .ui-icon-btn { width: var(--ui-control-md); height: var(--ui-control-md); }
 .ui-toolbar-sep { width: var(--ui-hairline); height: var(--ui-icon-20); background: var(--ui-line); margin: 0 var(--ui-space-1); }
+
+/* ── Reduced motion ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after { transition: none; }
+}

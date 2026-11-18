@@ -76,7 +76,7 @@ test('text-3 writes only meta, disabled controls and icons, in these rules',()=>
   const writers=rules(css).filter(r=>/var\(--ui-text-3\)/.test(r.decls.color?.value??'')).map(r=>r.selector);
   for(const s of writers)assert.ok(policy.meta(s)||/:disabled|\.is-disabled/.test(s)||/\.ui-icon$/.test(s),s+' writes text in text-3, which only meta, a disabled control or an icon may');
   assert.deepEqual(writers,['.ui-caps','.ui-kbd','.ui-input::placeholder','.ui-textarea::placeholder','.ui-input:disabled','.ui-input.is-disabled','.ui-textarea:disabled','.ui-textarea.is-disabled',
-    '.ui-select.is-disabled','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
+    '.ui-select.is-disabled','.ui-select:has(> select:disabled)','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
 });
 
 test('the ratios are the ones the approved direction showed',()=>{
