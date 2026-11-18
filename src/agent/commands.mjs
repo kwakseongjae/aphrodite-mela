@@ -42,6 +42,8 @@ const action = (name, data) => (data ? {kind: 'action', name, data} : {kind: 'ac
 const field = (name, data) => (data ? {kind: 'field', name, data} : {kind: 'field', name});
 const form = id => ({kind: 'form', id});
 const gesture = name => ({kind: 'gesture', name});
+/** An effect with no button: a listener of its own (a link click) or something the app does by itself (the update check). */
+const listener = name => ({kind: 'listener', name});
 const sources = (...list) => ({sources: list});
 
 /** A row with nothing to say about reasons, revisions or the ledger: everything that is not an edit. */
@@ -1251,7 +1253,7 @@ export const commands = [
     input: {type: 'object', properties: {id: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('reference-open'), action('local-reveal')],
+    controls: [action('reference-open'), action('local-reveal'), listener('external-link')],
   },
   {
     id: 'outside.fonts',
@@ -1280,7 +1282,7 @@ export const commands = [
     surfaces: UI,
     controls: [
       action('update-install'), action('update-relaunch'), action('update-download'), action('update-open'), action('update-reveal'),
-      action('update-notes'), action('update-later'), action('update-dismiss'), action('update-never'),
+      action('update-notes'), action('update-later'), action('update-dismiss'), action('update-never'), listener('update-check'),
     ],
   },
   {

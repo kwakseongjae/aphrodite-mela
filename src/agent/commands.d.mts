@@ -5,12 +5,14 @@ import type {Tool, ToolAnnotations} from '../../mcp/aphrodite-mcp/tools.mjs';
 export type Grade = 'read' | 'edit' | 'outside' | 'choose' | 'human' | 'chrome';
 export type Surface = 'ui' | 'mcp' | 'loopback' | 'inApp';
 
-/** Every UI handle that runs a row: a data-action (with the data that tells two rows apart), an inspector field, a form, a gesture. */
+/** Every UI handle that runs a row: a data-action (with the data that tells two rows apart), an inspector field, a form, a gesture, a listener. */
 export type Control =
   | {kind: 'action'; name: string; data?: Record<string, string>}
   | {kind: 'field'; name: string; data?: Record<string, string>}
   | {kind: 'form'; id: string}
-  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'undo-key' | 'redo-key'};
+  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'undo-key' | 'redo-key'}
+  /** An effect outside the app with no button: a link the app opens, the update check at launch. */
+  | {kind: 'listener'; name: 'external-link' | 'update-check'};
 
 export type McpBlock = {
   /** Position in the tool list a client is shown. */

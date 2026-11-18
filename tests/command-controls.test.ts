@@ -162,7 +162,7 @@ test('every edit committed outside a dispatcher is a gesture some row names',()=
 test('a control that runs two rows is one the interface tells apart',()=>{
   const seen=new Map<string,string[]>();
   for(const {row,control} of controls){
-    const key=control.kind==='form'?`form:${control.id}`:`${control.kind}:${control.name}:${JSON.stringify(control.kind==='gesture'?{}:control.data??{})}`;
+    const key=control.kind==='form'?`form:${control.id}`:`${control.kind}:${control.name}:${JSON.stringify(control.kind==='gesture'||control.kind==='listener'?{}:control.data??{})}`;
     seen.set(key,[...(seen.get(key)??[]),row]);
   }
   const shared=[...seen].filter(([,rows])=>rows.length>1).map(([key,rows])=>`${key} ${rows.join(' ')}`).sort();

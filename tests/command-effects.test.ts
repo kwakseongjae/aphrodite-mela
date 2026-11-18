@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,statSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import ts from 'typescript';
 import {commands,commandById,gradeOfKind} from '../src/agent/commands.mjs';
 
 /**
@@ -83,6 +84,19 @@ const EXEMPT:Record<string,string>={
   attachDiskQueue:'the workspace store: every change is saved through it, so it belongs to no single command',
 };
 
+/** The innermost named function whose body holds `at`, read off the syntax tree; undefined at the top level. */
+function enclosingFunction(file:string,text:string,at:number):string|undefined{
+  const tree=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
+  let found:string|undefined;
+  const visit=(node:ts.Node)=>{
+    if(node.getStart(tree)>at||node.end<=at)return;
+    if(ts.isFunctionDeclaration(node)&&node.name&&node.body&&node.body.getStart(tree)<=at)found=node.name.text;
+    ts.forEachChild(node,visit);
+  };
+  visit(tree);
+  return found;
+}
+
 /** Every place in `files` that leaves the app, with the controls that run it. */
 function effectSites(files:Record<string,string>):Site[]{
   const sites:Site[]=[];
@@ -97,7 +111,7 @@ function effectSites(files:Record<string,string>):Site[]{
       const end=text.indexOf(region.to,start);
       if(at>start&&at<end){const own=region.own(text.slice(start,end),at-start);if(own)return [own];}
     }
-    const fn=[...text.slice(0,at).matchAll(/(?:async\s+)?function\s+([A-Za-z_]\w*)\s*\(/g)].at(-1)?.[1];
+    const fn=enclosingFunction(file,text,at);
     if(!fn)return [{kind:'none',where:`${file}: ${line.trim().slice(0,100)}`}];
     if(EXEMPT[fn])return [{kind:'exempt',name:fn}];
     if(seen.has(fn))return [];
@@ -127,7 +141,7 @@ test('every control that leaves the app is on an outside row, never chrome or a 
       :owner.kind==='form'?rowsWith('form',owner.id)
       :owner.kind==='listener'?rowsWith('listener',owner.name):[];
     if(owner.kind==='agent'){assert.equal(gradeOfKind(owner.route),'outside',`the agent's ${owner.route} leaves the app: ${site.line}`);continue;}
-    if(owner.kind==='exempt'||owner.kind==='none'||owner.kind==='listener')continue;
+    if(owner.kind==='exempt'||owner.kind==='none')continue;
     assert.ok(rows.length,`${JSON.stringify(owner)} leaves the app (${site.file}: ${site.line}) and is in no row`);
     for(const row of rows)assert.equal(row.grade,'outside',`${row.id} runs ${JSON.stringify(owner)}, which leaves the app: ${site.file}: ${site.line}`);
   }
@@ -137,4 +151,41 @@ test('opening an archived address in the browser is outside the ledger',()=>{
   const rows=rowsWith('action','reference-open');
   assert.deepEqual(rows.map(r=>r.grade),['outside']);
   assert.notEqual(commandById['chrome.library'].controls.some(c=>c.kind==='action'&&c.name==='reference-open'),true);
+});
+
+/* The review's second gap: an effect run by a listener of its own, outside every dispatcher, used to
+   pass because only commits were checked. Each one is now a listener control on an outside row. */
+test('every effect outside a dispatcher belongs to a row’s control',()=>{
+  const loose=sites.flatMap(s=>s.owners.filter(o=>o.kind==='none').map(o=>(o as {where:string}).where));
+  assert.deepEqual(loose,[],'these leave the app with no control in the table');
+  for(const [name,{file,marker}] of Object.entries(LISTENERS)){
+    assert.ok(tree[file].includes(marker),`the listener "${name}" is not in ${file} any more`);
+    assert.deepEqual(rowsWith('listener',name).map(r=>r.grade),['outside'],`the listener "${name}" is one outside row's control`);
+  }
+  const tableListeners=commands.flatMap(r=>r.controls.filter(c=>c.kind==='listener').map(c=>(c as {name:string}).name)).sort();
+  assert.deepEqual(tableListeners,Object.keys(LISTENERS).sort(),'every listener a row names is one this test finds');
+  const exempt=[...new Set(sites.flatMap(s=>s.owners.filter(o=>o.kind==='exempt').map(o=>(o as {name:string}).name)))];
+  assert.deepEqual(exempt,Object.keys(EXEMPT),'only the workspace store is exempt');
+});
+
+test('opening a link from the app is the external-link listener on an outside row',()=>{
+  const link=sites.find(s=>s.line.includes('{url:link.href}'));
+  assert.deepEqual(link?.owners,[{kind:'listener',name:'external-link'}]);
+  assert.equal(rowsWith('listener','external-link')[0]?.id,'outside.open-elsewhere');
+});
+
+test('a listener that leaves the app without a control is caught, directly or through a helper',()=>{
+  const direct={...tree,'main.ts':`${tree['main.ts']}\ndocument.addEventListener('dblclick',()=>{void invoke('open_external',{url:'https://example.com'});});\n`};
+  assert.ok(effectSites(direct).some(s=>s.owners.some(o=>o.kind==='none'&&o.where.includes('example.com'))),'a direct open_external is caught');
+  const helper={...tree,'main.ts':`${tree['main.ts']}\nfunction leak(){return navigator.clipboard.writeText('x');}\ndocument.addEventListener('dblclick',()=>{void leak();});\n`};
+  assert.ok(effectSites(helper).some(s=>s.owners.some(o=>o.kind==='none'&&o.where.includes('leak()'))),'a clipboard write through a helper is caught at its listener');
+  const saved={...tree,'main.ts':`${tree['main.ts']}\ndocument.addEventListener('dblclick',()=>{void saveFile('x.txt','x','text/plain');});\n`};
+  assert.ok(effectSites(saved).some(s=>s.owners.some(o=>o.kind==='none'&&o.where.includes('saveFile'))),'a download through saveFile is caught at its listener');
+});
+
+test('every Tauri command the interface invokes is classed as leaving the app or not',()=>{
+  const invoked=new Set<string>();
+  for(const text of Object.values(tree))for(const m of text.matchAll(/\binvoke(?:<[^\n]*?>)?\('([a-z_]+)'/g))invoked.add(m[1]);
+  for(const name of invoked)assert.ok(EXTERNAL_COMMANDS.includes(name)||INTERNAL_COMMANDS.includes(name),`invoke('${name}') is not classed in this test`);
+  assert.deepEqual([...EXTERNAL_COMMANDS,...INTERNAL_COMMANDS].filter(n=>!invoked.has(n)),[],'no class names a command nothing invokes');
 });
