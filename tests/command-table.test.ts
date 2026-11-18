@@ -171,3 +171,15 @@ test('the bridge advertises exactly the table’s loopback routes, in the same o
 
 /** Row type is exported for the generated projections; keep it honest about optional parts. */
 const _row:Row=commands[0];void _row;
+
+test('an MCP tool hands the app the reason and the revision its row asks for',()=>{
+  // The gate drives every surface through window.aphroditeAgent, past this body: the tool's own projection is held here.
+  assert.ok(commands.some(r=>r.mcp&&r.reason==='required'),'some tool needs a reason');
+  for(const row of commands.filter(r=>r.mcp&&r.reason!=='none')){
+    const tool=toolByName[row.mcp!.name] as {name:string;body?:(args:Record<string,unknown>)=>Record<string,unknown>};
+    assert.ok(tool.body,`${tool.name} sends a body`);
+    const body=tool.body({...(row.example??{}),reason:'Why',base_revision:'1:a:b'});
+    assert.equal(body.reason,'Why',`${tool.name} passes the reason on`);
+    if(row.revision==='checked')assert.equal(body.base_revision,'1:a:b',`${tool.name} passes base_revision on`);
+  }
+});
