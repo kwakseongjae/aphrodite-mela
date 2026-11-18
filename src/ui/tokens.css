@@ -136,6 +136,7 @@
   --ui-danger: var(--ui-danger-600);
   --ui-danger-soft: var(--ui-danger-soft-light);
   --ui-danger-text: var(--ui-danger-600);
+  --ui-danger-line: var(--ui-danger-600);
   --ui-on-danger: var(--ui-white);
   --ui-focus: var(--ui-blue-500);
   --ui-knob: var(--ui-n-0);
@@ -185,6 +186,7 @@
   --ui-danger: var(--ui-danger-600);
   --ui-danger-soft: var(--ui-danger-soft-dark);
   --ui-danger-text: var(--ui-danger-300);
+  --ui-danger-line: var(--ui-danger-300);
   --ui-on-danger: var(--ui-white);
   --ui-focus: var(--ui-blue-500);
   --ui-knob: var(--ui-n-0);
@@ -235,6 +237,7 @@
     --ui-danger: var(--ui-danger-600);
     --ui-danger-soft: var(--ui-danger-soft-dark);
     --ui-danger-text: var(--ui-danger-300);
+    --ui-danger-line: var(--ui-danger-300);
     --ui-on-danger: var(--ui-white);
     --ui-focus: var(--ui-blue-500);
     --ui-knob: var(--ui-n-0);

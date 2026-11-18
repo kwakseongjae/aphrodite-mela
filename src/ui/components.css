@@ -125,7 +125,7 @@
 .ui-input::placeholder, .ui-textarea::placeholder { color: var(--ui-text-3); opacity: 1; }
 .ui-input:hover:not(:disabled):not(:focus), .ui-input.is-hover, .ui-textarea:hover:not(:disabled):not(:focus), .ui-textarea.is-hover,
 .ui-select:hover:not(.is-disabled):not(:focus-within), .ui-select.is-hover { border-color: var(--ui-text-3); }
-.ui-input.is-error, .ui-input[aria-invalid="true"], .ui-textarea.is-error, .ui-textarea[aria-invalid="true"], .ui-select.is-error { border-color: var(--ui-danger); }
+.ui-input.is-error, .ui-input[aria-invalid="true"], .ui-textarea.is-error, .ui-textarea[aria-invalid="true"], .ui-select.is-error { border-color: var(--ui-danger-line); }
 .ui-input:disabled, .ui-input.is-disabled, .ui-textarea:disabled, .ui-textarea.is-disabled, .ui-select.is-disabled { background: var(--ui-bg-sunken); color: var(--ui-text-3); }
 /* A native <select> inside a box, so the box can draw the chevron and the focus edge. */
 .ui-select { position: relative; height: var(--ui-control-md); padding: 0; }
@@ -271,6 +271,10 @@
 .ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon { color: var(--ui-text-1); }
 .ui-row.is-selected, .ui-row[aria-selected="true"] { background: var(--ui-select-soft); }
 .ui-row.is-agent { background: var(--ui-agent-soft); }
+/* Meta in a lit row moves up a step: text-3 does not keep 3:1 on the hover, pressed, current and selected fills. */
+.ui-row:hover > .ui-row-meta, .ui-row.is-hover > .ui-row-meta, .ui-row:active > .ui-row-meta, .ui-row.is-pressed > .ui-row-meta,
+.ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta,
+.ui-row.is-selected > .ui-row-meta, .ui-row[aria-selected="true"] > .ui-row-meta { color: var(--ui-text-2); }
 .ui-row.is-agent > .ui-row-meta { color: var(--ui-agent-text); }
 .ui-row:disabled, .ui-row.is-disabled { opacity: var(--ui-disabled-opacity); }
 .ui-row-meta { margin-left: auto; font-size: var(--ui-text-11); color: var(--ui-text-3); }

@@ -130,6 +130,7 @@
 | `--ui-danger` | `{danger-600}` #BA362E | `{danger-600}` #BA362E |
 | `--ui-danger-soft` | `{danger-soft-light}` #FFEAE8 | `{danger-soft-dark}` #4A2321 |
 | `--ui-danger-text` | `{danger-600}` #BA362E | `{danger-300}` #F07F77 |
+| `--ui-danger-line` | `{danger-600}` #BA362E | `{danger-300}` #F07F77 |
 | `--ui-on-danger` | `{white}` #FFFFFF | `{white}` #FFFFFF |
 | `--ui-focus` | `{blue-500}` #1A6FE1 | `{blue-500}` #1A6FE1 |
 | `--ui-knob` | `{n-0}` #FDFEFD | `{n-0}` #FDFEFD |

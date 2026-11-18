@@ -308,3 +308,66 @@ export function scenarios(all:Rule[]){
 
 export const disabled=(chain:El[])=>chain.some(e=>e.states.has('disabled')||e.classes.has('is-disabled')||[...e.states].some(s=>s.startsWith('has(')&&s.includes('disabled')));
 export const describe=(chain:El[])=>chain.map(e=>(e.element?'::'+e.element:'')+[...e.classes].map(c=>'.'+c).join('')+[...e.attrs].map(([n,v])=>'['+n+'="'+v+'"]').join('')+[...e.states].map(s=>':'+s).join('')+(e.prev?' (after '+e.prev.map(p=>[...p.classes].map(c=>'.'+c).join('')+[...p.states].map(s=>':'+s).join('')).join()+')':'')).join(' > ');
+
+
+/** What a part draws, read for contrast: a colour on what is behind it. */
+export type Drawn={fg:string,bg:string,kind:'text'|'meta'|'graphic',where:string,rule:string};
+export type DrawPolicy={
+  /** Is this colour a role that resolves to a solid colour in both themes? Others (a scrim) cannot be read. */
+  solid:(role:string)=>boolean,
+  /** Roles a value may name as a colour; anything else in var() (a size, a shadow) is not one. */
+  colours:string[],
+  /** Whether text coloured by this rule (its selector) is meta (a placeholder, repeating meta) and may be held to 3:1. */
+  meta:(rule:string)=>boolean,
+  /** Elements whose fill is the graphic (a switch track, a dot, a tab's underline), read against what is behind them. */
+  fills:(target:El,host?:El)=>boolean,
+  /** Elements that hold no text. */
+  silent:(target:El)=>boolean,
+  /** Colours that only separate (dividers, the edge of a filled box): never read. */
+  decorative:string[],
+};
+
+/**
+ * Every colour pair the sheet draws in the documents scenarios() makes: the text colour on the nearest
+ * background, a border on what is outside it, and a fill on what is behind it. A part with nothing
+ * behind it in the sheet is read on bg-panel, the surface the parts are drawn on. Not read: a disabled
+ * part (WCAG exempts inactive controls), a background or colour that is not a token (color-mix(), a
+ * translucent scrim), filter (the danger button's hover) and box-shadow (rings, the agent dot's halo).
+ */
+export function drawn(css:string,policy:DrawPolicy){
+  const all=rules(css),out=new Map<string,Drawn>(),unread=new Set<string>();
+  const role=(v:string|undefined)=>{
+    if(v===undefined)return undefined;
+    if(/^(none|transparent|0|inherit)$/i.test(v.trim()))return null;
+    const m=v.trim().match(/^var\(--ui-([\w-]+)\)$/);
+    return m&&policy.solid(m[1])?m[1]:'?';
+  };
+  const behind=(chain:El[],upTo:number)=>{
+    for(let j=upTo;j>=1;j--){const r=role(value(all,chain.slice(0,j),'background'));if(r===undefined||r===null)continue;return r;}
+    return 'bg-panel';
+  };
+  const colour=(chain:El[])=>{
+    for(let j=chain.length;j>=1;j--){const w=winner(all,chain.slice(0,j),'color');if(!w)continue;const r=role(w.decls[w.prop].value);if(r===null)continue;return {role:r??'?',rule:w.selector};}
+    return {role:'text-1',rule:'.ui-root'};
+  };
+  const put=(d:Drawn)=>{if(d.fg==='?'||d.bg==='?'){unread.add(d.where);return;}const k=d.fg+'/'+d.bg+'/'+d.kind;if(!out.has(k))out.set(k,d);};
+  for(const chain of scenarios(all)){
+    if(disabled(chain))continue;
+    const target=chain.at(-1)!,host=target.element?chain.at(-2):undefined,where=describe(chain),n=chain.length;
+    if(policy.fills(target,host)){
+      const fill=role(value(all,chain,'background'));
+      if(fill)put({fg:fill,bg:behind(chain,n-1),kind:'graphic',where,rule:winner(all,chain,'background')!.selector});
+      continue;
+    }
+    const border=winner(all,chain,'border');
+    if(border){
+      const v=border.decls[border.prop].value;
+      const named=[...v.matchAll(/var\(--ui-([\w-]+)\)/g)].map(m=>m[1]).filter(r=>policy.colours.includes(r));
+      for(const r of named)if(!policy.decorative.includes(r))put({fg:policy.solid(r)?r:'?',bg:behind(chain,n-1),kind:'graphic',where,rule:border.selector});
+    }
+    if(policy.silent(target)||(target.element&&target.element!=='placeholder'))continue;
+    const c=colour(chain);
+    put({fg:c.role,bg:behind(chain,n),kind:target.classes.has('ui-icon')?'graphic':policy.meta(c.rule)?'meta':'text',where,rule:c.rule});
+  }
+  return {pairs:[...out.values()],unread:[...unread]};
+}
