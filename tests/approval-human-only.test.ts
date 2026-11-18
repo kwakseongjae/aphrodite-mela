@@ -220,8 +220,10 @@ test('undo and redo name who asked: the key handler by isTrusted, action() befor
 
 test('the MCP interface tool and every bridge route funnel into runAgentCommand',()=>{
   assert.equal(useInterface.route.path,'/agent/ui');
-  for(const [path,kind] of [['/agent/ui','ui'],['/agent/act','act'],['/agent/click','click'],['/agent/command','command']])
-    assert.ok(bridgeRs.includes(`(Method::Post, "${path}") => "${kind}"`),`${path} -> ${kind}`);
+  // The bridge reads a route's kind off its path (route_kind in agent.rs, pinned by its own tests).
+  for(const path of ['/agent/ui','/agent/act','/agent/click','/agent/command'])
+    assert.ok(bridgeRs.includes(`"POST ${path}",`),`${path} is a route`);
+  assert.match(bridgeRs,/want_path\.strip_prefix\("\/agent\/"\)/,'the kind is the path after /agent/');
   assert.match(main,/'agent:command',async ev=>\{const result=await runAgentCommand\(/);
   assert.match(main,/aphroditeAgent=\{run:\(kind:unknown,payload\?:unknown,caller\?:string\)=>runAgentCommand\(/);
 });

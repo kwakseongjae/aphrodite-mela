@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {playbook,guideFor,considerAsk,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
+import {playbook,guideFor,toolList,considerAsk,ASK_COOLDOWN_MS,type GuideStatus,type AskState} from '../src/agent/guide';
+import {mcpTools} from '../src/agent/commands.mjs';
 
 const NOW=1_700_000_000_000;
 const status=(over:Partial<GuideStatus>={}):GuideStatus=>({mode:'design',holder:null,projectName:'빛공방',pageCount:2,approved:false,canWrite:false,askedRecently:false,...over});
@@ -84,4 +85,13 @@ test('a request waiting for the person is never replaced, however long it waits'
 
 test('the playbook tells an agent its name is remembered once allowed',()=>{
   assert.match(playbook,/remembered, across restarts, until they disconnect it/);
+});
+
+/* 0.3-2: the tool list is generated from the command table, so it cannot name a tool that is gone
+   or miss one that was added. It sits outside the playbook, which stays short enough to read. */
+test('the guide lists the tools the table offers, and only those',()=>{
+  const listed=[...toolList.matchAll(/^- `(aphrodite_[a-z_]+)` — (.+)$/gm)].map(m=>[m[1],m[2]]);
+  assert.deepEqual(listed,mcpTools().map(t=>[t.name,t.title]));
+  assert.ok(guideFor(status()).includes(toolList),'the guide an agent reads carries the list');
+  assert.ok(guideFor(status()).indexOf(toolList)<guideFor(status()).indexOf('## Right now'),'before what is true right now');
 });

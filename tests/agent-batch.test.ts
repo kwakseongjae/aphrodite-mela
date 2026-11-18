@@ -73,9 +73,10 @@ test('the bridge carries reason, base_revision and patch through, and reads chan
 
 test('every command kind the app takes has a loopback route', () => {
   const rs = readFileSync(new URL('../src-tauri/src/agent.rs', import.meta.url), 'utf8');
-  for (const kind of ['changes', 'apply', 'contract', 'state']) assert.match(rs, new RegExp(`=> "${kind}",`), `${kind} has no route`);
-  const tools = readFileSync(new URL('../mcp/aphrodite-mcp/tools.mjs', import.meta.url), 'utf8');
-  assert.match(tools, /path: '\/agent\/changes'/);
+  for (const route of ['GET /agent/changes', 'POST /agent/apply', 'GET /agent/contract', 'GET /agent/state']) assert.ok(rs.includes(`"${route}",`), `${route} is not served`);
+  // The tools are generated from the command table, so the route is written down there.
+  const table = readFileSync(new URL('../src/agent/commands.mjs', import.meta.url), 'utf8');
+  assert.match(table, /path: '\/agent\/changes'/);
 });
 
 test('a batch runs without the app, and the project passed in is never touched', () => {
