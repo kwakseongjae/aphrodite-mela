@@ -26,6 +26,13 @@ export function isFreePage(page: {kind?: unknown; html?: unknown}): page is {kin
   return page.kind === 'html' && typeof page.html === 'string';
 }
 
+/** Why a page takes no sections, as a sentence, or undefined for a section page: an html page or a media item has none. */
+export function noSections(page: {id: string; kind?: unknown}): string | undefined {
+  if (page.kind === 'html') return `page ${page.id} is an html page, which has no sections. Change it with html_set or html_replace.`;
+  if (page.kind !== undefined) return `page ${page.id} is a media item, which has no sections; it is a picture or a video.`;
+  return undefined;
+}
+
 export function validMedia(value: unknown): value is PageMedia {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const m = value as PageMedia;

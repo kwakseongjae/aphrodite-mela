@@ -17,7 +17,7 @@ import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
-import {htmlProblem, isFreePage, mediaFrame, MAX_PAGE_HTML, type PageMedia} from '../free-page';
+import {htmlProblem, isFreePage, mediaFrame, noSections, MAX_PAGE_HTML, type PageMedia} from '../free-page';
 
 /**
  * `created` is every page the batch made, in order, so the agent can address what it just made.
@@ -91,7 +91,8 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
 /** One operation against a page of `project`, which it changes in place. Returns an error sentence, or nothing. */
 function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>, focus: Focus): string | undefined {
   if (op.op === 'html_page' || op.op === 'html_set' || op.op === 'html_replace') return runHtmlOp(project, op, focus);
-  if (isFreePage(page) && ['add', 'update', 'move', 'delete'].includes(op.op)) return `page ${page.id} is an html page, which has no sections. Change it with html_set or html_replace.`;
+  const sectionless = ['add', 'update', 'move', 'delete'].includes(op.op) ? noSections(page) : undefined;
+  if (sectionless) return sectionless;
   const blocks = page.blocks;
   const find = (id: string) => blocks.find(b => b.id === (id === SELECTION ? focus.selected : id));
   if (op.op === 'add') {

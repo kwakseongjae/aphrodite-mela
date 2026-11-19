@@ -85,3 +85,14 @@ test('a batch places a media item only with the file the host put on the board, 
   assert.equal(frame.height, 810);
   assert.ok(parseProject(JSON.stringify(placed.project)), 'and it saves');
 });
+
+test('a media item has no sections: an add aimed at one is refused, and says why', () => {
+  const project = parseProject(JSON.stringify(initialProject()));
+  const media = {src: 'media:' + 'd'.repeat(64), mime: 'image/png', width: 800, height: 600};
+  const placed = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}]}, '', {0: media});
+  assert.ok(placed.ok);
+  const id = placed.created[0];
+  const refused = runBatch(placed.project, {ops: [{op: 'add', component_kind: 'cta'}], pageId: id}, '');
+  assert.ok(!refused.ok);
+  assert.match(refused.error, /media item, which has no sections/);
+});

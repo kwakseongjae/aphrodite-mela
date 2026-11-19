@@ -336,6 +336,18 @@ check('a screenshot and an mp4 dropped from the Finder land on the board as one 
   for (const item of items) assert.match(item.media.src, /^media:[0-9a-f]{64}$/, 'named by its hash, not by a place on this machine');
 });
 
+check('with a picture selected, adding a component changes nothing and says why', async () => {
+  const shot = (await mediaItems()).find(m => m.tag === 'IMG').page;
+  await personPresses('page', {id: shot});
+  await sleep(300);
+  assert.equal(await active(), shot, 'the picture is the page being looked at');
+  const before = await seq();
+  await personPresses('add', {kind: 'cta'});
+  await sleep(400);
+  assert.equal(await seq(), before, 'nothing was added');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /picture or a video, which has no sections|그림·영상에는 섹션이 없습니다/);
+});
+
 check('a file past what a board holds, or of another kind, is refused with its reason, and nothing lands', async () => {
   writeFileSync(fileAt('notes.txt'), 'not a picture');
   writeFileSync(fileAt('huge.mp4'), Buffer.from([0, 0, 0, 0x20, ...Buffer.from('ftypisom')]));

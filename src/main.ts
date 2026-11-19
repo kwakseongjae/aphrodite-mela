@@ -915,7 +915,7 @@ function exportModal(view = 'prompt') {
   if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
 }
 function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
-  if (isFreePage(currentPage(project))) { toast(ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
+  const pageKind=currentPage(project).kind;if (pageKind) { toast(pageKind==='html'?ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.'):ui('This is a picture or a video, which has no sections. Open a section page to add one.','그림·영상에는 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
   const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
