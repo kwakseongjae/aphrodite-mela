@@ -155,7 +155,7 @@ const MEDIA_ADDRESS = /^(?:data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|(?:a
 export function frameCsp(origins: readonly string[]): string {
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
   const media = ['data:', ...origins].join(' ');
-  return [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `object-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
+  return [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `object-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
 }
 
 /**
@@ -165,6 +165,20 @@ export function frameCsp(origins: readonly string[]): string {
  * convenience, not a wall: a page can undo it, and the frame's sandbox and policy hold without it.
  */
 const HOST_SCRIPT = `(()=>{const post=m=>parent.postMessage(Object.assign({aphrodite:'frame'},m),'*');addEventListener('click',e=>{const a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;const h=a.getAttribute('href')||'';e.preventDefault();if(h[0]==='#'){let id='';try{id=decodeURIComponent(h.slice(1));}catch{return;}const t=id&&(document.getElementById(id)||document.getElementsByName(id)[0]);if(t)t.scrollIntoView();else if(!id)scrollTo(0,0);return;}if(/^page:/.test(h)){post({kind:'page',id:h.slice(5)});return;}if(/^(https?|mailto):/i.test(h))post({kind:'link',href:h});},true);addEventListener('submit',e=>e.preventDefault(),true);addEventListener('keydown',e=>{if(e.key==='Escape')post({kind:'escape'});},true);})();`;
+/**
+ * What the frame runs first, before a character of the page, and what keeps it off the network where a
+ * policy cannot. WebRTC reaches any address over UDP whatever `connect-src` says, and neither Chrome
+ * nor WebKit enforces the `webrtc` directive yet (0.3-P2-fix1, measured): so its constructors, and the
+ * other ways a page could call out without asking (WebTransport, the Presentation API), are taken off
+ * the window for good, with `navigator.mediaDevices`. A frame inside the page would bring them back in
+ * a window of its own (srcdoc, about:blank and javascript: frames are not governed by `frame-src`), so
+ * a frame put in the page is taken out before it can run, also inside a shadow root the page attaches.
+ * A shadow root the parser makes (declarative shadow DOM) is out of the watcher's sight, so a page cannot
+ * make one: the attribute is renamed where the page is framed (framedDocument), and the parser entry
+ * points that would make one later (setHTMLUnsafe, parseHTMLUnsafe, document.write) are taken away. A
+ * page cannot undo any of this: it runs after.
+ */
+const WALL_SCRIPT = `(()=>{const gone=(o,k)=>{try{delete o[k];}catch{}try{Object.defineProperty(o,k,{value:undefined,writable:false,configurable:false});}catch{}};for(const k of Object.getOwnPropertyNames(window))if(/^(webkit)?RTC|^WebTransport|^Presentation/.test(k))gone(window,k);gone(Navigator.prototype,'mediaDevices');gone(navigator,'mediaDevices');const F='iframe,frame,object,embed,portal,fencedframe';const sweep=n=>{if(n.nodeType!==1)return;if(n.matches(F)){n.remove();return;}for(const f of n.querySelectorAll(F))f.remove();};const watch=r=>new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)sweep(n);if(window.length>0&&document.documentElement)document.documentElement.remove();}).observe(r,{childList:true,subtree:true});watch(document);const attach=Element.prototype.attachShadow;Object.defineProperty(Element.prototype,'attachShadow',{value:function(o){const r=attach.call(this,o);watch(r);return r;},writable:false,configurable:false});const off=(o,k)=>{if(o&&k in o)Object.defineProperty(o,k,{value:()=>{throw new Error(k+' is not available in a free page');},writable:false,configurable:false});};off(Element.prototype,'setHTMLUnsafe');off(window.ShadowRoot&&ShadowRoot.prototype,'setHTMLUnsafe');off(Document,'parseHTMLUnsafe');off(Document.prototype,'write');off(Document.prototype,'writeln');})();`;
 /** The end of what the host puts before a page; everything after it is the page as stored, its media resolved. */
 export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
 
@@ -175,13 +189,13 @@ export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
  * hold is left as it is, and loads nothing).
  */
 export function framedDocument(html: string, host: {media: (sha: string) => string | undefined; origins: readonly string[]}): string {
-  const page = html.replace(/media:([0-9a-f]{64})(?![0-9a-f])/g, (all, sha: string) => {
+  const page = html.replace(/\bshadowroot(mode)?(\s*=)/gi, 'data-off-shadowroot$1$2').replace(/media:([0-9a-f]{64})(?![0-9a-f])/g, (all, sha: string) => {
     const address = host.media(sha);
     if (address === undefined) return all;
     if (!MEDIA_ADDRESS.test(address)) throw new Error(`not a media address a frame may be given: ${address.slice(0, 80)}`);
     return address;
   });
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${WALL_SCRIPT}${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
 }
 
 const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -204,7 +218,7 @@ export function contentKey(text: string): string {
 export function renderShell(doc: string, origins: readonly string[]): string {
   const media = ['data:', ...origins].join(' ');
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
-  const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
+  const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */

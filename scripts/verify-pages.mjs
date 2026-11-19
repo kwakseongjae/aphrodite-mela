@@ -12,6 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
+import dgram from 'node:dgram';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell} from '../src/free-page.ts';
@@ -36,9 +37,15 @@ const trap = createServer((req, res) => {
 });
 trap.on('upgrade', (req, socket) => { hits.push({method: 'UPGRADE', url: req.url}); socket.destroy(); });
 await new Promise(resolve => trap.listen(TRAP, '127.0.0.1', resolve));
+/** WebRTC goes out over UDP, which the HTTP server above never sees: a socket that counts what a page's STUN and TURN send it. */
+const UDP = TRAP + 5;
+const packets = [];
+const udp = dgram.createSocket('udp4');
+udp.on('message', message => packets.push(message.length));
+await new Promise(resolve => udp.bind(UDP, '127.0.0.1', resolve));
 
 const {evaluate, send, agent, personClicks, personPresses, presses, close} = await openApp({port: PORT, cdp: 9383, profile: '/tmp/aphrodite-pages-profile'});
-const shut = () => { close(); trap.close(); removeFiles(); };
+const shut = () => { close(); trap.close(); udp.close(); removeFiles(); };
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 const WHY = 'verify-pages: a free page stays in its frame.';
@@ -116,6 +123,42 @@ for (const [name, run] of Object.entries(tries)) { try { const out = run(); if (
 addEventListener('load', () => report('entity-hidden-file', document.getElementById('file').naturalWidth));
 </script></body></html>`;
 
+/**
+ * WebRTC and every other way a page could get a window of its own to call out from: a peer connection
+ * here, and in a frame it makes (srcdoc, parsed markup, a javascript: address, inside an open and a
+ * closed shadow root), a worker, WebTransport. Each reports to the top window, which hears every frame.
+ */
+const rtcProbe = tag => {
+  const nested = name => `try{const pc=new RTCPeerConnection({iceServers:[{urls:"stun:127.0.0.1:${UDP}"}]});pc.createDataChannel("x");pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>top.postMessage({rtc:"${tag}",name:"${name}",value:"offer made"},"*"))}catch(e){top.postMessage({rtc:"${tag}",name:"${name}",value:"refused"},"*")}`;
+  const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return `<!doctype html><title>rtc</title><p>rtc</p><script>
+const say = (name, value) => top.postMessage({rtc: '${tag}', name, value: String(value)}, '*');
+say('ran', true);
+(async () => { try { const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:127.0.0.1:${UDP}'}, {urls: 'turn:127.0.0.1:${UDP}', username: 'u', credential: 'p'}]}); pc.createDataChannel('x'); await pc.setLocalDescription(await pc.createOffer()); say('here', 'offer made'); } catch (e) { say('here', 'refused'); } })();
+try { const C = window.webkitRTCPeerConnection; say('webkit-prefixed', C ? 'present' : 'refused'); } catch (e) { say('webkit-prefixed', 'refused'); }
+try { navigator.mediaDevices.enumerateDevices().then(() => say('media-devices', 'present'), () => say('media-devices', 'refused')); } catch (e) { say('media-devices', 'refused'); }
+try { const t = new WebTransport('https://127.0.0.1:${UDP}/'); t.ready.then(() => say('webtransport', 'ready'), () => say('webtransport', 'refused')); } catch (e) { say('webtransport', 'refused'); }
+try { const w = new Worker(URL.createObjectURL(new Blob(['postMessage(typeof RTCPeerConnection)'], {type: 'text/javascript'}))); w.onmessage = e => say('worker', e.data); w.onerror = () => say('worker', 'refused'); } catch (e) { say('worker', 'refused'); }
+{ const f = document.createElement('iframe'); f.srcdoc = '<script>${nested('srcdoc')}<\\/script>'; document.body.append(f); }
+{ const d = document.createElement('div'); d.innerHTML = '<iframe srcdoc="<script>${attr(nested('parsed'))}<\\/script>"></iframe>'; document.body.append(d); }
+{ const f = document.createElement('iframe'); f.src = 'javascript:"<script>${nested('javascript').replace(/"/g, '\\\\x22')}<\\/script>"'; document.body.append(f); }
+try { const h = document.createElement('div'); document.body.append(h); h.attachShadow({mode: 'closed'}).innerHTML = '<iframe srcdoc="<script>${attr(nested('shadow'))}<\\/script>"></iframe>'; } catch (e) { say('shadow', 'refused'); }
+{ const d = document.createElement('div'); if (d.setHTMLUnsafe) { d.setHTMLUnsafe('<div><template shadowrootmode="closed"><iframe srcdoc="<script>${attr(nested('declarative'))}<\\/script>"></iframe></template></div>'); document.body.append(d); } }
+</script><iframe srcdoc="<script>${attr(nested('markup'))}</script>"></iframe><div><template shadowrootmode="closed"><iframe srcdoc="<script>${attr(nested('markup-declarative'))}</script>"></iframe></template></div></html>`;
+};
+const rtcSaid = tag => evaluate(`window.__frameMessages.filter(m => m && m.rtc === '${tag}').map(m => m.name + '=' + m.value)`);
+
+check('a page reaches nothing over WebRTC, nor from a frame or a worker of its own', async () => {
+  const before = packets.length;
+  await makePage('RTC probe', rtcProbe('board'));
+  await waitFor(async () => (await rtcSaid('board')).includes('ran=true'), 'the WebRTC probe to run', 20);
+  await sleep(4000);
+  const said = await rtcSaid('board');
+  result.rtcBoard = {udp: packets.length - before, said};
+  assert.deepEqual(said.filter(s => /offer made|present|ready|function/.test(s)), [], 'nothing it tried worked');
+  assert.equal(packets.length - before, 0, `UDP packets reached the socket: ${packets.length - before}`);
+});
+
 /** A page that takes the host's script out before it tries anything, so nothing below leans on it. */
 const bare = probe('bare').replace('<script>\nconst report', `<script>
 for (const s of [...document.scripts]) if (s !== document.currentScript) s.remove();
@@ -156,6 +199,23 @@ check('the page the off-screen renderer loads keeps the probe from reaching anyt
     result.render = {reached: seen, url: await page.evaluate('location.href')};
     assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
     assert.equal(await page.evaluate('location.pathname'), '/render/once', 'the render page stayed where it was');
+  } finally { page.close(); server.close(); }
+});
+
+check('the page the off-screen renderer loads reaches nothing over WebRTC either', async () => {
+  const before = packets.length;
+  const listener = `<script>window.__m = []; addEventListener('message', e => window.__m.push(e.data));</script>`;
+  const shell = renderShell(framedDocument(rtcProbe('render'), {media: () => undefined, origins: []}), []).replace('<iframe', listener + '<iframe');
+  const server = createServer((req, res) => { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(shell); });
+  await new Promise(resolve => server.listen(TRAP + 3, '127.0.0.1', resolve));
+  const page = await openPage(`http://127.0.0.1:${TRAP + 3}/render/rtc`, {cdp: 9385, profile: '/tmp/aphrodite-pages-render-profile'});
+  try {
+    await waitFor(() => page.evaluate(`window.__m.some(m => m && m.rtc === 'render' && m.name === 'ran')`), 'the probe to run in the render page', 20);
+    await sleep(4000);
+    const said = await page.evaluate(`window.__m.filter(m => m && m.rtc === 'render').map(m => m.name + '=' + m.value)`);
+    result.rtcRender = {udp: packets.length - before, said};
+    assert.deepEqual(said.filter(s => /offer made|present|ready|function/.test(s)), []);
+    assert.equal(packets.length - before, 0, `UDP packets reached the socket: ${packets.length - before}`);
   } finally { page.close(); server.close(); }
 });
 

@@ -12,7 +12,7 @@ const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().spl
 
 test('the frame policy lets the page run and draw, and reach nothing', () => {
   const csp = directives(frameCsp([]));
-  for (const [name, values] of [['default-src', ["'none'"]], ['connect-src', ["'none'"]], ['frame-src', ["'none'"]], ['worker-src', ["'none'"]], ['object-src', ["'none'"]], ['form-action', ["'none'"]], ['base-uri', ["'none'"]], ['script-src', ["'unsafe-inline'"]], ['style-src', ["'unsafe-inline'"]], ['font-src', ['data:']], ['img-src', ['data:']], ['media-src', ['data:']]] as const)
+  for (const [name, values] of [['default-src', ["'none'"]], ['connect-src', ["'none'"]], ['frame-src', ["'none'"]], ['worker-src', ["'none'"]], ['object-src', ["'none'"]], ['form-action', ["'none'"]], ['base-uri', ["'none'"]], ['webrtc', ["'block'"]], ['script-src', ["'unsafe-inline'"]], ['style-src', ["'unsafe-inline'"]], ['font-src', ['data:']], ['img-src', ['data:']], ['media-src', ['data:']]] as const)
     assert.deepEqual(csp.get(name), values, name);
 });
 
@@ -73,4 +73,18 @@ test('a page is photographed inside a sandboxed frame that may not be sent anywh
   assert.equal(srcdoc, doc, 'the frame holds the page exactly');
   assert.doesNotMatch(shell.replace(frames[0], ''), /<script/i, 'the shell runs nothing of its own');
   assert.ok(shell.length - doc.length < 1024, 'escaping only & and " keeps the shell close to the page in size');
+});
+
+/* 0.3-P2-fix1: connect-src does not govern WebRTC, and neither engine enforces the webrtc directive yet
+   (measured in Chrome and WKWebView). What keeps it off is the script the frame runs first. */
+test('the frame takes WebRTC and the other ways out off the window before the page runs', () => {
+  const doc = framedDocument('<script>new RTCPeerConnection()</script>', {media: () => undefined, origins: []});
+  const wall = doc.indexOf('RTC'), page = doc.indexOf(FRAME_PREFIX_END);
+  assert.ok(wall > 0 && wall < page, 'it comes before the page');
+  assert.ok(doc.indexOf('<script>') < wall && doc.indexOf('Content-Security-Policy') < doc.indexOf('<script>'));
+  for (const name of ['mediaDevices', 'WebTransport', 'Presentation', 'attachShadow', 'MutationObserver', 'iframe,frame,object,embed']) assert.ok(doc.slice(0, page).includes(name), name);
+  const dsd = framedDocument('<div><template shadowrootmode="closed"><iframe></iframe></template></div><template ShadowRoot = open>', {media: () => undefined, origins: []});
+  assert.doesNotMatch(dsd.slice(dsd.indexOf(FRAME_PREFIX_END)), /\sshadowroot(mode)?\s*=/i, 'a page cannot have the parser make a shadow root the watcher cannot see');
+  const shell = renderShell(doc, []);
+  assert.match(shell.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)![1], /webrtc 'block'/);
 });
