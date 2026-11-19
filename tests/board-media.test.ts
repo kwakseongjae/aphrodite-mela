@@ -10,7 +10,7 @@ import {MAX_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes} from 
 import {validFrameLayout} from '../src/editor/space.ts';
 import {parseBatch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
-import {initialProject, parseProject} from '../src/model.ts';
+import {initialProject, parseProject, MAX_PAGES, MAX_PAGE_NAME} from '../src/model.ts';
 
 const bytes = (...parts: (number[] | string)[]) => Uint8Array.from(parts.flatMap(p => typeof p === 'string' ? [...p].map(c => c.charCodeAt(0)) : p));
 
@@ -96,6 +96,26 @@ test('a media item has no sections: an add aimed at one is refused, and says why
   assert.ok(!refused.ok);
   assert.match(refused.error, /media item, which has no sections/);
 });
+
+/* 0.3-P2-fix1 #4: a person's drop goes through the same batch as an agent's media_add, so what it makes
+   is held to what a saved project may be: a long file name, a full project. */
+test('a media item is named within what a page name may be, and a full project takes no more', () => {
+  const project = parseProject(JSON.stringify(initialProject()));
+  const media = {src: 'media:' + 'e'.repeat(64), mime: 'image/png', width: 800, height: 600};
+  const long = runBatch(project, {ops: [{op: 'media_add', name: 'x'.repeat(300) + '.png'}]}, '', {0: media});
+  assert.ok(long.ok);
+  const item = long.project.pages.find(p => p.id === long.created[0])!;
+  assert.equal(item.name.length, MAX_PAGE_NAME);
+  assert.ok(parseProject(JSON.stringify(long.project)));
+  const ops = Array.from({length: MAX_PAGES}, () => ({op: 'media_add' as const, name: 'shot.png'}));
+  const full = runBatch(project, {ops}, '', Object.fromEntries(ops.map((_, i) => [i, media])));
+  assert.ok(!full.ok && /30 pages/.test(full.error), 'one page and thirty items is one too many');
+  const at = runBatch(project, {ops: [{op: 'media_add', name: 'shot.png'}]}, '', {0: media}, {0: {x: 320, y: -480}});
+  assert.ok(at.ok);
+  const frame = at.project.space!.frames[at.created[0]];
+  assert.deepEqual([frame.x, frame.y], [320, -480], 'placed where it was dropped');
+});
+
 /* 0.3-P2-fix1 #6: a patch beside a media_add is checked against what the ops made, not what was there before. */
 test('media_add and a patch in one batch land together', () => {
   const project = parseProject(JSON.stringify(initialProject()));

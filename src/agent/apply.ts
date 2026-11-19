@@ -6,7 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
-import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, type BlockKind, type Page, type Project} from '../model';
+import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, MAX_PAGES, MAX_PAGE_NAME, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
 import {patternVariants} from '../patterns';
@@ -76,14 +76,14 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
  * A picture or a video placed on the board, beside the others, in a frame of its own shape. `media` is
  * the file the host has already put on the board for this op; without it there is nothing to place.
  */
-function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media: PageMedia | undefined, focus: Focus): string | undefined {
+function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media: PageMedia | undefined, at: {x: number; y: number} | undefined, focus: Focus): string | undefined {
   if (!media) return 'the file was not put on the board, so there is nothing to place. Send media_add through aphrodite_apply_edits, which copies the file first.';
-  if (project.pages.length >= 30) return 'this project already has 30 pages and media items, which is the limit.';
+  if (project.pages.length >= MAX_PAGES) return `this project already has ${MAX_PAGES} pages and media items, which is the limit.`;
   ensureSpace(project);
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
-  const created: Page = {id: uid(), name: name.slice(0, 120), blocks: [], kind: 'media', media};
+  const created: Page = {id: uid(), name: name.slice(0, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
-  project.space!.frames[created.id] = mediaFrame(media.width, media.height, nextFramePosition(project.space!, 'desktop'));
+  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(project.space!, 'desktop'));
   focus.created.push(created.id);
   return undefined;
 }
@@ -179,20 +179,20 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
  * A batch: the ops in order, then the patch. All of it lands or none of it does. The ledger is left
  * on the project passed in; the caller carries it over.
  */
-export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia> = {}): BatchResult {
+export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia> = {}, places: Record<number, {x: number; y: number}> = {}): BatchResult {
   // Whatever goes wrong inside, the answer is a sentence and the project passed in is untouched.
-  try { return attempt(project, batch, selected, media); }
+  try { return attempt(project, batch, selected, media, places); }
   catch (error) { return {ok: false, index: -1, part: batch.patch?.length && !batch.ops.length ? 'patch' : 'ops', error: `the batch could not be applied: ${error instanceof Error ? error.message : String(error)}`}; }
 }
 
-function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia>): BatchResult {
+function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia>, places: Record<number, {x: number; y: number}>): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
   const focus: Focus = {selected, created: []};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};
     for (const [index, op] of batch.ops.entries()) {
-      const error = op.op === 'media_add' ? runMediaAdd(next, op, media[index], focus) : runOp(next, target, op, focus);
+      const error = op.op === 'media_add' ? runMediaAdd(next, op, media[index], places[index], focus) : runOp(next, target, op, focus);
       if (error) return {ok: false, index, part: 'ops', error};
       /* Making a page moves the batch onto it, the way a person making a frame lands inside it.
          Without this, "make a mobile page and put a hero on it" quietly puts the hero back on the

@@ -3,7 +3,7 @@ import { createIcons, createElement } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
+import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -58,7 +58,7 @@ import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
-import {parseBatch,type Batch} from './agent/ops';
+import {parseBatch,type Batch,type Op} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
 import {isFreePage,loadFreePage,renderDocument,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
@@ -152,22 +152,30 @@ function mediaSize(url:string,mime:string):Promise<{width:number;height:number;d
  * the person's name. A file that cannot go on the board says why and places nothing.
  */
 async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
-  if(project.pages.length+files.length>30){toast(ui('A project holds at most 30 pages and media items.','한 프로젝트에는 페이지와 미디어를 합쳐 30개까지 둘 수 있습니다.'));return;}
-  const placed:{page:Page;frame:FrameLayout}[]=[];
+  if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
+  const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
   for(const file of files.slice(0,12)){
     const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()));
     if(refused){toast(refused);continue;}
     try{
       const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);
       if(!url)throw new Error(ui('it was not kept','보관되지 않았습니다'));
-      const size=await mediaSize(url,stored.mime),last=placed.at(-1)?.frame;
-      placed.push({page:{id:uid(),name:file.name.slice(0,120)||ui('Media','미디어'),blocks:[],kind:'media',media:{src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})}},frame:mediaFrame(size.width,size.height,last?{x:last.x+frameWidth(last)+FRAME_GAP/2,y:last.y}:at)});
+      const size=await mediaSize(url,stored.mime),i=ops.length;
+      ops.push({op:'media_add',name:file.name||ui('Media','미디어')});
+      media[i]={src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})};
+      places[i]=last?{x:last.x+frameWidth(last)+FRAME_GAP/2,y:last.y}:at;
+      last=mediaFrame(size.width,size.height,places[i]);
     }catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}
   }
-  if(!placed.length)return;
-  commit(()=>{for(const {page,frame} of placed){project.pages.push(page);project.space!.frames[page.id]=frame;}},d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
-  recordRun('media:placed',{count:placed.length,source});
+  if(!ops.length)return;
+  // The same batch an agent's media_add runs, so what lands is held to what a saved project may be.
+  const result=runBatch(project,{ops},selected,media,places);
+  const refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
+  if(!result.ok||refused){toast(refused??'');return;}
+  commit(()=>{project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};},d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
+  recordRun('media:placed',{count:ops.length,source});
 }
+
 /** A paste of pictures or videos onto the board, from the person's own keys; text pastes into fields as ever. */
 document.addEventListener('paste',e=>{
   if(screen!=='editor'||modalRoot.children.length||enteredPage||(e.target as HTMLElement).closest?.('input,textarea,select,[contenteditable]'))return;

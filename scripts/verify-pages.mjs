@@ -228,7 +228,7 @@ check('the page the off-screen renderer loads reaches nothing over WebRTC either
   const shell = renderShell(framedDocument(rtcProbe('render'), {media: () => undefined, origins: []}), []).replace('<iframe', listener + '<iframe');
   const server = createServer((req, res) => { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(shell); });
   await new Promise(resolve => server.listen(TRAP + 3, '127.0.0.1', resolve));
-  const page = await openPage(`http://127.0.0.1:${TRAP + 3}/render/rtc`, {cdp: 9385, profile: '/tmp/aphrodite-pages-render-profile'});
+  const page = await openPage(`http://127.0.0.1:${TRAP + 3}/render/rtc`, {cdp: 9385, profile: '/tmp/aphrodite-pages-render-rtc-profile'});
   try {
     await waitFor(() => page.evaluate(`window.__m.some(m => m && m.rtc === 'render' && m.name === 'ran')`), 'the probe to run in the render page', 20);
     await sleep(4000);

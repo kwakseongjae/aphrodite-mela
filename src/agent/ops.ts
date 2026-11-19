@@ -16,6 +16,7 @@ import {framePresets, type FramePreset} from '../editor/space';
 import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
 import {MAX_PAGE_HTML} from '../free-page';
+import {MAX_PAGE_NAME} from '../model';
 
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace' | 'media_add';
 export type Op =
@@ -139,8 +140,8 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
       if ((path === undefined) === (library === undefined)) return {error: `${where} names one file: "path" (an absolute path on this Mac) or "library_id" (from aphrodite_list_images), not both.`};
       if (path !== undefined && !path.startsWith('/')) return {error: `${where}.path is an absolute path to a file on this Mac, for example "/Users/you/Desktop/shot.png".`};
       if (library !== undefined && !/^[0-9a-f]{16}$/.test(library)) return {error: `${where}.library_id is the 16-character id from aphrodite_list_images.`};
-      const name = o.name === undefined ? undefined : str(o.name, 120);
-      if (o.name !== undefined && !name) return {error: `${where}.name is what to call it on the board, at most 120 characters.`};
+      const name = o.name === undefined ? undefined : str(o.name, MAX_PAGE_NAME);
+      if (o.name !== undefined && !name) return {error: `${where}.name is what to call it on the board, at most ${MAX_PAGE_NAME} characters.`};
       return {op: {op: 'media_add', ...(path !== undefined ? {path} : {library_id: library}), ...(name ? {name} : {})}};
     }
     case 'add': {
