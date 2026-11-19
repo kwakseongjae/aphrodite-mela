@@ -15,7 +15,11 @@
  *
  * Every probe has its own UDP socket and TCP listeners on 127.0.0.1, beside one recording HTTP server; with
  * the wall, every count is 0 and a page that does nothing wrong still works. The same probes without the
- * wall must reach the sockets, in this same run: that is what shows the probes are alive.
+ * wall must reach the sockets, in this same run, each probe its own: that is what shows the probes are alive.
+ *
+ * One more run is kept as a known fact: without the wall, a frame with no scripts at all (sandbox="") still
+ * preconnects from its markup. So turning page scripts off is no fallback; where the wall does not hold, a
+ * free page is put in no frame (src/free-page.ts pageWall, src-tauri/src/snapshot.rs).
  *
  *   node scripts/verify-wall.mjs
  */
@@ -61,10 +65,16 @@ const DOT = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const runs = [];
 for (const name of Object.keys(attacks)) for (const shape of ['board', 'shell']) for (const walled of [true, false]) {
   if (name === 'legit' && !walled) continue;
-  const k = runs.length;
-  runs.push({name, shape, walled, tag: `${name}-${shape}-${walled ? 'wall' : 'none'}`, ports: {udp: UDP0 + k, tcp: Array.from({length: 6}, (_, i) => TCP0 + k * 6 + i), http: HTTP, asset: 'asset://localhost/media/dot.png'}});
+  runs.push({name, shape, walled, tag: `${name}-${shape}-${walled ? 'wall' : 'none'}`});
 }
+// The known fact: no wall, no scripts, and preconnect still opens connections from the page's markup.
+for (const shape of ['board', 'shell']) runs.push({name: 'preconnect', shape, walled: false, scriptless: true, tag: `preconnect-${shape}-none-scriptless`});
+for (const [k, run] of runs.entries()) run.ports = {udp: UDP0 + k, tcp: Array.from({length: 6}, (_, i) => TCP0 + k * 6 + i), http: HTTP, asset: 'asset://localhost/media/dot.png'};
+/** What each probe must reach without the wall, in every shape, for its zero with the wall to mean anything. */
+const ALIVE = {'rtc-self': 'udp', 'poison-remove': 'udp', 'poison-matches': 'udp', 'poison-then-markup': 'udp', 'poison-length': 'udp', preconnect: 'tcp'};
 const page = run => bare(attacks[run.name](run.tag, run.ports));
+/** The render shell; for the scriptless run, the same shell with its frame's scripts taken away, which the app no longer makes. */
+const shell = run => { const made = renderShell(page(run), ORIGINS); if (!run.scriptless) return made; const without = made.replace('<iframe sandbox="allow-scripts"', '<iframe sandbox=""'); assert.notEqual(without, made, 'the shell frame named its sandbox as expected'); return without; };
 
 // The servers every probe aims at, all on 127.0.0.1.
 const sockets = [], counts = new Map(runs.map(r => [r.tag, {udp: 0, tcp: 0, http: []}]));
@@ -79,7 +89,7 @@ const byTag = new Map(runs.map(r => [r.tag, r]));
 const pages = createServer((req, res) => {
   const [, shape, tag] = req.url.split('?')[0].split('/');
   if (shape === 'board') { res.writeHead(200, {'content-type': 'text/html; charset=utf-8', 'content-security-policy': appPolicy('desktop')}); res.end('<!doctype html><title>board</title><body></body>'); return; }
-  if (shape === 'shell' && byTag.has(tag)) { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(renderShell(page(byTag.get(tag)), ORIGINS)); return; }
+  if (shape === 'shell' && byTag.has(tag)) { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(shell(byTag.get(tag))); return; }
   res.writeHead(404); res.end();
 });
 await new Promise(r => pages.listen(PAGES, '127.0.0.1', r)); sockets.push(pages);
@@ -96,7 +106,7 @@ const work = join(tmpdir(), `aphrodite-wall-runs-${process.pid}`);
 mkdirSync(work, {recursive: true});
 const READ = `JSON.stringify((window.__m||[]).filter(m=>m&&(m.atk||m.rtc||m.probe)).map(m=>(m.n||m.name)+'='+(m.v||m.value)))`;
 async function measure(binary, run) {
-  const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','allow-scripts');f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
+  const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','${run.scriptless ? '' : 'allow-scripts'}');f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
   const spec = run.shape === 'board'
     ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, wait: 6, read: READ}]}
     : {url: `http://127.0.0.1:${PAGES}/shell/${run.tag}`, when: 'afterCreate', steps: [{wait: 6, read: READ}]};
@@ -123,15 +133,18 @@ check('every probe ran, with and without the wall', async () => {
   assert.ok(binary, 'the measurer was built');
   for (let i = 0; i < runs.length; i += 6) await Promise.all(runs.slice(i, i + 6).map(run => measure(binary, run)));
   await new Promise(r => setTimeout(r, 1000));
-  const silent = runs.filter(r => r.failed || !r.said.includes('ran=true') && !r.said.includes('ran=1'));
+  const silent = runs.filter(r => r.failed || !r.scriptless && !r.said.includes('ran=true') && !r.said.includes('ran=1'));
   assert.deepEqual(silent.map(r => [r.tag, r.failed ?? r.said]), []);
 });
 
-check('without the wall the probes reach the sockets: they are alive', async () => {
-  const open = runs.filter(r => !r.walled);
-  const udp = open.reduce((n, r) => n + counts.get(r.tag).udp, 0), tcp = open.reduce((n, r) => n + counts.get(r.tag).tcp, 0);
-  assert.ok(udp > 0, `UDP without the wall: ${udp}`);
-  assert.ok(tcp > 0, `TCP without the wall: ${tcp}`);
+check('without the wall each probe reaches its socket, in each shape: every one is alive', async () => {
+  const dead = runs.filter(r => !r.walled && !r.scriptless && ALIVE[r.name]).filter(r => !(counts.get(r.tag)[ALIVE[r.name]] > 0)).map(r => `${r.tag}: ${ALIVE[r.name]} ${counts.get(r.tag)[ALIVE[r.name]]}`);
+  assert.deepEqual(dead, []);
+  assert.deepEqual(Object.keys(ALIVE).filter(name => !attacks[name]), [], 'every probe named here is one that runs');
+});
+
+check('known: without the wall, a frame with no scripts still preconnects from its markup, so scripts off is no fallback', async () => {
+  for (const run of runs.filter(r => r.scriptless)) assert.ok(counts.get(run.tag).tcp > 0, `${run.tag}: TCP ${counts.get(run.tag).tcp}`);
 });
 
 check('with the wall in, both settings read back off', async () => {
@@ -151,7 +164,7 @@ check('with the wall in, a page that does nothing wrong still works', async () =
 });
 
 /* Names WebKit does not have, the way a future macOS might drop one: nothing is called, nothing dies, and
-   both settings read as unavailable, which is what turns page scripts off (src/free-page.ts pageScripts). */
+   both settings read as unavailable, and then no free page is put in a frame (src/free-page.ts pageWall). */
 check('names this WebKit does not have are reported unavailable, and nothing dies', async () => {
   const wrong = join(work, 'wrong-wall.json');
   writeFileSync(wrong, JSON.stringify({...JSON.parse(readFileSync(WALL, 'utf8')), peerConnection: {setter: '_setNoSuchSettingEnabled:', getter: '_noSuchSettingEnabled'}, features: ['NoSuchFeature']}));
@@ -168,7 +181,7 @@ checks.push(['(numbers)', async () => {
   // Read again at the very end, so a packet that came late is counted too.
   assert.deepEqual(runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length), [], 'still nothing, at the end');
   const table = {};
-  for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
+  for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}${r.scriptless ? ' scriptless' : ''}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
   console.log('       ' + JSON.stringify(table));
 }]);
 await runChecks(checks, () => { for (const s of sockets) try { s.close(); } catch {} try { for (const f of readdirSync(work)) unlinkSync(join(work, f)); rmdirSync(work); } catch {} });
