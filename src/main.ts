@@ -178,11 +178,17 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   if(!ops.length)return;
   // Reading the files took a moment: they land on the project they were dropped on, or nowhere.
   if(screen!=='editor'||project.id!==projectId){toast(ui('The project changed while the files were read, so nothing was placed.','파일을 읽는 사이 프로젝트가 바뀌어 아무것도 놓지 않았습니다.'));return;}
-  // The same batch an agent's media_add runs, so what lands is held to what a saved project may be.
-  const result=runBatch(project,{ops},selected,media,places);
-  const refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
-  if(!result.ok||refused){toast(refused??'');return;}
-  commit(()=>{project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};},d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
+  // The batch is run inside the change, after the commit has saved what the person was typing: one read
+  // before that would put their text back. It is the batch an agent's media_add runs, so what lands is
+  // held to what a saved project may be.
+  let refused:string|undefined;
+  const place=()=>{
+    const result=runBatch(project,{ops},selected,media,places);
+    refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
+    if(result.ok&&!refused)project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+  };
+  commit(place,d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
+  if(refused){toast(refused);return;}
   recordRun('media:placed',{count:ops.length,source});
 }
 
@@ -1638,7 +1644,7 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
  * they were copied places nothing.
  */
 async function applyBatch(batch:Batch,d:Dispatch,stillAllowed:()=>{error:string;status?:number}|undefined=()=>undefined):Promise<Record<string,unknown>>{
-  const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
+  const early=staleSince(d.baseRevision,'batch');if(early)return early;
   const projectId=project.id,revision=revisionInfo().revision;
   // An agent's pictures and videos are put on the board first, each checked before it is copied (src-tauri/src/board.rs).
   // A file kept for a batch that then fails stays in board-media under its hash, placed nowhere; the design does not move.
@@ -1652,16 +1658,19 @@ async function applyBatch(batch:Batch,d:Dispatch,stillAllowed:()=>{error:string;
       media[i]={src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})};
     }catch(error){return {error:`ops[${i}]: ${error instanceof Error?error.message:String(error)}`,failed_at:i,part:'ops',applied:0};}
   }
-  // Copying took a moment: what was read is checked again before anything moves.
+  // Copying took a moment: the project and the door are asked again before anything moves.
   if(Object.keys(media).length){
     if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
     const shut=stillAllowed();if(shut)return {...shut,applied:0};
-    const again=staleSince(d.baseRevision,'batch');if(again)return again;
-    if(revisionInfo().revision!==revision)return {error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
   }
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
+  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined;
   commit(()=>{
+    // The revision is read here, after the commit has saved what the person was typing: a batch written
+    // against the revision before their text is a batch written without it, and is refused.
+    stale=staleSince(d.baseRevision,'batch');
+    if(!stale&&Object.keys(media).length&&revisionInfo().revision!==revision)stale={error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
+    if(stale)return;
     const result=runBatch(project,batch,selected,media);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
@@ -1671,6 +1680,7 @@ async function applyBatch(batch:Batch,d:Dispatch,stillAllowed:()=>{error:string;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
   },d,'edit.apply',{source:'agent:apply'});
+  if(stale)return stale;
   if(failure){
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};

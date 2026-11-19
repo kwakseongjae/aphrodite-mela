@@ -600,5 +600,50 @@ check('files read while the person moves to another project are placed nowhere',
   assert.equal(counts[result.copy.copy], items.length, 'the copy it was dropped on gained nothing');
 });
 
+/* 0.3-P2-fix2 #3·4: commit() saves what the person is typing before the change it records (0.3-2b). A
+   change made of what was read before that, or checked against the revision before that, would put the
+   text back or write over it. */
+const typeIntoTitle = async text => {
+  const section = (await agent('contract', {})).pages.find(p => p.block_count > 0).page_id;
+  await personPresses('page', {id: section}); await sleep(600);
+  const id = await evaluate(`document.querySelector('.space-frame.active [data-block-id][data-kind="hero"], .space-frame.active [data-block-id]').dataset.blockId`);
+  await personPresses('select', {id}); await sleep(400);
+  const focused = await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`);
+  assert.equal(focused, true, 'the title field has the focus');
+  await send('Input.insertText', {text});
+  await sleep(200);
+  return id;
+};
+const titleOf = async id => (await agent('contract', {})).pages.flatMap(p => p.blocks ?? p.components ?? []).find(b => (b.block_id ?? b.id) === id)?.title;
+
+check('a drop that finishes while the person is typing keeps what they typed, and records only the picture', async () => {
+  writeFileSync(fileAt('typing.png'), DOT);
+  await sleep(5_200);
+  const before = await seq();
+  const id = await typeIntoTitle(' 놓는 동안');
+  await evaluate(`(() => { const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onload'); window.__restoreOnload = () => Object.defineProperty(HTMLImageElement.prototype, 'onload', {set(f) { d.set.call(this, f); }, get() { return d.get.call(this); }, configurable: true});
+    Object.defineProperty(HTMLImageElement.prototype, 'onload', {set(f) { d.set.call(this, f && (e => setTimeout(() => f.call(this, e), 1500))); }, get() { return d.get.call(this); }, configurable: true}); return true; })()`);
+  await dropFiles(['typing.png'], await emptySpot());
+  await waitFor(async () => (await seq()) >= before + 2, 'the text and the picture to be recorded', 20);
+  await evaluate('window.__restoreOnload(), true');
+  assert.equal(await evaluate(`document.activeElement?.dataset.field ?? document.querySelector('[data-field="title"]')?.value`) !== undefined, true);
+  const {changes} = await agent('changes', {since: before, include_view: true, limit: 10});
+  const media = changes.find(c => c.source === 'media:drop');
+  assert.ok(media, 'the drop was recorded');
+  assert.ok(!JSON.stringify(media.ops).includes(id), `the drop's change touches only the new item: ${JSON.stringify(media.ops).slice(0, 300)}`);
+  assert.match(await titleOf(id) ?? '', / 놓는 동안$/, 'what the person typed is still there');
+});
+
+check('an agent batch written against the revision before the person’s typing is refused, and changes nothing', async () => {
+  const rev = (await agent('changes', {limit: 1})).revision;
+  const id = await typeIntoTitle(' 사람이 친 글');
+  await sleep(5_200); // the person's keys hold the screen for five seconds; the field keeps the focus
+  const got = await agent('apply', {reason: WHY, base_revision: rev, ops: [{op: 'update', block_id: id, fields: {title: 'Written by the agent'}}]});
+  assert.equal(got.status, 409, JSON.stringify(got).slice(0, 300));
+  assert.match(await titleOf(id) ?? '', / 사람이 친 글$/, 'the person’s text stands');
+  const {changes} = await agent('changes', {limit: 3});
+  assert.ok(!changes.some(c => c.source === 'agent:apply' && JSON.stringify(c.ops).includes('Written by the agent')), 'nothing of the agent’s landed');
+});
+
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
 await runChecks(checks, shut);
