@@ -82,7 +82,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,type Camera,type FramePreset,type FrameLayout} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -160,8 +160,8 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
     try{
       const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);
       if(!url)throw new Error(ui('it was not kept','보관되지 않았습니다'));
-      const size=await mediaSize(url,stored.mime),n=placed.length;
-      placed.push({page:{id:uid(),name:file.name.slice(0,120)||ui('Media','미디어'),blocks:[],kind:'media',media:{src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})}},frame:mediaFrame(size.width,size.height,{x:at.x+n*48,y:at.y+n*48})});
+      const size=await mediaSize(url,stored.mime),last=placed.at(-1)?.frame;
+      placed.push({page:{id:uid(),name:file.name.slice(0,120)||ui('Media','미디어'),blocks:[],kind:'media',media:{src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})}},frame:mediaFrame(size.width,size.height,last?{x:last.x+frameWidth(last)+FRAME_GAP/2,y:last.y}:at)});
     }catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}
   }
   if(!placed.length)return;
