@@ -60,7 +60,7 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,renderDocument,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {isFreePage,loadFreePage,renderDocument,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
@@ -82,7 +82,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset,type FrameLayout} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -109,10 +109,12 @@ document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost();
 const FREE_PAGE_HEIGHT=900;
 function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);return `<div class="board-item" data-keep="item:${id}:${frameKey(p.id,p.html)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px"><iframe class="board-frame" sandbox="allow-scripts" data-frame-page="${id}" tabindex="-1" inert></iframe><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
+/** A picture or a video on the board. Its file is found once the item is on the board (mountBoard); a video waits for a press on its play button. */
+function mediaItem(p:Page,m:PageMedia,f:FrameLayout){const id=esc(p.id),video=m.mime.startsWith('video/');return `<div class="board-item board-media" data-keep="media:${id}:${esc(m.src)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px">${video?`<video data-board-media="${id}" preload="metadata" playsinline></video>`:`<img data-board-media="${id}" alt="${esc(p.name)}" draggable="false">`}<span class="board-missing" hidden>${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</span><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div>${video?`<button type="button" class="ui-icon-btn ui-icon-btn-md board-play" data-board-play="${id}" aria-label="${ui('Play','재생')} ${esc(p.name)}">${icon('play')}</button>`:''}</div>`;}
 /** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
 function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
 /** Gives each new frame on the board its page. A frame that was kept already has it. */
-function mountBoard(){for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted)continue;frame.dataset.mounted='1';void loadFreePage(frame,page,frameKey(page.id,page.html),frameHost).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
+function mountBoard(){mountMedia();for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted)continue;frame.dataset.mounted='1';void loadFreePage(frame,page,frameKey(page.id,page.html),frameHost).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
 /**
  * Going into a free page. Shut, a shield lies over the frame: one press selects the page, the wheel moves
  * the board, and the frame takes no input at all (it is inert). Two presses take the shield away and the
@@ -139,6 +141,41 @@ addEventListener('message',e=>{
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
 function offerLink(href:string){if(!/^(?:https?:\/\/|mailto:)[^\s"'<>\\]{1,2000}$/i.test(href)||modalRoot.children.length)return;leavePage();showModal(ui('This page links outside the app.','이 페이지가 앱 밖으로 연결합니다.'),ui('Nothing opens until you press Open.','열기를 누르기 전에는 아무것도 열리지 않습니다.'),`<p class="link-address"><code>${esc(href)}</code></p><button class="primary-button" data-action="open-link" data-href="${esc(href)}">${ui('Open in the browser','브라우저에서 열기')}</button>`);}
+/** Gives each new picture or video on the board its file: once, since the board keeps it after. */
+function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted])')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{if(url){el.src=url;if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else el.parentElement?.querySelector<HTMLElement>('.board-missing')?.removeAttribute('hidden');});}}
+document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
+/** How big a board file is, read off the file itself in this browser. */
+function mediaSize(url:string,mime:string):Promise<{width:number;height:number;duration?:number}>{return new Promise((resolve,reject)=>{const video=mime.startsWith('video/');const el=video?document.createElement('video'):new Image();const timer=setTimeout(()=>reject(new Error(ui('it could not be read','읽을 수 없습니다'))),15_000);const done=(w:number,h:number,duration?:number)=>{clearTimeout(timer);if(!w||!h){reject(new Error(ui('it has no size','크기가 없습니다')));return;}const scale=Math.min(1,20_000/Math.max(w,h));resolve({width:Math.max(1,Math.round(w*scale)),height:Math.max(1,Math.round(h*scale)),...(duration!==undefined&&Number.isFinite(duration)&&duration<=86_400?{duration:Math.round(duration*100)/100}:{})});};el.onerror=()=>{clearTimeout(timer);reject(new Error(ui('it could not be read','읽을 수 없습니다')));};if(el instanceof HTMLVideoElement){el.preload='metadata';el.onloadedmetadata=()=>done(el.videoWidth,el.videoHeight,el.duration);}else el.onload=()=>done(el.naturalWidth,el.naturalHeight);el.src=url;});}
+/**
+ * Pictures and videos the person drops on the board or pastes: each file is checked by its size and first
+ * bytes before it is read in, kept by the hash of its bytes (src/free-page.ts), and placed as one change in
+ * the person's name. A file that cannot go on the board says why and places nothing.
+ */
+async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
+  if(project.pages.length+files.length>30){toast(ui('A project holds at most 30 pages and media items.','한 프로젝트에는 페이지와 미디어를 합쳐 30개까지 둘 수 있습니다.'));return;}
+  const placed:{page:Page;frame:FrameLayout}[]=[];
+  for(const file of files.slice(0,12)){
+    const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()));
+    if(refused){toast(refused);continue;}
+    try{
+      const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);
+      if(!url)throw new Error(ui('it was not kept','보관되지 않았습니다'));
+      const size=await mediaSize(url,stored.mime),n=placed.length;
+      placed.push({page:{id:uid(),name:file.name.slice(0,120)||ui('Media','미디어'),blocks:[],kind:'media',media:{src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})}},frame:mediaFrame(size.width,size.height,{x:at.x+n*48,y:at.y+n*48})});
+    }catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}
+  }
+  if(!placed.length)return;
+  commit(()=>{for(const {page,frame} of placed){project.pages.push(page);project.space!.frames[page.id]=frame;}},d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
+  recordRun('media:placed',{count:placed.length,source});
+}
+/** A paste of pictures or videos onto the board, from the person's own keys; text pastes into fields as ever. */
+document.addEventListener('paste',e=>{
+  if(screen!=='editor'||modalRoot.children.length||enteredPage||(e.target as HTMLElement).closest?.('input,textarea,select,[contenteditable]'))return;
+  const files=[...(e.clipboardData?.files??[])];if(!files.length)return;
+  e.preventDefault();const d=who(e);if(!d)return;
+  const space=spaceEl();if(!space)return;
+  void putMedia(files,screenToWorld(camera,{x:space.clientWidth/3,y:space.clientHeight/3}),d,'media:paste');
+});
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
 let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
@@ -596,7 +633,7 @@ function render() {
     </aside>
     <main class="workbench" data-keep="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${free?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${free?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:free?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
@@ -1576,12 +1613,26 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
  * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent, its reason and
  * the revision it read; a batch written against one the person has since changed is refused.
  */
-function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
+async function applyBatch(batch:Batch,d:Dispatch):Promise<Record<string,unknown>>{
   const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
+  // An agent's pictures and videos are put on the board first, each checked before it is copied (src-tauri/src/board.rs).
+  // A file kept for a batch that then fails stays in board-media under its hash, placed nowhere; the design does not move.
+  const media:Record<number,PageMedia>={};
+  for(const [i,op] of batch.ops.entries()){
+    if(op.op!=='media_add')continue;
+    try{
+      const stored=await frameHost.importFile({path:op.path,libraryId:op.library_id,project:project.id}),url=await frameHost.mediaUrl(stored.sha);
+      if(!url)throw new Error('the file was not kept');
+      const size=await mediaSize(url,stored.mime);
+      media[i]={src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})};
+    }catch(error){return {error:`ops[${i}]: ${error instanceof Error?error.message:String(error)}`,failed_at:i,part:'ops',applied:0};}
+  }
+  // Copying took a moment: what was read is checked again before anything moves.
+  if(Object.keys(media).length){const again=staleSince(d.baseRevision,'batch');if(again)return again;}
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
   let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
   commit(()=>{
-    const result=runBatch(project,batch,selected);
+    const result=runBatch(project,batch,selected,media);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
     const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
@@ -1800,7 +1851,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
-        const result=applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
+        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }
@@ -1971,6 +2022,9 @@ function mountSpace(){
     };
     space.addEventListener('pointermove',onMove,{signal});space.addEventListener('pointerup',onUp,{signal});space.addEventListener('pointercancel',onUp,{signal});
   },{capture:true,signal});
+  // Files from the Finder, dropped where they should land.
+  space.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}},{signal});
+  space.addEventListener('drop',e=>{const files=[...(e.dataTransfer?.files??[])];if(!files.length)return;e.preventDefault();const d=who(e);if(!d)return;void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
     const d=who(e);if(!d)return;

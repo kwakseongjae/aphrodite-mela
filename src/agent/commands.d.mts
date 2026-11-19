@@ -10,7 +10,7 @@ export type Control =
   | {kind: 'action'; name: string; data?: Record<string, string>}
   | {kind: 'field'; name: string; data?: Record<string, string>}
   | {kind: 'form'; id: string}
-  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'undo-key' | 'redo-key'}
+  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'media-drop' | 'media-paste' | 'undo-key' | 'redo-key'}
   /** An effect outside the app with no button: a link the app opens, the update check at launch. */
   | {kind: 'listener'; name: 'external-link' | 'update-check'};
 

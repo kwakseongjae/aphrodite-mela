@@ -15,6 +15,14 @@ import {createServer} from 'node:http';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell} from '../src/free-page.ts';
+import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+/** Files to drop from "the Finder", made here and removed when the gate ends. */
+const filesDir = mkdtempSync(join(tmpdir(), 'aphrodite-pages-'));
+const fileAt = name => join(filesDir, name);
+const removeFiles = () => { try { for (const name of readdirSync(filesDir)) unlinkSync(fileAt(name)); rmdirSync(filesDir); } catch {} };
 
 const PORT = 4223, TRAP = 4224;
 const SERVER = `http://127.0.0.1:${TRAP}`;
@@ -30,7 +38,7 @@ trap.on('upgrade', (req, socket) => { hits.push({method: 'UPGRADE', url: req.url
 await new Promise(resolve => trap.listen(TRAP, '127.0.0.1', resolve));
 
 const {evaluate, send, agent, personClicks, personPresses, presses, close} = await openApp({port: PORT, cdp: 9383, profile: '/tmp/aphrodite-pages-profile'});
-const shut = () => { close(); trap.close(); };
+const shut = () => { close(); trap.close(); removeFiles(); };
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 const WHY = 'verify-pages: a free page stays in its frame.';
@@ -284,5 +292,139 @@ check('Preview shows a free page running, in the same kind of frame', async () =
   assert.equal(await evaluate(`!document.querySelector('#modal-root iframe')`), true, 'Esc inside Preview closes it');
 });
 
-checks.push(['(numbers)', async () => { console.log('       ' + JSON.stringify(result).slice(0, 4000)); }]);
+/* ---- pictures and videos: dropped, pasted, played, shown inside a page, taken back ---- */
+
+const dropFiles = async (names, p) => {
+  await send('Input.dispatchMouseEvent', {type: 'mouseMoved', x: p.x, y: p.y});
+  const data = {items: [], files: names.map(fileAt), dragOperationsMask: 1};
+  for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', {type, x: p.x, y: p.y, data});
+};
+const mediaItems = () => evaluate(`[...document.querySelectorAll('.board-media')].map(m => { const el = m.querySelector('img,video'); return {page: m.closest('.space-frame').dataset.pageId, tag: el.tagName, ready: el.tagName === 'IMG' ? el.naturalWidth : el.readyState}; })`);
+let dropped = [];
+
+check('a screenshot and an mp4 dropped from the Finder land on the board as one change, the person’s', async () => {
+  // Made in the browser by code: a picture on a canvas, and two seconds of video recorded from it.
+  const made = await evaluate(`(async () => {
+    const c = document.createElement('canvas'); c.width = 1280; c.height = 800; const g = c.getContext('2d');
+    const paint = t => { g.fillStyle = '#f4f1ea'; g.fillRect(0, 0, 1280, 800); g.fillStyle = '#2f4cd8'; g.fillRect(80 + t * 6, 120, 360, 240); g.fillStyle = '#1f2937'; g.font = '48px sans-serif'; g.fillText('Board screenshot · ' + t, 80, 520); };
+    paint(0);
+    const png = await new Promise(r => c.toBlob(r, 'image/png'));
+    const type = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+    const rec = new MediaRecorder(c.captureStream(15), {mimeType: type}); const parts = []; rec.ondataavailable = e => parts.push(e.data);
+    rec.start(); for (let t = 0; t < 30; t++) { paint(t); await new Promise(r => setTimeout(r, 66)); } rec.stop(); await new Promise(r => rec.onstop = r);
+    const b64 = async b => { const s = new Uint8Array(await b.arrayBuffer()); let out = ''; for (let i = 0; i < s.length; i += 32768) out += String.fromCharCode(...s.subarray(i, i + 32768)); return btoa(out); };
+    return {png: await b64(png), video: await b64(new Blob(parts, {type})), ext: type === 'video/mp4' ? 'mp4' : 'webm'};
+  })()`);
+  writeFileSync(fileAt('screenshot.png'), Buffer.from(made.png, 'base64'));
+  writeFileSync(fileAt(`clip.${made.ext}`), Buffer.from(made.video, 'base64'));
+  result.videoKind = made.ext;
+  await personClicks('zoom-fit');
+  await sleep(400);
+  const before = await seq();
+  await dropFiles(['screenshot.png', `clip.${made.ext}`], await emptySpot());
+  await waitFor(async () => (await seq()) > before, 'the files on the board', 30);
+  const {changes} = await agent('changes', {since: before, include_view: true, limit: 5});
+  assert.equal(changes.length, 1, 'one change');
+  assert.deepEqual(changes[0].author, {kind: 'person', name: 'you'});
+  assert.equal(changes[0].source, 'media:drop');
+  await waitFor(async () => (await mediaItems()).filter(m => m.ready > 0).length === 2, 'the picture and the video to load', 30);
+  dropped = (await mediaItems()).map(m => m.page);
+  const contract = await agent('contract', {});
+  const items = contract.pages.filter(p => dropped.includes(p.page_id));
+  result.dropped = items.map(p => p.media);
+  assert.equal(items.length, 2);
+  for (const item of items) assert.match(item.media.src, /^media:[0-9a-f]{64}$/, 'named by its hash, not by a place on this machine');
+});
+
+check('a file past what a board holds, or of another kind, is refused with its reason, and nothing lands', async () => {
+  writeFileSync(fileAt('notes.txt'), 'not a picture');
+  writeFileSync(fileAt('huge.mp4'), Buffer.from([0, 0, 0, 0x20, ...Buffer.from('ftypisom')]));
+  truncateSync(fileAt('huge.mp4'), 500 * 1024 * 1024 + 1);
+  const before = await seq();
+  await dropFiles(['notes.txt', 'huge.mp4'], await emptySpot());
+  await sleep(1200);
+  const said = await evaluate(`document.querySelector('#toast').textContent`);
+  assert.match(said, /notes\.txt is not a PNG, JPEG, GIF, WebP, MP4 or WebM/);
+  assert.match(said, /huge\.mp4 is 501 MB; a file on a board holds at most 500 MB/);
+  assert.equal(await seq(), before, 'nothing was placed');
+});
+
+check('pressing play plays the video, and selecting other pages leaves it playing', async () => {
+  const video = (await mediaItems()).find(m => m.tag === 'VIDEO').page;
+  const play = await evaluate(`(() => { const r = document.querySelector('[data-board-play="${video}"]').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  await click(play);
+  await sleep(600);
+  await evaluate(`(document.querySelector('[data-page-id="${video}"] video').__mark = 1, true)`);
+  assert.equal(await evaluate(`!document.querySelector('[data-page-id="${video}"] video').paused`), true, 'playing');
+  const t0 = await evaluate(`document.querySelector('[data-page-id="${video}"] video').currentTime`);
+  await click(await inPage(enterId, 140, 60));
+  await sleep(500);
+  const now = await evaluate(`(() => { const v = document.querySelector('[data-page-id="${video}"] video'); return {mark: v.__mark, paused: v.paused, t: v.currentTime}; })()`);
+  assert.equal(now.mark, 1, 'the same video element');
+  assert.equal(now.paused, false, 'still playing');
+  assert.ok(now.t > t0, 'and moving on');
+});
+
+check('a page shows a board picture it names as media:<sha256>', async () => {
+  const contract = await agent('contract', {});
+  const shot = contract.pages.find(p => dropped.includes(p.page_id) && p.media.mime === 'image/png').media.src;
+  await makePage('Uses the screenshot', `<img id="i" src="${shot}" style="width:400px"><script>addEventListener('load', () => parent.postMessage({shotWidth: document.getElementById('i').naturalWidth}, '*'))</script>`, {width: 800, height: 600});
+  await waitFor(async () => (await messages('shotWidth')).length, 'the page to load its picture', 20);
+  assert.equal((await messages('shotWidth')).at(-1), 1280);
+});
+
+check('a picture pasted with ⌘V lands as the person’s', async () => {
+  await send('Emulation.setFocusEmulationEnabled', {enabled: true});
+  await send('Browser.grantPermissions', {permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: `http://127.0.0.1:${PORT}`});
+  await evaluate(`(async () => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#c9a75a'; g.fillRect(0, 0, 600, 400); const b = await new Promise(r => c.toBlob(r, 'image/png')); await navigator.clipboard.write([new ClipboardItem({'image/png': b})]); document.activeElement?.blur(); return true; })()`);
+  const before = await seq();
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86, commands: ['paste']});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86});
+  await waitFor(async () => (await seq()) > before, 'the pasted picture', 20);
+  const {changes} = await agent('changes', {since: before, include_view: true, limit: 5});
+  assert.equal(changes.length, 1);
+  assert.deepEqual([changes[0].author.kind, changes[0].source], ['person', 'media:paste']);
+});
+
+check('⌘Z takes a paste back off the board', async () => {
+  const count = (await mediaItems()).length;
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'z', code: 'KeyZ', modifiers: 4, windowsVirtualKeyCode: 90});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'z', code: 'KeyZ', modifiers: 4, windowsVirtualKeyCode: 90});
+  await sleep(600);
+  assert.equal((await mediaItems()).length, count - 1);
+});
+
+check('an agent’s media_add in the browser build is refused with the reason, and nothing moves', async () => {
+  await sleep(5_200); // the person's keys hold the screen for five seconds
+  const before = await seq();
+  const got = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'media_add', path: '/tmp/x.png'}]});
+  assert.match(got.error ?? '', /browser build cannot read files/);
+  assert.equal(await seq(), before);
+});
+
+/* 0.3-P2: on a board of ten pages, selecting, moving a frame and zooming load none of them again.
+   Each page says hello once each time it starts. */
+check('on a board of ten pages, selecting, moving and zooming load none of them again', async () => {
+  const boots = async () => (await messages('ten')).length;
+  await sleep(5_200);
+  const ops = Array.from({length: 10}, (_, i) => ({op: 'html_page', name: `Ten ${i + 1}`, html: `<h1>Page ${i + 1}</h1><script>parent.postMessage({ten: ${i}}, '*')</script>`, width: 800, height: 500}));
+  const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops});
+  assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
+  await waitFor(async () => (await boots()) === 10, 'ten pages to start', 30);
+  await personClicks('zoom-fit');
+  await sleep(500);
+  const ids = made.created_pages.map(p => p.page_id);
+  for (const id of ids.slice(0, 4)) await click(await inPage(id, 100, 100));
+  const handle = await evaluate(`(() => { const r = document.querySelector('[data-page-id="${ids[5]}"] .frame-name').getBoundingClientRect(); return {x: r.left + 10, y: r.top + r.height / 2}; })()`);
+  await mouse('mouseMoved', handle, {button: 'none'}); await mouse('mousePressed', handle, {buttons: 1});
+  for (let i = 1; i <= 6; i++) await mouse('mouseMoved', {x: handle.x + i * 12, y: handle.y + i * 8}, {buttons: 1});
+  await mouse('mouseReleased', {x: handle.x + 72, y: handle.y + 48});
+  await sleep(400);
+  await personClicks('zoom-in'); await sleep(200); await personClicks('zoom-out'); await sleep(400);
+  assert.equal(await active(), ids[3], 'the last press selected its page');
+  result.tenBoots = await boots();
+  assert.equal(await boots(), 10, 'no page started again');
+});
+
+checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
 await runChecks(checks, shut);

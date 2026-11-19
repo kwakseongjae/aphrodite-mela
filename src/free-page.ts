@@ -198,6 +198,41 @@ export async function renderDocument(page: {html: string}, host: Pick<FrameHost,
   return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
 }
 
+/** One file on a board holds at most this many bytes (src-tauri/src/board.rs keeps the same). */
+export const MAX_MEDIA_BYTES = 500 * 1024 * 1024;
+const mb = (n: number) => Math.ceil(n / 1024 / 1024);
+
+/** What a file is, by its first bytes: one of the six kinds a board shows, or undefined. */
+export function sniffMedia(head: Uint8Array): string | undefined {
+  const starts = (...b: number[]) => b.every((v, i) => head[i] === v);
+  const text = (at: number, s: string) => [...s].every((c, i) => head[at + i] === c.charCodeAt(0));
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
+  if (starts(0xff, 0xd8, 0xff)) return 'image/jpeg';
+  if (text(0, 'GIF87a') || text(0, 'GIF89a')) return 'image/gif';
+  if (text(0, 'RIFF') && text(8, 'WEBP')) return 'image/webp';
+  if (text(4, 'ftyp')) return 'video/mp4';
+  if (starts(0x1a, 0x45, 0xdf, 0xa3)) return 'video/webm';
+  return undefined;
+}
+
+/** Why a file cannot go on a board, as a sentence, decided from its size and first bytes before it is read in. */
+export function mediaRefusal(file: {name: string; size: number}, head: Uint8Array): string | undefined {
+  if (file.size > MAX_MEDIA_BYTES) return `${file.name} is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`;
+  if (!file.size) return `${file.name} is empty.`;
+  if (!sniffMedia(head)) return `${file.name} is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.`;
+  return undefined;
+}
+
+/** The frame a media item sits in: its own shape, as wide as it is up to a desktop frame, never narrower than a frame may be. */
+export function mediaFrame(width: number, height: number, at: {x: number; y: number}) {
+  const w = Math.round(Math.min(1440, Math.max(240, width)));
+  const h = Math.round(Math.min(20_000, Math.max(100, w * height / Math.max(1, width))));
+  return {x: Math.round(at.x), y: Math.round(at.y), preset: 'custom' as const, width: w, height: h};
+}
+
+/** A file as the board keeps it. */
+export type StoredMedia = {sha: string; mime: string; bytes: number};
+
 /**
  * How a frame gets its document, decided in this one place. The browser build gives it as srcdoc. The
  * desktop cannot: a srcdoc (or blob:) frame there runs under the app's own `script-src 'self'` and not
@@ -207,6 +242,12 @@ export async function renderDocument(page: {html: string}, host: Pick<FrameHost,
 export type FrameHost = {
   /** Where board media may load from inside a frame, beside data: URLs. */
   origins: readonly string[];
+  /** Keeps a file the person put on the board, under the hash of its bytes. */
+  put(file: Blob): Promise<StoredMedia>;
+  /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
+  importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
+  /** The address the app itself shows a board file at, or undefined when this board has no such file. */
+  mediaUrl(sha: string): Promise<string | undefined>;
   /** The address a frame may load a media file from, or undefined when this board has no such file. */
   frameMedia(sha: string): Promise<string | undefined>;
   /** Puts the framed document in the frame. `key` names this version of the page. */
@@ -221,17 +262,61 @@ export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; 
   await host.load(frame, page.id, key, framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}));
 }
 
-/** The browser build: srcdoc, which runs under the browser build's policy as well as the page's own (src/csp.mjs). */
+/** How much of a file a srcdoc frame in the browser build is given inline: it cannot load the app's blob: URLs. */
+const INLINE_MEDIA = 8 * 1024 * 1024;
+const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
+const request = <T>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+
+/**
+ * The browser build: a frame gets its page as srcdoc, which runs under the browser build's policy as well
+ * as the page's own (src/csp.mjs), and board files are kept in this browser (IndexedDB), by hash.
+ */
 export function browserFrameHost(): FrameHost {
-  return {origins: [], frameMedia: async () => undefined, load: async (frame, _page, _key, doc) => { frame.srcdoc = doc; }};
+  let db: Promise<IDBDatabase> | undefined;
+  const open = () => db ??= new Promise((resolve, reject) => { const r = indexedDB.open('aphrodite-board-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+  const read = async (sha: string) => (await request((await open()).transaction('files').objectStore('files').get(sha))) as Blob | undefined;
+  const urls = new Map<string, string>();
+  return {
+    origins: [],
+    put: async file => {
+      if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
+      const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
+      if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
+      const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+      if (!(await read(sha))) await request((await open()).transaction('files', 'readwrite').objectStore('files').put(new Blob([file], {type: mime}), sha));
+      return {sha, mime, bytes: file.size};
+    },
+    importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
+    mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
+    frameMedia: async sha => {
+      const blob = await read(sha);
+      if (!blob || blob.size > INLINE_MEDIA) return undefined;
+      return `data:${blob.type};base64,${btoa(Array.from(new Uint8Array(await blob.arrayBuffer()), b => String.fromCharCode(b)).join(''))}`;
+    },
+    load: async (frame, _page, _key, doc) => { frame.srcdoc = doc; },
+  };
 }
 
-type Native = {invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>; fileSrc: (path: string) => string};
-/** The desktop: the page written to `free-pages/` under a name that changes with it, loaded through the asset protocol. */
+type Native = {invoke: <T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: {headers: Record<string, string>}) => Promise<T>; fileSrc: (path: string) => string};
+/** How much of a dropped file one call carries to the desktop. */
+const PIECE = 8 * 1024 * 1024;
+/**
+ * The desktop: board files in `board-media/` and page copies in `free-pages/` (src-tauri/src/board.rs),
+ * both loaded through the asset protocol, whose scope is those two folders and nothing else.
+ */
 export function desktopFrameHost(native: Native): FrameHost {
+  const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
   return {
     origins: ['asset:', 'http://asset.localhost'],
-    frameMedia: async sha => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; },
+    put: async file => {
+      if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
+      const id = await native.invoke<string>('board_media_begin');
+      for (let at = 0; at < file.size; at += PIECE) await native.invoke('board_media_chunk', new Uint8Array(await file.slice(at, at + PIECE).arrayBuffer()), {headers: {'upload-id': id}});
+      return native.invoke<StoredMedia>('board_media_finish', {id});
+    },
+    importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
+    mediaUrl: where,
+    frameMedia: where,
     load: async (frame, page, key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key, html: doc})); },
   };
 }

@@ -132,6 +132,8 @@ const gestureMarkers:Record<string,string>={
   'layer-reorder':"'layer:move'",
   'pointer':'`pointer:${command.type}`',
   'frame-move':"'frame:move'",
+  'media-drop':"'media:drop'",
+  'media-paste':"'media:paste'",
   'undo-key':"history(e.shiftKey ? 'redo' : 'undo'",
   'redo-key':"history(e.shiftKey ? 'redo' : 'undo'",
 };
