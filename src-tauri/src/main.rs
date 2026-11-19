@@ -70,6 +70,7 @@ fn main() {
             update::open_external,
             update::open_link,
             snapshot::render_page,
+            snapshot::render_free_page,
             page_wall::page_wall_status,
             board::board_media_begin,
             board::board_media_chunk,

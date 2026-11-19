@@ -184,6 +184,17 @@ test('when page scripts are off, no frame a free page is drawn in may run them',
   assert.match(renderShell(doc, [], false), /<iframe sandbox="" srcdoc=/);
 });
 
+/* 0.3-P2-fix4: a free page's render goes to the one command that refuses it where the wall does not hold
+   (src-tauri/src/page_wall.rs may_render); a section page's goes to the other. */
+test('a free page is rendered only through render_free_page, which Rust refuses without the wall', () => {
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const sends = [...main.matchAll(/invoke<string>\('(render_[a-z_]+)',\{html:([^,]+),/g)].map(m => [m[1], m[2]]);
+  assert.deepEqual(sends, [['render_free_page', 'await renderDocument(page'], ['render_page', 'await inlineAssets(pageHtml(project']]);
+  const snapshot = readFileSync(new URL('../src-tauri/src/snapshot.rs', import.meta.url), 'utf8');
+  assert.match(snapshot, /pub async fn render_free_page\([^)]*\)[^{]*\{\s*render\(app, html, width, height, true\)/);
+  assert.match(snapshot, /may_render\(free, wall\)\?;/);
+});
+
 test('the browser build runs page scripts by a named development constant, unless told not to', async () => {
   assert.equal(DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS, true);
   assert.equal(await browserFrameHost().pageScripts(), true);

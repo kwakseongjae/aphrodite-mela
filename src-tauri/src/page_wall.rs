@@ -9,8 +9,9 @@
 //!
 //! Each setting is asked for before it is called and never set by key: a key WebKit does not have throws
 //! an Objective-C exception, which unwinding cannot catch, and the app would die. A setting this WebKit
-//! does not have is reported as `unavailable`, and the app then turns page scripts off (src/free-page.ts
-//! pageScripts; the renderer here, scripts_off).
+//! does not have is reported as `unavailable`, and then no free page is put in any frame: the board and
+//! Preview show a placeholder (src/free-page.ts pageWall) and a render is refused (may_render). Turning a
+//! page's scripts off would not be enough: preconnect needs none (scripts/verify-wall.mjs measures it).
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -56,11 +57,14 @@ impl Status {
     }
 }
 
-/// The page with every frame's scripts off: what is drawn when the wall does not hold. The render shell
-/// and a section page name `allow-scripts` only in a frame's sandbox; a frame inside one without it
-/// cannot get it back.
-pub(crate) fn scripts_off(html: &str) -> String {
-    html.replace("sandbox=\"allow-scripts\"", "sandbox=\"\"")
+/// Whether the render window may load a page once the wall has read back. A free page is drawn only
+/// behind the wall; without it, it is refused, with where to read it instead. A section page is the app's
+/// own markup and is drawn as before.
+pub fn may_render(free: bool, wall: Status) -> Result<(), String> {
+    if free && !wall.holds() {
+        return Err("this Mac's macOS cannot keep a free page inside its frame (the page wall did not read back off), so it is not drawn. Read its words with aphrodite_get_page_text, or its html with aphrodite_get_page_html.".into());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -128,7 +132,8 @@ mod mac {
     }
 }
 
-/// Puts the wall into a window's webview and says what it reads back. On the main thread, as with_webview runs.
+/// Puts the wall into a window's webview and says what it reads back. On the main thread, as with_webview runs;
+/// the caller waits up to five seconds for it, so a command does it through put_into_later.
 #[cfg(target_os = "macos")]
 pub fn put_into(window: &tauri::WebviewWindow) -> Status {
     use std::sync::mpsc::channel;
@@ -152,11 +157,17 @@ pub fn put_into(_window: &tauri::WebviewWindow) -> Status {
     Status::UNKNOWN
 }
 
+/// put_into for a command: the wait is on a thread kept for waiting, not on one of the workers commands run on.
+pub async fn put_into_later(window: &tauri::WebviewWindow) -> Status {
+    let window = window.clone();
+    tauri::async_runtime::spawn_blocking(move || put_into(&window)).await.unwrap_or(Status::UNKNOWN)
+}
+
 /// Puts the wall into a window that has nothing loaded yet, then loads what `page` makes of what it read back:
 /// the setting goes in before the page, by the shape of this function (the render window's shell makes its
 /// frame in the same parse, so a wall put in after would be too late for it).
-pub fn put_then_load(window: &tauri::WebviewWindow, page: impl FnOnce(Status) -> Result<tauri::Url, String>) -> Result<Status, String> {
-    let status = put_into(window);
+pub async fn put_then_load(window: &tauri::WebviewWindow, page: impl FnOnce(Status) -> Result<tauri::Url, String>) -> Result<Status, String> {
+    let status = put_into_later(window).await;
     let url = page(status)?;
     window.navigate(url).map_err(|e| format!("could not load the page: {e}"))?;
     Ok(status)
@@ -165,7 +176,7 @@ pub fn put_then_load(window: &tauri::WebviewWindow, page: impl FnOnce(Status) ->
 /// The wall as the calling window has it, put in again (it is the same either way) and read back.
 #[tauri::command]
 pub async fn page_wall_status(window: tauri::WebviewWindow) -> Status {
-    put_into(&window)
+    put_into_later(&window).await
 }
 
 #[cfg(test)]
@@ -192,11 +203,17 @@ mod tests {
     }
 
     #[test]
-    fn without_the_wall_no_frame_may_run_scripts() {
-        let shell = r#"<iframe sandbox="allow-scripts" srcdoc="&lt;iframe sandbox=&quot;allow-scripts&quot;&gt;"></iframe><iframe sandbox="allow-scripts"></iframe>"#;
-        let off = scripts_off(shell);
-        assert!(!off.contains(r#"sandbox="allow-scripts""#));
-        assert_eq!(off.matches(r#"sandbox="""#).count(), 2);
+    fn a_free_page_is_rendered_only_behind_the_wall_and_otherwise_refused_with_where_to_read_it() {
+        let off = Status { rtc: Setting::Off, preconnect: Setting::Off };
+        assert!(may_render(true, off).is_ok());
+        for (rtc, preconnect) in [(Setting::On, Setting::Off), (Setting::Off, Setting::Unavailable), (Setting::Unavailable, Setting::Off), (Setting::Unavailable, Setting::Unavailable)] {
+            let refused = may_render(true, Status { rtc, preconnect }).unwrap_err();
+            assert!(refused.contains("aphrodite_get_page_text"), "{refused}");
+        }
+        // A section page is the app's own markup and draws as it did before the wall.
+        assert!(may_render(false, Status::UNKNOWN).is_ok());
+        // Nothing here reads or rewrites the page's markup to decide.
+        assert!(!include_str!("page_wall.rs").contains(&["fn scripts", "_off("].concat()));
     }
     // What this WebKit does with the names, the right ones and wrong ones, is measured by verify:wall in a real
     // WKWebView: a test thread here is not the main thread, and WebKit stops the process when a preferences

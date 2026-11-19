@@ -26,9 +26,20 @@ fn clamp(value: f64, low: f64, high: f64) -> f64 {
     if value.is_finite() { value.max(low).min(high) } else { low }
 }
 
-/// Renders `html` off screen at `width` and answers with a PNG, base64 encoded.
+/// Renders a section page's `html` off screen at `width` and answers with a PNG, base64 encoded.
 #[tauri::command]
 pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) -> Result<String, String> {
+    render(app, html, width, height, false).await
+}
+
+/// Renders a free page's render shell (src/free-page.ts renderDocument) the same way, only behind the page
+/// wall: where it does not hold, the page is refused and never loaded (crate::page_wall::may_render).
+#[tauri::command]
+pub async fn render_free_page(app: AppHandle, html: String, width: f64, height: f64) -> Result<String, String> {
+    render(app, html, width, height, true).await
+}
+
+async fn render(app: AppHandle, html: String, width: f64, height: f64, free: bool) -> Result<String, String> {
     let width = clamp(width, MIN_WIDTH, MAX_WIDTH);
     let height = clamp(height, 320.0, MAX_HEIGHT);
     if html.len() > 4_000_000 {
@@ -37,7 +48,7 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
     // A window of its own, never shown, closed as soon as the picture is taken.
     let label = format!("render-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
     // The window opens on nothing, takes the page wall (src-tauri/src/page_wall.rs), and only then loads
-    // the page, which the wall has decided: with page scripts if it holds, without them if it does not.
+    // the page, if the wall lets it (may_render).
     let parked: std::sync::Arc<std::sync::Mutex<Option<tauri::Url>>> = Default::default();
     let only = parked.clone();
     let blank: tauri::Url = "about:blank".parse().map_err(|_| "could not build the page url")?;
@@ -58,13 +69,15 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
         .map_err(|e| format!("could not open an off-screen webview: {e}"))?;
     let bridge = app.state::<crate::agent::AgentBridge>();
     let loaded = crate::page_wall::put_then_load(&window, |wall| {
-        let page = if wall.holds() { html } else { crate::page_wall::scripts_off(&html) };
+        crate::page_wall::may_render(free, wall)?;
+        let page = html;
         // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
         // loopback server and fetched from there.
         let url: tauri::Url = crate::agent::stash_render(&bridge, page)?.parse().map_err(|_| "could not build the page url")?;
         *parked.lock().map_err(|e| e.to_string())? = Some(url.clone());
         Ok(url)
-    });
+    })
+    .await;
     if let Err(error) = loaded {
         let _ = window.close();
         return Err(error);
