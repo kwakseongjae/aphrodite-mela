@@ -134,6 +134,49 @@ export function pageText(html: string): string {
   return paragraphs.length ? paragraphs.join('\n\n') + '\n' : '';
 }
 
+/** Where a frame may load board media from, beside data: URLs: the desktop's asset protocol, or the loopback that serves the browser build. */
+const MEDIA_ORIGIN = /^(?:asset:|http:\/\/asset\.localhost|http:\/\/(?:127\.0\.0\.1|localhost):\d{1,5})$/;
+/** An address a host may put where a page says `media:<sha256>`: nothing in it can end the attribute or the url() it sits in. */
+const MEDIA_ADDRESS = /^(?:data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|(?:asset|https?):\/\/[^\s"'()<>\\]+)$/;
+
+/**
+ * The policy a free page runs under, whatever it holds: its own scripts and styles, pictures and video
+ * from data: URLs and from `origins` (where the host keeps board media), and nothing else. No fetch, no
+ * socket, no frame, no worker, no form. It cannot stop the frame from being sent somewhere else; the
+ * app's own `frame-src` does that (src/csp.mjs).
+ */
+export function frameCsp(origins: readonly string[]): string {
+  for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
+  const media = ['data:', ...origins].join(' ');
+  return [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `object-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
+}
+
+/**
+ * What the host runs in the frame before the page: a link to `#x` scrolls inside the page instead of
+ * loading the app's address into the frame, a link to `page:<id>` or out of the app is handed to the
+ * host to decide, and Esc reaches the host, which cannot hear keys typed inside the frame. It is a
+ * convenience, not a wall: a page can undo it, and the frame's sandbox and policy hold without it.
+ */
+const HOST_SCRIPT = `(()=>{const post=m=>parent.postMessage(Object.assign({aphrodite:'frame'},m),'*');addEventListener('click',e=>{const a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;const h=a.getAttribute('href')||'';e.preventDefault();if(h[0]==='#'){let id='';try{id=decodeURIComponent(h.slice(1));}catch{return;}const t=id&&(document.getElementById(id)||document.getElementsByName(id)[0]);if(t)t.scrollIntoView();else if(!id)scrollTo(0,0);return;}if(/^page:/.test(h)){post({kind:'page',id:h.slice(5)});return;}if(/^(https?|mailto):/i.test(h))post({kind:'link',href:h});},true);addEventListener('submit',e=>e.preventDefault(),true);addEventListener('keydown',e=>{if(e.key==='Escape')post({kind:'escape'});},true);})();`;
+/** The end of what the host puts before a page; everything after it is the page as stored, its media resolved. */
+export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
+
+/**
+ * The document a frame loads for a free page. The charset and the policy come first, before a single
+ * character the page wrote, so no comment, `<head>` or script in the page can come before them; the page
+ * follows as stored, with `media:<sha256>` turned into the address `media` gives (a hash it does not
+ * hold is left as it is, and loads nothing).
+ */
+export function framedDocument(html: string, host: {media: (sha: string) => string | undefined; origins: readonly string[]}): string {
+  const page = html.replace(/media:([0-9a-f]{64})(?![0-9a-f])/g, (all, sha: string) => {
+    const address = host.media(sha);
+    if (address === undefined) return all;
+    if (!MEDIA_ADDRESS.test(address)) throw new Error(`not a media address a frame may be given: ${address.slice(0, 80)}`);
+    return address;
+  });
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
+}
+
 const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
 
 /**
