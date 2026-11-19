@@ -535,5 +535,31 @@ check('a page naming a file the board does not have yet shows it once the file i
   await waitFor(async () => (await messages('late')).includes(1), 'the page to show the picture that arrived', 20);
 });
 
+check('a copy of the project imported from the editor opens with frames of its own, and the person is not inside any of them', async () => {
+  await personPresses('page', {id: enterId}); await sleep(300);
+  await personClicks('zoom-frame'); await sleep(500);
+  await click(await inPage(enterId, 140, 60), 2);
+  assert.equal(await entered(enterId), true);
+  await evaluate(`(document.querySelector('[data-page-id="${enterId}"] iframe').__mark = 'original', true)`);
+  const boots = (await messages('boot')).filter(b => b === 'enter').length;
+  const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
+  const original = lib.entries.find(e => e.project.pages.some(p => p.id === enterId)).project;
+  writeFileSync(fileAt('copy.json'), JSON.stringify(original));
+  // Import, straight from the editor: the copy gets an id of its own and keeps the page ids.
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project'); await sleep(500);
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt('copy.json')]});
+  await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > lib.entries.length, 'the copy to open', 20);
+  await sleep(1200);
+  const copy = await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id).find(id => id !== ${JSON.stringify(original.id)})`);
+  assert.ok(copy, 'a copy was made');
+  assert.equal(await entered(enterId), false, 'not inside the copy’s page');
+  assert.equal(await evaluate(`document.querySelector('[data-page-id="${enterId}"] iframe').__mark ?? null`), null, 'a frame of its own');
+  await waitFor(async () => (await messages('boot')).filter(b => b === 'enter').length > boots, 'the copy’s page to start');
+  result.copy = {original: original.id, copy};
+});
+
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
 await runChecks(checks, shut);

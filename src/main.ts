@@ -108,9 +108,9 @@ document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 /** Free pages and media on the board: how frames get their documents here (src/free-page.ts decides), and the board layer that keeps them (src/editor/board.ts). */
 const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost();
 const FREE_PAGE_HEIGHT=900;
-function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);return `<div class="board-item" data-keep="item:${id}:${frameKey(p.id,p.html)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px"><iframe class="board-frame" sandbox="allow-scripts" data-frame-page="${id}" tabindex="-1" inert></iframe><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
+function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);return `<div class="board-item" data-keep="item:${esc(project.id)}:${id}:${frameKey(p.id,p.html)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px"><iframe class="board-frame" sandbox="allow-scripts" data-frame-page="${id}" tabindex="-1" inert></iframe><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
 /** A picture or a video on the board. Its file is found once the item is on the board (mountBoard); a video waits for a press on its play button. */
-function mediaItem(p:Page,m:PageMedia,f:FrameLayout){const id=esc(p.id),video=m.mime.startsWith('video/');return `<div class="board-item board-media" data-keep="media:${id}:${esc(m.src)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px">${video?`<video data-board-media="${id}" preload="metadata" playsinline></video>`:`<img data-board-media="${id}" alt="${esc(p.name)}" draggable="false">`}<span class="board-missing" hidden>${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</span><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div>${video?`<button type="button" class="ui-icon-btn ui-icon-btn-md board-play" data-board-play="${id}" aria-label="${ui('Play','재생')} ${esc(p.name)}">${icon('play')}</button>`:''}</div>`;}
+function mediaItem(p:Page,m:PageMedia,f:FrameLayout){const id=esc(p.id),video=m.mime.startsWith('video/');return `<div class="board-item board-media" data-keep="media:${esc(project.id)}:${id}:${esc(m.src)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px">${video?`<video data-board-media="${id}" preload="metadata" playsinline></video>`:`<img data-board-media="${id}" alt="${esc(p.name)}" draggable="false">`}<span class="board-missing" hidden>${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</span><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div>${video?`<button type="button" class="ui-icon-btn ui-icon-btn-md board-play" data-board-play="${id}" aria-label="${ui('Play','재생')} ${esc(p.name)}">${icon('play')}</button>`:''}</div>`;}
 /** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
 function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
 /** Gives each new frame on the board its page. A frame that was kept already has it. */
@@ -126,7 +126,7 @@ function mountBoard(){mountMedia();for(const frame of app.querySelectorAll<HTMLI
  * the board, and the frame takes no input at all (it is inert). Two presses take the shield away and the
  * page has the mouse and the keys until a press outside it or Esc. Neither is an edit.
  */
-let enteredPage='';
+let enteredPage='',boardProject='';
 function boardSection(id:string){return app.querySelector<HTMLElement>(`.space-frame[data-page-id="${CSS.escape(id)}"]`);}
 function enterPage(id:string){leavePage();const section=boardSection(id),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');if(!section||!frame)return;enteredPage=id;section.classList.add('entered');frame.inert=false;frame.focus();}
 function leavePage(){if(!enteredPage)return;const section=boardSection(enteredPage),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');enteredPage='';section?.classList.remove('entered');if(frame){if(document.activeElement===frame)frame.blur();frame.inert=true;}}
@@ -622,6 +622,8 @@ function render() {
   document.documentElement.lang=uiLanguage;
   if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
+  // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
+  if(boardProject!==project.id){boardProject=project.id;enteredPage='';}
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
