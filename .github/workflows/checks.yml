@@ -67,6 +67,11 @@ jobs:
       - name: Check that a free page stays in its frame
         run: npm run verify:pages
 
+      # The desktop's own wall (0.3-P2-fix3): two WebKit settings, measured against the review's attacks in
+      # an off-screen WKWebView the runner's swiftc builds. Nothing it reaches is outside 127.0.0.1.
+      - name: Check that WebKit keeps a free page off the network
+        run: npm run verify:wall
+
       # The crate's build script wants the sidecar to exist before cargo runs, and it must be
       # built for the target cargo is about to use.
       - name: Build the Vision sidecar
