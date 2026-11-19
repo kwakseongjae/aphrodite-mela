@@ -34,7 +34,7 @@ struct Endpoint {
     token: String,
 }
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     let mut bytes = [0u8; 24];
     let seeded = std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))

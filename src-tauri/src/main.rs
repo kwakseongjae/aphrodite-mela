@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
+mod board;
 mod fonts;
 mod image_library;
 mod reference;
@@ -64,7 +65,13 @@ fn main() {
             update::update_notes,
             update::open_external,
             update::open_link,
-            snapshot::render_page
+            snapshot::render_page,
+            board::board_media_begin,
+            board::board_media_chunk,
+            board::board_media_finish,
+            board::board_media_import,
+            board::board_media_path,
+            board::free_page_write
         ])
         .run(tauri::generate_context!())
         .expect("Aphrodite could not start");
