@@ -184,7 +184,16 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
 }
 
-const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+/** A short name for a text, to tell two versions of a page apart (not a check of anything: cyrb53 and the length). */
+export function contentKey(text: string): string {
+  let h1 = 0xdeadbeef ^ text.length, h2 = 0x41c6ce57 ^ text.length;
+  for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0') + text.length.toString(16);
+}
 /**
  * The page the off-screen renderer loads for a free page. That window is a top-level page of its own,
  * so a page drawn there straight could send it anywhere (RESULTS 0.3-P0 §4); here the page is in the
@@ -324,7 +333,9 @@ export function desktopFrameHost(native: Native): FrameHost {
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
     frameMedia: where,
-    load: async (frame, page, key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key, html: doc})); },
+    // The copy is named for the document the frame loads, not the page alone: a picture the page names that
+    // reaches this Mac later changes the document, and so the copy.
+    load: async (frame, page, _key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key: contentKey(doc), html: doc})); },
   };
 }
 

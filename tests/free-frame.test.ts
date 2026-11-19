@@ -65,11 +65,12 @@ test('a page is photographed inside a sandboxed frame that may not be sent anywh
   assert.deepEqual(policy.get('frame-src'), ["'none'"], 'the frame cannot be sent to an address');
   assert.deepEqual(policy.get('connect-src'), ["'none'"]);
   assert.deepEqual(policy.get('default-src'), ["'none'"]);
-  const frames = shell.match(/<iframe[^>]*>/g)!;
+  const frames = shell.match(/<iframe[^>]*srcdoc="[^"]*"[^>]*>/g)!;
   assert.equal(frames.length, 1);
   assert.match(frames[0], /sandbox="allow-scripts"/);
   assert.doesNotMatch(frames[0], /allow-same-origin|allow-top-navigation|allow-popups|allow-forms/);
-  const srcdoc = frames[0].match(/srcdoc="([^"]*)"/)![1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const srcdoc = frames[0].match(/srcdoc="([^"]*)"/)![1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   assert.equal(srcdoc, doc, 'the frame holds the page exactly');
   assert.doesNotMatch(shell.replace(frames[0], ''), /<script/i, 'the shell runs nothing of its own');
+  assert.ok(shell.length - doc.length < 1024, 'escaping only & and " keeps the shell close to the page in size');
 });

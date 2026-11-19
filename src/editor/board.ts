@@ -10,6 +10,8 @@
  * `data-keep-whole`, whose children are never touched. Everything else is the new string, as before.
  */
 
+import {contentKey} from '../free-page';
+
 /** Brings `live`'s children to `fresh`'s, keeping each `data-keep` element both have. `fresh` is emptied. */
 export function morph(live: ParentNode & Node, fresh: ParentNode & Node): void {
   const kept = new Map<string, Element>();
@@ -42,15 +44,6 @@ export function morph(live: ParentNode & Node, fresh: ParentNode & Node): void {
 function syncAttributes(live: Element, fresh: Element) {
   for (const {name} of Array.from(live.attributes)) if (!fresh.hasAttribute(name)) live.removeAttribute(name);
   for (const {name, value} of Array.from(fresh.attributes)) if (live.getAttribute(name) !== value) live.setAttribute(name, value);
-}
-
-/** A short name for a text, to tell two versions of a page apart (not a check of anything: cyrb53 and the length). */
-export function contentKey(text: string): string {
-  let h1 = 0xdeadbeef ^ text.length, h2 = 0x41c6ce57 ^ text.length;
-  for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0') + text.length.toString(16);
 }
 
 const keys = new Map<string, {html: string; key: string}>();
