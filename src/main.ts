@@ -59,8 +59,7 @@ import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
-import {commandById} from './agent/commands.mjs';
-import {runBatch,type BatchResult} from './agent/apply';
+import {runBatch,importMedia,type BatchResult} from './agent/apply';
 import {isFreePage,loadFreePage,renderDocument,linkOut,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
@@ -1644,21 +1643,14 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
  * `stillAllowed` asks the door again, for a batch that waited on files: an agent the person let go while
  * they were copied places nothing.
  */
-async function applyBatch(batch:Batch,d:Dispatch,stillAllowed:()=>{error:string;status?:number}|undefined=()=>undefined):Promise<Record<string,unknown>>{
+async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllowed:()=>{error:string;status?:number}|undefined=()=>undefined):Promise<Record<string,unknown>>{
   const early=staleSince(d.baseRevision,'batch');if(early)return early;
   const projectId=project.id,revision=revisionInfo().revision;
-  // An agent's pictures and videos are put on the board first, each checked before it is copied (src-tauri/src/board.rs).
-  // A file kept for a batch that then fails stays in board-media under its hash, placed nowhere; the design does not move.
-  const media:Record<number,PageMedia>={};
-  for(const [i,op] of batch.ops.entries()){
-    if(op.op!=='media_add')continue;
-    try{
-      const stored=await frameHost.importFile({path:op.path,libraryId:op.library_id,project:project.id}),url=await frameHost.mediaUrl(stored.sha);
-      if(!url)throw new Error('the file was not kept');
-      const size=await mediaSize(url,stored.mime);
-      media[i]={src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})};
-    }catch(error){return {error:`ops[${i}]: ${error instanceof Error?error.message:String(error)}`,failed_at:i,part:'ops',applied:0};}
-  }
+  // An agent's pictures and videos are put on the board first. A file kept for a batch that then fails
+  // stays in board-media under its hash, placed nowhere; the design does not move.
+  const imported=await importMedia(batch.ops,surface,frameHost,project.id,mediaSize);
+  if('error' in imported)return {...imported,part:'ops',applied:0};
+  const {media}=imported;
   // Copying took a moment: the project and the door are asked again before anything moves.
   if(Object.keys(media).length){
     if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
@@ -1892,10 +1884,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
-        // A file on this Mac, by its path, is read only for an agent running here (the row's `reads`).
-        const reads=commandById['edit.apply'].reads!;
-        if(!(reads.surfaces as string[]).includes(surface)&&parsed.batch.ops.some(o=>o.op==='media_add'&&o.path!==undefined))return {error:`media_add reads a file by its path only for an agent running on this Mac (${reads.surfaces.join(', ')}); from here, name a picture in the image library with library_id.`,status:403};
-        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
+        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }

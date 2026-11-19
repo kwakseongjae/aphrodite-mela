@@ -204,7 +204,12 @@ check('a page framed without any of the host’s scripts reaches nothing outside
   const before = hits.length;
   const url = await evaluate('location.href');
   const doc = framedDocument(probe('bare'), {media: () => undefined, origins: []});
-  const bareDoc = doc.slice(0, doc.indexOf('<script>')) + doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length);
+  // A link over the whole frame: the host script, if it were there, would report a press on it, and Esc.
+  const cover = '<a id="host-check" href="https://example.com/host-check" style="position:fixed;inset:0;z-index:2147483647;display:block">x</a>';
+  const page = doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length);
+  const bareDoc = doc.slice(0, doc.indexOf('<script>')) + cover + page;
+  // The control is a plain page: the probe's own frames would have the host take its document away.
+  const hostedDoc = doc.slice(0, doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length) + cover + '<p>control</p>';
   assert.ok(!bareDoc.includes("aphrodite:'frame'") && !bareDoc.includes('const gone='), 'no host script is left in it');
   await evaluate(`(() => { const f = document.createElement('iframe'); f.id = 'bare-frame'; f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = ${JSON.stringify(bareDoc)}; f.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;opacity:0'; document.body.append(f); return true; })()`);
   await waitFor(() => evaluate(`window.__frameMessages.some(m => m && m.probe === 'bare' && m.name === 'ran')`), 'the bare page to run', 20);
@@ -213,8 +218,23 @@ check('a page framed without any of the host’s scripts reaches nothing outside
   result.bare = {tried: await evaluate(`window.__frameMessages.filter(m => m && m.probe === 'bare').map(m => m.name + '=' + m.value)`), reached: seen};
   assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
   assert.equal(await evaluate('location.href'), url, 'the app stayed where it was');
-  assert.equal(await evaluate(`window.__frameMessages.filter(m => m && m.aphrodite === 'frame').length`), 0, 'no host script spoke');
+  // Pressed and given Esc, it says nothing. The same press on the same page with the host script does,
+  // which is what shows this would hear it.
+  const spoke = () => evaluate(`window.__frameMessages.filter(m => m && m.aphrodite === 'frame').length`);
+  const pressFrame = async () => { await click({x: 150, y: 100}); await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}); await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}); await sleep(500); };
+  const quiet = await spoke();
+  await evaluate(`(document.querySelector('#bare-frame').style.zIndex = '2147483647', true)`);
+  await pressFrame();
+  const after = await spoke();
   await evaluate(`document.querySelector('#bare-frame').remove(), true`);
+  assert.equal(after, quiet, 'no host script spoke, pressed or given Esc');
+  await evaluate(`(() => { const f = document.createElement('iframe'); f.id = 'hosted-frame'; f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = ${JSON.stringify(hostedDoc)}; f.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;opacity:0;z-index:2147483647'; document.body.append(f); return true; })()`);
+  await sleep(1200);
+  await pressFrame();
+  const heard = await spoke();
+  await evaluate(`document.querySelector('#hosted-frame').remove(), true`);
+  assert.ok(heard > quiet, 'the same press on the page with the host script is heard');
+  if (await evaluate(`!!document.querySelector('#modal-root .ui-modal, #modal-root .modal')`)) await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
 });
 
 /* The off-screen renderer loads a page of its own, top level, from the loopback bridge (src-tauri/src/
@@ -587,6 +607,8 @@ check('files read while the person moves to another project are placed nowhere',
     Object.defineProperty(HTMLImageElement.prototype, 'onload', {set(f) { d.set.call(this, f && (e => setTimeout(() => f.call(this, e), 2500))); }, get() { return d.get.call(this); }, configurable: true}); return true; })()`);
   writeFileSync(fileAt('moving.png'), DOT);
   const items = await mediaItems();
+  const stored = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => ({id: e.project.id, media: e.project.pages.filter(p => p.kind === 'media').length, pages: e.project.pages.length, seq: e.project.ledger?.seq ?? 0}))`);
+  const arrived = (await stored()).find(e => e.id === original);
   await personClicks('zoom-fit'); await sleep(300);
   await dropFiles(['moving.png'], await emptySpot());
   await sleep(300);
@@ -598,6 +620,11 @@ check('files read while the person moves to another project are placed nowhere',
   const counts = Object.fromEntries(lib.entries.map(e => [e.project.id, e.project.pages.filter(p => p.kind === 'media').length]));
   result.moving = counts;
   assert.equal(counts[result.copy.copy], items.length, 'the copy it was dropped on gained nothing');
+  // Nor the project the person went to: the same pages and the same history as when they left it.
+  const now = (await stored()).find(e => e.id === original);
+  assert.deepEqual({media: now.media, pages: now.pages}, {media: arrived.media, pages: arrived.pages}, 'the project they went to gained nothing');
+  const {changes} = await agent('changes', {since: arrived.seq, include_view: true, limit: 20});
+  assert.deepEqual(changes.filter(c => c.source === 'media:drop' || c.source === 'media:paste'), [], 'and records no picture');
 });
 
 /* 0.3-P2-fix2 #5: the browser build cannot put a file past 8 MB into a frame. A page naming one is drawn

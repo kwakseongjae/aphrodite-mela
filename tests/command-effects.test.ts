@@ -202,7 +202,8 @@ test('every Tauri command the interface invokes is classed as leaving the app or
 
 /* 0.3-P2-fix1 #11: media_add with a path copies a file an agent names on this Mac onto the board, where
    get_render can read it back. That read is the row's to declare, and only an agent running on this Mac
-   (loopback, MCP) may ask for it; a model in the app (inApp) may use library_id, not path. */
+   (loopback, MCP) may ask for it; a model in the app (inApp) may use library_id, not path. That the
+   refusal comes before any file is read is tested by its behaviour (tests/board-media.test.ts). */
 test('reading a file an agent names is declared by the row that does it, for this Mac\'s agents only',()=>{
   const row=commandById['edit.apply'];
   assert.ok(row.reads,'edit.apply says what it reads');
@@ -212,7 +213,5 @@ test('reading a file an agent names is declared by the row that does it, for thi
     const where=Object.entries(tree).filter(([,t])=>new RegExp(`\\binvoke(?:<[^\\n]*?>)?\\('${name}'`).test(t)).map(([f])=>f);
     assert.deepEqual(where,['free-page.ts'],`${name} is invoked from the one module that reads and writes board files`);
   }
-  const main=tree['main.ts'];
-  assert.ok(main.includes("commandById['edit.apply'].reads"),'the apply route holds media_add path to the surfaces the row names');
   assert.ok(row.mcp?.description.includes('path')&&JSON.stringify(row.input).includes('library_id'));
 });

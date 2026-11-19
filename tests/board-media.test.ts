@@ -6,10 +6,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MAX_MEDIA_BYTES, MAX_BROWSER_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes, browserFrameHost} from '../src/free-page.ts';
+import {MAX_MEDIA_BYTES, MAX_BROWSER_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes, browserFrameHost, desktopFrameHost, type FrameHost} from '../src/free-page.ts';
 import {validFrameLayout} from '../src/editor/space.ts';
 import {parseBatch} from '../src/agent/ops.ts';
-import {runBatch} from '../src/agent/apply.ts';
+import {runBatch, importMedia} from '../src/agent/apply.ts';
 import {initialProject, parseProject, MAX_PAGES, MAX_PAGE_NAME} from '../src/model.ts';
 
 const bytes = (...parts: (number[] | string)[]) => Uint8Array.from(parts.flatMap(p => typeof p === 'string' ? [...p].map(c => c.charCodeAt(0)) : p));
@@ -123,8 +123,11 @@ test('media_add and a patch in one batch land together', () => {
   const both = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'set', on: 'project', field: 'name', value: 'Changed'}]}, '', {0: media});
   assert.ok(both.ok, both.ok ? '' : both.error);
   assert.equal(both.project.name, 'Changed');
-  const forged = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'set', on: 'page', page_id: project.pages[0].id, field: 'media', value: media} as never]}, '', {0: media});
-  assert.ok(!forged.ok, 'a patch still cannot point a page at a file');
+  // A media item the patch makes whole, kind and file together: a shape the model accepts, so only the media_add rule refuses it.
+  const item = {id: 'forged-item', name: 'Forged', blocks: [], kind: 'media' as const, media: {...media, src: 'media:' + '9'.repeat(64)}};
+  assert.ok(parseProject(JSON.stringify({...project, pages: [...project.pages, item]})), 'the shape itself is one a project may hold');
+  const forged = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'insert_page', index: 1, page: item}]}, '', {0: media});
+  assert.ok(!forged.ok && /arrives with media_add/.test(forged.error), forged.ok ? 'it landed' : forged.error);
 });
 
 /* 0.3-P2-fix1 #8: the browser build reads a whole file into memory to hash it, so it holds less than the
@@ -136,4 +139,33 @@ test('the browser build holds a smaller file than the desktop, and says so befor
   const mp4 = bytes([0, 0, 0, 0x20], 'ftypisom');
   assert.equal(mediaRefusal({name: 'clip.mp4', size: MAX_BROWSER_MEDIA_BYTES}, mp4, MAX_BROWSER_MEDIA_BYTES), undefined);
   assert.match(mediaRefusal({name: 'clip.mp4', size: MAX_BROWSER_MEDIA_BYTES + 1}, mp4, MAX_BROWSER_MEDIA_BYTES)!, /clip\.mp4 is 101 MB; a file on a board holds at most 100 MB in the browser/);
+});
+
+/* 0.3-P2-fix2: "before reading it", counted. A file too big for the host is refused by put() without one
+   byte of it being read or sent. */
+test('a host refuses a file past what it holds without reading or sending any of it', async () => {
+  const touched: string[] = [];
+  const fake = (size: number) => ({size, type: 'video/mp4', slice: () => { touched.push('slice'); return fake(0); }, arrayBuffer: async () => { touched.push('arrayBuffer'); return new ArrayBuffer(0); }, stream: () => { touched.push('stream'); }, text: async () => { touched.push('text'); return ''; }}) as unknown as Blob;
+  await assert.rejects(browserFrameHost().put(fake(MAX_BROWSER_MEDIA_BYTES + 1)), /at most 100 MB/);
+  const calls: string[] = [];
+  const desktop = desktopFrameHost({invoke: async (command: string) => { calls.push(command); return '' as never; }, fileSrc: p => p});
+  await assert.rejects(desktop.put(fake(MAX_MEDIA_BYTES + 1)), /at most 500 MB/);
+  assert.deepEqual(touched, [], 'nothing of the file was read');
+  assert.deepEqual(calls, [], 'nothing was sent to the desktop');
+});
+
+/* 0.3-P2-fix2: a path on this Mac is read only for an agent running here (the apply row's `reads`). The
+   refusal comes before the host is asked to read anything. */
+test('media_add by path from a surface that may not read files is refused before any file is read', async () => {
+  const asked: string[] = [];
+  const host = {importFile: async (ask: {path?: string; libraryId?: string}) => { asked.push(ask.path ?? ask.libraryId!); return {sha: 'a'.repeat(64), mime: 'image/png', bytes: 1}; }, mediaUrl: async () => 'blob:x'} as unknown as FrameHost;
+  const measure = async () => ({width: 10, height: 10});
+  const refused = await importMedia([{op: 'media_add', path: '/Users/me/shot.png'}], 'inApp', host, 'p', measure);
+  assert.ok('error' in refused && refused.status === 403 && /library_id/.test(refused.error));
+  assert.deepEqual(asked, [], 'no file was read');
+  const library = await importMedia([{op: 'media_add', library_id: '0123456789abcdef'}], 'inApp', host, 'p', measure);
+  assert.ok('media' in library, 'a library picture is fine from the app');
+  const local = await importMedia([{op: 'media_add', path: '/Users/me/shot.png'}], 'mcp', host, 'p', measure);
+  assert.ok('media' in local && local.media[0].src === 'media:' + 'a'.repeat(64));
+  assert.deepEqual(asked, ['0123456789abcdef', '/Users/me/shot.png']);
 });

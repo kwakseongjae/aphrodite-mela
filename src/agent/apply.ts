@@ -17,7 +17,8 @@ import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
-import {htmlProblem, isFreePage, mediaFrame, noSections, MAX_PAGE_HTML, type PageMedia} from '../free-page';
+import {htmlProblem, isFreePage, mediaFrame, noSections, MAX_PAGE_HTML, type PageMedia, type FrameHost} from '../free-page';
+import {commandById, type Surface} from './commands.mjs';
 
 /**
  * `created` is every page the batch made, in order, so the agent can address what it just made.
@@ -230,4 +231,26 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
   const designChars = (batch.patch?.length || !json ? JSON.stringify(next) : json).length;
   if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
   return {ok: true, project: next, selected: focus.selected, created: focus.created, designChars};
+}
+
+/**
+ * An agent's media_add files, put on the board before the batch runs (src-tauri/src/board.rs checks each
+ * before it is copied). A path on this Mac is read only for an agent running here (the apply row's
+ * `reads`), and that is decided before the host is asked to read anything. `measure` reads a kept file's
+ * size, which needs the page (src/main.ts mediaSize).
+ */
+export async function importMedia(ops: Op[], surface: Surface, host: Pick<FrameHost, 'importFile' | 'mediaUrl'>, projectId: string, measure: (url: string, mime: string) => Promise<{width: number; height: number; duration?: number}>): Promise<{media: Record<number, PageMedia>} | {error: string; status?: number; failed_at?: number}> {
+  const reads = commandById['edit.apply'].reads!;
+  if (!reads.surfaces.includes(surface) && ops.some(o => o.op === 'media_add' && o.path !== undefined)) return {error: `media_add reads a file by its path only for an agent running on this Mac (${reads.surfaces.join(', ')}); from here, name a picture in the image library with library_id.`, status: 403};
+  const media: Record<number, PageMedia> = {};
+  for (const [i, op] of ops.entries()) {
+    if (op.op !== 'media_add') continue;
+    try {
+      const stored = await host.importFile({path: op.path, libraryId: op.library_id, project: projectId}), url = await host.mediaUrl(stored.sha);
+      if (!url) throw new Error('the file was not kept');
+      const size = await measure(url, stored.mime);
+      media[i] = {src: `media:${stored.sha}`, mime: stored.mime, width: size.width, height: size.height, ...(size.duration !== undefined ? {duration: size.duration} : {})};
+    } catch (error) { return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
+  }
+  return {media};
 }
