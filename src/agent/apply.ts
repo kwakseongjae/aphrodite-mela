@@ -206,6 +206,8 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
+    // What the patch changed is read against what the ops made: a media item media_add placed is theirs, not the patch's.
+    const was = new Map(next.pages.map(p => [p.id, p]));
     try { next = applyPatch(next, batch.patch); }
     catch (error) {
       if (error instanceof PatchError) return {ok: false, index: error.index, part: 'patch', error: error.message};
@@ -214,7 +216,6 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     // A patch can say anything the model can hold, so the result is held to what a saved project must be.
     try { next = parseProject(JSON.stringify(next)); }
     catch (error) { return {ok: false, index: -1, part: 'patch', error: `the patch would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
-    const was = new Map(project.pages.map(p => [p.id, p]));
     for (const page of next.pages) {
       const problem = typeof page.html === 'string' && page.html !== was.get(page.id)?.html ? htmlProblem(page.html) : undefined;
       if (problem) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: ${problem}`};

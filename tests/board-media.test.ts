@@ -96,3 +96,13 @@ test('a media item has no sections: an add aimed at one is refused, and says why
   assert.ok(!refused.ok);
   assert.match(refused.error, /media item, which has no sections/);
 });
+/* 0.3-P2-fix1 #6: a patch beside a media_add is checked against what the ops made, not what was there before. */
+test('media_add and a patch in one batch land together', () => {
+  const project = parseProject(JSON.stringify(initialProject()));
+  const media = {src: 'media:' + 'f'.repeat(64), mime: 'image/png', width: 800, height: 600};
+  const both = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'set', on: 'project', field: 'name', value: 'Changed'}]}, '', {0: media});
+  assert.ok(both.ok, both.ok ? '' : both.error);
+  assert.equal(both.project.name, 'Changed');
+  const forged = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'set', on: 'page', page_id: project.pages[0].id, field: 'media', value: media} as never]}, '', {0: media});
+  assert.ok(!forged.ok, 'a patch still cannot point a page at a file');
+});
