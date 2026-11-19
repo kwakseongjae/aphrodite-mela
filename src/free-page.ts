@@ -463,7 +463,7 @@ export function linkOut(raw: string): {host: string; href: string; shown: string
   // encoded characters before the host, and a mail address names who it goes to. open_link checks the same.
   const web = /^https?:\/\//i.exec(raw);
   if (web) { const authority = raw.slice(web[0].length).split(/[/?#]/)[0]; if (!authority || /[@%]/.test(authority)) return {refused: 'the address hides or encodes its host'}; }
-  else if (/^mailto:/i.test(raw)) { if (!/^[^@?%]+@[^@?%]+$/.test(raw.slice(7).split('?')[0])) return {refused: 'the mail address names nobody'}; }
+  else if (/^mailto:/i.test(raw)) { if (!/^[^@?#%]+@[^@?#%]+$/.test(raw.slice(7).split(/[?#]/)[0])) return {refused: 'the mail address names nobody'}; }
   else return {refused: 'only a web or mail address opens from a page'};
   let url: URL;
   try { url = new URL(raw); } catch { return {refused: 'that is not an address'}; }

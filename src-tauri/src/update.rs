@@ -261,7 +261,8 @@ fn link_allowed(url: &str) -> bool {
             return false;
         }
     } else if lower.starts_with("mailto:") {
-        let to = url[7..].split('?').next().unwrap_or("");
+        // Who it goes to ends where the query or the fragment begins, as the app reads it (src/free-page.ts linkOut).
+        let to = url[7..].split(['?', '#']).next().unwrap_or("");
         let mut parts = to.split('@');
         let (name, host) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
         if name.is_empty() || host.is_empty() || parts.next().is_some() || to.contains('%') {

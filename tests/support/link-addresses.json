@@ -10,7 +10,8 @@
     "https://example.com/a%20b?q=1#f",
     "http://localhost:1420/",
     "mailto:someone@example.com",
-    "mailto:someone@example.com?subject=hi"
+    "mailto:someone@example.com?subject=hi",
+    "mailto:someone@example.com#top"
   ],
   "refuse": [
     "https://example.com:65536/",
@@ -37,6 +38,12 @@
     "file:///etc/hosts",
     "ftp://example.com",
     "x-apple.systempreferences:",
-    ""
+    "",
+    "mailto:someone@#fragment",
+    "mailto:a@?subject=x",
+    "mailto:@host",
+    "mailto:a@b@",
+    "mailto:a@#",
+    "mailto:#a@b.example"
   ]
 }
