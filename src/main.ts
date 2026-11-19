@@ -112,7 +112,33 @@ function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);ret
 /** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
 function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
 /** Gives each new frame on the board its page. A frame that was kept already has it. */
-function mountBoard(){for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;if(frame.dataset.mounted)continue;frame.dataset.mounted='1';void loadFreePage(frame,page,frameKey(page.id,page.html),frameHost).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
+function mountBoard(){for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted)continue;frame.dataset.mounted='1';void loadFreePage(frame,page,frameKey(page.id,page.html),frameHost).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
+/**
+ * Going into a free page. Shut, a shield lies over the frame: one press selects the page, the wheel moves
+ * the board, and the frame takes no input at all (it is inert). Two presses take the shield away and the
+ * page has the mouse and the keys until a press outside it or Esc. Neither is an edit.
+ */
+let enteredPage='';
+function boardSection(id:string){return app.querySelector<HTMLElement>(`.space-frame[data-page-id="${CSS.escape(id)}"]`);}
+function enterPage(id:string){leavePage();const section=boardSection(id),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');if(!section||!frame)return;enteredPage=id;section.classList.add('entered');frame.inert=false;frame.focus();}
+function leavePage(){if(!enteredPage)return;const section=boardSection(enteredPage),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');enteredPage='';section?.classList.remove('entered');if(frame){if(document.activeElement===frame)frame.blur();frame.inert=true;}}
+document.addEventListener('dblclick',e=>{const shield=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-shield]');if(shield&&e.isTrusted)enterPage(shield.dataset.boardShield!);});
+document.addEventListener('pointerdown',e=>{if(enteredPage&&!(e.target as HTMLElement).closest?.('.space-frame.entered .board-item'))leavePage();},true);
+/**
+ * What a page's frame may ask of the host, and only while the person is in it: Esc, a look at another
+ * page, a link out shown to the person. Read by which frame sent it, not by what it says it is; no
+ * message changes the design, the door or an approval.
+ */
+addEventListener('message',e=>{
+  const frame=Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')).find(f=>f.contentWindow===e.source);
+  const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
+  if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal'))return;
+  if(m.kind==='escape')leavePage();
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){leavePage();fitFrame(m.id);}
+  else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
+});
+/** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
+function offerLink(href:string){if(!/^(?:https?:\/\/|mailto:)[^\s"'<>\\]{1,2000}$/i.test(href)||modalRoot.children.length)return;leavePage();showModal(ui('This page links outside the app.','이 페이지가 앱 밖으로 연결합니다.'),ui('Nothing opens until you press Open.','열기를 누르기 전에는 아무것도 열리지 않습니다.'),`<p class="link-address"><code>${esc(href)}</code></p><button class="primary-button" data-action="open-link" data-href="${esc(href)}">${ui('Open in the browser','브라우저에서 열기')}</button>`);}
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
 let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
@@ -570,7 +596,7 @@ function render() {
     </aside>
     <main class="workbench" data-keep="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${free?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${free?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:free?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${free?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${free?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:free?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
@@ -1172,6 +1198,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
     case 'local-delete-confirm': {const id=el.dataset.id!;try{await invoke('image_library_delete',{id,project:project.id});}catch(error){toast(String(error));break;}forgetLocal(id);await loadLocalLibrary(true);closeModal();refreshLibraryPanel();render();toast(ui('Deleted','삭제했습니다'));break;}
     case 'local-refresh': forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();toast(ui('Library refreshed','라이브러리를 새로고침했습니다'));break;
+    case 'open-link': {const href=el.dataset.href??'';if(!trusted||!/^(?:https?:\/\/|mailto:)[^\s"'<>\\]{1,2000}$/i.test(href))break;closeModal();if(nativeDesktop)void invoke('open_link',{url:href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));else window.open(href,'_blank','noopener,noreferrer');break;}
     case 'local-reveal': try{const dir=await invoke<string>('image_library_reveal',{project:localScope==='project'?project.id:undefined});toast(dir);}catch(error){toast(String(error));}break;
     case 'local-import': pickFile('image/png,image/jpeg,image/webp',async file=>{
       if(file.size>12_000_000)throw new Error(ui('Pick an image under 12 MB.','12MB 이하 이미지를 골라주세요.'));
@@ -1917,10 +1944,12 @@ function mountSpace(){
     const frameId=handle?.dataset.frameHandle;const frameEl=handle?.closest<HTMLElement>('.space-frame');
     const origin=frameId?{...project.space!.frames[frameId]}:undefined;
     const startCamera={...camera};
-    space.setPointerCapture(e.pointerId);
+    // Held only once it is a drag: a capture taken on the press sends the click to the space, and a press
+    // on a frame's name or a free page's shield is a click that selects the page.
     const onMove=(ev:PointerEvent)=>{
       const dx=ev.clientX-start.x,dy=ev.clientY-start.y;
       if(!moved&&Math.hypot(dx,dy)<4)return;
+      if(!moved)space.setPointerCapture(ev.pointerId);
       moved=true;
       if(panning){space.classList.add('panning');camera=panBy(startCamera,dx,dy);applyCamera();}
       else if(frameEl&&origin){frameEl.classList.add('dragging');frameEl.style.left=`${origin.x+dx/camera.zoom}px`;frameEl.style.top=`${origin.y+dy/camera.zoom}px`;}
@@ -1960,6 +1989,7 @@ document.addEventListener('keydown', e => {
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
+  if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }

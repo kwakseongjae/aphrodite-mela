@@ -25,7 +25,7 @@ const tree:Record<string,string>=Object.fromEntries(sources(src).map(path=>[path
 
 /** Tauri commands that reach outside the app's own state: another app, the network, or files. */
 const EXTERNAL_COMMANDS=[
-  'open_external','update_check','update_download','update_notes','update_open','update_reveal','fonts_install',
+  'open_external','open_link','update_check','update_download','update_notes','update_open','update_reveal','fonts_install',
   'image_library_delete','image_library_import','image_library_reveal','references_add','references_delete','references_fetch',
   'taste_write','taste_forget','vault_document','vault_sync','workspace_write',
 ];

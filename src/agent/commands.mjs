@@ -1355,7 +1355,7 @@ export const commands = [
     input: {type: 'object', properties: {id: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('reference-open'), action('local-reveal'), listener('external-link')],
+    controls: [action('reference-open'), action('local-reveal'), listener('external-link'), action('open-link')],
   },
   {
     id: 'outside.fonts',

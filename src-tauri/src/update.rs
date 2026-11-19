@@ -228,6 +228,28 @@ pub fn open_external(url: String) -> Result<String, String> {
     Ok(url)
 }
 
+/// Opens a link out of a free page, once the person has seen its address and pressed Open (0.3-P2):
+/// a web address or an email address, nothing that `open` would read as a file, an app or a flag.
+#[tauri::command]
+pub fn open_link(url: String) -> Result<String, String> {
+    if !link_allowed(&url) {
+        return Err("only a web address or an email address opens from a page".into());
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(url)
+}
+
+fn link_allowed(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:"))
+        && url.len() <= 2_000
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\'))
+}
+
 /// Opens this release's notes in the browser. Only a page on this repository is accepted, so a
 /// tampered feed cannot turn the button into a link to anywhere else.
 #[tauri::command]
@@ -303,6 +325,17 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_page_may_open_a_web_or_mail_address_and_nothing_else() {
+        for ok in ["https://example.com/a?b=c#d", "http://example.com", "mailto:someone@example.com", "HTTPS://EXAMPLE.COM"] {
+            assert!(super::link_allowed(ok), "{ok}");
+        }
+        for bad in ["file:///etc/hosts", "/Applications/Calculator.app", "-a Calculator", "javascript:alert(1)", "https://example.com/a b", "https://example.com/\"x", "https://example.com/\nx", "ftp://example.com", "x-apple.systempreferences:", ""] {
+            assert!(!super::link_allowed(bad), "{bad}");
+        }
+        assert!(!super::link_allowed(&format!("https://example.com/{}", "a".repeat(2_000))));
+    }
+
     #[test]
     fn a_release_body_becomes_three_sentences_a_person_would_read() {
         // Shaped like a real one: wrapped at eighty columns, download list before the news.

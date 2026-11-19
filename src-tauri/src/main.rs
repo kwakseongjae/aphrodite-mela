@@ -63,6 +63,7 @@ fn main() {
             update::update_reveal,
             update::update_notes,
             update::open_external,
+            update::open_link,
             snapshot::render_page
         ])
         .run(tauri::generate_context!())

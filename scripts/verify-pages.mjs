@@ -129,5 +129,119 @@ for (const [tag, html] of [['probe', probe('probe')], ['bare', bare]]) {
   });
 }
 
+/* ---- the person's side: one press selects, two go in, a press outside or Esc comes out ---- */
+
+const mouse = (type, p, extra = {}) => send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', clickCount: 1, ...extra});
+const click = async (p, count = 1) => {
+  await mouse('mouseMoved', p, {button: 'none'});
+  for (let n = 1; n <= count; n++) { await mouse('mousePressed', p, {buttons: 1, clickCount: n}); await mouse('mouseReleased', p, {clickCount: n}); }
+  await sleep(350);
+};
+const seq = async () => (await agent('changes', {limit: 1, include_view: true})).seq;
+const camera = () => evaluate('document.querySelector("#app").dataset.camera');
+const active = () => evaluate('document.querySelector(".space-frame.active")?.dataset.pageId');
+const entered = id => evaluate(`(() => { const s = document.querySelector('[data-page-id="${id}"]'); return s.classList.contains('entered') && !s.querySelector('iframe').inert; })()`);
+/** A point inside a free page, in the page's own pixels, wherever the camera has it. */
+const inPage = (id, x, y) => evaluate(`(() => { const r = document.querySelector('[data-page-id="${id}"] .board-item').getBoundingClientRect(); const z = Number(document.querySelector('#app').dataset.camera.split(',')[2]); return {x: r.left + ${x} * z, y: r.top + ${y} * z}; })()`);
+const messages = (key) => evaluate(`window.__frameMessages.filter(m => m && m[${JSON.stringify(key)}] !== undefined).map(m => m[${JSON.stringify(key)}])`);
+const pressed = async () => (await messages('pressed')).at(-1) ?? 0;
+const emptySpot = () => evaluate(`(() => { const s = document.querySelector('#canvas-scroll').getBoundingClientRect(); const frames = [...document.querySelectorAll('.space-frame')].map(f => f.getBoundingClientRect());
+  for (let y = s.top + 20; y < s.bottom - 20; y += 10) for (let x = s.left + 20; x < s.right - 20; x += 10) { if (frames.some(r => x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 40 && y <= r.bottom + 8)) continue;
+    const hit = document.elementFromPoint(x, y); if (hit && (hit.id === 'canvas-scroll' || hit.id === 'space-world')) return {x, y}; } return null; })()`);
+let enterId, sampleId;
+
+check('one press on a free page selects it, and presses nothing inside it', async () => {
+  sampleId = await evaluate('document.querySelector(".space-frame.active").dataset.pageId');
+  const html = `<!doctype html><html><body style="margin:0;height:3000px;font:16px sans-serif">
+<button id="b" style="position:fixed;left:20px;top:20px;width:240px;height:80px">Pressed <b id="n">0</b></button>
+<a id="out" href="https://example.com/outside" style="position:fixed;left:20px;top:140px;display:block;width:240px;height:40px">outside</a>
+<a id="hash" href="#far" style="position:fixed;left:20px;top:200px;display:block;width:240px;height:40px">far down</a>
+<a id="pg" href="page:${sampleId}" style="position:fixed;left:20px;top:260px;display:block;width:240px;height:40px">the sample</a>
+<p id="far" style="position:absolute;top:2500px">far</p>
+<script>parent.postMessage({boot: 'enter'}, '*'); let n = 0; document.getElementById('b').onclick = () => { n++; document.getElementById('n').textContent = n; parent.postMessage({pressed: n}, '*'); }; addEventListener('scroll', () => parent.postMessage({scrolled: scrollY}, '*'));</script></body></html>`;
+  enterId = await makePage('Press test', html, {width: 800, height: 600});
+  await waitFor(async () => (await messages('boot')).includes('enter'), 'the page to start');
+  await personClicks('zoom-fit');
+  await sleep(500);
+  assert.equal(await active(), sampleId, 'the sample is the page being looked at');
+  const before = await seq();
+  await click(await inPage(enterId, 140, 60));
+  assert.equal(await active(), enterId, 'the press selected the free page');
+  assert.equal(await pressed(), 0, 'and pressed nothing inside it');
+  assert.equal(await entered(enterId), false);
+  assert.equal(await seq(), before + 1, 'selecting a page is the one view change it always was');
+});
+
+check('two presses go in, and a press inside reaches the page', async () => {
+  const before = await seq();
+  await click(await inPage(enterId, 140, 60), 2);
+  assert.equal(await entered(enterId), true, 'in');
+  await click(await inPage(enterId, 140, 60));
+  assert.equal(await pressed(), 1, 'the button inside was pressed once');
+  assert.equal(await seq(), before, 'going in is not an edit');
+});
+
+check('a press outside comes back out, and the same press on the page presses nothing', async () => {
+  await click(await emptySpot());
+  assert.equal(await entered(enterId), false, 'out');
+  await click(await inPage(enterId, 140, 60));
+  assert.equal(await pressed(), 1, 'still one press');
+});
+
+check('outside the page the wheel moves the board; inside it, the page', async () => {
+  const at = await inPage(enterId, 400, 400);
+  let was = await camera();
+  await send('Input.dispatchMouseEvent', {type: 'mouseWheel', x: at.x, y: at.y, deltaX: 0, deltaY: 120});
+  await sleep(300);
+  assert.notEqual(await camera(), was, 'the board moved');
+  await click(await inPage(enterId, 140, 60), 2);
+  assert.equal(await entered(enterId), true);
+  was = await camera();
+  const inside = await inPage(enterId, 400, 400);
+  await send('Input.dispatchMouseEvent', {type: 'mouseWheel', x: inside.x, y: inside.y, deltaX: 0, deltaY: 300});
+  await sleep(400);
+  assert.equal(await camera(), was, 'the board stayed');
+  assert.ok((await messages('scrolled')).some(y => y > 0), 'the page scrolled');
+});
+
+check('Esc typed inside the page comes back out', async () => {
+  await click(await inPage(enterId, 140, 60));
+  assert.equal(await pressed(), 2);
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await sleep(300);
+  assert.equal(await entered(enterId), false);
+});
+
+check('a link to #somewhere scrolls inside the page instead of loading the app into it', async () => {
+  await click(await inPage(enterId, 140, 60), 2);
+  const scrolled = (await messages('scrolled')).length;
+  await click(await inPage(enterId, 140, 220));
+  await sleep(300);
+  assert.ok((await messages('scrolled')).slice(scrolled).some(y => y > 1500), 'scrolled to the far paragraph');
+  assert.deepEqual(await messages('boot'), ['enter'], 'the page did not start again');
+});
+
+check('a link to page:<id> shows that page on the board and changes nothing', async () => {
+  const before = await seq(), was = await camera();
+  await click(await inPage(enterId, 140, 280));
+  await sleep(400);
+  assert.notEqual(await camera(), was, 'the board moved to the page');
+  assert.equal(await seq(), before, 'nothing was recorded');
+});
+
+check('a link out of the app is only shown to the person, with the address, until they press Open', async () => {
+  await personClicks('zoom-fit');
+  await sleep(500);
+  await click(await inPage(enterId, 140, 60), 2);
+  const targets = async () => (await send('Target.getTargets', {})).result.targetInfos.filter(t => t.type === 'page').length;
+  const pages = await targets();
+  await click(await inPage(enterId, 140, 160));
+  await sleep(400);
+  assert.equal(await evaluate(`document.querySelector('#modal-root')?.textContent.includes('https://example.com/outside')`), true, 'the address is shown');
+  assert.equal(await targets(), pages, 'nothing was opened');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+});
+
 checks.push(['(numbers)', async () => { console.log('       ' + JSON.stringify(result).slice(0, 4000)); }]);
 await runChecks(checks, shut);
