@@ -22,7 +22,8 @@
     "verify:workspaces": "node scripts/verify-workspaces.mjs",
     "verify:selection": "node scripts/verify-selection.mjs",
     "verify:ledger": "node scripts/verify-ledger.mjs",
-    "verify:pages": "node scripts/verify-pages.mjs"
+    "verify:pages": "node scripts/verify-pages.mjs",
+    "verify:wall": "node scripts/verify-wall.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.5.4",
