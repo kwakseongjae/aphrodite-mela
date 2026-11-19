@@ -4,6 +4,7 @@
  * picture or a video it names as `media:<sha256>` becomes a real address only there.
  */
 import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, type FrameHost} from '../src/free-page.ts';
 
@@ -107,8 +108,8 @@ test('media put inline is measured before the document is built, and what would 
    ASCII, and the address read the way the browser will read it. */
 test('a link out names its host as the browser reads it, and an address that hides it is not opened', () => {
   const tricky = linkOut('https://trusted.example' + 'a'.repeat(1500) + '@evil.example/');
-  assert.ok('refused' in tricky && /name and password/.test(tricky.refused), 'user info before the host is refused');
-  const idn = linkOut('https://bücher.example/a b?q=1');
+  assert.ok('refused' in tricky && /hides or encodes its host/.test(tricky.refused), 'user info before the host is refused');
+  const idn = linkOut('https://bücher.example/a%20b?q=1');
   assert.ok('host' in idn);
   assert.equal(idn.host, 'xn--bcher-kva.example');
   assert.equal(idn.href, 'https://xn--bcher-kva.example/a%20b?q=1');
@@ -157,4 +158,11 @@ test('a file the board does not have, or cannot give a frame, is the only thing 
   const missing = await loadFreePage({} as HTMLIFrameElement, {id: 'p', html: `<img src="media:${have}"><img src="media:${absent}"><img src="media:${tooBig}">`}, 'k', host);
   assert.deepEqual(read, [have]);
   assert.deepEqual(missing.sort(), [absent, tooBig].sort());
+});
+
+/* 0.3-P2-fix2 #9: the app and open_link (Rust) read the same table and must give its answers. */
+test('the app refuses and accepts exactly the link addresses the shared table says, as open_link does', () => {
+  const table = JSON.parse(readFileSync(new URL('./support/link-addresses.json', import.meta.url), 'utf8')) as {accept: string[]; refuse: string[]};
+  for (const address of table.accept) assert.ok('host' in linkOut(address), `accepts ${JSON.stringify(address)}: ${JSON.stringify(linkOut(address))}`);
+  for (const address of table.refuse) assert.ok('refused' in linkOut(address), `refuses ${JSON.stringify(address)}`);
 });

@@ -416,7 +416,13 @@ export function desktopFrameHost(native: Native): FrameHost {
  */
 export function linkOut(raw: string): {host: string; href: string; shown: string} | {refused: string} {
   if (raw.length > 2000) return {refused: 'the address is too long'};
-  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/.test(raw)) return {refused: 'the address has hidden characters in it'};
+  if (/[\s\u0000-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069"'<>\\]/.test(raw)) return {refused: 'the address has hidden or unsafe characters in it'};
+  // Read as written, before the browser tidies it: no name or password (even an empty one) and no
+  // encoded characters before the host, and a mail address names who it goes to. open_link checks the same.
+  const web = /^https?:\/\//i.exec(raw);
+  if (web) { const authority = raw.slice(web[0].length).split(/[/?#]/)[0]; if (!authority || /[@%]/.test(authority)) return {refused: 'the address hides or encodes its host'}; }
+  else if (/^mailto:/i.test(raw)) { if (!/^[^@?%]+@[^@?%]+$/.test(raw.slice(7).split('?')[0])) return {refused: 'the mail address names nobody'}; }
+  else return {refused: 'only a web or mail address opens from a page'};
   let url: URL;
   try { url = new URL(raw); } catch { return {refused: 'that is not an address'}; }
   if (!['https:', 'http:', 'mailto:'].includes(url.protocol)) return {refused: 'only a web or mail address opens from a page'};

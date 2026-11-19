@@ -243,26 +243,37 @@ pub fn open_link(url: String) -> Result<String, String> {
     Ok(url)
 }
 
-/// A web or mail address with nothing in it that hides where it goes: no name and password before the
-/// host (`https://trusted.example@evil.example/` goes to evil.example), no direction marks. The app shows
-/// the person the host before they press Open (linkOut in src/free-page.ts); this holds without it.
+/// A web or mail address with nothing in it that hides where it goes, judged as the app judges it
+/// (linkOut in src/free-page.ts; both read tests/support/link-addresses.json in their tests): read as
+/// written, with no name or password (even an empty one) and nothing encoded before the host, and a mail
+/// address that names who it goes to; then parsed (url, through tauri::Url) so a port out of range or a
+/// host that is no host is refused too.
 fn link_allowed(url: &str) -> bool {
+    if url.len() > 2_000 || url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')) {
+        return false;
+    }
     let lower = url.to_ascii_lowercase();
     let web = lower.starts_with("https://") || lower.starts_with("http://");
-    if !(web || lower.starts_with("mailto:")) || url.len() > 2_000 {
-        return false;
-    }
-    if url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')) {
-        return false;
-    }
     if web {
         let rest = &url[url.find("://").map_or(0, |at| at + 3)..];
         let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-        if authority.is_empty() || authority.contains('@') {
+        if authority.is_empty() || authority.contains(['@', '%']) {
             return false;
         }
+    } else if lower.starts_with("mailto:") {
+        let to = url[7..].split('?').next().unwrap_or("");
+        let mut parts = to.split('@');
+        let (name, host) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        if name.is_empty() || host.is_empty() || parts.next().is_some() || to.contains('%') {
+            return false;
+        }
+    } else {
+        return false;
     }
-    true
+    match tauri::Url::parse(url) {
+        Ok(parsed) => !web || (parsed.host_str().is_some_and(|h| !h.is_empty()) && parsed.username().is_empty() && parsed.password().is_none()),
+        Err(_) => false,
+    }
 }
 
 /// Opens this release's notes in the browser. Only a page on this repository is accepted, so a
@@ -340,6 +351,18 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    /// The same table the app's linkOut is held to (tests/free-frame.test.ts): the two must agree.
+    #[test]
+    fn open_link_gives_the_answers_of_the_shared_table() {
+        let table: serde_json::Value = serde_json::from_str(include_str!("../../tests/support/link-addresses.json")).unwrap();
+        for address in table["accept"].as_array().unwrap() {
+            assert!(super::link_allowed(address.as_str().unwrap()), "accepts {address}");
+        }
+        for address in table["refuse"].as_array().unwrap() {
+            assert!(!super::link_allowed(address.as_str().unwrap()), "refuses {address}");
+        }
+    }
+
     #[test]
     fn a_page_may_open_a_web_or_mail_address_and_nothing_else() {
         for ok in ["https://example.com/a?b=c#d", "http://example.com", "mailto:someone@example.com", "HTTPS://EXAMPLE.COM"] {
