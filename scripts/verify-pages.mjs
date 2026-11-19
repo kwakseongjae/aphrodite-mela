@@ -13,10 +13,12 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import dgram from 'node:dgram';
+import {createServer as createNetServer} from 'node:net';
 import {createHash} from 'node:crypto';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
+import {requestProbe} from './wall/probes.mjs';
 import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
@@ -46,7 +48,12 @@ udp.on('message', message => packets.push(message.length));
 await new Promise(resolve => udp.bind(UDP, '127.0.0.1', resolve));
 
 const {evaluate, send, agent, personClicks, personPresses, presses, close} = await openApp({port: PORT, cdp: 9383, profile: '/tmp/aphrodite-pages-profile'});
-const shut = () => { close(); trap.close(); udp.close(); removeFiles(); };
+/** Preconnect opens a TCP connection and sends nothing: a listener that counts them. */
+const TCP = TRAP + 6;
+const connections = [];
+const tcp = createNetServer(socket => { connections.push(Date.now()); socket.on('error', () => {}); setTimeout(() => socket.destroy(), 200); });
+await new Promise(resolve => tcp.listen(TCP, '127.0.0.1', resolve));
+const shut = () => { close(); trap.close(); udp.close(); tcp.close(); removeFiles(); };
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 const WHY = 'verify-pages: a free page stays in its frame.';
@@ -108,76 +115,20 @@ check('the app itself runs under that policy without being refused anything', as
   await sleep(5_200);
 });
 
-/** Every way out the spike found, each aimed at the recording server, plus the ones it named for later. */
-const probe = (tag) => `<!doctype html><html><head><title>probe</title>
-<link rel="stylesheet" href="${SERVER}/${tag}/link-css"><link rel="prefetch" href="${SERVER}/${tag}/prefetch">
-<style>@font-face{font-family:x;src:url(${SERVER}/${tag}/font)} .bg{background:url(${SERVER}/${tag}/css-bg);font-family:x}</style>
-<script src="${SERVER}/${tag}/script"></script></head><body>
-<p class="bg">probe</p><img src="${SERVER}/${tag}/img"><img id="entity" src="&#104;ttp://127.0.0.1:${TRAP}/${tag}/entity-hidden"><img id="file" src="&#102;ile:///etc/hosts">
-<video src="${SERVER}/${tag}/video"></video><svg><image href="${SERVER}/${tag}/svg-image"/></svg>
-<iframe src="${SERVER}/${tag}/nested-frame"></iframe><object data="${SERVER}/${tag}/object"></object><embed src="${SERVER}/${tag}/embed">
-<form id="f" action="${SERVER}/${tag}/form" method="post"><input name="a" value="b"></form>
-<a id="ping" href="#here" ping="${SERVER}/${tag}/ping">ping</a><a id="hash" href="#here">hash</a><p id="here">here</p>
-<script>
-const report = (name, value) => parent.postMessage({probe: '${tag}', name, value: String(value)}, '*');
-report('ran', true);
-const tries = {
-  fetch: () => fetch('${SERVER}/${tag}/fetch'),
-  beacon: () => navigator.sendBeacon('${SERVER}/${tag}/beacon', 'x'),
-  socket: () => new WebSocket('ws://127.0.0.1:${TRAP}/${tag}/socket'),
-  events: () => new EventSource('${SERVER}/${tag}/event-source'),
-  xhr: () => { const x = new XMLHttpRequest(); x.open('GET', '${SERVER}/${tag}/xhr'); x.send(); },
-  worker: () => new Worker('data:text/javascript,fetch("${SERVER}/${tag}/worker")'),
-  module: () => import('${SERVER}/${tag}/module.js'),
-  storage: () => localStorage.getItem('x'),
-  parentDom: () => parent.document.title,
-  popup: () => window.open('${SERVER}/${tag}/popup'),
-  top: () => { top.location.href = '${SERVER}/${tag}/top'; },
-  form: () => document.getElementById('f').submit(),
-  ping: () => document.getElementById('ping').click(),
-  hash: () => document.getElementById('hash').click(),
-  appAddress: () => setTimeout(() => location.assign(new URL('#away', document.baseURI)), 600),
-  refresh: () => setTimeout(() => { const m = document.createElement('meta'); m.httpEquiv = 'refresh'; m.content = '0;url=${SERVER}/${tag}/refresh'; document.head.append(m); }, 800),
-  self: () => setTimeout(() => { location.href = '${SERVER}/${tag}/self-after-1s?d=' + encodeURIComponent(document.title); }, 1000),
-};
-for (const [name, run] of Object.entries(tries)) { try { const out = run(); if (out && out.catch) out.catch(e => report(name, 'refused: ' + e.message)); report(name, 'tried'); } catch (e) { report(name, 'refused: ' + e.message); } }
-addEventListener('load', () => report('entity-hidden-file', document.getElementById('file').naturalWidth));
-</script></body></html>`;
+/** Every way out the spike found, each aimed at the recording server (scripts/wall/probes.mjs; verify:wall runs it in WebKit). */
+const probe = tag => requestProbe(tag, SERVER, TRAP);
 
-/**
- * WebRTC and every other way a page could get a window of its own to call out from: a peer connection
- * here, and in a frame it makes (srcdoc, parsed markup, a javascript: address, inside an open and a
- * closed shadow root), a worker, WebTransport. Each reports to the top window, which hears every frame.
- */
-const rtcProbe = tag => {
-  const nested = name => `try{const pc=new RTCPeerConnection({iceServers:[{urls:"stun:127.0.0.1:${UDP}"}]});pc.createDataChannel("x");pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>top.postMessage({rtc:"${tag}",name:"${name}",value:"offer made"},"*"))}catch(e){top.postMessage({rtc:"${tag}",name:"${name}",value:"refused"},"*")}`;
-  const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  return `<!doctype html><title>rtc</title><p>rtc</p><script>
-const say = (name, value) => top.postMessage({rtc: '${tag}', name, value: String(value)}, '*');
-say('ran', true);
-(async () => { try { const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:127.0.0.1:${UDP}'}, {urls: 'turn:127.0.0.1:${UDP}', username: 'u', credential: 'p'}]}); pc.createDataChannel('x'); await pc.setLocalDescription(await pc.createOffer()); say('here', 'offer made'); } catch (e) { say('here', 'refused'); } })();
-try { const C = window.webkitRTCPeerConnection; say('webkit-prefixed', C ? 'present' : 'refused'); } catch (e) { say('webkit-prefixed', 'refused'); }
-try { navigator.mediaDevices.enumerateDevices().then(() => say('media-devices', 'present'), () => say('media-devices', 'refused')); } catch (e) { say('media-devices', 'refused'); }
-try { const t = new WebTransport('https://127.0.0.1:${UDP}/'); t.ready.then(() => say('webtransport', 'ready'), () => say('webtransport', 'refused')); } catch (e) { say('webtransport', 'refused'); }
-try { const w = new Worker(URL.createObjectURL(new Blob(['postMessage(typeof RTCPeerConnection)'], {type: 'text/javascript'}))); w.onmessage = e => say('worker', e.data); w.onerror = () => say('worker', 'refused'); } catch (e) { say('worker', 'refused'); }
-{ const f = document.createElement('iframe'); f.srcdoc = '<script>${nested('srcdoc')}<\\/script>'; document.body.append(f); }
-{ const d = document.createElement('div'); d.innerHTML = '<iframe srcdoc="<script>${attr(nested('parsed'))}<\\/script>"></iframe>'; document.body.append(d); }
-{ const f = document.createElement('iframe'); f.src = 'javascript:"<script>${nested('javascript').replace(/"/g, '\\\\x22')}<\\/script>"'; document.body.append(f); }
-try { const h = document.createElement('div'); document.body.append(h); h.attachShadow({mode: 'closed'}).innerHTML = '<iframe srcdoc="<script>${attr(nested('shadow'))}<\\/script>"></iframe>'; } catch (e) { say('shadow', 'refused'); }
-{ const d = document.createElement('div'); if (d.setHTMLUnsafe) { d.setHTMLUnsafe('<div><template shadowrootmode="closed"><iframe srcdoc="<script>${attr(nested('declarative'))}<\\/script>"></iframe></template></div>'); document.body.append(d); } }
-</script><iframe srcdoc="<script>${attr(nested('markup'))}</script>"></iframe><div><template shadowrootmode="closed"><iframe srcdoc="<script>${attr(nested('markup-declarative'))}</script>"></iframe></template></div></html>`;
-};
-const rtcSaid = tag => evaluate(`window.__frameMessages.filter(m => m && m.rtc === '${tag}').map(m => m.name + '=' + m.value)`);
-
-check('a page reaches nothing over WebRTC, nor from a frame or a worker of its own', async () => {
-  const before = packets.length;
-  await makePage('RTC probe', rtcProbe('board'));
-  await waitFor(async () => (await rtcSaid('board')).includes('ran=true'), 'the WebRTC probe to run', 20);
-  await sleep(4000);
-  const said = await rtcSaid('board');
-  result.rtcBoard = {udp: packets.length - before, said};
-  assert.deepEqual(said.filter(s => /offer made|present|ready|function/.test(s)), [], 'nothing it tried worked');
-  assert.equal(packets.length - before, 0, `UDP packets reached the socket: ${packets.length - before}`);
+/* A known limit, measured so nobody takes it for fixed: a browser has no setting that keeps a page from
+   WebRTC or preconnect, and the browser build is for development and checks, not people's pages. The
+   desktop's wall is WebKit's own (src-tauri/src/page_wall.rs) and verify:wall measures it. Here the counts
+   must not be 0: if they are, something changed, and this limit and its note need a second look. */
+check('known limit: the browser build cannot keep a page from WebRTC or preconnect', async () => {
+  const before = packets.length, tcpBefore = connections.length;
+  await makePage('Known limit', `<link rel=preconnect href="http://127.0.0.1:${TCP}/"><script>(async () => { const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:127.0.0.1:${UDP}'}]}); pc.createDataChannel('x'); await pc.setLocalDescription(await pc.createOffer()); parent.postMessage({limit: 'offer made'}, '*'); })()</script>`);
+  await waitFor(async () => (await messages('limit')).length, 'the page to make an offer', 20);
+  await sleep(3000);
+  result.knownLimit = {udp: packets.length - before, tcp: connections.length - tcpBefore};
+  assert.ok(result.knownLimit.udp > 0 && result.knownLimit.tcp > 0, `expected the browser to reach out, measured ${JSON.stringify(result.knownLimit)}`);
 });
 
 for (const [tag, html] of [['probe', probe('probe')]]) {
@@ -196,6 +147,31 @@ for (const [tag, html] of [['probe', probe('probe')]]) {
   });
 }
 
+/* 0.3-P2-fix3: the script wall fix1 put in the page's own window broke ordinary pages (a web component's
+   `const shadowRoot`, document.write, the words "shadowrootmode" in a paragraph) and is gone. A frame the
+   page makes of its own is left alone too; what it asks for is held by the same policy. */
+check('ordinary pages run as written: a web component, document.write, and a frame of the page\'s own that reaches nothing', async () => {
+  const before = hits.length;
+  await sleep(5_200);
+  const inner = probe('inner');
+  await makePage('Ordinary page', `<p id="prose">Set shadowrootmode="open" on a template to declare one.</p><x-card></x-card>
+<script>addEventListener('error', e => parent.postMessage({ordinary: 'error ' + e.message}, '*'));
+addEventListener('message', e => { if (e.data && e.data.probe === 'inner' && e.data.name === 'ran') parent.postMessage({ordinary: 'inner ran'}, '*'); });
+class XCard extends HTMLElement { connectedCallback() { const shadowRoot = this.attachShadow({mode: 'open'}); shadowRoot.innerHTML = '<b>card</b>'; parent.postMessage({ordinary: 'component ' + shadowRoot.textContent}, '*'); } }
+customElements.define('x-card', XCard);</script>
+<script>document.write('<p id="written">written</p>'); parent.postMessage({ordinary: 'write ' + document.getElementById('written')?.textContent}, '*'); parent.postMessage({ordinary: 'prose ' + document.getElementById('prose').textContent}, '*');</script>
+<iframe srcdoc="${inner.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"></iframe>`);
+  await waitFor(async () => (await messages('ordinary')).includes('inner ran'), 'the ordinary page and its own frame to run', 20);
+  await sleep(2500);
+  const said = await messages('ordinary');
+  result.ordinary = said;
+  assert.deepEqual(said.filter(s => s.startsWith('error')), [], 'no script failed');
+  assert.ok(said.includes('component card'), 'the web component drew itself');
+  assert.ok(said.includes('write written'), 'document.write wrote');
+  assert.ok(said.includes('prose Set shadowrootmode="open" on a template to declare one.'), 'the words are as written');
+  assert.deepEqual(hits.slice(before), [], 'the page\'s own frame reached nothing');
+});
+
 /* The frame's sandbox, its policy and the app's frame-src hold without a line of the host's script: the
    probe is framed as the board frames it, then the host's scripts are cut out of the document, and the
    frame is put straight into the app's page under the app's policy. (Removing an executed script element
@@ -210,7 +186,7 @@ check('a page framed without any of the host’s scripts reaches nothing outside
   const bareDoc = doc.slice(0, doc.indexOf('<script>')) + cover + page;
   // The control is a plain page: the probe's own frames would have the host take its document away.
   const hostedDoc = doc.slice(0, doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length) + cover + '<p>control</p>';
-  assert.ok(!bareDoc.includes("aphrodite:'frame'") && !bareDoc.includes('const gone='), 'no host script is left in it');
+  assert.ok(!bareDoc.includes("aphrodite:'frame'") && !bareDoc.includes('typeof RTCPeerConnection'), 'no host script is left in it');
   await evaluate(`(() => { const f = document.createElement('iframe'); f.id = 'bare-frame'; f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = ${JSON.stringify(bareDoc)}; f.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;opacity:0'; document.body.append(f); return true; })()`);
   await waitFor(() => evaluate(`window.__frameMessages.some(m => m && m.probe === 'bare' && m.name === 'ran')`), 'the bare page to run', 20);
   await sleep(2500);
@@ -258,22 +234,6 @@ check('the page the off-screen renderer loads keeps the probe from reaching anyt
   } finally { page.close(); server.close(); }
 });
 
-check('the page the off-screen renderer loads reaches nothing over WebRTC either', async () => {
-  const before = packets.length;
-  const listener = `<script>window.__m = []; addEventListener('message', e => window.__m.push(e.data));</script>`;
-  const shell = renderShell(framedDocument(rtcProbe('render'), {media: () => undefined, origins: []}), []).replace('<iframe', listener + '<iframe');
-  const server = createServer((req, res) => { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(shell); });
-  await new Promise(resolve => server.listen(TRAP + 3, '127.0.0.1', resolve));
-  const page = await openPage(`http://127.0.0.1:${TRAP + 3}/render/rtc`, {cdp: 9385, profile: '/tmp/aphrodite-pages-render-rtc-profile'});
-  try {
-    await waitFor(() => page.evaluate(`window.__m.some(m => m && m.rtc === 'render' && m.name === 'ran')`), 'the probe to run in the render page', 20);
-    await sleep(4000);
-    const said = await page.evaluate(`window.__m.filter(m => m && m.rtc === 'render').map(m => m.name + '=' + m.value)`);
-    result.rtcRender = {udp: packets.length - before, said};
-    assert.deepEqual(said.filter(s => /offer made|present|ready|function/.test(s)), []);
-    assert.equal(packets.length - before, 0, `UDP packets reached the socket: ${packets.length - before}`);
-  } finally { page.close(); server.close(); }
-});
 
 /* ---- the person's side: one press selects, two go in, a press outside or Esc comes out ---- */
 

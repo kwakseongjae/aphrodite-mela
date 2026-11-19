@@ -87,6 +87,8 @@ export const attacks = {
     + "tr('speculation',()=>{const s=document.createElement('script');s.type='speculationrules';s.textContent=JSON.stringify({prefetch:[{source:'list',urls:[H+'/spec-prefetch']}],prerender:[{source:'list',urls:[H+'/spec-prerender']}]});document.head.append(s)});"
     + "</" + "script><img srcset='http://127.0.0.1:" + p.http + "/" + t + "/srcset 1x'><svg><image href='http://127.0.0.1:" + p.http + "/" + t + "/svg'/></svg>",
   requests: (t, p) => requestProbe(t, 'http://127.0.0.1:' + p.http, p.http),
+  /** The same requests from a frame the page makes of its own, which nothing takes out any more. */
+  'nested-requests': (t, p) => "<script>addEventListener('message',e=>{if(e.data&&e.data.probe)top.postMessage(e.data,'*')})</" + "script><iframe srcdoc=\"" + attr(requestProbe(t, 'http://127.0.0.1:' + p.http, p.http)) + "\"></iframe>",
   /** A page that does nothing wrong, which must still work behind the wall. */
   legit: (t, p) => "<p>" + t + "</p><canvas id=c width=4 height=4></canvas><img id=d src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='><img id=a src='" + p.asset + "'>" + head(t) + "const g=document.getElementById('c').getContext('2d');g.fillStyle='#f00';g.fillRect(0,0,4,4);say('canvas',g.getImageData(1,1,1,1).data[0]);addEventListener('load',()=>{say('data-img',document.getElementById('d').naturalWidth);say('asset-img',document.getElementById('a').naturalWidth)});</" + "script>",
 };

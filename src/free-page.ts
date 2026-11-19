@@ -8,6 +8,11 @@
  * What is stored never names a place on this machine. A picture or a video on a page is
  * `media:<sha256>` and another page is `page:<id>`; the host turns them into real addresses only
  * when it puts the page in its frame.
+ *
+ * What keeps a page's scripts from reaching past its frame is the frame (sandbox and policy here) and, on
+ * the desktop, WebKit itself (src-tauri/src/page_wall.rs: WebRTC and preconnect off, measured by verify:wall).
+ * The browser build cannot do the second: a browser has no such settings, so a page there can still reach
+ * out over WebRTC and preconnect. It is for development and checks, not for people's pages.
  */
 
 /** An html page's own cap, apart from the 20,000 characters every other string in a project is held to. */
@@ -166,20 +171,6 @@ export function frameCsp(origins: readonly string[]): string {
  */
 const HOST_SCRIPT = `(()=>{const post=m=>parent.postMessage(Object.assign({aphrodite:'frame'},m),'*');addEventListener('click',e=>{const a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;const h=a.getAttribute('href')||'';e.preventDefault();if(h[0]==='#'){let id='';try{id=decodeURIComponent(h.slice(1));}catch{return;}const t=id&&(document.getElementById(id)||document.getElementsByName(id)[0]);if(t)t.scrollIntoView();else if(!id)scrollTo(0,0);return;}if(/^page:/.test(h)){post({kind:'page',id:h.slice(5)});return;}if(/^(https?|mailto):/i.test(h))post({kind:'link',href:h});},true);addEventListener('submit',e=>e.preventDefault(),true);addEventListener('keydown',e=>{if(e.key==='Escape')post({kind:'escape'});},true);})();`;
 /**
- * What the frame runs first, before a character of the page, and what keeps it off the network where a
- * policy cannot. WebRTC reaches any address over UDP whatever `connect-src` says, and neither Chrome
- * nor WebKit enforces the `webrtc` directive yet (0.3-P2-fix1, measured): so its constructors, and the
- * other ways a page could call out without asking (WebTransport, the Presentation API), are taken off
- * the window for good, with `navigator.mediaDevices`. A frame inside the page would bring them back in
- * a window of its own (srcdoc, about:blank and javascript: frames are not governed by `frame-src`), so
- * a frame put in the page is taken out before it can run, also inside a shadow root the page attaches.
- * A shadow root the parser makes (declarative shadow DOM) is out of the watcher's sight, so a page cannot
- * make one: the attribute is renamed where the page is framed (framedDocument), and the parser entry
- * points that would make one later (setHTMLUnsafe, parseHTMLUnsafe, document.write) are taken away. A
- * page cannot undo any of this: it runs after.
- */
-const WALL_SCRIPT = `(()=>{const gone=(o,k)=>{try{delete o[k];}catch{}try{Object.defineProperty(o,k,{value:undefined,writable:false,configurable:false});}catch{}};for(const k of Object.getOwnPropertyNames(window))if(/^(webkit)?RTC|^WebTransport|^Presentation/.test(k))gone(window,k);gone(Navigator.prototype,'mediaDevices');gone(navigator,'mediaDevices');const F='iframe,frame,object,embed,portal,fencedframe';const sweep=n=>{if(n.nodeType!==1)return;if(n.matches(F)){n.remove();return;}for(const f of n.querySelectorAll(F))f.remove();};const watch=r=>new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)sweep(n);if(window.length>0&&document.documentElement)document.documentElement.remove();}).observe(r,{childList:true,subtree:true});watch(document);const attach=Element.prototype.attachShadow;Object.defineProperty(Element.prototype,'attachShadow',{value:function(o){const r=attach.call(this,o);watch(r);return r;},writable:false,configurable:false});const off=(o,k)=>{if(o&&k in o)Object.defineProperty(o,k,{value:()=>{throw new Error(k+' is not available in a free page');},writable:false,configurable:false});};off(Element.prototype,'setHTMLUnsafe');off(window.ShadowRoot&&ShadowRoot.prototype,'setHTMLUnsafe');off(Document,'parseHTMLUnsafe');off(Document.prototype,'write');off(Document.prototype,'writeln');})();`;
-/**
  * How long a framed document may be once its media is put in. The browser build puts pictures in as
  * data: URLs, so a page that names one picture a thousand times would otherwise be built a thousand times
  * over (0.3-P2-fix1): 24,000,000 characters is the page's own 2,000,000 and about two pictures at the
@@ -196,13 +187,12 @@ export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
  * hold is left as it is, and loads nothing).
  */
 export function framedDocument(html: string, host: {media: (sha: string) => string | undefined; origins: readonly string[]}): string {
-  const renamed = html.replace(/\bshadowroot(mode)?(\s*=)/gi, 'data-off-shadowroot$1$2');
-  const head = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${WALL_SCRIPT}${HOST_SCRIPT}${FRAME_PREFIX_END}`;
+  const head = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}`;
   // Counted, and the length known, before a byte is put in: each file goes in while the whole still fits.
   const counts = new Map<string, number>();
-  for (const m of renamed.matchAll(MEDIA_REFS)) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
+  for (const m of html.matchAll(MEDIA_REFS)) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
   const use = new Map<string, string>();
-  let length = head.length + renamed.length;
+  let length = head.length + html.length;
   for (const [sha, times] of counts) {
     const address = host.media(sha);
     if (address === undefined) continue;
@@ -212,7 +202,7 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
     length += grows;
     use.set(sha, address);
   }
-  return head + renamed.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all);
+  return head + html.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all);
 }
 
 const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');

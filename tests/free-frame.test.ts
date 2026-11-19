@@ -76,18 +76,16 @@ test('a page is photographed inside a sandboxed frame that may not be sent anywh
   assert.ok(shell.length - doc.length < 1024, 'escaping only & and " keeps the shell close to the page in size');
 });
 
-/* 0.3-P2-fix1: connect-src does not govern WebRTC, and neither engine enforces the webrtc directive yet
-   (measured in Chrome and WKWebView). What keeps it off is the script the frame runs first. */
-test('the frame takes WebRTC and the other ways out off the window before the page runs', () => {
-  const doc = framedDocument('<script>new RTCPeerConnection()</script>', {media: () => undefined, origins: []});
-  const wall = doc.indexOf('RTC'), page = doc.indexOf(FRAME_PREFIX_END);
-  assert.ok(wall > 0 && wall < page, 'it comes before the page');
-  assert.ok(doc.indexOf('<script>') < wall && doc.indexOf('Content-Security-Policy') < doc.indexOf('<script>'));
-  for (const name of ['mediaDevices', 'WebTransport', 'Presentation', 'attachShadow', 'MutationObserver', 'iframe,frame,object,embed']) assert.ok(doc.slice(0, page).includes(name), name);
-  const dsd = framedDocument('<div><template shadowrootmode="closed"><iframe></iframe></template></div><template ShadowRoot = open>', {media: () => undefined, origins: []});
-  assert.doesNotMatch(dsd.slice(dsd.indexOf(FRAME_PREFIX_END)), /\sshadowroot(mode)?\s*=/i, 'a page cannot have the parser make a shadow root the watcher cannot see');
-  const shell = renderShell(doc, []);
-  assert.match(shell.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)![1], /webrtc 'block'/);
+/* 0.3-P2-fix3: the wall against WebRTC and preconnect is the engine's (src-tauri/src/page_wall.rs,
+   measured by verify:wall), not a script in the page's own window, which a page could undo. The frame runs
+   only the host's script for links and Esc before the page, and the page itself is left as written. */
+test('the frame holds no script wall of its own, and leaves the page as it was written', () => {
+  const page = '<p>Set shadowrootmode="open" on a template.</p><div><template shadowrootmode="open"><b>x</b></template></div><script>class X extends HTMLElement{connectedCallback(){const shadowRoot = this.attachShadow({mode:"open"});document.write("")}}</script><iframe srcdoc="<p>inner</p>"></iframe>';
+  const doc = framedDocument(page, {media: () => undefined, origins: []});
+  assert.equal(doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length), page, 'the page is not rewritten');
+  const host = doc.slice(0, doc.indexOf(FRAME_PREFIX_END));
+  for (const gone of ['RTCPeerConnection', 'RTC|', 'mediaDevices', 'MutationObserver', 'attachShadow', 'setHTMLUnsafe', 'document.write', "'write'", 'iframe,frame']) assert.ok(!host.includes(gone), gone);
+  assert.match(frameCsp([]), /webrtc 'block'/, 'the directive stays: it harms nothing, and an engine that keeps it holds');
 });
 
 /* 0.3-P2-fix1 #8: a file put inline (the browser build gives a frame its pictures as data: URLs) is counted
