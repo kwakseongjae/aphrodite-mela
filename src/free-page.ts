@@ -380,6 +380,28 @@ export function desktopFrameHost(native: Native): FrameHost {
   };
 }
 
+/**
+ * Where a link out of a page goes, read the way the browser will read it, for the person to see before
+ * they open it: the host on its own (an international name in its ASCII form), and the whole address,
+ * shortened in the middle when it is long so the host and the end stay in view. An address that hides its
+ * host (a name and password before it, direction marks, control characters) is not offered at all;
+ * open_link in src-tauri/src/update.rs refuses the same.
+ */
+export function linkOut(raw: string): {host: string; href: string; shown: string} | {refused: string} {
+  if (raw.length > 2000) return {refused: 'the address is too long'};
+  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/.test(raw)) return {refused: 'the address has hidden characters in it'};
+  let url: URL;
+  try { url = new URL(raw); } catch { return {refused: 'that is not an address'}; }
+  if (!['https:', 'http:', 'mailto:'].includes(url.protocol)) return {refused: 'only a web or mail address opens from a page'};
+  if (url.username || url.password) return {refused: 'the address puts a name and password before its host, which hides where it goes'};
+  const host = url.protocol === 'mailto:' ? url.pathname.split('@').pop() ?? '' : url.hostname;
+  if (!host) return {refused: 'the address has no host'};
+  const href = url.href;
+  const lead = url.protocol === 'mailto:' ? '' : `${url.protocol}//${url.host}/`;
+  const shown = href.length <= 200 ? href : href.startsWith(lead) && lead.length < 120 ? `${lead}${href.slice(lead.length, lead.length + 40)}…${href.slice(-40)}` : `${href.slice(0, 120)}…${href.slice(-40)}`;
+  return {host, href, shown};
+}
+
 const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
 
 /**

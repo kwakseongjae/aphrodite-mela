@@ -349,7 +349,8 @@ check('a link out of the app is only shown to the person, with the address, unti
   const pages = await targets();
   await click(await inPage(enterId, 140, 160));
   await sleep(400);
-  assert.equal(await evaluate(`document.querySelector('#modal-root')?.textContent.includes('https://example.com/outside')`), true, 'the address is shown');
+  assert.equal(await evaluate(`document.querySelector('#modal-root .link-host')?.textContent`), 'example.com', 'the host is shown on its own');
+  assert.equal(await evaluate(`document.querySelector('#modal-root .link-address')?.textContent`), 'https://example.com/outside', 'and the whole address');
   assert.equal(await targets(), pages, 'nothing was opened');
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
 });

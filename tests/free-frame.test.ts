@@ -5,7 +5,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -101,4 +101,22 @@ test('media put inline is measured before the document is built, and what would 
   assert.ok(doc.includes(`media:${sha}`), 'what does not is left as it was, and loads nothing');
   const fits = framedDocument(`<img src="media:${sha}">`.repeat(3), {media: () => big, origins: []});
   assert.equal(fits.split(big).length - 1, 3, 'a few big pictures within the cap are all put in');
+});
+
+/* 0.3-P2-fix1 #9: before a link leaves the app the person sees where it goes: the host on its own, in
+   ASCII, and the address read the way the browser will read it. */
+test('a link out names its host as the browser reads it, and an address that hides it is not opened', () => {
+  const tricky = linkOut('https://trusted.example' + 'a'.repeat(1500) + '@evil.example/');
+  assert.ok('refused' in tricky && /name and password/.test(tricky.refused), 'user info before the host is refused');
+  const idn = linkOut('https://bücher.example/a b?q=1');
+  assert.ok('host' in idn);
+  assert.equal(idn.host, 'xn--bcher-kva.example');
+  assert.equal(idn.href, 'https://xn--bcher-kva.example/a%20b?q=1');
+  const long = linkOut('https://example.com/' + 'x'.repeat(1800) + '/end');
+  assert.ok('host' in long);
+  assert.ok(long.shown.length < 220 && long.shown.startsWith('https://example.com/') && long.shown.endsWith('/end'), long.shown);
+  const mail = linkOut('mailto:someone@example.com');
+  assert.ok('host' in mail && mail.host === 'example.com');
+  for (const bad of ['https://example.com/\u202Egpj.exe', 'javascript:alert(1)', 'file:///etc/hosts', 'https://exa\u0000mple.com', 'not a url'])
+    assert.ok('refused' in linkOut(bad), bad);
 });

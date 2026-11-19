@@ -243,11 +243,26 @@ pub fn open_link(url: String) -> Result<String, String> {
     Ok(url)
 }
 
+/// A web or mail address with nothing in it that hides where it goes: no name and password before the
+/// host (`https://trusted.example@evil.example/` goes to evil.example), no direction marks. The app shows
+/// the person the host before they press Open (linkOut in src/free-page.ts); this holds without it.
 fn link_allowed(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    (lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:"))
-        && url.len() <= 2_000
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\'))
+    let web = lower.starts_with("https://") || lower.starts_with("http://");
+    if !(web || lower.starts_with("mailto:")) || url.len() > 2_000 {
+        return false;
+    }
+    if url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')) {
+        return false;
+    }
+    if web {
+        let rest = &url[url.find("://").map_or(0, |at| at + 3)..];
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        if authority.is_empty() || authority.contains('@') {
+            return false;
+        }
+    }
+    true
 }
 
 /// Opens this release's notes in the browser. Only a page on this repository is accepted, so a
@@ -330,7 +345,7 @@ mod tests {
         for ok in ["https://example.com/a?b=c#d", "http://example.com", "mailto:someone@example.com", "HTTPS://EXAMPLE.COM"] {
             assert!(super::link_allowed(ok), "{ok}");
         }
-        for bad in ["file:///etc/hosts", "/Applications/Calculator.app", "-a Calculator", "javascript:alert(1)", "https://example.com/a b", "https://example.com/\"x", "https://example.com/\nx", "ftp://example.com", "x-apple.systempreferences:", ""] {
+        for bad in ["https://trusted.example@evil.example/", "https://user:pass@example.com/", "https://example.com/\u{202E}gpj.exe", "https://example.com/\u{2066}x", "file:///etc/hosts", "/Applications/Calculator.app", "-a Calculator", "javascript:alert(1)", "https://example.com/a b", "https://example.com/\"x", "https://example.com/\nx", "ftp://example.com", "x-apple.systempreferences:", ""] {
             assert!(!super::link_allowed(bad), "{bad}");
         }
         assert!(!super::link_allowed(&format!("https://example.com/{}", "a".repeat(2_000))));
