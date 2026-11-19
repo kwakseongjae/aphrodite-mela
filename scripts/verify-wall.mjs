@@ -150,7 +150,23 @@ check('with the wall in, a page that does nothing wrong still works', async () =
   for (const run of runs.filter(r => r.name === 'legit')) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
 });
 
+/* Names WebKit does not have, the way a future macOS might drop one: nothing is called, nothing dies, and
+   both settings read as unavailable, which is what turns page scripts off (src/free-page.ts pageScripts). */
+check('names this WebKit does not have are reported unavailable, and nothing dies', async () => {
+  const wrong = join(work, 'wrong-wall.json');
+  writeFileSync(wrong, JSON.stringify({...JSON.parse(readFileSync(WALL, 'utf8')), peerConnection: {setter: '_setNoSuchSettingEnabled:', getter: '_noSuchSettingEnabled'}, features: ['NoSuchFeature']}));
+  const spec = join(work, 'wrong-run.json');
+  writeFileSync(spec, JSON.stringify({url: `http://127.0.0.1:${PAGES}/shell/${runs.find(r => r.name === 'legit' && r.shape === 'shell').tag}`, when: 'afterCreate', wall: wrong, steps: [{wait: 1, read: READ}]}));
+  const {stdout} = await promisify(execFile)(binary, [spec], {encoding: 'utf8', timeout: 70_000});
+  unlinkSync(spec); unlinkSync(wrong);
+  const lines = stdout.trim().split('\n').map(l => JSON.parse(l));
+  assert.deepEqual(lines.find(l => l.wall)?.wall, {rtc: 'unavailable', preconnect: 'unavailable'});
+  assert.ok(lines.some(l => l.done), 'the page ran to the end');
+});
+
 checks.push(['(numbers)', async () => {
+  // Read again at the very end, so a packet that came late is counted too.
+  assert.deepEqual(runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length), [], 'still nothing, at the end');
   const table = {};
   for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
   console.log('       ' + JSON.stringify(table));

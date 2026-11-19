@@ -36,15 +36,15 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
     }
     // A window of its own, never shown, closed as soon as the picture is taken.
     let label = format!("render-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
-    // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
-    // loopback server and fetched from there.
-    let url = crate::agent::stash_render(&app.state::<crate::agent::AgentBridge>(), html)?;
-    let parked: tauri::Url = url.parse().map_err(|_| "could not build the page url")?;
+    // The window opens on nothing, takes the page wall (src-tauri/src/page_wall.rs), and only then loads
+    // the page, which the wall has decided: with page scripts if it holds, without them if it does not.
+    let parked: std::sync::Arc<std::sync::Mutex<Option<tauri::Url>>> = Default::default();
     let only = parked.clone();
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parked))
+    let blank: tauri::Url = "about:blank".parse().map_err(|_| "could not build the page url")?;
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
         // The window stays on the page it was given. A free page drawn here sits in a sandboxed frame
         // whose shell lets it be sent nowhere (renderShell); this holds the window itself as well.
-        .on_navigation(move |to| stays_on(&only, to))
+        .on_navigation(move |to| to.scheme() == "about" || only.lock().ok().and_then(|page| page.clone()).is_some_and(|page| stays_on(&page, to)))
         .title("render")
         .inner_size(width, height)
         // A window that is never composited cannot be photographed: macOS gives back an empty image.
@@ -56,6 +56,19 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
         .position(-9_000.0, -9_000.0)
         .build()
         .map_err(|e| format!("could not open an off-screen webview: {e}"))?;
+    let bridge = app.state::<crate::agent::AgentBridge>();
+    let loaded = crate::page_wall::put_then_load(&window, |wall| {
+        let page = if wall.holds() { html } else { crate::page_wall::scripts_off(&html) };
+        // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
+        // loopback server and fetched from there.
+        let url: tauri::Url = crate::agent::stash_render(&bridge, page)?.parse().map_err(|_| "could not build the page url")?;
+        *parked.lock().map_err(|e| e.to_string())? = Some(url.clone());
+        Ok(url)
+    });
+    if let Err(error) = loaded {
+        let _ = window.close();
+        return Err(error);
+    }
 
     // Let the page lay out and fetch what it needs before the shutter.
     tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(1_500))).await.ok();

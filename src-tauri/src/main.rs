@@ -3,6 +3,7 @@ mod agent;
 mod board;
 mod fonts;
 mod image_library;
+mod page_wall;
 mod reference;
 mod references;
 mod snapshot;
@@ -20,6 +21,9 @@ fn main() {
             // us, a window a person just asked for belongs in front.
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
+                // The page wall goes in first, before any free page's frame can be made (src-tauri/src/page_wall.rs).
+                // The app's own page may already be loading; it uses no WebRTC, and every frame made after this has none.
+                let _ = page_wall::put_into(&window);
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -66,6 +70,7 @@ fn main() {
             update::open_external,
             update::open_link,
             snapshot::render_page,
+            page_wall::page_wall_status,
             board::board_media_begin,
             board::board_media_chunk,
             board::board_media_finish,
