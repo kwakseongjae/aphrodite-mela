@@ -117,7 +117,8 @@ function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerH
 /** Gives each new frame on the board its page. A frame that was kept already has it. */
 function mountBoard(){mountMedia();for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted==='busy'||frame.dataset.mounted&&!frame.dataset.missing)continue;void (async()=>{
   // A frame that named a file this board did not have is loaded again once the file is here; one that has all it names is left running.
-  if(frame.dataset.mounted&&!(await Promise.all(frame.dataset.missing!.split(' ').map(sha=>frameHost.mediaUrl(sha)))).some(Boolean))return;
+  // Asked the way the frame is given its files (frameCost): a file the board has but cannot put in a frame changes nothing.
+  if(frame.dataset.mounted&&!(await Promise.all(frame.dataset.missing!.split(' ').map(sha=>frameHost.frameCost(sha)))).some(cost=>cost!==undefined))return;
   frame.dataset.mounted='busy';
   const missing=await loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);
   frame.dataset.mounted='1';if(missing.length)frame.dataset.missing=missing.join(' ');else delete frame.dataset.missing;

@@ -600,6 +600,28 @@ check('files read while the person moves to another project are placed nowhere',
   assert.equal(counts[result.copy.copy], items.length, 'the copy it was dropped on gained nothing');
 });
 
+/* 0.3-P2-fix2 #5: the browser build cannot put a file past 8 MB into a frame. A page naming one is drawn
+   once without it; selecting does not draw it again, since drawing again would not change it. */
+check('a page naming a picture too big to put in its frame starts once, however often the person selects', async () => {
+  const big = await evaluate(`(async () => { const c = document.createElement('canvas'); c.width = 1800; c.height = 1800; const g = c.getContext('2d'); const d = g.createImageData(1800, 1800); for (let i = 0; i < d.data.length; i += 65536) crypto.getRandomValues(d.data.subarray(i, i + 65536)); for (let i = 3; i < d.data.length; i += 4) d.data[i] = 255; g.putImageData(d, 0, 0); const b = await new Promise(r => c.toBlob(r, 'image/png')); const s = new Uint8Array(await b.arrayBuffer()); let out = ''; for (let i = 0; i < s.length; i += 32768) out += String.fromCharCode(...s.subarray(i, i + 32768)); return btoa(out); })()`);
+  const bytes = Buffer.from(big, 'base64');
+  assert.ok(bytes.length > 8 * 1024 * 1024, `${bytes.length} bytes`);
+  writeFileSync(fileAt('big.png'), bytes);
+  await personClicks('zoom-fit'); await sleep(300);
+  const before = await seq();
+  await dropFiles(['big.png'], await emptySpot());
+  await waitFor(async () => (await seq()) > before, 'the big picture on the board', 40);
+  await sleep(5_200);
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const id = await makePage('Names a big picture', `<img src="media:${sha}"><script>parent.postMessage({bigBoot: 1}, '*')</script>`, {width: 600, height: 400});
+  await waitFor(async () => (await messages('bigBoot')).length === 1, 'the page to start');
+  const others = (await agent('contract', {})).pages.map(p => p.page_id).filter(p => p !== id).slice(0, 4);
+  for (const other of [...others, id, ...others]) { await personPresses('page', {id: other}); await sleep(250); }
+  await sleep(800);
+  result.bigBoots = (await messages('bigBoot')).length;
+  assert.equal(result.bigBoots, 1, 'it started once');
+});
+
 /* 0.3-P2-fix2 #3·4: commit() saves what the person is typing before the change it records (0.3-2b). A
    change made of what was read before that, or checked against the revision before that, would put the
    text back or write over it. */
