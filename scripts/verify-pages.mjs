@@ -16,9 +16,9 @@ import dgram from 'node:dgram';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell} from '../src/free-page.ts';
-import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync} from 'node:fs';
+import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, extname} from 'node:path';
 
 /** Files to drop from "the Finder", made here and removed when the gate ends. */
 const filesDir = mkdtempSync(join(tmpdir(), 'aphrodite-pages-'));
@@ -69,6 +69,26 @@ const result = {};
 check('the browser build is served under the policy src/csp.mjs gives it', async () => {
   const res = await fetch(`http://127.0.0.1:${PORT}/`);
   assert.equal(res.headers.get('content-security-policy'), appPolicy('browser'));
+});
+
+/* 0.3-P2-fix1: a server is not the only way the browser build is served. dist/ put on any static server
+   carries the policy itself, in its index.html: a frame sending itself away is stopped by the policy of
+   the document that holds it, so without it the frame could leave (RESULTS 0.3-P0 §1). */
+check('the built bundle served by a plain static server carries the policy itself, and a frame cannot leave', async () => {
+  const types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.woff2': 'font/woff2'};
+  const root = join(process.cwd(), 'dist');
+  const plain = createServer((req, res) => { let p = join(root, decodeURIComponent(req.url.split('?')[0])); if (!p.startsWith(root) || !existsSync(p) || statSync(p).isDirectory()) p = join(root, 'index.html'); res.writeHead(200, {'content-type': types[extname(p)] ?? 'application/octet-stream'}); res.end(readFileSync(p)); });
+  await new Promise(resolve => plain.listen(TRAP + 4, '127.0.0.1', resolve));
+  const page = await openPage(`http://127.0.0.1:${TRAP + 4}/`, {cdp: 9386, profile: '/tmp/aphrodite-pages-static-profile'});
+  try {
+    await waitFor(() => page.evaluate(`location.port === '${TRAP + 4}' && !!document.querySelector('#app')`), 'the static page');
+    assert.equal(await page.evaluate(`document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? null`), appPolicy('browser'), 'the policy is in the page');
+    const before = hits.length;
+    const leaving = framedDocument(`<p>leaving</p><script>setTimeout(() => { location.href = '${SERVER}/static/self-after-1s'; }, 300)</script>`, {media: () => undefined, origins: []});
+    await page.evaluate(`(() => { const f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = ${JSON.stringify(leaving)}; document.body.append(f); return true; })()`);
+    await sleep(2000);
+    assert.deepEqual(hits.slice(before), [], 'nothing reached the server');
+  } finally { page.close(); plain.close(); }
 });
 
 check('the app itself runs under that policy without being refused anything', async () => {

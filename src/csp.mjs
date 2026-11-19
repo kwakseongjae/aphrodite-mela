@@ -26,3 +26,19 @@ export function appPolicy(target) {
     desktop ? "connect-src 'self' ipc: http://ipc.localhost" : "connect-src 'self'",
   ].join('; ');
 }
+
+/**
+ * The browser build's index.html carries the policy itself, so dist/ keeps it on whatever static server
+ * it is put on (0.3-P2-fix1). Nothing the policy holds is lost in a meta tag (no frame-ancestors, report
+ * or sandbox directive). The desktop build leaves it out: Tauri gives the window the desktop policy, and
+ * two policies both apply, which would close the asset frames. TAURI_ENV_PLATFORM is how a build knows:
+ * the Tauri CLI sets it for the commands it runs (tauri dev, tauri build).
+ */
+export function policyInHtml(html, env = process.env) {
+  if (env.TAURI_ENV_PLATFORM) return html;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${appPolicy('browser')}">`;
+  const at = html.search(/<meta charset[^>]*>/i);
+  if (at < 0) throw new Error('index.html has no <meta charset> to put the policy after');
+  const end = html.indexOf('>', at) + 1;
+  return html.slice(0, end) + '\n    ' + meta + html.slice(end);
+}
