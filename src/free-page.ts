@@ -177,6 +177,44 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
 }
 
+/**
+ * How a frame gets its document, decided in this one place. The browser build gives it as srcdoc. The
+ * desktop cannot: a srcdoc (or blob:) frame there runs under the app's own `script-src 'self'` and not
+ * one of the page's scripts runs (RESULTS 0.3-P0 §1), so the page is written to `free-pages/` and the
+ * frame loads it through the asset protocol. That file is a copy for the frame; the project holds the page.
+ */
+export type FrameHost = {
+  /** Where board media may load from inside a frame, beside data: URLs. */
+  origins: readonly string[];
+  /** The address a frame may load a media file from, or undefined when this board has no such file. */
+  frameMedia(sha: string): Promise<string | undefined>;
+  /** Puts the framed document in the frame. `key` names this version of the page. */
+  load(frame: HTMLIFrameElement, pageId: string, key: string, doc: string): Promise<void>;
+};
+
+const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
+/** Loads a free page into its frame: its media found first, then the framed document. */
+export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; html: string}, key: string, host: FrameHost): Promise<void> {
+  const wanted = [...new Set(Array.from(page.html.matchAll(MEDIA_REFS), m => m[1]))].slice(0, 500);
+  const found = new Map(await Promise.all(wanted.map(async sha => [sha, await host.frameMedia(sha)] as const)));
+  await host.load(frame, page.id, key, framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}));
+}
+
+/** The browser build: srcdoc, which runs under the browser build's policy as well as the page's own (src/csp.mjs). */
+export function browserFrameHost(): FrameHost {
+  return {origins: [], frameMedia: async () => undefined, load: async (frame, _page, _key, doc) => { frame.srcdoc = doc; }};
+}
+
+type Native = {invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>; fileSrc: (path: string) => string};
+/** The desktop: the page written to `free-pages/` under a name that changes with it, loaded through the asset protocol. */
+export function desktopFrameHost(native: Native): FrameHost {
+  return {
+    origins: ['asset:', 'http://asset.localhost'],
+    frameMedia: async sha => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; },
+    load: async (frame, page, key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key, html: doc})); },
+  };
+}
+
 const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
 
 /**

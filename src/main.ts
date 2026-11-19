@@ -60,7 +60,8 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
-import {isFreePage} from './free-page';
+import {isFreePage,loadFreePage,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -81,7 +82,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -91,7 +92,7 @@ import {createArchive} from './workspace/archive';
 import {fitWithin,worthShrinking,base64Of} from './design/downscale';
 import {deriveTaste,renderTaste,parseTaste,mergeTaste,orderDirections,againstLabel,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
 import './workspace/home.css';
-import {invoke,isTauri} from '@tauri-apps/api/core';
+import {invoke,isTauri,convertFileSrc} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
 import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
@@ -104,6 +105,14 @@ let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storage
 let vanished:Breadcrumb|undefined;
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
+/** Free pages and media on the board: how frames get their documents here (src/free-page.ts decides), and the board layer that keeps them (src/editor/board.ts). */
+const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost();
+const FREE_PAGE_HEIGHT=900;
+function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);return `<div class="board-item" data-keep="item:${id}:${frameKey(p.id,p.html)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px"><iframe class="board-frame" sandbox="allow-scripts" data-frame-page="${id}" tabindex="-1" inert></iframe><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
+/** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
+function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
+/** Gives each new frame on the board its page. A frame that was kept already has it. */
+function mountBoard(){for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;if(frame.dataset.mounted)continue;frame.dataset.mounted='1';void loadFreePage(frame,page,frameKey(page.id,page.html),frameHost).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
 let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
@@ -539,8 +548,8 @@ function render() {
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `<div id="banners">${bannersHtml()}</div>
-  <div class="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
+  paintApp(`<div id="banners">${bannersHtml()}</div>
+  <div class="studio" data-keep="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
     ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}
     <aside class="library" aria-label="Component library">
       <button type="button" class="panel-collapse" data-action="panel-collapse" data-side="left" aria-label="${ui('Collapse the library','라이브러리 접기')}" title="${ui('Collapse','접기')}">${icon('panel-left-close')}</button>
@@ -559,21 +568,21 @@ function render() {
       <button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>
       <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>${ui('Made for you. And your agent.','당신과 에이전트를 위해.')}</strong><span>${ui('Same canvas. Shared direction.','같은 캔버스. 공유된 방향.')}</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
     </aside>
-    <main class="workbench">
+    <main class="workbench" data-keep="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${free?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${free?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:free?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
     </main>
     <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${inspectorPanelHtml()}</aside>
-  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`;
+  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`);
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
   if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell'))canvas.classList.add('moa-desktop');
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
-  mountSpace();mountPanels();mountInspectorResize();
+  mountSpace();mountBoard();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
   decorateInspector(page);

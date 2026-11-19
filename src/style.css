@@ -76,6 +76,9 @@ input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:#
 .space-frame.active{outline:1.5px solid #7fa3ff}.space-frame.proposal{outline:1.5px dashed #c9a75a}.space-frame.dragging{opacity:.85;outline-color:#2f4cd8}
 .space-frame .design-page{width:100%;min-height:240px;margin:0;max-width:none}
 .design-page-inert{pointer-events:none}
+.board-item{position:relative;width:100%;overflow:hidden;background:#fff}.board-frame{display:block;width:100%;height:100%;border:0}
+.board-shield{position:absolute;inset:0;cursor:default}.space-frame.entered .board-shield{display:none}.space-frame.entered{outline:2px solid var(--ui-select)}
+.space.panning .board-frame,.space-frame.dragging .board-frame{pointer-events:none}
 .frame-head{position:absolute;left:0;bottom:100%;transform:scale(var(--inv,1));transform-origin:0 100%;display:flex;align-items:center;gap:10px;padding:0 0 6px;white-space:nowrap;font-size:12px;color:#6a705f}
 .frame-name{display:inline-flex;align-items:center;gap:6px;padding:3px 7px;border-radius:6px;cursor:grab;color:#3a4531;font-weight:500;font-size:12px}.frame-name:hover{background:#e8ecdf}.frame-name:active{cursor:grabbing}.space-frame.active .frame-name{color:#2f4cd8}
 .frame-name svg{width:13px;height:13px;flex:none}

@@ -33,6 +33,8 @@ const EXTERNAL_COMMANDS=[
 const INTERNAL_COMMANDS=[
   'agent_bridge_reply','agent_bridge_start','fonts_installed','image_library_list','image_library_read','recognize_reference',
   'references_list','references_poster','render_page','taste_read','vault_read','workspace_read','workspace_recovery',
+  // A free page's frame reads its copy from free-pages/ and its media from board-media/ (0.3-P2): drawing, not an edit.
+  'free_page_write','board_media_path',
 ];
 const EFFECT=new RegExp([
   `\\binvoke(?:<[^\\n]*?>)?\\('(?:${EXTERNAL_COMMANDS.join('|')})'`,

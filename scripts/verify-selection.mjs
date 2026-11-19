@@ -219,5 +219,36 @@ check('the assembly bar follows the selection without a change being recorded', 
   assert.equal(await ledgerSeq(), before, 'selecting recorded nothing');
 });
 
+/* 0.3-P2: the board holds a free page's frame by the page's id. A frame that leaves the document is
+   loaded again from scratch (its script starts over), so "kept" is counted from inside: the page says
+   hello once each time it starts. */
+check('selecting on the board leaves a free page running where it is', async () => {
+  await personPresses('agent-connect-toggle');
+  await sleep(250);
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await sleep(5_200);
+  await evaluate(`(() => { window.__boots = 0; addEventListener('message', e => { if (e.data && e.data.boot) window.__boots++; }); return true; })()`);
+  const base = (await agent('changes', {limit: 1})).revision;
+  const made = await agent('apply', {reason: 'verify-selection: a free page beside the sections.', base_revision: base, ops: [{op: 'html_page', name: 'Running page', html: '<p>running</p><script>parent.postMessage({boot: 1}, "*")</script>'}]});
+  assert.ok(made.ok, JSON.stringify(made));
+  await waitFor(() => evaluate('window.__boots === 1'), 'the free page to start once');
+  const row = id => evaluate(`(() => { const r = document.querySelector('.pages-list [data-id="${id}"]').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  const sample = await evaluate(`document.querySelector('.space-frame.active').dataset.pageId`);
+  await click(await row(made.created_pages[0].page_id));
+  assert.equal(await evaluate(`document.querySelector('.space-frame.active').dataset.pageId`), made.created_pages[0].page_id, 'the free page is the one being looked at');
+  await click(await row(sample));
+  await waitFor(() => evaluate('!!document.querySelector(".space-frame.active [data-block-id]")'), 'the sections again');
+  const [first, second] = await blocks();
+  await click(await inside(second));
+  await click(await inside(first));
+  await personClicks('zoom-out');
+  await sleep(300);
+  await personClicks('zoom-in');
+  await sleep(600);
+  assert.equal(await selectedId(), first);
+  assert.equal(await evaluate('window.__boots'), 1, 'the free page did not start again');
+});
+
 checks.push(['(numbers)', async () => { console.log('       ' + JSON.stringify(result)); }]);
 await runChecks(checks, close);
