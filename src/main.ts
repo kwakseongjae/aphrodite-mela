@@ -1663,8 +1663,12 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   const early=staleSince(d.baseRevision,'batch');if(early)return early;
   const projectId=project.id,revision=revisionInfo().revision;
   // An agent's pictures and videos are put on the board first. A file kept for a batch that then fails
-  // stays in board-media under its hash, placed nowhere; the design does not move.
-  const imported=await importMedia(batch.ops,surface,frameHost,project.id,mediaSize);
+  // stays in board-media under its hash, placed nowhere; the design does not move. Only such a batch waits,
+  // and it holds the page it arrived on while it does: a page picked meanwhile does not take it. One without
+  // files lands at once, as it always did.
+  const withFiles=batch.ops.some(o=>o.op==='media_add');
+  const held:Batch=withFiles&&!batch.pageId?{...batch,pageId:currentPage(project).id}:batch;
+  const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
   if('error' in imported)return {...imported,part:'ops',applied:0};
   const {media}=imported;
   // Copying took a moment: the project and the door are asked again before anything moves.
@@ -1680,7 +1684,8 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     stale=staleSince(d.baseRevision,'batch');
     if(!stale&&Object.keys(media).length&&revisionInfo().revision!==revision)stale={error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
     if(stale)return;
-    const result=runBatch(project,batch,selected,media);
+    if(withFiles&&held.pageId&&!project.pages.some(p=>p.id===held.pageId)){stale={error:'the page this batch arrived on was removed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};return;}
+    const result=runBatch(project,held,selected,media);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
     const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);

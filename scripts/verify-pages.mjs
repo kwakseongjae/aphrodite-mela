@@ -655,6 +655,23 @@ check('an agent batch written against the revision before the person’s typing 
   assert.ok(!changes.some(c => c.source === 'agent:apply' && JSON.stringify(c.ops).includes('Written by the agent')), 'nothing of the agent’s landed');
 });
 
+/* 0.3-P2-fix4 #3: a batch that names no page lands on the page that was open when it arrived. Only a batch
+   with files waits before it runs, and it holds its page while it waits. */
+check('a batch without page_id lands on the page open when it arrived, though another page is picked before it answers', async () => {
+  const pages = (await agent('contract', {})).pages;
+  const section = pages.find(p => p.block_count > 0).page_id, other = pages.find(p => p.page_id !== section).page_id;
+  await personPresses('page', {id: section}); await sleep(5_200); // the person's press holds the screen for five seconds
+  assert.equal(await active(), section);
+  const got = await evaluate(`(async () => { const answer = window.aphroditeAgent.run('apply', {reason: ${JSON.stringify(WHY)}, ops: [{op: 'add', component_kind: 'cta'}]}, 'claude-code');
+    const b = document.createElement('button'); b.dataset.action = 'page'; b.dataset.id = ${JSON.stringify(other)}; document.querySelector('#app').append(b); b.click(); b.remove();
+    return await answer; })()`);
+  assert.ok(got.ok, JSON.stringify(got).slice(0, 300));
+  const added = got.receipt.changedNodes.find(n => n.fields.includes('added'))?.id;
+  assert.ok(added, JSON.stringify(got.receipt).slice(0, 300));
+  const on = (await agent('contract', {page_id: section})).pages.find(p => p.page_id === section);
+  assert.ok(JSON.stringify(on).includes(added), 'the component is on the page that was open when the batch arrived');
+});
+
 /* 0.3-P2-fix4: where the page wall does not hold (on the desktop: a WebKit without the settings, or one that
    does not answer), no free page is put in any frame, since preconnect needs no script: a placeholder stands
    in its place, the page can still be selected and renamed, and an agent still reads its words. The browser
