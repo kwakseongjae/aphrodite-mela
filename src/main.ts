@@ -158,6 +158,7 @@ function mediaSize(url:string,mime:string):Promise<{width:number;height:number;d
  * the person's name. A file that cannot go on the board says why and places nothing.
  */
 async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
+  const projectId=project.id;
   if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
   const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
   for(const file of files.slice(0,12)){
@@ -174,6 +175,8 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
     }catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}
   }
   if(!ops.length)return;
+  // Reading the files took a moment: they land on the project they were dropped on, or nowhere.
+  if(screen!=='editor'||project.id!==projectId){toast(ui('The project changed while the files were read, so nothing was placed.','파일을 읽는 사이 프로젝트가 바뀌어 아무것도 놓지 않았습니다.'));return;}
   // The same batch an agent's media_add runs, so what lands is held to what a saved project may be.
   const result=runBatch(project,{ops},selected,media,places);
   const refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
@@ -1629,8 +1632,13 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
  * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent, its reason and
  * the revision it read; a batch written against one the person has since changed is refused.
  */
-async function applyBatch(batch:Batch,d:Dispatch):Promise<Record<string,unknown>>{
+/**
+ * `stillAllowed` asks the door again, for a batch that waited on files: an agent the person let go while
+ * they were copied places nothing.
+ */
+async function applyBatch(batch:Batch,d:Dispatch,stillAllowed:()=>{error:string;status?:number}|undefined=()=>undefined):Promise<Record<string,unknown>>{
   const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
+  const projectId=project.id,revision=revisionInfo().revision;
   // An agent's pictures and videos are put on the board first, each checked before it is copied (src-tauri/src/board.rs).
   // A file kept for a batch that then fails stays in board-media under its hash, placed nowhere; the design does not move.
   const media:Record<number,PageMedia>={};
@@ -1644,7 +1652,12 @@ async function applyBatch(batch:Batch,d:Dispatch):Promise<Record<string,unknown>
     }catch(error){return {error:`ops[${i}]: ${error instanceof Error?error.message:String(error)}`,failed_at:i,part:'ops',applied:0};}
   }
   // Copying took a moment: what was read is checked again before anything moves.
-  if(Object.keys(media).length){const again=staleSince(d.baseRevision,'batch');if(again)return again;}
+  if(Object.keys(media).length){
+    if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
+    const shut=stillAllowed();if(shut)return {...shut,applied:0};
+    const again=staleSince(d.baseRevision,'batch');if(again)return again;
+    if(revisionInfo().revision!==revision)return {error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
+  }
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
   let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
   commit(()=>{
@@ -1867,7 +1880,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
-        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
+        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }

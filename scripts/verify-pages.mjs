@@ -561,5 +561,25 @@ check('a copy of the project imported from the editor opens with frames of its o
   result.copy = {original: original.id, copy};
 });
 
+check('files read while the person moves to another project are placed nowhere', async () => {
+  const {original} = result.copy;
+  // Reading the picture is held back a moment, as a large file would be.
+  await evaluate(`(() => { const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onload'); window.__restoreOnload = () => Object.defineProperty(HTMLImageElement.prototype, 'onload', {set(f) { d.set.call(this, f); }, get() { return d.get.call(this); }, configurable: true});
+    Object.defineProperty(HTMLImageElement.prototype, 'onload', {set(f) { d.set.call(this, f && (e => setTimeout(() => f.call(this, e), 2500))); }, get() { return d.get.call(this); }, configurable: true}); return true; })()`);
+  writeFileSync(fileAt('moving.png'), DOT);
+  const items = await mediaItems();
+  await personClicks('zoom-fit'); await sleep(300);
+  await dropFiles(['moving.png'], await emptySpot());
+  await sleep(300);
+  await personPresses('home'); await sleep(400);
+  await personPresses('hub-open', {id: original}); await sleep(3500);
+  await evaluate('window.__restoreOnload(), true');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /project changed while the files were read|프로젝트가 바뀌어/);
+  const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
+  const counts = Object.fromEntries(lib.entries.map(e => [e.project.id, e.project.pages.filter(p => p.kind === 'media').length]));
+  result.moving = counts;
+  assert.equal(counts[result.copy.copy], items.length, 'the copy it was dropped on gained nothing');
+});
+
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
 await runChecks(checks, shut);
