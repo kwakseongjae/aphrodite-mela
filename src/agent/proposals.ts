@@ -48,6 +48,8 @@ export function resolveProposal(project:Project,chosenPageId:string,mode:'replac
   const siblings=proposalsOf(project,proposal.fromPageId);
   if(mode==='replace'){
     source.blocks=structuredClone(chosen.blocks);
+    // A page is sections or html (src/free-page.ts): the chosen page's content replaces the source's whole, whichever each is.
+    for(const key of ['kind','html','media'] as const){if(chosen[key]===undefined)delete source[key];else (source as Record<string,unknown>)[key]=structuredClone(chosen[key]);}
     for(const page of siblings)dropPage(project,page.id);
     project.activePageId=source.id;
     return;

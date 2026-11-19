@@ -14,6 +14,7 @@ import {implementations, catalogGroup} from '../design/component-explorer';
 import {patternVariants} from '../patterns';
 import {frameWidth} from '../editor/space';
 import {fontStack} from '../design/fonts';
+import {htmlWindow, isFreePage, pageText, HTML_WINDOW} from '../free-page';
 
 export type ContractFormat = 'concise' | 'detailed';
 export type ContractOptions = {format?: ContractFormat; pageId?: string; maxPages?: number; maxBlocks?: number};
@@ -88,7 +89,11 @@ function pageJson(page: Page, project: Project, format: ContractFormat, maxBlock
     block_count: page.blocks.length,
     blocks: blocks.map(b => blockJson(b, format)),
   };
-  out.frame = {preset: frame.preset, width: frameWidth(frame), x: frame.x, y: frame.y};
+  out.frame = {preset: frame.preset, width: frameWidth(frame), x: frame.x, y: frame.y, ...(frame.height !== undefined ? {height: frame.height} : {})};
+  // An html page is named as one, with its size: its document is read with aphrodite_get_page_html.
+  if (page.kind) out.kind = page.kind;
+  if (isFreePage(page)) out.html_length = page.html.length;
+  if (page.media) out.media = page.media;
   if (page.proposal) out.proposal = {label: page.proposal.label, kind: page.proposal.kind, from_page_id: page.proposal.fromPageId};
   if (blocks.length < page.blocks.length) out.blocks_truncated = true;
   return out;
@@ -170,6 +175,67 @@ export function designTokens(project: Project, css: string) {
     },
     usage: 'Use the variable names in generated code (var(--brand)), not the literal values: the person can change a token and every page follows.',
   };
+}
+
+/** The html page an agent asked to read, or the sentence that says why it cannot be read that way. */
+function freePage(project: Project, pageId: string): {page: Page & {html: string}} | {error: string} {
+  const page = project.pages.find(p => p.id === pageId);
+  if (!page) return {error: `no page "${pageId}". Pages on this project: ${project.pages.map(p => p.id).join(', ')}`};
+  if (!isFreePage(page)) return {error: `page ${pageId} is a section page, which has no html of its own. Read it with aphrodite_get_contract.`};
+  return {page};
+}
+
+/** An html page's html, exactly as stored, a window at a time (src/free-page.ts htmlWindow). */
+export function pageHtmlRead(project: Project, ask: {pageId: string; start?: number; end?: number}) {
+  const found = freePage(project, ask.pageId);
+  if ('error' in found) return found;
+  return {ok: true as const, page_id: found.page.id, name: found.page.name, ...htmlWindow(found.page.html, {start: ask.start, end: ask.end})};
+}
+
+/** An html page's words, without its markup. A page whose words run past one window says so. */
+export function pageTextRead(project: Project, ask: {pageId: string}) {
+  const found = freePage(project, ask.pageId);
+  if ('error' in found) return found;
+  const text = pageText(found.page.html);
+  return {ok: true as const, page_id: found.page.id, name: found.page.name, text: text.slice(0, HTML_WINDOW), ...(text.length > HTML_WINDOW ? {more: true, length: text.length} : {})};
+}
+
+/**
+ * Why a page cannot be photographed yet, or undefined when it can. The render window is a page of its
+ * own, not a frame, so a free page drawn there could leave the machine (RESULTS 0.3-P0 §4); it is drawn
+ * once it can be held in a frame (0.3-P2).
+ */
+export function renderRefusal(page: Page): string | undefined {
+  if (!page.kind) return undefined;
+  return page.kind === 'html'
+    ? `page ${page.id} is an html page, and a picture of one waits for the frame that keeps it from reaching outside this Mac. Read it with aphrodite_get_page_html or aphrodite_get_page_text.`
+    : `page ${page.id} is a media item; there is no page to draw.`;
+}
+
+/** How many characters of ops one reply listing changes carries at most. */
+export const REPLY_OPS = 200_000;
+const OPS_OMITTED_NOTE = 'Some changes are listed without their ops (ops_omitted), to keep this reply small; their who, why, anchors and size are here. To see what they did, read the page as it is now with aphrodite_get_page_html.';
+
+/**
+ * The changes a reply lists (aphrodite_get_changes, a stale batch's 409), with their ops kept to
+ * REPLY_OPS characters in all: past that the biggest lose their ops first, in place, and say so with
+ * `ops_omitted`. Only the reply is trimmed; the ledger keeps what it keeps.
+ */
+export function changesForReply<T extends {ops: unknown[]}>(changes: T[], limit = REPLY_OPS): {changes: (T | (Omit<T, 'ops'> & {ops_omitted: true}))[]; note?: string} {
+  const sizes = changes.map(c => JSON.stringify(c.ops).length);
+  let total = sizes.reduce((sum, n) => sum + n, 0);
+  if (total <= limit) return {changes};
+  const dropped = new Set<number>();
+  for (const i of sizes.map((_, i) => i).sort((a, b) => sizes[b] - sizes[a])) {
+    if (total <= limit) break;
+    dropped.add(i);
+    total -= sizes[i];
+  }
+  return {changes: changes.map((c, i) => {
+    if (!dropped.has(i)) return c;
+    const {ops: _ops, ...rest} = c;
+    return {...rest, ops_omitted: true as const};
+  }), note: OPS_OMITTED_NOTE};
 }
 
 /** The vocabulary an agent composes with: every component kind, its variants and its providers. */

@@ -83,6 +83,26 @@ test('a request waiting for the person is never replaced, however long it waits'
   }
 });
 
+/* 0.3-P1: a new page is HTML. Sections stay for the pages made before, and the catalogue is material. */
+test('the playbook makes html the way to write a new page, and sections the way to change an old one',()=>{
+  assert.match(playbook,/new page.*`html_page`/is,'a new page is written as html');
+  assert.match(playbook,/aphrodite_get_page_html/,'read before you change');
+  assert.match(playbook,/`html_replace`/,'change a passage rather than the whole page');
+  assert.match(playbook,/only.*section page/i,'sections are for the pages made before html');
+  assert.match(playbook,/`aphrodite_list_components`.*material/is,'the catalogue is material to borrow');
+});
+
+test('the tools say the same as the playbook: apply_edits leads with html, list_components is material',()=>{
+  const tool=(name:string)=>mcpTools().find(t=>t.name===name)!.description;
+  const apply=tool('aphrodite_apply_edits');
+  assert.match(apply.split('\n')[0],/html page/);
+  assert.ok(apply.indexOf('html_page')<apply.indexOf('add, update'),'html first, sections after');
+  assert.match(tool('aphrodite_list_components'),/material/);
+  assert.match(tool('aphrodite_get_changes'),/parent/,'a change names the one it was made on');
+  assert.match(tool('aphrodite_get_changes'),/truncated/,'a change anchored to only some of what it touched says so');
+  assert.match(playbook,/truncated/,'and the playbook says how to read it');
+});
+
 test('the playbook tells an agent its name is remembered once allowed',()=>{
   assert.match(playbook,/remembered, across restarts, until they disconnect it/);
 });

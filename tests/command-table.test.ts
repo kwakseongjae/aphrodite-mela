@@ -102,7 +102,7 @@ test('the in-app agent is offered every tool but the five the panel leaves out',
   const offered=commands.filter(r=>r.surfaces.inApp).map(r=>r.mcp!.name).sort();
   const left=commands.filter(r=>r.surfaces.mcp&&!r.surfaces.inApp).map(r=>r.mcp!.name).sort();
   assert.deepEqual(left,['aphrodite_delete_image','aphrodite_forget_reference','aphrodite_keep_reference','aphrodite_request_connection','aphrodite_use_interface']);
-  assert.equal(offered.length,13);
+  assert.equal(offered.length,15);
   for(const row of commands.filter(r=>r.surfaces.inApp))assert.notEqual(row.grade,'human');
 });
 

@@ -3,12 +3,21 @@
  * from the ledger logic so the project model can read a saved ledger without importing what records one.
  */
 import type {PatchOp} from './patch';
+import {passageHash} from './sha256';
 
 /** `unknown` is a change caught after the fact (an edit made outside `commit()`): nobody can say whose it was. */
 export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
 export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
 export type Change = {
+  /** Its own, never reused: what 0.5's folders and branches name a change by. */
   id: string;
+  /**
+   * The change this one was made on top of: the one before it in this ledger, unless it came from another
+   * copy. Once compact() has dropped the oldest headers, the first change left names a parent that is no
+   * longer in the ledger. That is expected: history is cut at the front, and a missing parent means "made
+   * on something older than what is kept", never a broken link (0.5 reads branches from this).
+   */
+  parent?: string;
   seq: number;
   at: string;
   author: Author;
@@ -16,7 +25,8 @@ export type Change = {
   source: string;
   reason?: string;
   ops: PatchOp[];
-  anchors: {pages: string[]; nodes: string[]};
+  /** What it touched, for pointing the canvas at it; `truncated` when it touched more than MAX_ANCHORS and only that many are named. */
+  anchors: {pages: string[]; nodes: string[]; truncated?: true};
   baseRevision: string;
   revision: string;
   /** Only where the person was looking moved — the page they opened, a frame dragged on the space. */
@@ -32,6 +42,13 @@ export type Ledger = {seq: number; changes: Change[]};
 export const MAX_REASON = 500;
 /** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
 export const LEDGER_BUDGET = 1_200_000;
+/**
+ * The most a saved ledger adds to a saved project: its budget, which compact() holds the serialized
+ * ledger to, and the `,"ledger":` that carries it. The newest header alone always fits the budget
+ * (record() anchors a change to at most MAX_ANCHORS components), so no recording can exceed this:
+ * what a project may hold of design is MAX_PROJECT less this, known before a change is made.
+ */
+export const LEDGER_RESERVE = LEDGER_BUDGET + ',"ledger":'.length;
 const MAX_INLINE_DATA = 2_000;
 
 /**
@@ -45,22 +62,81 @@ export function slim<T>(value: T): T {
   return value;
 }
 
-/** Drops the ops of the oldest entries until the ledger fits its budget. Headers are never dropped. */
+/**
+ * The length of an entry as saved, its own `size` included: the field holds a number whose digits are
+ * part of what it counts, so the count settles on itself.
+ */
+export function sizeOf(change: Change): number {
+  let size = 0;
+  for (let n = -1; n !== size;) { n = size; size = JSON.stringify({...change, size: n}).length; }
+  return size;
+}
+
+/**
+ * Eight hex digits made from a text (FNV-1a over its UTF-16 code units), to name something: the id an
+ * old ledger's change is given when it is read. Identity only, not a check — two texts can share one.
+ * A saved text diff checks its passage with passageHash (sha256.ts).
+ */
+export function shortHash(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * The ops as they are saved: a text diff keeps what it put in, and for what it took out only the
+ * length and a 128-bit SHA-256 hash — enough to check the passage before replaying it, at a fraction of the
+ * size. Undo keeps the ops as they were. Anything not shaped like a text diff passes through.
+ */
+export function forSaving(ops: PatchOp[]): PatchOp[] {
+  return ops.map(op => {
+    if (!op || op.op !== 'text' || !Array.isArray(op.hunks)) return op;
+    return {...op, hunks: op.hunks.map(h => h && typeof (h as {remove?: unknown}).remove === 'string' ? {at: h.at, remove_length: (h as {remove: string}).remove.length, remove_hash: passageHash((h as {remove: string}).remove), insert: h.insert} : h)};
+  });
+}
+
+/**
+ * Drops the ops of the oldest entries, then the oldest headers, until the ledger serializes to at most
+ * `budget` characters — brackets, commas and the sequence number counted. Headers are kept while there
+ * is room for them: the newest always fits the ledger's own budget (see LEDGER_RESERVE), but a project
+ * whose design leaves less than one header's room (fitSaved) empties its history, `seq` kept. The
+ * design comes before the record of it; the next change then starts with no parent.
+ */
 export function compact(ledger: Ledger, budget = LEDGER_BUDGET): void {
-  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0);
-  for (const change of ledger.changes) {
-    if (total <= budget) break;
-    if (change.compacted) continue;
+  // {"seq":N,"changes":[…]} — the entries, a comma between each two, and the frame around them.
+  let total = ledger.changes.reduce((sum, c) => sum + c.size, 0) + Math.max(0, ledger.changes.length - 1) + 21 + String(ledger.seq).length;
+  const drop = (change: Change) => {
     total -= change.size;
     change.ops = [];
     change.compacted = true;
-    change.size = 0;
-    change.size = JSON.stringify(change).length;
+    change.size = sizeOf(change);
     total += change.size;
+  };
+  // One change bigger than a quarter of the budget (a whole page of html, say) gives up its own ops
+  // first; otherwise it would take every older change's with it and still not fit.
+  for (const change of ledger.changes) if (total > budget && !change.compacted && change.size > budget / 4) drop(change);
+  for (const change of ledger.changes) {
+    if (total <= budget) break;
+    if (!change.compacted) drop(change);
   }
   // Headers alone can outgrow the budget after very long histories; the oldest go first.
-  while (total > budget && ledger.changes.length > 1) total -= ledger.changes.shift()!.size;
+  while (total > budget && ledger.changes.length) total -= ledger.changes.shift()!.size + (ledger.changes.length ? 1 : 0);
 }
+
+/**
+ * How many components and pages one change is anchored to at most. Anchors point the canvas at what a
+ * change touched; past this many it touched the whole page anyway, and the cap is what keeps one header
+ * small enough that the saved ledger never outgrows its reserve (LEDGER_RESERVE).
+ */
+export const MAX_ANCHORS = {nodes: 500, pages: 60};
+/** Anchors held to MAX_ANCHORS, saying so when some were left out: a reader takes such a change to have touched its pages whole. */
+export function capAnchors(anchors: {pages: string[]; nodes: string[]; truncated?: true}): Change['anchors'] {
+  const truncated = anchors.truncated || anchors.pages.length > MAX_ANCHORS.pages || anchors.nodes.length > MAX_ANCHORS.nodes;
+  return {pages: anchors.pages.slice(0, MAX_ANCHORS.pages), nodes: anchors.nodes.slice(0, MAX_ANCHORS.nodes), ...(truncated ? {truncated: true as const} : {})};
+}
+const ID_SHAPE = /^[a-zA-Z0-9_-]{1,200}$/;
+const ids = (v: unknown) => Array.isArray(v) && v.every(x => typeof x === 'string' && ID_SHAPE.test(x));
+const whole = (v: unknown) => v === undefined || (Number.isInteger(v) && (v as number) > 0);
 
 const isStr = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
 
@@ -76,16 +152,28 @@ export function readLedger(raw: unknown): Ledger | undefined {
   for (const c of l.changes) {
     if (!c || typeof c !== 'object' || !Number.isInteger(c.seq) || c.seq <= last || c.seq > l.seq) return undefined;
     last = c.seq;
-    if (!isStr(c.id, 100) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
+    if ((c.id !== undefined && !isStr(c.id, 100)) || (c.parent !== undefined && !isStr(c.parent, 100)) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
     if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
     if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
-    if (!c.anchors || !Array.isArray(c.anchors.pages) || !Array.isArray(c.anchors.nodes)) return undefined;
+    if (!c.anchors || !ids(c.anchors.pages) || !ids(c.anchors.nodes) || (c.anchors.truncated !== undefined && c.anchors.truncated !== true)) return undefined;
+    if (!whole(c.undoes) || !whole(c.redoes) || (c.compacted !== undefined && c.compacted !== true)) return undefined;
   }
   // A ledger from a file is held to what is saved: pictures left out, sizes counted rather than trusted, the budget kept.
+  // A ledger saved before changes had ids gets them here, made from what each change already says so every read agrees.
+  let previous: string | undefined;
   const read: Ledger = {seq: l.seq, changes: l.changes.map(c => {
-    const kept = {...c, ops: slim(c.ops), size: 0};
-    kept.size = JSON.stringify(kept).length;
+    const id = c.id ?? `legacy-${c.seq}-${shortHash(`${c.at}|${c.baseRevision}|${c.revision}`)}`;
+    const parent = c.parent ?? previous;
+    previous = id;
+    // Only the fields a change has are carried, and its anchors are held to the cap a change recorded now has.
+    const kept: Change = {
+      id, ...(parent ? {parent} : {}), seq: c.seq, at: c.at, author: {kind: c.author.kind, name: c.author.name}, source: c.source,
+      ...(c.reason !== undefined ? {reason: c.reason} : {}), ops: slim(forSaving(c.ops)), anchors: capAnchors(c.anchors),
+      baseRevision: c.baseRevision, revision: c.revision, view: c.view,
+      ...(c.undoes !== undefined ? {undoes: c.undoes} : {}), ...(c.redoes !== undefined ? {redoes: c.redoes} : {}), ...(c.compacted ? {compacted: true as const} : {}), size: 0,
+    };
+    kept.size = sizeOf(kept);
     return kept;
   })};
   compact(read);

@@ -10,6 +10,7 @@ import {validShelf,type ShelfChoice} from './design/shelf';
 import { validLayout, validateTree, type Layout } from './layout';
 import {ownSystems} from './design/presets';
 import {readLedger,type Ledger} from './ledger/types';
+import {pageShapeProblem,type PageKind,type PageMedia} from './free-page';
 export type BlockKind = 'frame' | 'navigation' | 'hero' | 'features' | 'products' | 'testimonial' | 'cta' | 'footer' | PatternKind;
 export type HeroVariant = 'split' | 'image-left' | 'stacked';
 export type Block = { id: string; kind: BlockKind; title: string; text: string; label: string; image: string; filled: boolean; variant?: string; eyebrow?: string; description?:string; itemImages?:string[]; options?: PatternOptions; provider?: Provider; theme?:ComponentTheme; parentId?: string; layout?: Layout };
@@ -23,7 +24,8 @@ export type DesignSystem = { id: string; name: string; description: string; acce
 export type ReferenceEvidence = { engine: 'Apple Vision + pixels' | 'Pixels only'; sourceFingerprint: string; textLines: number; palette: string[]; elapsedMs: number; direction: HeroVariant; mediaUsed: boolean };
 export type VibeReceipt = {packId:string;changedFields:number;source:'local-authored-demo';imageSource:'user-upload'|'bundled-generated'|'none';modelCalled:false};
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
-export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal };
+/** A section page has `blocks`. A free page (`kind: 'html'`) and a media item (`kind: 'media'`) keep `blocks: []` and hold their content in `html` or `media` (src/free-page.ts). */
+export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal; kind?: PageKind; html?: string; media?: PageMedia };
 /** `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. */
 export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger };
 export const uid = () => crypto.randomUUID();
@@ -92,8 +94,10 @@ const renamedVariants: Record<string, Record<string, string>> = {
   cta: { halves: 'panel' },   // 2026-09-16 · collided with the `split` cta that was already there
   moacard: { cover: 'banner' }, // 2026-09-16 · a task card has no picture; what it does is run the tag to the edge
 };
+/** What a saved project holds at most, design and history together, in characters of JSON. */
+export const MAX_PROJECT = 20_000_000;
 export function parseProject(raw: string): Project {
-  if (raw.length > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.');
+  if (raw.length > MAX_PROJECT) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
@@ -122,6 +126,8 @@ export function parseProject(raw: string): Project {
   for (const page of p.pages) {
     if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, 100) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
     ids.add(page.id);
+    const shape = pageShapeProblem(page);
+    if (shape) throw new Error(`페이지 형식이 올바르지 않습니다: ${shape}.`);
     if(page.proposal!==undefined&&(!validId(page.proposal.fromPageId)||!str(page.proposal.label,100)||!['reference-direction','vibe','agent'].includes(page.proposal.kind)))throw new Error('페이지 제안 형식이 올바르지 않습니다.');
     const vibe=page.vibeReceipt;
     if(vibe&&(!str(vibe.packId,100)||!Number.isInteger(vibe.changedFields)||vibe.changedFields<0||vibe.changedFields>400||vibe.source!=='local-authored-demo'||!['user-upload','bundled-generated','none'].includes(vibe.imageSource)||vibe.modelCalled!==false))throw new Error('Get Vibe 기록이 올바르지 않습니다.');

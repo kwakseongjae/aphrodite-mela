@@ -9,11 +9,17 @@ export function appendEvent(run:AssemblyRun,p:Project,kind:string,details:Record
  if(run.events.length>=500){run.dropped++;return;}
  run.events.push({seq:run.events.length+1,at:new Date().toISOString(),kind:kind.slice(0,80),pageId:p.activePageId,revision:fingerprint(p),details});
 }
+/** The html pages a change made or rewrote, by id: a receipt never carries the page itself. */
+function htmlReceipt(before:Project,after:Project){
+ const was=new Map(before.pages.map(p=>[p.id,p.html]));
+ const changedPages=after.pages.filter(p=>typeof p.html==='string'&&p.html!==was.get(p.id)).map(p=>({pageId:p.id,html:was.get(p.id)===undefined?'added':'changed'}));
+ return changedPages.length?{changedPages}:{};
+}
 export function changeReceipt(before:Project,after:Project){
  const old=new Map(before.pages.flatMap(p=>p.blocks).map(b=>[b.id,b]));
  const nodes=after.pages.flatMap(p=>p.blocks);
  const changed=nodes.filter(b=>JSON.stringify(old.get(b.id))!==JSON.stringify(b));
- return {projectId:after.id,changedNodes:changed.map(b=>({id:b.id,kind:b.kind,parentId:b.parentId??null,layout:b.layout??{},fields:old.has(b.id)?[...new Set([...Object.keys(old.get(b.id)!),...Object.keys(b)])].filter(k=>JSON.stringify(old.get(b.id)![k as keyof typeof b])!==JSON.stringify(b[k as keyof typeof b])):['added']})),pageOrders:after.pages.filter(p=>JSON.stringify(before.pages.find(old=>old.id===p.id)?.blocks.map(b=>b.id))!==JSON.stringify(p.blocks.map(b=>b.id))).map(p=>({pageId:p.id,nodeIds:p.blocks.map(b=>b.id)})),removedIds:[...old.keys()].filter(id=>!nodes.some(b=>b.id===id)),savedRevision:fingerprint(after)};
+ return {projectId:after.id,changedNodes:changed.map(b=>({id:b.id,kind:b.kind,parentId:b.parentId??null,layout:b.layout??{},fields:old.has(b.id)?[...new Set([...Object.keys(old.get(b.id)!),...Object.keys(b)])].filter(k=>JSON.stringify(old.get(b.id)![k as keyof typeof b])!==JSON.stringify(b[k as keyof typeof b])):['added']})),...htmlReceipt(before,after),pageOrders:after.pages.filter(p=>JSON.stringify(before.pages.find(old=>old.id===p.id)?.blocks.map(b=>b.id))!==JSON.stringify(p.blocks.map(b=>b.id))).map(p=>({pageId:p.id,nodeIds:p.blocks.map(b=>b.id)})),removedIds:[...old.keys()].filter(id=>!nodes.some(b=>b.id===id)),savedRevision:fingerprint(after)};
 }
 export function readRun(raw:string):AssemblyRun|null{
  try{if(raw.length>2_000_000)return null;const r=JSON.parse(raw) as AssemblyRun;

@@ -10,7 +10,7 @@
  * one, by an `unknown` author — not whoever happens to edit next. The ledger stays complete even when a
  * code path forgets to commit, and the source name says which kind of path to go and fix.
  */
-import type {Project} from '../model';
+import {parseProject, type Project} from '../model';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject} from './patch';
 import {designOf, emptyLedger, record, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
@@ -70,13 +70,29 @@ export class HumanOnlyStep extends Error {
 }
 
 /**
+ * A step the way the screen takes it (main.ts history): the step, then the project held to what a saved
+ * one must be. Returns the project to show, parsed, with its ledger.
+ */
+export function stepForScreen(project: Project, direction: 'undo' | 'redo', history: History, author: Author): {project: Project; change: Change | null} | null {
+  // The design is held to what a saved project must be before anything moves; the history is the
+  // save's to fit (src/workspace/library.ts upsertProject), so a header this step adds never decides.
+  let shown: Project | undefined;
+  const done = step(project, direction, history, author, design => { shown = parseProject(JSON.stringify(design)); });
+  return done && {project: {...shown!, ...(done.project.ledger ? {ledger: done.project.ledger} : {})}, change: done.change};
+}
+
+/** A step whose design could not be saved: nothing moved, the stacks, history and ledger as they were. */
+export class StepDoesNotFit extends Error {}
+
+/**
  * Takes back the last change, or puts back the last one taken back. Returns the project to show and
  * the change it appended, or null when there is nothing to do. The project passed in is not touched;
  * its ledger and shelf carry over to the one returned. Throws a `HumanOnlyStep` when anyone but the
- * person would move the approval, and a `PatchError` when the step no longer fits the project; either
- * way the stacks are left as they were, but for the redo an untracked change already cleared.
+ * person would move the approval, a `PatchError` when the step no longer fits the project, and a
+ * `StepDoesNotFit` when `check` refuses the design it would show; every way the stacks, the history
+ * and the ledger are left as they were, but for the redo an untracked change already cleared.
  */
-export function step(project: Project, direction: 'undo' | 'redo', history: History, author: Author): {project: Project; change: Change | null} | null {
+export function step(project: Project, direction: 'undo' | 'redo', history: History, author: Author, check?: (design: Project) => void): {project: Project; change: Change | null} | null {
   // What changed behind the ledger is recorded first, even with nothing to step, so the step is only the step.
   reconcile(project, history);
   const from = direction === 'undo' ? history.undo : history.redo;
@@ -86,6 +102,10 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   if (author.kind !== 'person' && ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint')) throw new HumanOnlyStep();
   const current = designOf(project);
   const next = applyPatch(current, ops);
+  if (check) {
+    try { check(next); }
+    catch (error) { throw new StepDoesNotFit(error instanceof Error ? error.message : String(error)); }
+  }
   const ledger = ledgerOf(project);
   const done = record(ledger, current, next, {author, source: direction, ...(direction === 'undo' ? {undoes: entry.seq} : {redoes: entry.seq})});
   from.pop();

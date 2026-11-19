@@ -6,7 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
-import {currentPage, makeBlock, parseProject, safeImage, uid, type BlockKind, type Page, type Project} from '../model';
+import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
 import {patternVariants} from '../patterns';
@@ -14,14 +14,68 @@ import {sampleSrc} from '../design/sample-images';
 import {localRef} from '../design/local-images';
 import {ensureSpace, framePresets, nextFramePosition} from '../editor/space';
 import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
-import {designOf} from '../ledger/ledger';
+import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
+import {htmlProblem, isFreePage, MAX_PAGE_HTML} from '../free-page';
 
-export type BatchResult = {ok: true; project: Project; selected: string} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+/**
+ * `created` is every page the batch made, in order, so the agent can address what it just made.
+ * `designChars` is how long the resulting design serializes to, for measuring what saving takes.
+ */
+export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+type Focus = {selected: string; created: string[]};
+
+/** A free page's html, written by an op: held to what a page may store, or an error sentence. */
+function setHtml(target: Page, html: string): string | undefined {
+  const problem = htmlProblem(html);
+  if (problem) return problem;
+  target.html = html;
+  return undefined;
+}
+
+/**
+ * The ops that write html. A page is made whole, replaced whole, or changed one exact passage at a
+ * time; a passage that is not on the page, or is there more than once without `all`, changes nothing.
+ * Making a page does not move the person to it: they are looking where they were looking.
+ */
+function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_set' | 'html_replace'}>, focus: Focus): string | undefined {
+  if (op.op === 'html_page') {
+    if (project.pages.length >= 30) return 'this project already has 30 pages, which is the limit.';
+    const created: Page = {id: uid(), name: op.name, blocks: [], kind: 'html', html: ''};
+    const refused = setHtml(created, op.html);
+    if (refused) return refused;
+    ensureSpace(project);
+    project.pages.push(created);
+    const frame = nextFramePosition(project.space!, op.width === undefined ? 'desktop' : 'custom', op.width);
+    project.space!.frames[created.id] = op.height === undefined ? frame : {...frame, height: op.height};
+    focus.created.push(created.id);
+    return undefined;
+  }
+  const target = project.pages.find(p => p.id === op.page_id);
+  if (!target) return `no page ${op.page_id}. Take an html page id from aphrodite_get_contract, or from the reply that made it.`;
+  if (!isFreePage(target)) return `page ${op.page_id} is a section page, not an html page. Its sections change with add, update, move and delete; html_set and html_replace change an html page.`;
+  if (op.op === 'html_set') return setHtml(target, op.html);
+  // Counted, and the new length known, before anything is built: a short passage replaced everywhere by a
+  // long one would otherwise make the whole result first and only then find it too big.
+  const {html} = target, {find, replace} = op, places: number[] = [];
+  let length = html.length;
+  for (let at = html.indexOf(find); at >= 0; at = html.indexOf(find, at + find.length)) {
+    places.push(at);
+    length += replace.length - find.length;
+    if (!op.all && places.length > 1) return `the passage to find is on page ${op.page_id} more than once. Send a longer passage that is there once, or "all": true to change every one.`;
+    if (length > MAX_PAGE_HTML) return `changing every place the passage is would make page ${op.page_id} more than ${MAX_PAGE_HTML.toLocaleString('en')} characters, which a page holds at most. Change fewer places, or split the page.`;
+  }
+  if (!places.length) return `the passage to find is not on page ${op.page_id}. Read the page again with aphrodite_get_page_html (it may have changed) and send the exact text.`;
+  let next = '', from = 0;
+  for (const at of places) { next += html.slice(from, at) + replace; from = at + find.length; }
+  return setHtml(target, next + html.slice(from));
+}
 
 /** One operation against a page of `project`, which it changes in place. Returns an error sentence, or nothing. */
-function runOp(project: Project, page: Page, op: Op, focus: {selected: string}): string | undefined {
+function runOp(project: Project, page: Page, op: Op, focus: Focus): string | undefined {
+  if (op.op === 'html_page' || op.op === 'html_set' || op.op === 'html_replace') return runHtmlOp(project, op, focus);
+  if (isFreePage(page) && ['add', 'update', 'move', 'delete'].includes(op.op)) return `page ${page.id} is an html page, which has no sections. Change it with html_set or html_replace.`;
   const blocks = page.blocks;
   const find = (id: string) => blocks.find(b => b.id === (id === SELECTION ? focus.selected : id));
   if (op.op === 'add') {
@@ -92,6 +146,7 @@ function runOp(project: Project, page: Page, op: Op, focus: {selected: string}):
     ensureSpace(project);
     const created: Page = {id: uid(), name: op.name, blocks: []};
     project.pages.push(created);
+    focus.created.push(created.id);
     project.space!.frames[created.id] = nextFramePosition(project.space!, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
     project.activePageId = created.id;
     return undefined;
@@ -108,8 +163,14 @@ function runOp(project: Project, page: Page, op: Op, focus: {selected: string}):
  * on the project passed in; the caller carries it over.
  */
 export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
-  let next = JSON.parse(JSON.stringify(designOf(project))) as Project;
-  const focus = {selected};
+  // Whatever goes wrong inside, the answer is a sentence and the project passed in is untouched.
+  try { return attempt(project, batch, selected); }
+  catch (error) { return {ok: false, index: -1, part: batch.patch?.length && !batch.ops.length ? 'patch' : 'ops', error: `the batch could not be applied: ${error instanceof Error ? error.message : String(error)}`}; }
+}
+
+function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
+  let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
+  const focus: Focus = {selected, created: []};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};
@@ -121,6 +182,11 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
          page they started from. */
       if (op.op === 'page' && op.page_id === undefined) target = currentPage(next);
     }
+    // What the ops made is held to what a saved project must be, as the patch is below: thirty pages of
+    // 2MB would not fit in one, and a project that cannot be saved cannot be undone into either.
+    json = JSON.stringify(next);
+    try { parseProject(json); }
+    catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
     try { next = applyPatch(next, batch.patch); }
@@ -131,7 +197,19 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
     // A patch can say anything the model can hold, so the result is held to what a saved project must be.
     try { next = parseProject(JSON.stringify(next)); }
     catch (error) { return {ok: false, index: -1, part: 'patch', error: `the patch would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
+    const was = new Map(project.pages.map(p => [p.id, p]));
+    for (const page of next.pages) {
+      const problem = typeof page.html === 'string' && page.html !== was.get(page.id)?.html ? htmlProblem(page.html) : undefined;
+      if (problem) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: ${problem}`};
+      // A media item points at a file on the board, so it is made where the file is put there (media_add, 0.3-P2).
+      if (page.media !== undefined && JSON.stringify(page.media) !== JSON.stringify(was.get(page.id)?.media)) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: a media item arrives with media_add, which puts its file on the board first; a patch cannot point one at a file that may not be there.`};
+    }
     if (!next.pages.some(p => p.blocks.some(b => b.id === focus.selected))) focus.selected = '';
   }
-  return {ok: true, project: next, selected: focus.selected};
+  // What is saved is the design and its history, and the history never takes more than LEDGER_RESERVE
+  // (src/ledger/types.ts). So the design alone is held to the rest: a batch that lands is a project that
+  // saves and opens, whoever records it and with whatever reason.
+  const designChars = (batch.patch?.length || !json ? JSON.stringify(next) : json).length;
+  if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
+  return {ok: true, project: next, selected: focus.selected, created: focus.created, designChars};
 }

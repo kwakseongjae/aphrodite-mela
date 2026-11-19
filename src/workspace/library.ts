@@ -1,4 +1,6 @@
-import {parseProject,uid,type Project} from '../model';
+import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
+import {fitSaved} from '../ledger/ledger';
+import {LEDGER_RESERVE} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -27,21 +29,67 @@ export function readLibrary(storage:LocalStore):Library{
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
   return {version:1,entries:legacy?[entryFor(parseProject(legacy))]:[]};
 }
-export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string):ProjectEntry{
-  const entry:ProjectEntry={project:parseProject(JSON.stringify(project)),createdAt:now,updatedAt:now,pinned:false,archived:false};
+export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=JSON.stringify(project)):ProjectEntry{
+  const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
   if(workspaceId!==undefined)entry.workspaceId=requireWorkspaceId(workspaceId);
   return entry;
 }
+/**
+ * The library with `project` saved into it. The project is serialized once; only when that is over what
+ * a project holds does its history give way, in place (fitSaved), and it is serialized again — so what
+ * stays in memory is what was saved, and the next save does not meet the same history.
+ */
 export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{
   const existing=library.entries.find(e=>e.project.id===project.id);
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
-  const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
+  let raw=JSON.stringify(project);
+  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);}
+  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
-export function writeLibrary(storage:LocalStore,library:Library):void{
-  // One atomic localStorage write: quota errors cannot leave a half-written index.
-  const raw=JSON.stringify(library);
+/** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
+export const LIBRARY_LIMIT_BYTES=40_000_000;
+/**
+ * A guess at what a browser keeps in local storage for one site, in characters. Browsers differ, and the
+ * other keys this app keeps there count too, so this only turns away what would plainly not fit; the real
+ * guard in the browser build is the toast the person sees when a save fails.
+ */
+export const BROWSER_LIBRARY_ESTIMATE=5_000_000;
+/** How many bytes `text` takes as UTF-8, without encoding it. */
+export function utf8Length(text:string):number{
+  let n=0;
+  for(let i=0;i<text.length;i++){const c=text.charCodeAt(i);if(c<0x80)n++;else if(c<0x800)n+=2;else if(c>=0xd800&&c<=0xdbff&&i+1<text.length&&(text.charCodeAt(i+1)&0xfc00)===0xdc00){n+=4;i++;}else n+=3;}
+  return n;
+}
+export type LibraryLimit={limit:number;unit:'bytes'|'chars'};
+/**
+ * How long each library was, in characters, when it was handed to storage (main.ts saveLibrary). Kept
+ * with the object rather than beside it: a library read again from disk, imported or swapped is another
+ * object, so nothing is remembered for it and the next batch measures it.
+ */
+const savedChars=new WeakMap<Library,number>();
+export function rememberSaved(library:Library,chars:number):void{savedChars.set(library,chars);}
+/**
+ * Why saving the library with `after` (a design) in place of `before` would not fit where it is kept, or
+ * undefined when it would — measured from above, without recording the change: the library with this
+ * project's design and no history, plus the most a history can take (LEDGER_RESERVE characters, three
+ * bytes each at worst). When this very library was saved (rememberSaved) and the caller gives the new
+ * design's length, even the sum of the two leaving room answers without measuring the library again. A change that does not
+ * grow the design is never refused for this: making something smaller is always taken.
+ */
+export function libraryRefusal(library:Library,before:Project,after:Project,{limit,unit}:LibraryLimit,designChars?:number):string|undefined{
+  const measure=unit==='bytes'?utf8Length:(s:string)=>s.length,most=unit==='bytes'?3:1,libraryChars=savedChars.get(library);
+  if(libraryChars!==undefined&&designChars!==undefined&&most*(libraryChars+designChars+LEDGER_RESERVE)<=limit)return undefined;
+  const design={...after,ledger:undefined};
+  const size=measure(JSON.stringify(upsertProject(library,design)))+most*LEDGER_RESERVE;
+  if(size<=limit)return undefined;
+  if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
+  return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
+}
+export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,JSON.stringify(library));}
+/** The library, already serialized, in one atomic localStorage write: quota errors cannot leave a half-written index. */
+export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }

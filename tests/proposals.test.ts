@@ -158,3 +158,23 @@ test('proposalBadgeHtml is empty for normal pages and escapes proposal labels',(
   assert.doesNotMatch(ko,/<script>/);
   assert.doesNotMatch(en,/<script>/);
 });
+
+/* 0.3-P1: a page is sections or html. Choosing a proposal to replace its source takes the proposal's
+   content whole, so an html page replaced by a section proposal becomes a section page, and the other
+   way round — never an html page that also has sections, which no saved project may hold. */
+test('replacing a page with a proposal takes its content whole, html or sections',async()=>{
+  const {parseProject}=await import('../src/model');
+  const project=initialProject();
+  project.pages.push({id:'free-1',name:'Briefing',blocks:[],kind:'html',html:'<p>Briefing</p>'});
+  placeProposals(project,'free-1',[{page:extraPage('prop-a','A','Alpha'),label:'Sections'}],'reference-direction');
+  resolveProposal(project,'prop-a','replace');
+  const replaced=project.pages.find(p=>p.id==='free-1')!;
+  assert.deepEqual([replaced.kind,replaced.html,replaced.blocks.length],[undefined,undefined,1]);
+  assert.doesNotThrow(()=>parseProject(JSON.stringify(project)));
+  const back=initialProject(),source=back.pages[0].id;
+  placeProposals(back,source,[{page:{id:'prop-h',name:'H',blocks:[],kind:'html',html:'<p>Html</p>'},label:'Html'}],'agent');
+  resolveProposal(back,'prop-h','replace');
+  const page=back.pages.find(p=>p.id===source)!;
+  assert.deepEqual([page.kind,page.html,page.blocks.length],['html','<p>Html</p>',0]);
+  assert.doesNotThrow(()=>parseProject(JSON.stringify(back)));
+});

@@ -233,10 +233,9 @@ test('the saved ledger keeps to its budget: oldest ops first, then oldest header
     record(ledger, p, next, {author: me, source: 'editor:change'});
     p = next;
   }
-  // 60 headers are about 18,000 characters; the budget leaves room for the newest few to keep their ops.
-  compact(ledger, 22_000);
-  const total = ledger.changes.reduce((s, c) => s + c.size, 0);
-  assert.ok(total <= 22_000);
+  // 60 headers are about 21,000 characters as saved, commas and all; the budget leaves room for the newest few to keep their ops.
+  compact(ledger, 23_000);
+  assert.ok(JSON.stringify(ledger).length <= 23_000);
   assert.equal(ledger.changes.length, 60, 'no header was dropped while ops could go first');
   assert.ok(ledger.changes[0].compacted);
   assert.ok(!ledger.changes[ledger.changes.length - 1].compacted, 'the newest keeps its ops');
@@ -254,7 +253,7 @@ test('a ledger read from a file is held to what is saved: pictures out, sizes co
   raw.changes[1].ops = [block, {op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(700_000)}];
   raw.changes.forEach(c => { c.size = 1; });
   const read = readLedger(JSON.parse(JSON.stringify(raw)))!;
-  assert.ok(read.changes.every(c => c.size === JSON.stringify({...c, size: 0}).length), 'every size is counted, not taken on trust');
+  assert.ok(read.changes.every(c => c.size === JSON.stringify(c).length), 'every size is counted exactly, not taken on trust');
   assert.ok(read.changes.reduce((s, c) => s + c.size, 0) <= LEDGER_BUDGET);
   assert.deepEqual([read.changes[0].compacted, read.changes[0].ops], [true, []], 'the oldest gave up its ops');
   assert.deepEqual(read.changes[1].ops[0], {...block, value: {$omitted: 'data-url', bytes: 26}});

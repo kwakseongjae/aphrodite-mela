@@ -67,3 +67,11 @@ test('the tool-name guard bites',()=>{
     for(const named of pretend.match(/aphrodite_[a-z_]+/g)??[]) assert.ok(known.has(named),named);
   });
 });
+
+/* 0.3-P1: shaping a direction makes an html page; the section catalogue is something to borrow from. */
+test('shape builds the direction as an html page, read back before it is called done',()=>{
+  const text=body(promptByName.shape as Prompt);
+  assert.match(text,/html_page/);
+  assert.match(text,/aphrodite_get_page_html/);
+  assert.doesNotMatch(text,/list_components` for the vocabulary/,'the catalogue is no longer the vocabulary a page is built from');
+});

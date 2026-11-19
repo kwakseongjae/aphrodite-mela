@@ -12,10 +12,10 @@
  * - The undo entry stays in memory with the ops exactly as they were, pictures included, so undo is
  *   exact for the last `UNDO_LIMIT` changes.
  */
-import {fingerprint, type Project} from '../model';
+import {fingerprint, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
-import {compact, MAX_REASON, slim, type Author, type Change, type Ledger} from './types';
-export {readLedger, compact, slim, LEDGER_BUDGET, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
+import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
 
@@ -34,6 +34,10 @@ export function hasOmitted(value: unknown): boolean {
   return Object.values(value).some(hasOmitted);
 }
 
+function anchored(ops: PatchOp[]): Change['anchors'] {
+  return capAnchors(anchorsOf(ops));
+}
+
 export type ChangeMeta = {author: Author; source: string; reason?: string; undoes?: number; redoes?: number; at?: string; id?: string};
 
 /**
@@ -46,13 +50,14 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
   const reason = meta.reason?.trim().slice(0, MAX_REASON);
   const change: Change = {
     id: meta.id ?? crypto.randomUUID(),
+    ...(ledger.changes.length ? {parent: ledger.changes[ledger.changes.length - 1].id} : {}),
     seq,
     at: meta.at ?? new Date().toISOString(),
     author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},
     source: meta.source.slice(0, 80),
     ...(reason ? {reason} : {}),
-    ops: slim(ops),
-    anchors: anchorsOf(ops),
+    ops: slim(forSaving(ops)),
+    anchors: anchored(ops),
     baseRevision: fingerprint(before),
     revision: fingerprint(after),
     view: isViewOnly(ops, before, after),
@@ -60,7 +65,7 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
     ...(meta.redoes !== undefined ? {redoes: meta.redoes} : {}),
     size: 0,
   };
-  change.size = JSON.stringify(change).length;
+  change.size = sizeOf(change);
   ledger.seq = seq;
   ledger.changes.push(change);
   compact(ledger);
@@ -82,6 +87,21 @@ export function changesSince(ledger: Ledger | undefined, since: number | string 
   const after = all.filter(c => c.seq > from && (options.includeView || !c.view));
   const limit = options.limit ?? 50;
   return {changes: after.slice(0, limit), more: after.length > limit, from};
+}
+
+/**
+ * Keeps what is saved — the design and its history together — within what a project holds
+ * (MAX_PROJECT), in place: the history gives way, oldest ops first and then oldest headers, and the
+ * design never does. The save calls this (src/workspace/library.ts upsertProject) when the project it
+ * has just serialized is over the cap, so a project far from it costs nothing, and what stays in memory
+ * is what was saved. A design within MAX_PROJECT − LEDGER_RESERVE never gets here. A design past
+ * MAX_PROJECT on its own is not rescued: saving it fails and the person sees the not-saved warning.
+ */
+export function fitSaved(project: Project): void {
+  const ledger = project.ledger;
+  if (!ledger) return;
+  // The saved project is the design with `,"ledger":` and the ledger added, wherever the key falls.
+  compact(ledger, MAX_PROJECT - JSON.stringify(designOf(project)).length - ',"ledger":'.length);
 }
 
 export function emptyLedger(): Ledger {

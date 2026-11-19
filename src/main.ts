@@ -11,7 +11,7 @@ import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
 import {pinShelf,shelfPage} from './design/shelf';
-import {begin,end,newHistory,step,HumanOnlyStep} from './ledger/session';
+import {begin,end,newHistory,stepForScreen,HumanOnlyStep,StepDoesNotFit} from './ledger/session';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -48,7 +48,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,writeLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -57,10 +57,11 @@ import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
-import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT} from './agent/contract';
+import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
-import {changesSince,designOf,type Change} from './ledger/ledger';
+import {isFreePage} from './free-page';
+import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
@@ -214,7 +215,7 @@ function paintToasts(){
 }
 /** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
 function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
 function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
@@ -262,16 +263,18 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
   const before=project;let done;
-  try{done=step(project,direction,edits,d.author);}
+  try{done=stepForScreen(project,direction,edits,d.author);}
   catch(error){
     // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
     if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
+    // The design it would show could not be saved: nothing moved, and the step stays where it was.
+    if(error instanceof StepDoesNotFit){toast(ui('That step would make the project too big to save, so nothing changed.','그 단계는 프로젝트를 저장할 수 없을 만큼 크게 만들어, 아무것도 바꾸지 않았습니다.'));return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
     (direction==='undo'?edits.undo:edits.redo).pop();
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
   if(!done)return;
-  project=parseProject(JSON.stringify(done.project));persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  project=done.project;persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 /** `d`, when an agent's, names it on the receipt. */
@@ -840,6 +843,7 @@ function exportModal(view = 'prompt') {
   if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
 }
 function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
+  if (isFreePage(currentPage(project))) { toast(ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
   const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
@@ -1519,7 +1523,7 @@ async function actViaButton(actionName:string,data:Record<string,string>,d:Dispa
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
 function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
-function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),ops:c.ops};}
+function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{}),seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),size:c.size,ops:c.ops};}
 /**
  * The 409 for a change an agent wrote against a revision the person has since changed: what changed
  * in between, and the revision to send next, so the agent reads before it writes over. Undefined when
@@ -1528,8 +1532,8 @@ function publicChange(c:Change){return {seq:c.seq,at:c.at,author:c.author,source
 function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
   const now=fingerprint(project);
   if(!baseRevision||baseRevision===now)return undefined;
-  const since=changesSince(project.ledger,baseRevision,{limit:20});
-  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:since.changes.map(publicChange),more:since.more};
+  const since=changesSince(project.ledger,baseRevision,{limit:20}),listed=changesForReply(since.changes.map(publicChange));
+  return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:listed.changes,...(listed.note?{note:listed.note}:{}),more:since.more};
 }
 /**
  * A batch from an agent (src/agent/apply.ts does the work): all of it lands as one change in the
@@ -1539,10 +1543,14 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
 function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
   const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
   const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-  let failure:Extract<BatchResult,{ok:false}>|undefined;
+  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
   commit(()=>{
     const result=runBatch(project,batch,selected);
     if(!result.ok){failure=result;return;}
+    // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
+    const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
+    if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
+    created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
   },d,'edit.apply',{source:'agent:apply'});
@@ -1550,7 +1558,7 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1587,17 +1595,24 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     return {ok:true,...designTokens(project,themeVars(project))};
   }
+  if(c.kind==='html'||c.kind==='text'){
+    if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
+    const read=c.kind==='html'?pageHtmlRead(project,c):pageTextRead(project,c);
+    return 'error' in read?read:{...read,...revisionInfo()};
+  }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='changes'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
-    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:found.changes.map(publicChange)};
+    const listed=changesForReply(found.changes.map(publicChange));
+    return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:listed.changes,...(listed.note?{note:listed.note}:{})};
   }
   if(c.kind==='render'){
     if(screen!=='editor')return closedRender();
     if(!nativeDesktop)return {error:'rendering a page to an image needs the desktop app'};
     const page=c.pageId?project.pages.find(x=>x.id===c.pageId):currentPage(project);
     if(!page)return {error:`no page "${c.pageId}". This project has: ${project.pages.map(x=>x.id).join(', ')}`};
+    const refused=renderRefusal(page);if(refused)return {error:refused};
     const width=c.width??frameWidth(project.space?.frames[page.id]??{x:0,y:0,preset:'desktop'});
     try{
       // A render is a viewport, not a whole page: a caller that wants more of a long page asks for
@@ -1714,7 +1729,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         if(c.tokens){
           // The same guard the file import uses: anything that is not a colour is dropped, not trusted.
           const merged={...(next??project.system),...c.tokens} as DesignSystem;
-          const cleaned=parseProject(JSON.stringify({...project,system:merged}));
+          const cleaned=parseProject(JSON.stringify({...designOf(project),system:merged}));
           next=cleaned.system;
         }
         if(!next)return {error:'system changed nothing'};

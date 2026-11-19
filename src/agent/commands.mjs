@@ -108,6 +108,75 @@ export const commands = [
     },
   },
   {
+    id: 'read.html',
+    label: {en: 'Read a page\'s html', ko: '페이지 HTML 읽기'},
+    grade: 'read',
+    kind: 'html',
+    input: {
+      type: 'object',
+      properties: {
+        page_id: {type: 'string', description: 'Required. An html page, from aphrodite_get_contract or from the reply that made it.'},
+        start: {type: 'integer', minimum: 0, description: 'The first character to return (default 0).'},
+        end: {type: 'integer', minimum: 0, description: 'The character to stop before (default: the end, or 200,000 characters on, whichever comes first).'},
+      },
+      required: ['page_id'],
+      additionalProperties: false,
+    },
+    ...plain,
+    surfaces: MCP_PANEL,
+    controls: [],
+    route: {method: 'GET', path: '/agent/html'},
+    example: {page_id: 'abc-1'},
+    mcp: {
+      order: 3,
+      name: 'aphrodite_get_page_html',
+      title: 'Read a page\'s html',
+      description: [
+        'The html of one html page, exactly as it is stored: what to read before you change it, and where to copy the passage you send as `find` to html_replace.',
+        '',
+        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make.',
+        'A section page has no html; read it with aphrodite_get_contract. For the words of a page without its markup, aphrodite_get_page_text is shorter.',
+        '',
+        'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
+      ].join('\n'),
+      annotations: {title: 'Read a page\'s html', ...READ},
+      params: args => ({page_id: args.page_id, start: args.start, end: args.end}),
+    },
+  },
+  {
+    id: 'read.text',
+    label: {en: 'Read the words of a page', ko: '페이지 글 읽기'},
+    grade: 'read',
+    kind: 'text',
+    input: {
+      type: 'object',
+      properties: {
+        page_id: {type: 'string', description: 'Required. An html page, from aphrodite_get_contract.'},
+      },
+      required: ['page_id'],
+      additionalProperties: false,
+    },
+    ...plain,
+    surfaces: MCP_PANEL,
+    controls: [],
+    route: {method: 'GET', path: '/agent/text'},
+    example: {page_id: 'abc-1'},
+    mcp: {
+      order: 4,
+      name: 'aphrodite_get_page_text',
+      title: 'Read the words of a page',
+      description: [
+        'What an html page says, without how it is built: headings as #, list items as -, table rows as | a | b |, a paragraph per block. Scripts, styles and drawings are left out.',
+        '',
+        'Use it to read a briefing or a report someone else wrote before you add to it. To change the page, read its html with aphrodite_get_page_html: the text here is not what html_replace finds.',
+        '',
+        'Example: {"page_id": "abc-1"}',
+      ].join('\n'),
+      annotations: {title: 'Read the words of a page', ...READ},
+      params: args => ({page_id: args.page_id}),
+    },
+  },
+  {
     id: 'read.changes',
     label: {en: 'Read what changed', ko: '바뀐 것 읽기'},
     grade: 'read',
@@ -127,7 +196,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/changes'},
     example: {since: 12},
     mcp: {
-      order: 3,
+      order: 5,
       name: 'aphrodite_get_changes',
       title: 'Read what changed',
       description: [
@@ -135,7 +204,10 @@ export const commands = [
         '',
         'Call it at the start of each turn with the `seq` from your last reply, and before you edit. Every reply carries `revision`: send it as `base_revision` with aphrodite_apply_edits, and a batch written against an older state is refused with what changed, instead of quietly writing over the person\'s work.',
         'Undo does not erase anything here: it appears as its own change that names the one it took back (`undoes`). Changes that only moved the view — opening another page, dragging a frame around the space — are left out unless you pass include_view.',
+        'Each change names at most 500 components in its anchors; one with `anchors.truncated` touched more, so take it to have touched the pages it names whole.',
+        'Each change has its own `id` and names the change it was made on as `parent`. A change to a page\'s html is a text diff ({"op": "text"}): the passages that changed, each with `at`, `insert`, and the length and hash of what it took out.',
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
+        'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
         '',
         'Example: {"since": 12} — or {} for the latest 50, or {"since": "1830:4fa1c2:9b0e11"} with a revision you were given.',
       ].join('\n'),
@@ -155,7 +227,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/tokens'},
     example: {},
     mcp: {
-      order: 4,
+      order: 6,
       name: 'aphrodite_get_tokens',
       title: 'Read the design tokens',
       description: [
@@ -189,7 +261,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/render'},
     example: {width: 390},
     mcp: {
-      order: 5,
+      order: 7,
       name: 'aphrodite_get_render',
       title: 'Look at the page',
       description: [
@@ -290,7 +362,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/ui'},
     example: {action: 'command', query: 'Preview'},
     mcp: {
-      order: 15,
+      order: 17,
       name: 'aphrodite_use_interface',
       title: 'Drive the interface directly',
       description: [
@@ -330,14 +402,14 @@ export const commands = [
     route: {method: 'GET', path: '/agent/components'},
     example: {},
     mcp: {
-      order: 6,
+      order: 8,
       name: 'aphrodite_list_components',
       title: 'List the component vocabulary',
       description: [
-        'Every component kind this workbench can place, with the variants and providers each one accepts.',
+        'The section catalogue: every component kind, with the variants and providers each one accepts. It is material — kinds whose structure and look you may borrow into the html of a new page.',
         '',
-        'Call this before aphrodite_apply_edits when you are not certain a kind or variant exists — the edit will be refused otherwise, and this is the cheaper way to find out.',
-        'These are the kinds available to add, not the components currently on the page.',
+        'Add one with aphrodite_apply_edits only on a section page made before html; call this first when you are not certain a kind or variant exists, since the edit is refused otherwise.',
+        'These are the kinds there are, not the components currently on a page.',
         '',
         'Example: {}',
       ].join('\n'),
@@ -360,8 +432,14 @@ export const commands = [
           items: {
             type: 'object',
             properties: {
-              op: {type: 'string', enum: ['add', 'update', 'move', 'delete', 'frame', 'page']},
-              name: {type: 'string', description: 'page: what to call it, for example "Mobile".'},
+              op: {type: 'string', enum: ['html_page', 'html_set', 'html_replace', 'add', 'update', 'move', 'delete', 'frame', 'page']},
+              name: {type: 'string', description: 'html_page/page: what to call it, for example "Briefing".'},
+              html: {type: 'string', maxLength: 2000000, description: 'html_page/html_set: the whole document, scripts and styles included, up to 2,000,000 characters. A picture or a video is "media:<sha256>", another page "page:<id>"; never a path on this machine.'},
+              find: {type: 'string', description: 'html_replace: the exact passage to change, as aphrodite_get_page_html returns it. Refused when it is not on the page, or is there more than once without all.'},
+              replace: {type: 'string', description: 'html_replace: what goes in its place, taken literally.'},
+              all: {type: 'boolean', description: 'html_replace: change every place the passage is, not just the one.'},
+              width: {type: 'number', minimum: 240, maximum: 3200, description: 'html_page: the frame width in pixels. Defaults to desktop (1440).'},
+              height: {type: 'number', minimum: 100, maximum: 20000, description: 'html_page: the frame height in pixels; the page scrolls inside it.'},
               image: {type: 'string', description: 'update: the picture for a hero or a collection — an id from aphrodite_list_images ("sample:desk-lamp" for one the app ships with), or "" to clear it.'},
               component_kind: {type: 'string', description: 'add: the kind to place, from aphrodite_list_components.'},
               variant: {type: 'string', description: 'add/update: a variant that kind accepts. On update it changes the layout and keeps the words — you do not delete and re-add to restyle a component.'},
@@ -371,7 +449,7 @@ export const commands = [
               fields: {type: 'object', description: 'update: the copy to set — title, text, label, eyebrow, description. Optional when you are only changing the variant.'},
               direction: {type: 'string', enum: ['up', 'down'], description: 'move: which way in the page order.'},
               preset: {type: 'string', enum: ['desktop', 'tablet', 'mobile', 'custom'], description: 'frame/page: the size to give the page.'},
-              page_id: {type: 'string', description: 'frame: which page to resize. page: which page to rename — leave it out to make a new one. Defaults to the one being edited.'},
+              page_id: {type: 'string', description: 'html_set/html_replace: the html page to change. frame: which page to resize. page: which page to rename — leave it out to make a new one. Defaults to the one being edited.'},
             },
             required: ['op'],
           },
@@ -393,11 +471,12 @@ export const commands = [
     route: {method: 'POST', path: '/agent/apply'},
     example: {reason: 'The brief asks for a calmer first screen.', ops: [{op: 'delete', block_id: 'selection'}]},
     mcp: {
-      order: 14,
+      order: 16,
       name: 'aphrodite_apply_edits',
       title: 'Change the design',
       description: [
-        'Change a page with a list of operations that land together: add, update, move, delete a component, resize a page frame, or make and name a page (`page`, which inherits the design system). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle or re-illustrate it.',
+        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`.',
+        'On a section page made before html: add, update, move, delete a component, resize a page frame, or make and name a section page (`page`). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle it.',
         '',
         'Every call needs a `reason`: one sentence, for the person, on why. It is shown beside the change and kept with it. Send `base_revision` (the revision from aphrodite_get_changes or aphrodite_get_contract) so a batch written against an older state is refused with what changed, instead of writing over the person\'s work.',
         'Ops from aphrodite_get_changes can be sent back as `patch` to replay a change; use `ops` for anything you are deciding yourself.',
@@ -407,7 +486,8 @@ export const commands = [
         'It cannot approve a direction: that decision stays a human one and no tool here can make it.',
         'Editing needs the person to have opened the door (Connected mode, or Agent mode). If it is closed you get a 423 and a sentence to pass on to them; do not retry in a loop.',
         '',
-        'Example: {"reason": "The brief asks for a calmer first screen, so the hero stacks and the button says what happens next.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
+        'Example: {"reason": "The briefing now covers this week.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
+        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
       ].join('\n'),
       annotations: {title: 'Change the design', ...WRITE},
       body: args => ({ops: args.ops, patch: args.patch, page_id: args.page_id, reason: args.reason, base_revision: args.base_revision}),
@@ -543,7 +623,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'list'},
     mcp: {
-      order: 13,
+      order: 15,
       name: 'aphrodite_list_images',
       title: 'List the local picture library',
       description: [
@@ -579,7 +659,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'import', name: 'hero', base64: 'iVBORw0KGgo='},
     mcp: {
-      order: 16,
+      order: 18,
       name: 'aphrodite_add_image',
       title: 'Add a picture to the library',
       description: [
@@ -614,7 +694,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/library'},
     example: {action: 'delete', id: '0123456789abcdef'},
     mcp: {
-      order: 17,
+      order: 19,
       name: 'aphrodite_delete_image',
       title: 'Delete a picture from the library',
       description: [
@@ -640,7 +720,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/references'},
     example: {},
     mcp: {
-      order: 7,
+      order: 9,
       name: 'aphrodite_list_references',
       title: 'List the reference archive',
       description: [
@@ -668,7 +748,7 @@ export const commands = [
     route: {method: 'GET', path: '/agent/taste'},
     example: {},
     mcp: {
-      order: 8,
+      order: 10,
       name: 'aphrodite_get_taste',
       title: 'Read what the app has observed about their taste',
       description: [
@@ -704,7 +784,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/keep'},
     example: {url: 'https://example.com/lighting', note: 'the grid breathes'},
     mcp: {
-      order: 9,
+      order: 11,
       name: 'aphrodite_keep_reference',
       title: 'Keep something in the reference archive',
       description: [
@@ -737,7 +817,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/unkeep'},
     example: {id: '3fc91b608b8b93c4'},
     mcp: {
-      order: 10,
+      order: 12,
       name: 'aphrodite_forget_reference',
       title: 'Take something back out of the reference archive',
       description: [
@@ -780,7 +860,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/system'},
     example: {id: 'toss', reason: 'The person asked for the Toss look.'},
     mcp: {
-      order: 11,
+      order: 13,
       name: 'aphrodite_set_design_system',
       title: 'Change the design system',
       description: [
@@ -815,7 +895,7 @@ export const commands = [
     route: {method: 'POST', path: '/agent/export'},
     example: {format: 'contract'},
     mcp: {
-      order: 12,
+      order: 14,
       name: 'aphrodite_export_contract',
       title: 'Read the build contract',
       description: [

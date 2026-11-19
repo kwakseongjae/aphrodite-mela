@@ -14,6 +14,8 @@ import {MAX_REASON} from '../ledger/types';
 export type AgentCommand=
   |{kind:'state'}
   |{kind:'contract';format?:'concise'|'detailed';pageId?:string}
+  |{kind:'html';pageId:string;start?:number;end?:number}
+  |{kind:'text';pageId:string}
   |{kind:'tokens'}
   |{kind:'render';pageId?:string;width?:number;height?:number}
   |{kind:'guide'}
@@ -97,6 +99,17 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       const pageId=str(p.pageId,200);
       if(p.pageId!==undefined&&(!pageId||!/^[a-zA-Z0-9_-]{1,200}$/.test(pageId)))return {error:'contract pageId must be a page id from the contract'};
       return {command:{kind:'contract',format,...(pageId?{pageId}:{})}};
+    }
+    /* An html page, read as stored or as words. A query string sends numbers as text. */
+    case 'html':case 'text':{
+      const pageId=str(p.page_id??p.pageId,200);
+      if(!pageId||!/^[a-zA-Z0-9_-]{1,200}$/.test(pageId))return {error:`${kind} needs "page_id": an html page id from aphrodite_get_contract`};
+      if(kind==='text')return {command:{kind:'text',pageId}};
+      const at=(v:unknown)=>v===undefined||v===''?undefined:typeof v==='number'?v:typeof v==='string'&&/^\d{1,9}$/.test(v)?Number(v):NaN;
+      const start=at(p.start),end=at(p.end);
+      for(const [name,n] of [['start',start],['end',end]] as const)if(n!==undefined&&!(Number.isInteger(n)&&n>=0))return {error:`html ${name} must be a whole number of characters, 0 or more`};
+      if(start!==undefined&&end!==undefined&&end<start)return {error:'html end comes after start'};
+      return {command:{kind:'html',pageId,...(start!==undefined?{start}:{}),...(end!==undefined?{end}:{})}};
     }
     case 'apply':{
       // The batch itself — ops, patch, reason, base_revision — is validated by parseBatch, which owns
