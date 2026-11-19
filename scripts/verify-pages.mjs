@@ -16,7 +16,7 @@ import dgram from 'node:dgram';
 import {createHash} from 'node:crypto';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
-import {framedDocument, renderShell} from '../src/free-page.ts';
+import {framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
 import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
@@ -180,14 +180,8 @@ check('a page reaches nothing over WebRTC, nor from a frame or a worker of its o
   assert.equal(packets.length - before, 0, `UDP packets reached the socket: ${packets.length - before}`);
 });
 
-/** A page that takes the host's script out before it tries anything, so nothing below leans on it. */
-const bare = probe('bare').replace('<script>\nconst report', `<script>
-for (const s of [...document.scripts]) if (s !== document.currentScript) s.remove();
-addEventListener('click', e => e.stopImmediatePropagation(), true);
-const report`);
-
-for (const [tag, html] of [['probe', probe('probe')], ['bare', bare]]) {
-  check(`${tag === 'probe' ? 'a page' : 'a page that takes out the host script'} reaches nothing outside, whatever it tries`, async () => {
+for (const [tag, html] of [['probe', probe('probe')]]) {
+  check('a page reaches nothing outside, whatever it tries', async () => {
     const before = hits.length;
     const url = await evaluate('location.href');
     const id = await makePage(`Probe ${tag}`, html);
@@ -198,9 +192,30 @@ for (const [tag, html] of [['probe', probe('probe')], ['bare', bare]]) {
     assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
     assert.equal(await evaluate('location.href'), url, 'the app stayed where it was');
     assert.equal(await evaluate(`!!document.querySelector('[data-page-id="${id}"] iframe')`), true, 'the frame is still on the board');
-    assert.equal(await evaluate(`window.__frameMessages.find(m => m && m.probe === '${tag}' && m.name === 'entity-hidden-file')?.value`), '0', 'a file: address hidden behind an entity loads nothing');
+    assert.equal(await evaluate(`window.__frameMessages.find(m => m && m.probe === '${tag}' && m.name === 'entity-hidden-file')?.value`), '0', 'a file: address hidden behind an entity loads nothing (Chrome refuses file: from a web page in any case; the http address hidden the same way, counted at the server above, is the probe that tells)');
   });
 }
+
+/* The frame's sandbox, its policy and the app's frame-src hold without a line of the host's script: the
+   probe is framed as the board frames it, then the host's scripts are cut out of the document, and the
+   frame is put straight into the app's page under the app's policy. (Removing an executed script element
+   from inside the page, as this check once did, leaves its listeners running: 0.3-P2-fix1 #10.) */
+check('a page framed without any of the host’s scripts reaches nothing outside either', async () => {
+  const before = hits.length;
+  const url = await evaluate('location.href');
+  const doc = framedDocument(probe('bare'), {media: () => undefined, origins: []});
+  const bareDoc = doc.slice(0, doc.indexOf('<script>')) + doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length);
+  assert.ok(!bareDoc.includes("aphrodite:'frame'") && !bareDoc.includes('const gone='), 'no host script is left in it');
+  await evaluate(`(() => { const f = document.createElement('iframe'); f.id = 'bare-frame'; f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = ${JSON.stringify(bareDoc)}; f.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;opacity:0'; document.body.append(f); return true; })()`);
+  await waitFor(() => evaluate(`window.__frameMessages.some(m => m && m.probe === 'bare' && m.name === 'ran')`), 'the bare page to run', 20);
+  await sleep(2500);
+  const seen = hits.slice(before);
+  result.bare = {tried: await evaluate(`window.__frameMessages.filter(m => m && m.probe === 'bare').map(m => m.name + '=' + m.value)`), reached: seen};
+  assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
+  assert.equal(await evaluate('location.href'), url, 'the app stayed where it was');
+  assert.equal(await evaluate(`window.__frameMessages.filter(m => m && m.aphrodite === 'frame').length`), 0, 'no host script spoke');
+  await evaluate(`document.querySelector('#bare-frame').remove(), true`);
+});
 
 /* The off-screen renderer loads a page of its own, top level, from the loopback bridge (src-tauri/src/
    snapshot.rs). Served the same way here, the shell must keep the probe from reaching anything, its
