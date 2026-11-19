@@ -15,9 +15,11 @@ const MIN_WIDTH: f64 = 240.0;
 const MAX_WIDTH: f64 = 2_000.0;
 const MAX_HEIGHT: f64 = 6_000.0;
 
-/// Whether the render window may load `to`: only the one page it was opened on.
+/// Whether the render window may load `to`: the one page it was opened on, and the frames inside it.
+/// wry asks for every frame's loads, not only the window's (wry navigation.rs, no main-frame check), and
+/// a frame drawn from srcdoc loads `about:srcdoc`; an `about:` document reaches nothing outside.
 fn stays_on(page: &tauri::Url, to: &tauri::Url) -> bool {
-    to == page
+    to == page || to.scheme() == "about"
 }
 
 fn clamp(value: f64, low: f64, high: f64) -> f64 {
@@ -153,7 +155,9 @@ mod tests {
     fn the_render_window_stays_on_the_page_it_was_given() {
         let page: tauri::Url = "http://127.0.0.1:4100/render/abc".parse().unwrap();
         assert!(stays_on(&page, &page.clone()));
-        for other in ["http://127.0.0.1:4224/probe", "http://127.0.0.1:4100/render/abd", "http://127.0.0.1:4100/render/abc#x", "about:blank", "https://example.com/"] {
+        assert!(stays_on(&page, &"about:srcdoc".parse().unwrap()), "the page's own frame, and the srcdoc frames of official components on a section page");
+        assert!(stays_on(&page, &"about:blank".parse().unwrap()));
+        for other in ["http://127.0.0.1:4224/probe", "http://127.0.0.1:4100/render/abd", "http://127.0.0.1:4100/render/abc#x", "https://example.com/", "data:text/html,x", "file:///etc/hosts", "asset://localhost/x"] {
             assert!(!stays_on(&page, &other.parse().unwrap()), "{other}");
         }
     }
