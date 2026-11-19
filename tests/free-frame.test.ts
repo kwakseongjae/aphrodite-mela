@@ -5,7 +5,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, FRAME_PREFIX_END} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -53,4 +53,23 @@ test('media:<sha256> becomes the address the host gives, and only a whole hash d
 test('an address the host gives that could break out of the attribute is refused', () => {
   for (const bad of ['x" onerror="alert(1)', "x'", 'x)', 'x y', 'javascript:alert(1)'])
     assert.throws(() => framedDocument(`<img src="media:${SHA}">`, {media: () => bad, origins: []}), /media address/, bad);
+});
+
+/* The off-screen render window is a top-level page of its own, not a frame on the board: a page drawn
+   there straight could send the window anywhere (RESULTS 0.3-P0 §4). So it is drawn inside the same
+   sandboxed frame, under a shell whose own policy lets the frame go nowhere. */
+test('a page is photographed inside a sandboxed frame that may not be sent anywhere', () => {
+  const doc = framedDocument('<p>"quoted" & <b>bold</b></p>', {media: () => undefined, origins: []});
+  const shell = renderShell(doc, []);
+  const policy = directives(shell.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)![1]);
+  assert.deepEqual(policy.get('frame-src'), ["'none'"], 'the frame cannot be sent to an address');
+  assert.deepEqual(policy.get('connect-src'), ["'none'"]);
+  assert.deepEqual(policy.get('default-src'), ["'none'"]);
+  const frames = shell.match(/<iframe[^>]*>/g)!;
+  assert.equal(frames.length, 1);
+  assert.match(frames[0], /sandbox="allow-scripts"/);
+  assert.doesNotMatch(frames[0], /allow-same-origin|allow-top-navigation|allow-popups|allow-forms/);
+  const srcdoc = frames[0].match(/srcdoc="([^"]*)"/)![1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  assert.equal(srcdoc, doc, 'the frame holds the page exactly');
+  assert.doesNotMatch(shell.replace(frames[0], ''), /<script/i, 'the shell runs nothing of its own');
 });

@@ -201,15 +201,11 @@ export function pageTextRead(project: Project, ask: {pageId: string}) {
 }
 
 /**
- * Why a page cannot be photographed yet, or undefined when it can. The render window is a page of its
- * own, not a frame, so a free page drawn there could leave the machine (RESULTS 0.3-P0 §4); it is drawn
- * once it can be held in a frame (0.3-P2).
+ * Why a page cannot be photographed, or undefined when it can. A free page is drawn held in its frame
+ * (renderShell in src/free-page.ts); a media item is a picture or a video already, not a page.
  */
 export function renderRefusal(page: Page): string | undefined {
-  if (!page.kind) return undefined;
-  return page.kind === 'html'
-    ? `page ${page.id} is an html page, and a picture of one waits for the frame that keeps it from reaching outside this Mac. Read it with aphrodite_get_page_html or aphrodite_get_page_text.`
-    : `page ${page.id} is a media item; there is no page to draw.`;
+  return page.kind === 'media' ? `page ${page.id} is a media item; there is no page to draw.` : undefined;
 }
 
 /** How many characters of ops one reply listing changes carries at most. */

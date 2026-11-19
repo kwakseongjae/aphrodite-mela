@@ -177,6 +177,27 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
 }
 
+const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/**
+ * The page the off-screen renderer loads for a free page. That window is a top-level page of its own,
+ * so a page drawn there straight could send it anywhere (RESULTS 0.3-P0 §4); here the page is in the
+ * same sandboxed frame as on the board, under a policy that runs nothing of the shell's own and lets the
+ * frame be sent nowhere. The frame's scripts run under this policy as well as their own, so it allows
+ * what the frame's does and no more.
+ */
+export function renderShell(doc: string, origins: readonly string[]): string {
+  const media = ['data:', ...origins].join(' ');
+  for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
+  const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(doc)}"></iframe>`;
+}
+/** The render page for a free page, its media found the way its board frame finds them. */
+export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameMedia'>): Promise<string> {
+  const wanted = [...new Set(Array.from(page.html.matchAll(MEDIA_REFS), m => m[1]))].slice(0, 500);
+  const found = new Map(await Promise.all(wanted.map(async sha => [sha, await host.frameMedia(sha)] as const)));
+  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
+}
+
 /**
  * How a frame gets its document, decided in this one place. The browser build gives it as srcdoc. The
  * desktop cannot: a srcdoc (or blob:) frame there runs under the app's own `script-src 'self'` and not

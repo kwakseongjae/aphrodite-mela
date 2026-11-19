@@ -12,8 +12,9 @@
  */
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
+import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
+import {framedDocument, renderShell} from '../src/free-page.ts';
 
 const PORT = 4223, TRAP = 4224;
 const SERVER = `http://127.0.0.1:${TRAP}`;
@@ -128,6 +129,27 @@ for (const [tag, html] of [['probe', probe('probe')], ['bare', bare]]) {
     assert.equal(await evaluate(`window.__frameMessages.find(m => m && m.probe === '${tag}' && m.name === 'entity-hidden-file')?.value`), '0', 'a file: address hidden behind an entity loads nothing');
   });
 }
+
+/* The off-screen renderer loads a page of its own, top level, from the loopback bridge (src-tauri/src/
+   snapshot.rs). Served the same way here, the shell must keep the probe from reaching anything, its
+   one-second move out of the frame included (RESULTS 0.3-P0 §4: on 11/18 the render window left). A
+   listener is added beside the shell for this check only, to hear the probe start. */
+check('the page the off-screen renderer loads keeps the probe from reaching anything', async () => {
+  const before = hits.length;
+  const listener = `<script>window.__m = []; addEventListener('message', e => window.__m.push(e.data));</script>`;
+  const shell = renderShell(framedDocument(probe('render'), {media: () => undefined, origins: []}), []).replace('<iframe', listener + '<iframe');
+  const server = createServer((req, res) => { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(shell); });
+  await new Promise(resolve => server.listen(TRAP + 2, '127.0.0.1', resolve));
+  const page = await openPage(`http://127.0.0.1:${TRAP + 2}/render/once`, {cdp: 9384, profile: '/tmp/aphrodite-pages-render-profile'});
+  try {
+    await waitFor(() => page.evaluate(`window.__m.some(m => m && m.probe === 'render' && m.name === 'ran')`), 'the probe to run in the render page', 20);
+    await sleep(2500);
+    const seen = hits.slice(before);
+    result.render = {reached: seen, url: await page.evaluate('location.href')};
+    assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
+    assert.equal(await page.evaluate('location.pathname'), '/render/once', 'the render page stayed where it was');
+  } finally { page.close(); server.close(); }
+});
 
 /* ---- the person's side: one press selects, two go in, a press outside or Esc comes out ---- */
 

@@ -15,6 +15,11 @@ const MIN_WIDTH: f64 = 240.0;
 const MAX_WIDTH: f64 = 2_000.0;
 const MAX_HEIGHT: f64 = 6_000.0;
 
+/// Whether the render window may load `to`: only the one page it was opened on.
+fn stays_on(page: &tauri::Url, to: &tauri::Url) -> bool {
+    to == page
+}
+
 fn clamp(value: f64, low: f64, high: f64) -> f64 {
     if value.is_finite() { value.max(low).min(high) } else { low }
 }
@@ -32,7 +37,12 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
     // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
     // loopback server and fetched from there.
     let url = crate::agent::stash_render(&app.state::<crate::agent::AgentBridge>(), html)?;
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse().map_err(|_| "could not build the page url")?))
+    let parked: tauri::Url = url.parse().map_err(|_| "could not build the page url")?;
+    let only = parked.clone();
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parked))
+        // The window stays on the page it was given. A free page drawn here sits in a sandboxed frame
+        // whose shell lets it be sent nowhere (renderShell); this holds the window itself as well.
+        .on_navigation(move |to| stays_on(&only, to))
         .title("render")
         .inner_size(width, height)
         // A window that is never composited cannot be photographed: macOS gives back an empty image.
@@ -137,6 +147,15 @@ mod tests {
         assert_eq!(clamp(99_999.0, MIN_WIDTH, MAX_WIDTH), MAX_WIDTH);
         assert_eq!(clamp(f64::NAN, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
         assert_eq!(clamp(f64::INFINITY, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
+    }
+
+    #[test]
+    fn the_render_window_stays_on_the_page_it_was_given() {
+        let page: tauri::Url = "http://127.0.0.1:4100/render/abc".parse().unwrap();
+        assert!(stays_on(&page, &page.clone()));
+        for other in ["http://127.0.0.1:4224/probe", "http://127.0.0.1:4100/render/abd", "http://127.0.0.1:4100/render/abc#x", "about:blank", "https://example.com/"] {
+            assert!(!stays_on(&page, &other.parse().unwrap()), "{other}");
+        }
     }
 
     #[test]

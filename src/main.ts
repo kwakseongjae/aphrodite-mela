@@ -60,7 +60,7 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch} from './agent/ops';
 import {runBatch,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {isFreePage,loadFreePage,renderDocument,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
@@ -1658,7 +1658,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
          picture that is perfectly fine on the person's screen came back to an agent as a broken
          image, and an agent checking its own work would go and "fix" something that was never
          wrong. Fetch what the page points at and inline it, for this render only. */
-      const png=await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
+      const png=await invoke<string>('render_page',{html:isFreePage(page)?await renderDocument(page,frameHost):await inlineAssets(pageHtml(project,page)),width,height});
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
