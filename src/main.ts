@@ -60,7 +60,7 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {runBatch,importMedia,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,renderDocument,linkOut,frameSandbox,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {isFreePage,loadFreePage,renderDocument,linkOut,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
@@ -106,31 +106,37 @@ let vanished:Breadcrumb|undefined;
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 /** Free pages and media on the board: how frames get their documents here (src/free-page.ts decides), and the board layer that keeps them (src/editor/board.ts). */
-// `?page-scripts=off` turns page scripts off in the browser build, to see and check the desktop's fail-closed look there.
-const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost({pageScripts:new URLSearchParams(location.search).get('page-scripts')==='off'?false:undefined});
-/** Whether page scripts may run (src/free-page.ts wallHolds), asked once; no free page's frame is loaded before the answer. */
-let pageScriptsKnown:boolean|undefined;
-let pageScriptsAsked:Promise<boolean>|undefined;
-function pageScripts(){return pageScriptsAsked??=frameHost.pageScripts().catch(()=>false).then(on=>{pageScriptsKnown=on;if(!on)refreshBanners();return on;});}
-/** Gives a frame the sandbox the answer allows, before it loads anything. */
-async function readyFrame(frame:HTMLIFrameElement){const sandbox=frameSandbox(await pageScripts());if(frame.getAttribute('sandbox')!==sandbox)frame.setAttribute('sandbox',sandbox);}
-function scriptsOffHtml(){return `<div class="ui-banner ui-banner-warn page-scripts-off" role="status"><div class="ui-banner-body"><span class="ui-banner-text">${ui('Page scripts are off: this version of macOS cannot keep a page\'s scripts inside its frame, so pages are shown without them.','페이지 스크립트를 꺼 두었습니다: 이 Mac의 macOS에서는 페이지의 스크립트를 틀 안에 가둘 수 없어, 스크립트 없이 보여 줍니다.')}</span></div></div>`;}
+// `?page-wall=off` makes the browser build answer as a Mac without the page wall does, to see and check the placeholder there.
+const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost({pageWall:new URLSearchParams(location.search).get('page-wall')==='off'?false:undefined});
+/** What the page wall last said (src/free-page.ts pageWall): undefined until asked. A free page's frame is made only after a yes; after a no the board shows a placeholder. */
+let pageWallKnown:boolean|undefined;
+function pageWall(){return frameHost.pageWall().catch(()=>false).then(on=>{const was=pageWallKnown;pageWallKnown=on;if(on!==(was??true)&&screen==='editor')render();return on;});}
+type FramePlace=(frame:HTMLIFrameElement)=>void;
+/** The one place a free page's frame is made, with its scripts, and only once the page wall says yes. */
+async function freePageFrame(page:Page,className:string,place:FramePlace):Promise<HTMLIFrameElement|undefined>{if(!await pageWall())return undefined;const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.className=className;frame.dataset.framePage=page.id;frame.title=page.name;place(frame);return frame;}
+/** What stands where a free page would be when the page wall does not hold: its name, and why it is not drawn. */
+function unframedHtml(p:Page){return `<div class="board-unframed" data-unframed-page="${esc(p.id)}" role="note"><strong>${esc(p.name)}</strong><span>${ui('This Mac\'s macOS cannot keep a page inside its frame, so it is not drawn. An agent can still read its words.','이 Mac의 macOS에서는 페이지를 틀 안에 가둘 수 없어 그리지 않았습니다. 글은 에이전트가 읽을 수 있습니다.')}</span></div>`;}
 const FREE_PAGE_HEIGHT=900;
-function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id);return `<div class="board-item" data-keep="item:${esc(project.id)}:${id}:${frameKey(p.id,p.html)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px"><iframe class="board-frame" sandbox="${frameSandbox(pageScriptsKnown===true)}" data-frame-page="${id}" tabindex="-1" inert></iframe><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
+function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id),unframed=pageWallKnown===false;return `<div class="board-item" data-keep="item:${esc(project.id)}:${id}:${frameKey(p.id,p.html)}${unframed?`:unframed:${esc(p.name)}`:''}" data-keep-whole data-free-page="${id}" style="height:${f.height??FREE_PAGE_HEIGHT}px">${unframed?unframedHtml(p):''}<div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
 /** A picture or a video on the board. Its file is found once the item is on the board (mountBoard); a video waits for a press on its play button. */
 function mediaItem(p:Page,m:PageMedia,f:FrameLayout){const id=esc(p.id),video=m.mime.startsWith('video/');return `<div class="board-item board-media" data-keep="media:${esc(project.id)}:${id}:${esc(m.src)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px">${video?`<video data-board-media="${id}" preload="metadata" playsinline></video>`:`<img data-board-media="${id}" alt="${esc(p.name)}" draggable="false">`}<span class="board-missing" hidden>${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</span><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div>${video?`<button type="button" class="ui-icon-btn ui-icon-btn-md board-play" data-board-play="${id}" aria-label="${ui('Play','재생')} ${esc(p.name)}">${icon('play')}</button>`:''}</div>`;}
 /** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
 function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
 /** Gives each new frame on the board its page. A frame that was kept already has it. */
-function mountBoard(){mountMedia();for(const frame of app.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')){const page=project.pages.find(p=>p.id===frame.dataset.framePage);if(!page||!isFreePage(page))continue;frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted==='busy'||frame.dataset.mounted&&!frame.dataset.missing)continue;void (async()=>{
+/** Board items whose frame is being made: kept here, since the board item's own attributes are brought back to the template's on every paint (morph). */
+const framing=new WeakSet<HTMLElement>();
+function mountBoard(){mountMedia();for(const item of app.querySelectorAll<HTMLElement>('.board-item[data-free-page]')){const page=project.pages.find(p=>p.id===item.dataset.freePage);if(!page||!isFreePage(page)||item.querySelector('.board-unframed'))continue;const frame=item.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');if(frame){frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted==='busy'||frame.dataset.mounted&&!frame.dataset.missing)continue;}else if(framing.has(item))continue;void (async()=>{
   // A frame that named a file this board did not have is loaded again once the file is here; one that has all it names is left running.
   // Asked the way the frame is given its files (frameCost): a file the board has but cannot put in a frame changes nothing.
-  if(frame.dataset.mounted&&!(await Promise.all(frame.dataset.missing!.split(' ').map(sha=>frameHost.frameCost(sha)))).some(cost=>cost!==undefined))return;
-  frame.dataset.mounted='busy';
-  await readyFrame(frame);
-  const missing=await loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);
-  frame.dataset.mounted='1';if(missing.length)frame.dataset.missing=missing.join(' ');else delete frame.dataset.missing;
-})().catch(error=>{frame.dataset.mounted='1';toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error));});}}
+  if(frame?.dataset.mounted&&!(await Promise.all(frame.dataset.missing!.split(' ').map(sha=>frameHost.frameCost(sha)))).some(cost=>cost!==undefined))return;
+  // No frame is made before the page wall answers, and none after a no: the board is drawn again with the placeholder.
+  if(!frame)framing.add(item);
+  const target=frame??await freePageFrame(page,'board-frame',made=>{made.tabIndex=-1;made.inert=enteredPage!==page.id;made.dataset.mounted='busy';item.prepend(made);}).finally(()=>framing.delete(item));
+  if(!target)return;
+  target.dataset.mounted='busy';
+  try{const missing=await loadFreePage(target,page,frameKey(page.id,page.html),frameHost);if(missing.length)target.dataset.missing=missing.join(' ');else delete target.dataset.missing;}
+  finally{target.dataset.mounted='1';}
+})().catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
 /**
  * Going into a free page. Shut, a shield lies over the frame: one press selects the page, the wheel moves
  * the board, and the frame takes no input at all (it is inert). Two presses take the shield away and the
@@ -471,7 +477,7 @@ function toggleNight(){
 }
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${pageScriptsKnown===false&&screen==='editor'&&project.pages.some(p=>isFreePage(p))?scriptsOffHtml():''}${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
+function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
@@ -642,7 +648,8 @@ function render() {
   if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
-  if(boardProject!==project.id){boardProject=project.id;enteredPage='';}
+  // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
+  if(boardProject!==project.id){boardProject=project.id;enteredPage='';if(pageWallKnown===false)pageWallKnown=undefined;}
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
@@ -1365,7 +1372,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
-    case 'preview': recordRun('preview:opened',{device,interactionCapture:false},d);showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!, page = currentPage(project); if(isFreePage(page)){frame.dataset.framePage=page.id;frame.closest('.modal')?.classList.add('preview-modal');void readyFrame(frame).then(()=>{if(pageScriptsKnown===false)frame.insertAdjacentHTML('beforebegin',scriptsOffHtml());return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(frame,project,page); } break;
+    case 'preview': { recordRun('preview:opened',{device,interactionCapture:false},d); const page = currentPage(project), free = isFreePage(page); showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(page.name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;

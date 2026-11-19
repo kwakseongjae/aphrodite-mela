@@ -66,7 +66,7 @@ npx vite preview --port 4173 --strictPort --host 127.0.0.1 &
 
 `#app[data-*]` attributes (`mode`, `page`, `frame`, `camera`, `selected-kind`, `saved`, `onboarding`, `tour`…) are the assertions; `window.aphroditeAgent.run(kind, payload)` exercises the agent executor. Fresh state: `localStorage.clear()` and set `aphrodite-onboarding-v1` to skip the welcome sheet.
 
-**Free pages and the network.** A free page reaches nothing outside its frame because of the frame's sandbox and policy and, on the desktop, two WebKit settings the app puts in every webview (`src-tauri/src/page_wall.rs`, checked by `npm run verify:wall` in an off-screen WKWebView). The browser build has no such settings, so a page there can still reach out over WebRTC and preconnect: it is for development and checks only, and `npm run verify:pages` measures this as a named known limit.
+**Free pages and the network.** A free page reaches nothing outside its frame because of the frame's sandbox and policy and, on the desktop, two WebKit settings the app puts in every webview (`src-tauri/src/page_wall.rs`, checked by `npm run verify:wall` in an off-screen WKWebView). The browser build has no such settings, so a page there can still reach out over WebRTC and preconnect: it is for development and checks only, and `npm run verify:pages` measures this as a named known limit. Where the desktop cannot confirm both settings, no free page is put in any frame: the board and Preview show a placeholder and a render is refused (`?page-wall=off` shows that look in the browser build).
 
 **Native checks** — screenshots with `screencapture -R`, clicks with `cliclick` — only when nobody is using the Mac: check `ioreg -c IOHIDSystem` idle time and the frontmost app before every step.
 

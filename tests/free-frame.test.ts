@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, frameSandbox, browserFrameHost, DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS, type FrameHost} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, browserFrameHost, desktopFrameHost, DEVELOPMENT_BUILD_FRAMES_PAGES, WALL_ASKS, type FrameHost} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -131,7 +131,7 @@ const fakeHost = (sizes: Record<string, number | undefined>) => {
     frameCost: async sha => sizes[sha] === undefined ? undefined : 'data:image/png;base64,'.length + Math.ceil(sizes[sha]! / 3) * 4,
     frameMedia: async sha => { read.push(sha); return 'data:image/png;base64,' + 'A'.repeat(Math.ceil(sizes[sha]! / 3) * 4); },
     load: async (_frame, _page, _key, d) => { doc = d; },
-    pageScripts: async () => true,
+    pageWall: async () => true,
   };
   return {host, read, doc: () => doc};
 };
@@ -166,22 +166,113 @@ test('the app refuses and accepts exactly the link addresses the shared table sa
   for (const address of table.refuse) assert.ok('refused' in linkOut(address), `refuses ${JSON.stringify(address)}`);
 });
 
-/* 0.3-P2-fix3: page scripts run only behind the engine's wall. Both settings read back off, and a frame
-   made the way free pages are made says it has no peer connection; anything else turns scripts off. */
-test('page scripts run only when the wall reads back off and a real frame has no peer connection', () => {
+/* 0.3-P2-fix4: all or nothing. A free page is put in a frame, with its scripts, only when both settings
+   read back off and a frame made the way free pages are made says it has no peer connection. Anything else
+   and no frame is made at all: preconnect needs no script (scripts/verify-wall.mjs), so scripts off is no fallback. */
+test('a free page is framed only when the wall reads back off and a real frame has no peer connection', () => {
   const off = {rtc: 'off', preconnect: 'off'} as const;
   assert.equal(wallHolds(off, 'undefined'), true);
   for (const [status, said] of [[off, 'function'], [off, undefined], [{rtc: 'off', preconnect: 'unavailable'}, 'undefined'], [{rtc: 'unavailable', preconnect: 'off'}, 'undefined'], [{rtc: 'on', preconnect: 'off'}, 'undefined'], [undefined, 'undefined']] as const)
     assert.equal(wallHolds(status as never, said as never), false, JSON.stringify([status, said]));
 });
 
-test('when page scripts are off, no frame a free page is drawn in may run them', () => {
-  assert.equal(frameSandbox(true), 'allow-scripts');
-  assert.equal(frameSandbox(false), '');
+test('the render shell has one shape, its frame with scripts: there is no scriptless way to draw a free page', () => {
   const doc = framedDocument('<script>1</script>', {media: () => undefined, origins: []});
-  assert.match(renderShell(doc, []), /sandbox="allow-scripts"/);
-  assert.doesNotMatch(renderShell(doc, [], false), /allow-scripts/);
-  assert.match(renderShell(doc, [], false), /<iframe sandbox="" srcdoc=/);
+  assert.match(renderShell(doc, []), /<iframe sandbox="allow-scripts" srcdoc=/);
+  assert.equal(renderShell.length, 2);
+  const source = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /frameSandbox|sandbox="\$\{/);
+});
+
+/** A window with just enough of the DOM for the desktop's probe frame, and the commands it is given. */
+function probeWindow(commands: Record<string, (args?: unknown) => Promise<unknown>>) {
+  const attached = new Set<{contentWindow: object; remove(): void}>(), listeners = new Set<(e: unknown) => void>(), asked: string[] = [];
+  const saved = {document: (globalThis as Record<string, unknown>).document, add: (globalThis as Record<string, unknown>).addEventListener, remove: (globalThis as Record<string, unknown>).removeEventListener};
+  Object.assign(globalThis, {
+    document: {createElement: () => { const frame = {contentWindow: {}, hidden: false, src: '', setAttribute() {}, remove() { attached.delete(frame); }}; return frame; }, body: {append: (frame: {contentWindow: object; remove(): void}) => attached.add(frame)}},
+    addEventListener: (_type: string, fn: (e: unknown) => void) => listeners.add(fn),
+    removeEventListener: (_type: string, fn: (e: unknown) => void) => listeners.delete(fn),
+  });
+  const host = desktopFrameHost({invoke: (async (command: string, args?: unknown) => { asked.push(command); return commands[command]!(args); }) as never, fileSrc: path => 'asset://localhost/' + path}, {deadline: 40});
+  return {
+    host, attached, listeners, asked,
+    say: (value: string) => { for (const frame of attached) for (const fn of [...listeners]) fn({source: frame.contentWindow, data: {wallProbe: value}}); },
+    restore: () => Object.assign(globalThis, {document: saved.document, addEventListener: saved.add, removeEventListener: saved.remove}),
+  };
+}
+const OFF = async () => ({rtc: 'off', preconnect: 'off'});
+const never = () => new Promise<never>(() => {});
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+test('a wall that never answers, or a probe frame that never loads, ends as no within the one deadline, and no probe frame is left', async () => {
+  const cases: Record<string, () => Promise<unknown>>[] = [{page_wall_status: never}, {page_wall_status: OFF, free_page_write: never}];
+  for (const commands of cases) {
+    const w = probeWindow(commands);
+    try {
+      const started = Date.now();
+      assert.equal(await w.host.pageWall(), false, Object.keys(commands).join(' '));
+      assert.ok(Date.now() - started < 1000, 'one deadline over the status and the probe together');
+      assert.equal(w.attached.size, 0, 'the probe frame is taken away');
+      assert.equal(w.listeners.size, 0, 'nothing is left listening');
+    } finally { w.restore(); }
+  }
+});
+
+test('a status that answers after the deadline makes no probe frame, and does not change the answer', async () => {
+  const w = probeWindow({page_wall_status: () => wait(120).then(OFF), free_page_write: never});
+  try {
+    assert.equal(await w.host.pageWall(), false);
+    await wait(200);
+    assert.equal(w.attached.size, 0, 'no frame was made after the deadline');
+    assert.deepEqual(w.asked, ['page_wall_status']);
+  } finally { w.restore(); }
+});
+
+test('a no from silence or an error is asked again the next time, a few times at most; a no the wall read back is final', async () => {
+  const thrown = probeWindow({page_wall_status: async () => { throw new Error('no window'); }});
+  try {
+    for (let i = 0; i < WALL_ASKS + 2; i++) assert.equal(await thrown.host.pageWall(), false);
+    assert.equal(thrown.asked.length, WALL_ASKS, `asked ${thrown.asked.length} times`);
+  } finally { thrown.restore(); }
+  const unavailable = probeWindow({page_wall_status: async () => ({rtc: 'off', preconnect: 'unavailable'})});
+  try {
+    assert.equal(await unavailable.host.pageWall(), false);
+    assert.equal(await unavailable.host.pageWall(), false);
+    assert.deepEqual(unavailable.asked, ['page_wall_status'], 'read back once, and that is the answer');
+  } finally { unavailable.restore(); }
+  const has = probeWindow({page_wall_status: OFF, free_page_write: async () => 'probe.html'});
+  try {
+    const answer = has.host.pageWall();
+    await wait(5);
+    has.say('function');
+    assert.equal(await answer, false);
+    assert.equal(await has.host.pageWall(), false);
+    assert.deepEqual(has.asked, ['page_wall_status', 'free_page_write'], 'a frame that has a peer connection is a final no');
+  } finally { has.restore(); }
+});
+
+test('the wall holds when both settings read back off and the probe frame has no peer connection; the frame is taken away and the yes kept', async () => {
+  const w = probeWindow({page_wall_status: OFF, free_page_write: async () => 'probe.html'});
+  try {
+    const answer = w.host.pageWall();
+    await wait(5);
+    w.say('undefined');
+    assert.equal(await answer, true);
+    assert.equal(w.attached.size, 0);
+    assert.equal(await w.host.pageWall(), true);
+    assert.deepEqual(w.asked, ['page_wall_status', 'free_page_write']);
+  } finally { w.restore(); }
+});
+
+/* The board and Preview make a free page's frame in one place, and only after a yes. */
+test('main.ts makes a free page\'s frame in one function, after the wall says yes, and nowhere else', () => {
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const one = /async function freePageFrame\([^)]*\)[^{]*\{if\(!await pageWall\(\)\)return undefined;/.exec(main);
+  assert.ok(one, 'freePageFrame asks the wall before anything else');
+  const body = main.slice(one.index, main.indexOf('\n', one.index));
+  assert.equal([...main.matchAll(/framePage=/g)].length, [...body.matchAll(/framePage=/g)].length, 'a frame is named for a free page only there');
+  assert.doesNotMatch(main, /data-frame-page="/, 'no template draws a free page\'s frame');
+  assert.doesNotMatch(main, /page-scripts|scriptsOff|frameSandbox/);
 });
 
 /* 0.3-P2-fix4: a free page's render goes to the one command that refuses it where the wall does not hold
@@ -195,8 +286,8 @@ test('a free page is rendered only through render_free_page, which Rust refuses 
   assert.match(snapshot, /may_render\(free, wall\)\?;/);
 });
 
-test('the browser build runs page scripts by a named development constant, unless told not to', async () => {
-  assert.equal(DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS, true);
-  assert.equal(await browserFrameHost().pageScripts(), true);
-  assert.equal(await browserFrameHost({pageScripts: false}).pageScripts(), false);
+test('the browser build frames free pages by a named development constant, unless told to show the placeholder', async () => {
+  assert.equal(DEVELOPMENT_BUILD_FRAMES_PAGES, true);
+  assert.equal(await browserFrameHost().pageWall(), true);
+  assert.equal(await browserFrameHost({pageWall: false}).pageWall(), false);
 });

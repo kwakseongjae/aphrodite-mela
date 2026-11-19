@@ -363,10 +363,11 @@ check('Preview shows a free page running, in the same kind of frame', async () =
   const was = (await messages('pressed')).length;
   await click(at);
   assert.deepEqual((await messages('pressed')).slice(was), [1], 'the button in Preview was pressed, in a page of its own');
+  // The key goes up once Preview has closed: a key sent to a frame that is taken away under it is never answered (CDP waits for ever).
   await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
-  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
   await sleep(300);
   assert.equal(await evaluate(`!document.querySelector('#modal-root iframe')`), true, 'Esc inside Preview closes it');
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
 });
 
 /* ---- pictures and videos: dropped, pasted, played, shown inside a page, taken back ---- */
@@ -654,25 +655,54 @@ check('an agent batch written against the revision before the person’s typing 
   assert.ok(!changes.some(c => c.source === 'agent:apply' && JSON.stringify(c.ops).includes('Written by the agent')), 'nothing of the agent’s landed');
 });
 
-/* 0.3-P2-fix3: when the wall cannot be confirmed (on the desktop: a WebKit without the settings), every
-   free page is drawn with no scripts and the person is told. The browser build is told so with
-   ?page-scripts=off, the same decision the desktop reaches. Last, since it reloads the app. */
-check('when page scripts are off, no free page’s frame may run them, on the board or in Preview, and the person is told', async () => {
-  await send('Page.navigate', {url: `http://127.0.0.1:${PORT}/?page-scripts=off`});
+/* 0.3-P2-fix4: where the page wall does not hold (on the desktop: a WebKit without the settings, or one that
+   does not answer), no free page is put in any frame, since preconnect needs no script: a placeholder stands
+   in its place, the page can still be selected and renamed, and an agent still reads its words. The browser
+   build is told so with ?page-wall=off. Last, since it reloads the app. */
+check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
+  const SENTENCE = 'A sentence only this page holds, which agents still read.';
+  const wordsId = await makePage('Words page', `<h1>Never framed here</h1><p>${SENTENCE}</p>`);
+  const projectId = (await agent('contract', {})).project.project_id;
+  assert.ok(projectId, 'the project the words page is in');
+  await send('Page.navigate', {url: `http://127.0.0.1:${PORT}/?page-wall=off`});
   await sleep(1500);
   await waitFor(() => evaluate('!!window.aphroditeAgent && !!document.querySelector("#app")'), 'the app to boot again');
-  if (await evaluate(`!!document.querySelector('[data-action="hub-open"]')`)) await personPresses('hub-open', {id: await evaluate(`document.querySelector('[data-action="hub-open"]').dataset.id`)});
-  await waitFor(() => evaluate(`document.querySelectorAll('iframe[data-frame-page]').length > 0`), 'free pages on the board');
-  await sleep(2500);
-  const sandboxes = await evaluate(`[...document.querySelectorAll('iframe[data-frame-page]')].map(f => f.getAttribute('sandbox'))`);
-  assert.ok(sandboxes.length && sandboxes.every(s => s === ''), JSON.stringify(sandboxes));
-  assert.equal(await evaluate(`(window.__frameMessages || []).filter(m => m && (m.boot || m.ten !== undefined || m.bigBoot)).length`), 0, 'no page script ran');
-  assert.equal(await evaluate(`!!document.querySelector('#banners .page-scripts-off')`), true, 'the person is told');
-  const free = (await agent('contract', {})).pages.find(p => p.kind === 'html').page_id;
-  await personPresses('page', {id: free}); await sleep(400);
+  if (await evaluate(`!!document.querySelector('[data-action="hub-open"]')`)) await personPresses('hub-open', {id: projectId});
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === projectId, 'the project the words page is in');
+  const listed = (await agent('contract', {})).pages.filter(p => p.kind === 'html');
+  assert.ok(listed.length > 3, `free pages on the board: ${listed.length}`);
+  const board = () => evaluate(`({unframed: [...document.querySelectorAll('.board-unframed')].map(u => u.dataset.unframedPage), items: [...document.querySelectorAll('.board-item[data-free-page]')].map(i => i.dataset.freePage), frames: document.querySelectorAll('iframe').length, screen: !!document.querySelector('#space-world')})`);
+  await waitFor(async () => (await board()).unframed.length >= listed.length, 'the placeholders');
+  await sleep(2000);
+  const drawn = await board();
+  assert.deepEqual(drawn.unframed.sort(), drawn.items.sort(), `a placeholder for every free page on the board: ${JSON.stringify(drawn)}`);
+  assert.ok(listed.every(p => drawn.items.includes(p.page_id)), 'every free page the contract lists is on the board');
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.board-unframed')].filter(u => u.querySelector('strong').textContent !== u.closest('.space-frame').querySelector('.frame-name span').textContent).length`), 0, 'each placeholder names its page');
+  const free = listed;
+  assert.equal(await evaluate(`document.querySelectorAll('iframe[data-frame-page]').length`), 0, 'no free page has a frame');
+  const read = await Promise.all(free.map(p => agent('text', {page_id: p.page_id})));
+  for (const [i, r] of read.entries()) assert.ok(r.ok && typeof r.text === 'string', `${free[i].name}: ${JSON.stringify(r).slice(0, 200)}`);
+  const words = await agent('text', {page_id: wordsId});
+  assert.ok(words.ok && words.text.includes(SENTENCE), `the agent reads the page’s words: ${JSON.stringify(words).slice(0, 200)}`);
+  assert.ok(drawn.unframed.includes(wordsId), 'the words page is a placeholder too');
+  const lines = [SENTENCE, ...read.flatMap(r => r.text.split('\n').map(l => l.replace(/^[#\-| ]+/, '').trim()).filter(l => l.length >= 8))];
+  const framed = await evaluate(`[...document.querySelectorAll('iframe')].map(f => [f.getAttribute('srcdoc') ?? '', f.getAttribute('src') ?? '', (() => { try { return f.contentDocument?.documentElement?.outerHTML ?? ''; } catch { return ''; } })()].join(' '))`);
+  assert.deepEqual(lines.filter(l => framed.some(f => f.includes(l))), [], 'no frame holds a free page’s words');
+  assert.equal(await evaluate(`(window.__frameMessages || []).filter(m => m && (m.boot || m.ten !== undefined || m.bigBoot)).length`), 0, 'no page ran');
+  await personClicks('zoom-fit'); await sleep(500);
+  const before = await active();
+  // A placeholder on screen and not under another frame, pressed where its shield is.
+  const spot = await evaluate(`(() => { for (const s of document.querySelectorAll('.board-item[data-free-page] .board-shield')) { const id = s.dataset.boardShield; if (id === ${JSON.stringify(before)}) continue; const r = s.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 40); if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue; if (document.elementFromPoint(x, y) === s) return {id, x, y}; } return null; })()`);
+  assert.ok(spot, 'a placeholder can be pressed');
+  const pick = {page_id: spot.id};
+  await click(spot);
+  assert.equal(await active(), pick.page_id, 'one press on the placeholder selects its page');
+  const renamed = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'page', page_id: pick.page_id, name: 'Renamed while not drawn'}]});
+  assert.ok(renamed.ok, JSON.stringify(renamed).slice(0, 300));
+  await waitFor(() => evaluate(`[...document.querySelectorAll('.board-unframed strong')].some(s => s.textContent === 'Renamed while not drawn')`), 'the placeholder to show the new name');
   await personPresses('preview'); await sleep(1500);
-  assert.equal(await evaluate(`document.querySelector('#modal-root iframe')?.getAttribute('sandbox')`), '', 'Preview has no scripts either');
-  assert.equal(await evaluate(`!!document.querySelector('#modal-root .page-scripts-off')`), true, 'and says so');
+  assert.equal(await evaluate(`document.querySelectorAll('#modal-root iframe').length`), 0, 'Preview makes no frame');
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .board-unframed')`), true, 'Preview shows the placeholder');
 });
 
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
