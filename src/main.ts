@@ -1676,9 +1676,10 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
     const shut=stillAllowed();if(shut)return {...shut,applied:0};
   }
-  const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined;
+  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined,before:Project|undefined;
   commit(()=>{
+    // What the receipt compares against is read here too, once the person's typing is saved: their words are their own change, not the agent's.
+    before=JSON.parse(JSON.stringify(designOf(project))) as Project;
     // The revision is read here, after the commit has saved what the person was typing: a batch written
     // against the revision before their text is a batch written without it, and is refused.
     stale=staleSince(d.baseRevision,'batch');
@@ -1699,7 +1700,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */

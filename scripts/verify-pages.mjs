@@ -672,6 +672,20 @@ check('a batch without page_id lands on the page open when it arrived, though an
   assert.ok(JSON.stringify(on).includes(added), 'the component is on the page that was open when the batch arrived');
 });
 
+/* 0.3-P2-fix4 #4: what an agent is told its batch changed is read after the person's typing is saved, so their words are not in it. */
+check('an agent’s receipt holds only its own change, not the words the person was typing', async () => {
+  const since = (await agent('changes', {limit: 1})).seq;
+  const id = await typeIntoTitle(' 사람이 치는 중');
+  await sleep(5_200);
+  const got = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'cta'}]});
+  assert.ok(got.ok, JSON.stringify(got).slice(0, 300));
+  assert.deepEqual(got.receipt.changedNodes.filter(n => n.id === id), [], `the receipt names the person’s block: ${JSON.stringify(got.receipt.changedNodes).slice(0, 300)}`);
+  assert.match(await titleOf(id) ?? '', / 사람이 치는 중$/, 'the person’s words are kept');
+  const {changes} = await agent('changes', {since, limit: 20});
+  const holding = changes.filter(c => JSON.stringify(c.ops).includes('사람이 치는 중')).map(c => [c.author?.kind, c.source]);
+  assert.deepEqual(holding, [['person', 'editor:change']], `the person’s words are one change, theirs, apart from the agent’s: ${JSON.stringify(changes.map(c => [c.seq, c.author, c.source]))}`);
+});
+
 /* 0.3-P2-fix4: where the page wall does not hold (on the desktop: a WebKit without the settings, or one that
    does not answer), no free page is put in any frame, since preconnect needs no script: a placeholder stands
    in its place, the page can still be selected and renamed, and an agent still reads its words. The browser
