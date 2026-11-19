@@ -9,7 +9,7 @@ import {readFileSync} from 'node:fs';
 import {MAX_MEDIA_BYTES, MAX_BROWSER_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes, browserFrameHost, desktopFrameHost, type FrameHost} from '../src/free-page.ts';
 import {validFrameLayout} from '../src/editor/space.ts';
 import {parseBatch} from '../src/agent/ops.ts';
-import {runBatch, importMedia} from '../src/agent/apply.ts';
+import {runBatch, importMedia, heldBatch} from '../src/agent/apply.ts';
 import {initialProject, parseProject, MAX_PAGES, MAX_PAGE_NAME} from '../src/model.ts';
 
 const bytes = (...parts: (number[] | string)[]) => Uint8Array.from(parts.flatMap(p => typeof p === 'string' ? [...p].map(c => c.charCodeAt(0)) : p));
@@ -168,4 +168,30 @@ test('media_add by path from a surface that may not read files is refused before
   const local = await importMedia([{op: 'media_add', path: '/Users/me/shot.png'}], 'mcp', host, 'p', measure);
   assert.ok('media' in local && local.media[0].src === 'media:' + 'a'.repeat(64));
   assert.deepEqual(asked, ['0123456789abcdef', '/Users/me/shot.png']);
+});
+
+/* 0.3-P2-fix4 #3: a batch with files waits while they are copied, and a page picked meanwhile must not take
+   it. It is held to the page it arrived on; one without files runs at once (src/main.ts applyBatch). */
+test('a batch with files is held to the page it arrived on, and lands there after another page is picked', () => {
+  const project = initialProject();
+  const first = project.pages[0]!.id;
+  project.pages.push({id: 'second', name: 'Second', blocks: []});
+  const withFiles = parseBatch({reason: 'r', ops: [{op: 'add', component_kind: 'cta'}, {op: 'media_add', library_id: '0123456789abcdef'}]});
+  const plain = parseBatch({reason: 'r', ops: [{op: 'add', component_kind: 'cta'}]});
+  const named = parseBatch({reason: 'r', page_id: 'second', ops: [{op: 'media_add', library_id: '0123456789abcdef'}]});
+  if ('error' in withFiles || 'error' in plain || 'error' in named) throw new Error('parse');
+  const held = heldBatch(withFiles.batch, project);
+  assert.equal(held.pageId, first, 'held to the page open when it arrived');
+  assert.equal(heldBatch(plain.batch, project), plain.batch, 'a batch without files is left as it is: it does not wait');
+  assert.equal(heldBatch(named.batch, project).pageId, 'second', 'a page the batch names stays its page');
+  project.activePageId = 'second';
+  const media = {1: {src: 'media:' + 'a'.repeat(64), mime: 'image/png', width: 10, height: 10}};
+  const result = runBatch(project, held, '', media);
+  assert.ok(result.ok, JSON.stringify(result));
+  const page = (id: string) => result.project.pages.find(p => p.id === id)!;
+  assert.equal(page(first).blocks.filter(b => b.kind === 'cta').length, initialProject().pages[0]!.blocks.filter(b => b.kind === 'cta').length + 1, 'the component landed on the page it arrived on');
+  assert.equal(page('second').blocks.length, 0);
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /const held:Batch=heldBatch\(batch,project\);\n\s*const imported=withFiles\?await importMedia\(/, 'applyBatch holds the batch before its one wait, and waits only for files');
+  assert.match(main, /const result=runBatch\(project,held,selected,media\);/);
 });

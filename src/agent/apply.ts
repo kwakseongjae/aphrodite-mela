@@ -234,6 +234,14 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
 }
 
 /**
+ * A batch with files waits while they are copied (importMedia), and a page picked meanwhile must not take
+ * it: it is held to the page it arrived on. One without files runs at once and needs no hold.
+ */
+export function heldBatch<B extends {ops: Op[]; pageId?: string}>(batch: B, project: Project): B {
+  return batch.ops.some(o => o.op === 'media_add') && !batch.pageId ? {...batch, pageId: currentPage(project).id} : batch;
+}
+
+/**
  * An agent's media_add files, put on the board before the batch runs (src-tauri/src/board.rs checks each
  * before it is copied). A path on this Mac is read only for an agent running here (the apply row's
  * `reads`), and that is decided before the host is asked to read anything. `measure` reads a kept file's

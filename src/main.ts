@@ -59,7 +59,7 @@ import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
-import {runBatch,importMedia,type BatchResult} from './agent/apply';
+import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {isFreePage,loadFreePage,renderDocument,linkOut,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
@@ -1667,7 +1667,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   // and it holds the page it arrived on while it does: a page picked meanwhile does not take it. One without
   // files lands at once, as it always did.
   const withFiles=batch.ops.some(o=>o.op==='media_add');
-  const held:Batch=withFiles&&!batch.pageId?{...batch,pageId:currentPage(project).id}:batch;
+  const held:Batch=heldBatch(batch,project);
   const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
   if('error' in imported)return {...imported,part:'ops',applied:0};
   const {media}=imported;

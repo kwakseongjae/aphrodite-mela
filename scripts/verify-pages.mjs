@@ -663,8 +663,8 @@ check('a batch without page_id lands on the page open when it arrived, though an
   await personPresses('page', {id: section}); await sleep(5_200); // the person's press holds the screen for five seconds
   assert.equal(await active(), section);
   const got = await evaluate(`(async () => { const answer = window.aphroditeAgent.run('apply', {reason: ${JSON.stringify(WHY)}, ops: [{op: 'add', component_kind: 'cta'}]}, 'claude-code');
-    const b = document.createElement('button'); b.dataset.action = 'page'; b.dataset.id = ${JSON.stringify(other)}; document.querySelector('#app').append(b); b.click(); b.remove();
-    return await answer; })()`);
+    const picked = window.aphroditeAgent.run('click', {selector: '.space-frame[data-page-id="${other}"] .frame-name'}, 'claude-code');
+    return [await answer, await picked]; })()`).then(([batch, picked]) => (assert.ok(picked.ok !== false && !picked.error, JSON.stringify(picked)), batch));
   assert.ok(got.ok, JSON.stringify(got).slice(0, 300));
   const added = got.receipt.changedNodes.find(n => n.fields.includes('added'))?.id;
   assert.ok(added, JSON.stringify(got.receipt).slice(0, 300));
