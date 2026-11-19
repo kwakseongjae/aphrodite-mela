@@ -243,5 +243,24 @@ check('a link out of the app is only shown to the person, with the address, unti
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
 });
 
+check('Preview shows a free page running, in the same kind of frame', async () => {
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+  assert.equal(await active(), enterId);
+  const boots = (await messages('boot')).length;
+  await personClicks('preview');
+  await waitFor(async () => (await messages('boot')).length > boots, 'the page to start in Preview');
+  const frame = await evaluate(`(() => { const f = document.querySelector('#modal-root iframe'); return f && {sandbox: f.getAttribute('sandbox'), page: f.dataset.framePage}; })()`);
+  assert.deepEqual(frame, {sandbox: 'allow-scripts', page: enterId});
+  await sleep(800); // the dialog's opening motion
+  const at = await evaluate(`(() => { const r = document.querySelector('#modal-root iframe').getBoundingClientRect(); return {x: r.left + 140, y: r.top + 60}; })()`);
+  const was = (await messages('pressed')).length;
+  await click(at);
+  assert.deepEqual((await messages('pressed')).slice(was), [1], 'the button in Preview was pressed, in a page of its own');
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await sleep(300);
+  assert.equal(await evaluate(`!document.querySelector('#modal-root iframe')`), true, 'Esc inside Preview closes it');
+});
+
 checks.push(['(numbers)', async () => { console.log('       ' + JSON.stringify(result).slice(0, 4000)); }]);
 await runChecks(checks, shut);
