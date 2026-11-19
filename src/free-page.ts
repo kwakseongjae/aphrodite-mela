@@ -285,11 +285,12 @@ export type FrameHost = {
 };
 
 const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
-/** Loads a free page into its frame: its media found first, then the framed document. */
-export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; html: string}, key: string, host: FrameHost): Promise<void> {
+/** Loads a free page into its frame: its media found first, then the framed document. Says which of the files it names this board does not have yet. */
+export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; html: string}, key: string, host: FrameHost): Promise<string[]> {
   const wanted = [...new Set(Array.from(page.html.matchAll(MEDIA_REFS), m => m[1]))].slice(0, 500);
   const found = new Map(await Promise.all(wanted.map(async sha => [sha, await host.frameMedia(sha)] as const)));
   await host.load(frame, page.id, key, framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}));
+  return wanted.filter(sha => found.get(sha) === undefined);
 }
 
 /** How much of a file a srcdoc frame in the browser build is given inline: it cannot load the app's blob: URLs. */

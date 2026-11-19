@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import dgram from 'node:dgram';
+import {createHash} from 'node:crypto';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell} from '../src/free-page.ts';
@@ -516,6 +517,22 @@ check('on a board of ten pages, selecting, moving and zooming load none of them 
   assert.equal(await active(), ids[3], 'the last press selected its page');
   result.tenBoots = await boots();
   assert.equal(await boots(), 10, 'no page started again');
+});
+
+/* ---- 0.3-P2-fix1: a file that arrives later, a copy of the project, a project changed while files are read ---- */
+
+const DOT = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+check('a page naming a file the board does not have yet shows it once the file is dropped', async () => {
+  writeFileSync(fileAt('late.png'), DOT);
+  const sha = createHash('sha256').update(DOT).digest('hex');
+  await sleep(5_200);
+  await makePage('Waits for a picture', `<img id="late" src="media:${sha}"><script>const report = () => parent.postMessage({late: document.getElementById('late').naturalWidth}, '*'); addEventListener('load', report);</script>`, {width: 600, height: 400});
+  await waitFor(async () => (await messages('late')).length === 1, 'the page to load without its picture', 20);
+  assert.deepEqual(await messages('late'), [0]);
+  await personClicks('zoom-fit');
+  await sleep(400);
+  await dropFiles(['late.png'], await emptySpot());
+  await waitFor(async () => (await messages('late')).includes(1), 'the page to show the picture that arrived', 20);
 });
 
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
