@@ -179,6 +179,13 @@ const HOST_SCRIPT = `(()=>{const post=m=>parent.postMessage(Object.assign({aphro
  * page cannot undo any of this: it runs after.
  */
 const WALL_SCRIPT = `(()=>{const gone=(o,k)=>{try{delete o[k];}catch{}try{Object.defineProperty(o,k,{value:undefined,writable:false,configurable:false});}catch{}};for(const k of Object.getOwnPropertyNames(window))if(/^(webkit)?RTC|^WebTransport|^Presentation/.test(k))gone(window,k);gone(Navigator.prototype,'mediaDevices');gone(navigator,'mediaDevices');const F='iframe,frame,object,embed,portal,fencedframe';const sweep=n=>{if(n.nodeType!==1)return;if(n.matches(F)){n.remove();return;}for(const f of n.querySelectorAll(F))f.remove();};const watch=r=>new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)sweep(n);if(window.length>0&&document.documentElement)document.documentElement.remove();}).observe(r,{childList:true,subtree:true});watch(document);const attach=Element.prototype.attachShadow;Object.defineProperty(Element.prototype,'attachShadow',{value:function(o){const r=attach.call(this,o);watch(r);return r;},writable:false,configurable:false});const off=(o,k)=>{if(o&&k in o)Object.defineProperty(o,k,{value:()=>{throw new Error(k+' is not available in a free page');},writable:false,configurable:false});};off(Element.prototype,'setHTMLUnsafe');off(window.ShadowRoot&&ShadowRoot.prototype,'setHTMLUnsafe');off(Document,'parseHTMLUnsafe');off(Document.prototype,'write');off(Document.prototype,'writeln');})();`;
+/**
+ * How long a framed document may be once its media is put in. The browser build puts pictures in as
+ * data: URLs, so a page that names one picture a thousand times would otherwise be built a thousand times
+ * over (0.3-P2-fix1): 24,000,000 characters is the page's own 2,000,000 and about two pictures at the
+ * 8 MB the browser build puts inline, each named once. The desktop names a file by a short asset address.
+ */
+export const MAX_FRAMED_DOCUMENT = 24_000_000;
 /** The end of what the host puts before a page; everything after it is the page as stored, its media resolved. */
 export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
 
@@ -189,13 +196,23 @@ export const FRAME_PREFIX_END = '<\/script><!--aphrodite-page-->';
  * hold is left as it is, and loads nothing).
  */
 export function framedDocument(html: string, host: {media: (sha: string) => string | undefined; origins: readonly string[]}): string {
-  const page = html.replace(/\bshadowroot(mode)?(\s*=)/gi, 'data-off-shadowroot$1$2').replace(/media:([0-9a-f]{64})(?![0-9a-f])/g, (all, sha: string) => {
+  const renamed = html.replace(/\bshadowroot(mode)?(\s*=)/gi, 'data-off-shadowroot$1$2');
+  const head = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${WALL_SCRIPT}${HOST_SCRIPT}${FRAME_PREFIX_END}`;
+  // Counted, and the length known, before a byte is put in: each file goes in while the whole still fits.
+  const counts = new Map<string, number>();
+  for (const m of renamed.matchAll(MEDIA_REFS)) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
+  const use = new Map<string, string>();
+  let length = head.length + renamed.length;
+  for (const [sha, times] of counts) {
     const address = host.media(sha);
-    if (address === undefined) return all;
+    if (address === undefined) continue;
     if (!MEDIA_ADDRESS.test(address)) throw new Error(`not a media address a frame may be given: ${address.slice(0, 80)}`);
-    return address;
-  });
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${frameCsp(host.origins)}"><script>${WALL_SCRIPT}${HOST_SCRIPT}${FRAME_PREFIX_END}${page}`;
+    const grows = times * (address.length - 'media:'.length - 64);
+    if (length + grows > MAX_FRAMED_DOCUMENT) continue;
+    length += grows;
+    use.set(sha, address);
+  }
+  return head + renamed.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all);
 }
 
 const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -230,6 +247,11 @@ export async function renderDocument(page: {html: string}, host: Pick<FrameHost,
 
 /** One file on a board holds at most this many bytes (src-tauri/src/board.rs keeps the same). */
 export const MAX_MEDIA_BYTES = 500 * 1024 * 1024;
+/**
+ * The browser build's own cap. It reads a whole file into memory to hash it and keeps it in IndexedDB,
+ * where the desktop reads a file in 8 MB pieces; 100 MB holds the 100 MB video P0 played in the browser.
+ */
+export const MAX_BROWSER_MEDIA_BYTES = 100 * 1024 * 1024;
 const mb = (n: number) => Math.ceil(n / 1024 / 1024);
 
 /** What a file is, by its first bytes: one of the six kinds a board shows, or undefined. */
@@ -246,8 +268,8 @@ export function sniffMedia(head: Uint8Array): string | undefined {
 }
 
 /** Why a file cannot go on a board, as a sentence, decided from its size and first bytes before it is read in. */
-export function mediaRefusal(file: {name: string; size: number}, head: Uint8Array): string | undefined {
-  if (file.size > MAX_MEDIA_BYTES) return `${file.name} is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`;
+export function mediaRefusal(file: {name: string; size: number}, head: Uint8Array, limit = MAX_MEDIA_BYTES): string | undefined {
+  if (file.size > limit) return `${file.name} is ${mb(file.size)} MB; a file on a board holds at most ${mb(limit)} MB${limit < MAX_MEDIA_BYTES ? ' in the browser; the desktop app holds ' + mb(MAX_MEDIA_BYTES) + ' MB' : ''}.`;
   if (!file.size) return `${file.name} is empty.`;
   if (!sniffMedia(head)) return `${file.name} is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.`;
   return undefined;
@@ -272,6 +294,8 @@ export type StoredMedia = {sha: string; mime: string; bytes: number};
 export type FrameHost = {
   /** Where board media may load from inside a frame, beside data: URLs. */
   origins: readonly string[];
+  /** How big one file this host keeps may be. */
+  maxBytes: number;
   /** Keeps a file the person put on the board, under the hash of its bytes. */
   put(file: Blob): Promise<StoredMedia>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
@@ -309,8 +333,9 @@ export function browserFrameHost(): FrameHost {
   const urls = new Map<string, string>();
   return {
     origins: [],
+    maxBytes: MAX_BROWSER_MEDIA_BYTES,
     put: async file => {
-      if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
+      if (file.size > MAX_BROWSER_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_BROWSER_MEDIA_BYTES)} MB in the browser.`);
       const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
       if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
@@ -339,6 +364,7 @@ export function desktopFrameHost(native: Native): FrameHost {
   const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
   return {
     origins: ['asset:', 'http://asset.localhost'],
+    maxBytes: MAX_MEDIA_BYTES,
     put: async file => {
       if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
       const id = await native.invoke<string>('board_media_begin');

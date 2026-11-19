@@ -162,7 +162,7 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
   const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
   for(const file of files.slice(0,12)){
-    const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()));
+    const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);
     if(refused){toast(refused);continue;}
     try{
       const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);

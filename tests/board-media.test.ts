@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MAX_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes} from '../src/free-page.ts';
+import {MAX_MEDIA_BYTES, MAX_BROWSER_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes, browserFrameHost} from '../src/free-page.ts';
 import {validFrameLayout} from '../src/editor/space.ts';
 import {parseBatch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
@@ -125,4 +125,15 @@ test('media_add and a patch in one batch land together', () => {
   assert.equal(both.project.name, 'Changed');
   const forged = runBatch(project, {ops: [{op: 'media_add', path: '/a.png'}], patch: [{op: 'set', on: 'page', page_id: project.pages[0].id, field: 'media', value: media} as never]}, '', {0: media});
   assert.ok(!forged.ok, 'a patch still cannot point a page at a file');
+});
+
+/* 0.3-P2-fix1 #8: the browser build reads a whole file into memory to hash it, so it holds less than the
+   desktop, which reads a file in pieces. */
+test('the browser build holds a smaller file than the desktop, and says so before reading it', () => {
+  assert.equal(MAX_BROWSER_MEDIA_BYTES, 100 * 1024 * 1024);
+  assert.ok(MAX_BROWSER_MEDIA_BYTES < MAX_MEDIA_BYTES);
+  assert.equal(browserFrameHost().maxBytes, MAX_BROWSER_MEDIA_BYTES);
+  const mp4 = bytes([0, 0, 0, 0x20], 'ftypisom');
+  assert.equal(mediaRefusal({name: 'clip.mp4', size: MAX_BROWSER_MEDIA_BYTES}, mp4, MAX_BROWSER_MEDIA_BYTES), undefined);
+  assert.match(mediaRefusal({name: 'clip.mp4', size: MAX_BROWSER_MEDIA_BYTES + 1}, mp4, MAX_BROWSER_MEDIA_BYTES)!, /clip\.mp4 is 101 MB; a file on a board holds at most 100 MB in the browser/);
 });

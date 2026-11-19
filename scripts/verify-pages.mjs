@@ -432,13 +432,13 @@ check('with a picture selected, adding a component changes nothing and says why'
 check('a file past what a board holds, or of another kind, is refused with its reason, and nothing lands', async () => {
   writeFileSync(fileAt('notes.txt'), 'not a picture');
   writeFileSync(fileAt('huge.mp4'), Buffer.from([0, 0, 0, 0x20, ...Buffer.from('ftypisom')]));
-  truncateSync(fileAt('huge.mp4'), 500 * 1024 * 1024 + 1);
+  truncateSync(fileAt('huge.mp4'), 100 * 1024 * 1024 + 1);
   const before = await seq();
   await dropFiles(['notes.txt', 'huge.mp4'], await emptySpot());
   await sleep(1200);
   const said = await evaluate(`document.querySelector('#toast').textContent`);
   assert.match(said, /notes\.txt is not a PNG, JPEG, GIF, WebP, MP4 or WebM/);
-  assert.match(said, /huge\.mp4 is 501 MB; a file on a board holds at most 500 MB/);
+  assert.match(said, /huge\.mp4 is 101 MB; a file on a board holds at most 100 MB in the browser/);
   assert.equal(await seq(), before, 'nothing was placed');
 });
 

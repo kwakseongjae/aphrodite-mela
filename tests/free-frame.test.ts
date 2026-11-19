@@ -5,7 +5,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -87,4 +87,18 @@ test('the frame takes WebRTC and the other ways out off the window before the pa
   assert.doesNotMatch(dsd.slice(dsd.indexOf(FRAME_PREFIX_END)), /\sshadowroot(mode)?\s*=/i, 'a page cannot have the parser make a shadow root the watcher cannot see');
   const shell = renderShell(doc, []);
   assert.match(shell.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)![1], /webrtc 'block'/);
+});
+
+/* 0.3-P2-fix1 #8: a file put inline (the browser build gives a frame its pictures as data: URLs) is counted
+   before the document is built: one picture named a thousand times does not make gigabytes. */
+test('media put inline is measured before the document is built, and what would not fit is left unresolved', () => {
+  const sha = 'a'.repeat(64), other = 'b'.repeat(64);
+  const big = 'data:image/png;base64,' + 'A'.repeat(2_000_000);
+  const html = `<img src="media:${other}">` + `<img src="media:${sha}">`.repeat(1000);
+  const doc = framedDocument(html, {media: s => s === sha ? big : 'data:image/png;base64,AAAA', origins: []});
+  assert.ok(doc.length <= MAX_FRAMED_DOCUMENT, `${doc.length} characters`);
+  assert.ok(doc.includes('data:image/png;base64,AAAA'), 'what fits is resolved');
+  assert.ok(doc.includes(`media:${sha}`), 'what does not is left as it was, and loads nothing');
+  const fits = framedDocument(`<img src="media:${sha}">`.repeat(3), {media: () => big, origins: []});
+  assert.equal(fits.split(big).length - 1, 3, 'a few big pictures within the cap are all put in');
 });
