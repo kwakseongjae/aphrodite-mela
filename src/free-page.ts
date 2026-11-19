@@ -232,16 +232,16 @@ export function contentKey(text: string): string {
  * frame be sent nowhere. The frame's scripts run under this policy as well as their own, so it allows
  * what the frame's does and no more.
  */
-export function renderShell(doc: string, origins: readonly string[]): string {
+export function renderShell(doc: string, origins: readonly string[], scripts = true): string {
   const media = ['data:', ...origins].join(' ');
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
   const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(doc)}"></iframe>`;
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="${frameSandbox(scripts)}" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */
-export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia'>): Promise<string> {
+export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia' | 'pageScripts'>): Promise<string> {
   const {found} = await pageMedia(page.html, host);
-  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
+  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins, await host.pageScripts());
 }
 
 /** One file on a board holds at most this many bytes (src-tauri/src/board.rs keeps the same). */
@@ -285,6 +285,24 @@ export function mediaFrame(width: number, height: number, at: {x: number; y: num
 export type StoredMedia = {sha: string; mime: string; bytes: number};
 
 /**
+ * Whether page scripts may run, decided once, before the first frame is made (0.3-P2-fix3). A free page's
+ * scripts run only behind the engine's own wall (src-tauri/src/page_wall.rs): both settings read back off,
+ * and a frame made the way free pages are made says it has no `RTCPeerConnection`. Anything else, a macOS
+ * whose WebKit lacks a setting, a frame that does not answer, and every free page is drawn with no scripts.
+ *
+ * The browser build is for development and checks, never shipped. A browser has no such settings: it cannot
+ * keep a page from WebRTC or preconnect (verify:pages measures that as a known limit), and it does not
+ * pretend to. It runs page scripts by this named constant.
+ */
+export const DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS = true;
+export type WallStatus = {rtc: 'off' | 'on' | 'unavailable'; preconnect: 'off' | 'on' | 'unavailable'};
+export function wallHolds(status: WallStatus | undefined, frameSays: string | undefined): boolean {
+  return status?.rtc === 'off' && status?.preconnect === 'off' && frameSays === 'undefined';
+}
+/** The sandbox every frame a free page is drawn in gets: scripts only when the wall holds. */
+export const frameSandbox = (scripts: boolean) => (scripts ? 'allow-scripts' : '');
+
+/**
  * How a frame gets its document, decided in this one place. The browser build gives it as srcdoc. The
  * desktop cannot: a srcdoc (or blob:) frame there runs under the app's own `script-src 'self'` and not
  * one of the page's scripts runs (RESULTS 0.3-P0 §1), so the page is written to `free-pages/` and the
@@ -305,6 +323,8 @@ export type FrameHost = {
   frameCost(sha: string): Promise<number | undefined>;
   /** The address a frame may load a media file from, or undefined when this board has no such file. */
   frameMedia(sha: string): Promise<string | undefined>;
+  /** Whether page scripts may run: asked once, before any frame is made (wallHolds). */
+  pageScripts(): Promise<boolean>;
   /** Puts the framed document in the frame. `key` names this version of the page. */
   load(frame: HTMLIFrameElement, pageId: string, key: string, doc: string): Promise<void>;
 };
@@ -351,7 +371,7 @@ const request = <T>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r
  * The browser build: a frame gets its page as srcdoc, which runs under the browser build's policy as well
  * as the page's own (src/csp.mjs), and board files are kept in this browser (IndexedDB), by hash.
  */
-export function browserFrameHost(): FrameHost {
+export function browserFrameHost(options: {pageScripts?: boolean} = {}): FrameHost {
   let db: Promise<IDBDatabase> | undefined;
   const open = () => db ??= new Promise((resolve, reject) => { const r = indexedDB.open('aphrodite-board-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
   const read = async (sha: string) => (await request((await open()).transaction('files').objectStore('files').get(sha))) as Blob | undefined;
@@ -375,6 +395,7 @@ export function browserFrameHost(): FrameHost {
       if (!blob || blob.size > INLINE_MEDIA) return undefined;
       return `data:${blob.type};base64,${btoa(Array.from(new Uint8Array(await blob.arrayBuffer()), b => String.fromCharCode(b)).join(''))}`;
     },
+    pageScripts: async () => options.pageScripts ?? DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS,
     load: async (frame, _page, _key, doc) => { frame.srcdoc = doc; },
   };
 }
@@ -388,7 +409,8 @@ const PIECE = 8 * 1024 * 1024;
  */
 export function desktopFrameHost(native: Native): FrameHost {
   const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
-  return {
+  let decided: Promise<boolean> | undefined;
+  const host: FrameHost = {
     origins: ['asset:', 'http://asset.localhost'],
     maxBytes: MAX_MEDIA_BYTES,
     put: async file => {
@@ -404,7 +426,26 @@ export function desktopFrameHost(native: Native): FrameHost {
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
     // reaches this Mac later changes the document, and so the copy.
     load: async (frame, page, _key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key: contentKey(doc), html: doc})); },
+    pageScripts: () => decided ??= (async () => {
+      const status = await native.invoke<WallStatus>('page_wall_status').catch(() => undefined);
+      if (status?.rtc !== 'off' || status.preconnect !== 'off') return false;
+      // A frame made the way free pages are made, asked what it has.
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.hidden = true;
+      document.body.append(frame);
+      try {
+        const said = new Promise<string | undefined>(resolve => {
+          const hear = (e: MessageEvent) => { if (e.source === frame.contentWindow && e.data && typeof e.data.wallProbe === 'string') { removeEventListener('message', hear); resolve(e.data.wallProbe); } };
+          addEventListener('message', hear);
+          setTimeout(() => { removeEventListener('message', hear); resolve(undefined); }, 5000);
+        });
+        await host.load(frame, 'page-wall-probe', 'probe', framedDocument('<script>parent.postMessage({wallProbe: typeof RTCPeerConnection}, "*")</script>', {media: () => undefined, origins: host.origins}));
+        return wallHolds(status, await said);
+      } catch { return false; } finally { frame.remove(); }
+    })(),
   };
+  return host;
 }
 
 /**

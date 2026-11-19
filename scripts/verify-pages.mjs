@@ -694,5 +694,26 @@ check('an agent batch written against the revision before the person’s typing 
   assert.ok(!changes.some(c => c.source === 'agent:apply' && JSON.stringify(c.ops).includes('Written by the agent')), 'nothing of the agent’s landed');
 });
 
+/* 0.3-P2-fix3: when the wall cannot be confirmed (on the desktop: a WebKit without the settings), every
+   free page is drawn with no scripts and the person is told. The browser build is told so with
+   ?page-scripts=off, the same decision the desktop reaches. Last, since it reloads the app. */
+check('when page scripts are off, no free page’s frame may run them, on the board or in Preview, and the person is told', async () => {
+  await send('Page.navigate', {url: `http://127.0.0.1:${PORT}/?page-scripts=off`});
+  await sleep(1500);
+  await waitFor(() => evaluate('!!window.aphroditeAgent && !!document.querySelector("#app")'), 'the app to boot again');
+  if (await evaluate(`!!document.querySelector('[data-action="hub-open"]')`)) await personPresses('hub-open', {id: await evaluate(`document.querySelector('[data-action="hub-open"]').dataset.id`)});
+  await waitFor(() => evaluate(`document.querySelectorAll('iframe[data-frame-page]').length > 0`), 'free pages on the board');
+  await sleep(2500);
+  const sandboxes = await evaluate(`[...document.querySelectorAll('iframe[data-frame-page]')].map(f => f.getAttribute('sandbox'))`);
+  assert.ok(sandboxes.length && sandboxes.every(s => s === ''), JSON.stringify(sandboxes));
+  assert.equal(await evaluate(`(window.__frameMessages || []).filter(m => m && (m.boot || m.ten !== undefined || m.bigBoot)).length`), 0, 'no page script ran');
+  assert.equal(await evaluate(`!!document.querySelector('#banners .page-scripts-off')`), true, 'the person is told');
+  const free = (await agent('contract', {})).pages.find(p => p.kind === 'html').page_id;
+  await personPresses('page', {id: free}); await sleep(400);
+  await personPresses('preview'); await sleep(1500);
+  assert.equal(await evaluate(`document.querySelector('#modal-root iframe')?.getAttribute('sandbox')`), '', 'Preview has no scripts either');
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .page-scripts-off')`), true, 'and says so');
+});
+
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
 await runChecks(checks, shut);

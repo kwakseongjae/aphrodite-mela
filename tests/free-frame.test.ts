@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, type FrameHost} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, frameSandbox, browserFrameHost, DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS, type FrameHost} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -133,6 +133,7 @@ const fakeHost = (sizes: Record<string, number | undefined>) => {
     frameCost: async sha => sizes[sha] === undefined ? undefined : 'data:image/png;base64,'.length + Math.ceil(sizes[sha]! / 3) * 4,
     frameMedia: async sha => { read.push(sha); return 'data:image/png;base64,' + 'A'.repeat(Math.ceil(sizes[sha]! / 3) * 4); },
     load: async (_frame, _page, _key, d) => { doc = d; },
+    pageScripts: async () => true,
   };
   return {host, read, doc: () => doc};
 };
@@ -165,4 +166,28 @@ test('the app refuses and accepts exactly the link addresses the shared table sa
   const table = JSON.parse(readFileSync(new URL('./support/link-addresses.json', import.meta.url), 'utf8')) as {accept: string[]; refuse: string[]};
   for (const address of table.accept) assert.ok('host' in linkOut(address), `accepts ${JSON.stringify(address)}: ${JSON.stringify(linkOut(address))}`);
   for (const address of table.refuse) assert.ok('refused' in linkOut(address), `refuses ${JSON.stringify(address)}`);
+});
+
+/* 0.3-P2-fix3: page scripts run only behind the engine's wall. Both settings read back off, and a frame
+   made the way free pages are made says it has no peer connection; anything else turns scripts off. */
+test('page scripts run only when the wall reads back off and a real frame has no peer connection', () => {
+  const off = {rtc: 'off', preconnect: 'off'} as const;
+  assert.equal(wallHolds(off, 'undefined'), true);
+  for (const [status, said] of [[off, 'function'], [off, undefined], [{rtc: 'off', preconnect: 'unavailable'}, 'undefined'], [{rtc: 'unavailable', preconnect: 'off'}, 'undefined'], [{rtc: 'on', preconnect: 'off'}, 'undefined'], [undefined, 'undefined']] as const)
+    assert.equal(wallHolds(status as never, said as never), false, JSON.stringify([status, said]));
+});
+
+test('when page scripts are off, no frame a free page is drawn in may run them', () => {
+  assert.equal(frameSandbox(true), 'allow-scripts');
+  assert.equal(frameSandbox(false), '');
+  const doc = framedDocument('<script>1</script>', {media: () => undefined, origins: []});
+  assert.match(renderShell(doc, []), /sandbox="allow-scripts"/);
+  assert.doesNotMatch(renderShell(doc, [], false), /allow-scripts/);
+  assert.match(renderShell(doc, [], false), /<iframe sandbox="" srcdoc=/);
+});
+
+test('the browser build runs page scripts by a named development constant, unless told not to', async () => {
+  assert.equal(DEVELOPMENT_BUILD_RUNS_PAGE_SCRIPTS, true);
+  assert.equal(await browserFrameHost().pageScripts(), true);
+  assert.equal(await browserFrameHost({pageScripts: false}).pageScripts(), false);
 });
