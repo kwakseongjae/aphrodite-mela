@@ -59,6 +59,7 @@ import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
+import {commandById} from './agent/commands.mjs';
 import {runBatch,type BatchResult} from './agent/apply';
 import {isFreePage,loadFreePage,renderDocument,linkOut,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
@@ -1880,6 +1881,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
+        // A file on this Mac, by its path, is read only for an agent running here (the row's `reads`).
+        const reads=commandById['edit.apply'].reads!;
+        if(!(reads.surfaces as string[]).includes(surface)&&parsed.batch.ops.some(o=>o.op==='media_add'&&o.path!==undefined))return {error:`media_add reads a file by its path only for an agent running on this Mac (${reads.surfaces.join(', ')}); from here, name a picture in the image library with library_id.`,status:403};
         const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;

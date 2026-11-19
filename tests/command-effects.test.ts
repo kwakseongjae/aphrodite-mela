@@ -37,8 +37,13 @@ const INTERNAL_COMMANDS=[
   'free_page_write','board_media_path',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
-  'board_media_begin','board_media_chunk','board_media_finish','board_media_import',
+  'board_media_begin','board_media_chunk','board_media_finish',
 ];
+/**
+ * Tauri commands that read a file outside the app's own folders, at a path an agent names (0.3-P2-fix1):
+ * not an effect on the world, but not the app's own data either. Each is a read some row declares.
+ */
+const FILE_READS=['board_media_import'];
 const EFFECT=new RegExp([
   `\\binvoke(?:<[^\\n]*?>)?\\('(?:${EXTERNAL_COMMANDS.join('|')})'`,
   'navigator\\.clipboard\\.write',
@@ -191,6 +196,23 @@ test('a listener that leaves the app without a control is caught, directly or th
 test('every Tauri command the interface invokes is classed as leaving the app or not',()=>{
   const invoked=new Set<string>();
   for(const text of Object.values(tree))for(const m of text.matchAll(/\binvoke(?:<[^\n]*?>)?\('([a-z_]+)'/g))invoked.add(m[1]);
-  for(const name of invoked)assert.ok(EXTERNAL_COMMANDS.includes(name)||INTERNAL_COMMANDS.includes(name),`invoke('${name}') is not classed in this test`);
-  assert.deepEqual([...EXTERNAL_COMMANDS,...INTERNAL_COMMANDS].filter(n=>!invoked.has(n)),[],'no class names a command nothing invokes');
+  for(const name of invoked)assert.ok(EXTERNAL_COMMANDS.includes(name)||INTERNAL_COMMANDS.includes(name)||FILE_READS.includes(name),`invoke('${name}') is not classed in this test`);
+  assert.deepEqual([...EXTERNAL_COMMANDS,...INTERNAL_COMMANDS,...FILE_READS].filter(n=>!invoked.has(n)),[],'no class names a command nothing invokes');
+});
+
+/* 0.3-P2-fix1 #11: media_add with a path copies a file an agent names on this Mac onto the board, where
+   get_render can read it back. That read is the row's to declare, and only an agent running on this Mac
+   (loopback, MCP) may ask for it; a model in the app (inApp) may use library_id, not path. */
+test('reading a file an agent names is declared by the row that does it, for this Mac\'s agents only',()=>{
+  const row=commandById['edit.apply'];
+  assert.ok(row.reads,'edit.apply says what it reads');
+  assert.deepEqual([...row.reads!.surfaces].sort(),['loopback','mcp']);
+  assert.equal(row.reads!.field,'ops[].path');
+  for(const name of FILE_READS){
+    const where=Object.entries(tree).filter(([,t])=>new RegExp(`\\binvoke(?:<[^\\n]*?>)?\\('${name}'`).test(t)).map(([f])=>f);
+    assert.deepEqual(where,['free-page.ts'],`${name} is invoked from the one module that reads and writes board files`);
+  }
+  const main=tree['main.ts'];
+  assert.ok(main.includes("commandById['edit.apply'].reads"),'the apply route holds media_add path to the surfaces the row names');
+  assert.ok(row.mcp?.description.includes('path')&&JSON.stringify(row.input).includes('library_id'));
 });

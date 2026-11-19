@@ -124,7 +124,12 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64) -> 
 }
 
 /// Copies a file an agent names onto the board: a regular file, of a kind a board shows, within the cap.
+/// A link is followed to the file it names, and that file is what is judged and read. No folder is kept
+/// out (hidden or system ones included): only an agent running on this Mac may name a path (the row's
+/// `reads` in src/agent/commands.mjs), and it can read this Mac's files already; what it gets here is
+/// a copy of a picture or a video, never anything else.
 pub(crate) fn store(base: &Path, from: &Path) -> Result<Stored, String> {
+    let from = &fs::canonicalize(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     let meta = fs::metadata(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     if !meta.is_file() {
         return Err(format!("{} is not a file.", from.display()));
@@ -289,6 +294,23 @@ mod tests {
         let kept = media_file(dir.path(), &first.sha).unwrap();
         assert_eq!(kept, dir.path().join(MEDIA).join(format!("{}.png", first.sha)));
         assert_eq!(fs::read_dir(dir.path().join(UPLOADS)).unwrap().count(), 0, "nothing is left on its way in");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_judged_by_the_file_it_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real.png");
+        fs::write(&real, [&PNG[..], b"x"].concat()).unwrap();
+        let link = dir.path().join("link.png");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(store(dir.path(), &link).unwrap().sha, store(dir.path(), &real).unwrap().sha);
+        let to_dir = dir.path().join("dir.png");
+        std::os::unix::fs::symlink(dir.path(), &to_dir).unwrap();
+        assert!(store(dir.path(), &to_dir).unwrap_err().contains("not a file"));
+        let dangling = dir.path().join("gone.png");
+        std::os::unix::fs::symlink(dir.path().join("nothing"), &dangling).unwrap();
+        assert!(store(dir.path(), &dangling).unwrap_err().contains("no file"));
     }
 
     #[test]

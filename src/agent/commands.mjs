@@ -434,7 +434,7 @@ export const commands = [
             properties: {
               op: {type: 'string', enum: ['html_page', 'html_set', 'html_replace', 'media_add', 'add', 'update', 'move', 'delete', 'frame', 'page']},
               name: {type: 'string', description: 'html_page/page/media_add: what to call it, for example "Briefing".'},
-              path: {type: 'string', description: 'media_add: the absolute path of a picture or a video on this Mac (PNG, JPEG, GIF, WebP, MP4, WebM; at most 500 MB). It is copied onto the board; the page names it as "media:<sha256>". Desktop app only.'},
+              path: {type: 'string', description: 'media_add: the absolute path of a picture or a video on this Mac (PNG, JPEG, GIF, WebP, MP4, WebM; at most 500 MB). It is copied onto the board; the page names it as "media:<sha256>". Desktop app only, and only for an agent running on this Mac (MCP or the local channel).'},
               library_id: {type: 'string', description: 'media_add: instead of path, a picture in the image library, by its id from aphrodite_list_images.'},
               html: {type: 'string', maxLength: 2000000, description: 'html_page/html_set: the whole document, scripts and styles included, up to 2,000,000 characters. A picture or a video is "media:<sha256>", another page "page:<id>"; never a path on this machine.'},
               find: {type: 'string', description: 'html_replace: the exact passage to change, as aphrodite_get_page_html returns it. Refused when it is not on the page, or is there more than once without all.'},
@@ -469,6 +469,10 @@ export const commands = [
     ledger: sources('agent:apply'),
     author: 'transport',
     surfaces: MCP_PANEL,
+    /* media_add with a path copies a picture or a video from this Mac onto the board, where it can be read
+       back (get_render). An agent on this Mac can read its files already; a model in the app cannot, and
+       may name a library picture (library_id) instead. */
+    reads: {what: 'a picture or a video on this Mac, at the path media_add names, copied onto the board', field: 'ops[].path', surfaces: ['loopback', 'mcp']},
     controls: [],
     route: {method: 'POST', path: '/agent/apply'},
     example: {reason: 'The brief asks for a calmer first screen.', ops: [{op: 'delete', block_id: 'selection'}]},

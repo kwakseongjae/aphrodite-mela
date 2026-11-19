@@ -49,6 +49,11 @@ export type Row = {
   mcp?: McpBlock;
   /** act, click, type, key, command, ui: the payload names another control, and that is what runs. */
   resolves?: true;
+  /**
+   * A file outside the app's own folders that the row reads, at a path the caller names, and the agent
+   * surfaces that may ask for it: the ones running on this Mac, which can read its files already.
+   */
+  reads?: {what: string; field: string; surfaces: Surface[]};
 };
 
 export declare const grades: readonly Grade[];

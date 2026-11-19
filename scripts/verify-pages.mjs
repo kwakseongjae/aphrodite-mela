@@ -508,6 +508,9 @@ check('an agent’s media_add in the browser build is refused with the reason, a
   const before = await seq();
   const got = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'media_add', path: '/tmp/x.png'}]});
   assert.match(got.error ?? '', /browser build cannot read files/);
+  // A model in the app may not name a path at all; it is told to name a library picture instead.
+  const inApp = await evaluate(`window.aphroditeAgent.run('apply', ${JSON.stringify({reason: WHY, ops: [{op: 'media_add', path: '/tmp/x.png'}]})}, 'claude-code', 'inApp')`);
+  assert.match(inApp.error ?? '', /only for an agent running on this Mac.*library_id/);
   assert.equal(await seq(), before);
 });
 

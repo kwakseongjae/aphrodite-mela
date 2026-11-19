@@ -825,7 +825,7 @@
               },
               "path": {
                 "type": "string",
-                "description": "media_add: the absolute path of a picture or a video on this Mac (PNG, JPEG, GIF, WebP, MP4, WebM; at most 500 MB). It is copied onto the board; the page names it as \"media:<sha256>\". Desktop app only."
+                "description": "media_add: the absolute path of a picture or a video on this Mac (PNG, JPEG, GIF, WebP, MP4, WebM; at most 500 MB). It is copied onto the board; the page names it as \"media:<sha256>\". Desktop app only, and only for an agent running on this Mac (MCP or the local channel)."
               },
               "library_id": {
                 "type": "string",
