@@ -239,9 +239,8 @@ export function renderShell(doc: string, origins: readonly string[]): string {
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */
-export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameMedia'>): Promise<string> {
-  const wanted = [...new Set(Array.from(page.html.matchAll(MEDIA_REFS), m => m[1]))].slice(0, 500);
-  const found = new Map(await Promise.all(wanted.map(async sha => [sha, await host.frameMedia(sha)] as const)));
+export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia'>): Promise<string> {
+  const {found} = await pageMedia(page.html, host);
   return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
 }
 
@@ -302,6 +301,8 @@ export type FrameHost = {
   importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
   mediaUrl(sha: string): Promise<string | undefined>;
+  /** How long the address frameMedia would give is, without reading the file; undefined when it would give none. */
+  frameCost(sha: string): Promise<number | undefined>;
   /** The address a frame may load a media file from, or undefined when this board has no such file. */
   frameMedia(sha: string): Promise<string | undefined>;
   /** Puts the framed document in the frame. `key` names this version of the page. */
@@ -309,12 +310,36 @@ export type FrameHost = {
 };
 
 const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
-/** Loads a free page into its frame: its media found first, then the framed document. Says which of the files it names this board does not have yet. */
+/**
+ * The addresses a page's media is given, read one file at a time and only while it fits: each file's
+ * cost is asked first (frameCost reads nothing), counted as many times as the page names it, and a file
+ * that would take the document past MAX_FRAMED_DOCUMENT is not read at all. `missing` is what the board
+ * cannot give a frame (no such file, or one too big to put inline); a file left out for room is not, since
+ * drawing the page again would not change it.
+ */
+async function pageMedia(html: string, host: Pick<FrameHost, 'frameCost' | 'frameMedia'>): Promise<{found: Map<string, string>; missing: string[]}> {
+  const counts = new Map<string, number>();
+  for (const m of html.matchAll(MEDIA_REFS)) if (counts.has(m[1]) || counts.size < 500) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
+  const found = new Map<string, string>(), missing: string[] = [];
+  let length = html.length + 8_000;
+  for (const [sha, times] of counts) {
+    const cost = await host.frameCost(sha);
+    if (cost === undefined) { missing.push(sha); continue; }
+    const grows = times * (cost - 'media:'.length - 64);
+    if (length + grows > MAX_FRAMED_DOCUMENT) continue;
+    const address = await host.frameMedia(sha);
+    if (address === undefined) { missing.push(sha); continue; }
+    length += times * (address.length - 'media:'.length - 64);
+    found.set(sha, address);
+  }
+  return {found, missing};
+}
+
+/** Loads a free page into its frame: its media found first, then the framed document. Says which of the files it names the board cannot give it yet. */
 export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; html: string}, key: string, host: FrameHost): Promise<string[]> {
-  const wanted = [...new Set(Array.from(page.html.matchAll(MEDIA_REFS), m => m[1]))].slice(0, 500);
-  const found = new Map(await Promise.all(wanted.map(async sha => [sha, await host.frameMedia(sha)] as const)));
+  const {found, missing} = await pageMedia(page.html, host);
   await host.load(frame, page.id, key, framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}));
-  return wanted.filter(sha => found.get(sha) === undefined);
+  return missing;
 }
 
 /** How much of a file a srcdoc frame in the browser build is given inline: it cannot load the app's blob: URLs. */
@@ -344,6 +369,7 @@ export function browserFrameHost(): FrameHost {
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
+    frameCost: async sha => { const blob = await read(sha); return blob && blob.size <= INLINE_MEDIA ? `data:${blob.type};base64,`.length + Math.ceil(blob.size / 3) * 4 : undefined; },
     frameMedia: async sha => {
       const blob = await read(sha);
       if (!blob || blob.size > INLINE_MEDIA) return undefined;
@@ -373,6 +399,7 @@ export function desktopFrameHost(native: Native): FrameHost {
     },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
+    frameCost: async sha => (await where(sha))?.length,
     frameMedia: where,
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
     // reaches this Mac later changes the document, and so the copy.

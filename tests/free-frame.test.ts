@@ -5,7 +5,7 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, type FrameHost} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -119,4 +119,42 @@ test('a link out names its host as the browser reads it, and an address that hid
   assert.ok('host' in mail && mail.host === 'example.com');
   for (const bad of ['https://example.com/\u202Egpj.exe', 'javascript:alert(1)', 'file:///etc/hosts', 'https://exa\u0000mple.com', 'not a url'])
     assert.ok('refused' in linkOut(bad), bad);
+});
+
+/* 0.3-P2-fix2 #8: a file is only read and turned into an address once it is known to fit. Its size is
+   asked first (frameCost reads nothing), so pages naming many large files stop reading at the budget. */
+const nearLimit = 7 * 1024 * 1024;
+const fakeHost = (sizes: Record<string, number | undefined>) => {
+  const read: string[] = [];
+  let doc = '';
+  const host: FrameHost = {
+    origins: [], maxBytes: 1, put: async () => { throw new Error('no'); }, importFile: async () => { throw new Error('no'); }, mediaUrl: async () => undefined,
+    frameCost: async sha => sizes[sha] === undefined ? undefined : 'data:image/png;base64,'.length + Math.ceil(sizes[sha]! / 3) * 4,
+    frameMedia: async sha => { read.push(sha); return 'data:image/png;base64,' + 'A'.repeat(Math.ceil(sizes[sha]! / 3) * 4); },
+    load: async (_frame, _page, _key, d) => { doc = d; },
+  };
+  return {host, read, doc: () => doc};
+};
+const shas = (n: number) => Array.from({length: n}, (_, i) => i.toString(16).padStart(64, '0'));
+
+test('a page naming many large files reads only as many as fit, before building anything', async () => {
+  const many = shas(40);
+  const {host, read, doc} = fakeHost(Object.fromEntries(many.map(s => [s, nearLimit])));
+  const html = many.map(s => `<img src="media:${s}">`).join('');
+  const missing = await loadFreePage({} as HTMLIFrameElement, {id: 'p', html}, 'k', host);
+  const fits = Math.floor((MAX_FRAMED_DOCUMENT - 8_000) / (Math.ceil(nearLimit / 3) * 4));
+  assert.ok(read.length <= fits && read.length >= fits - 1, `read ${read.length}, ${fits} fit`);
+  assert.ok(doc().length <= MAX_FRAMED_DOCUMENT);
+  assert.deepEqual(missing, [], 'a file left out for room is not missing: drawing again would not change it');
+  const shell = fakeHost(Object.fromEntries(many.map(s => [s, nearLimit])));
+  await renderDocument({html}, shell.host);
+  assert.ok(shell.read.length <= fits, `the render read ${shell.read.length}`);
+});
+
+test('a file the board does not have, or cannot give a frame, is the only thing called missing', async () => {
+  const [have, absent, tooBig] = shas(3);
+  const {host, read} = fakeHost({[have]: 10, [absent]: undefined, [tooBig]: undefined});
+  const missing = await loadFreePage({} as HTMLIFrameElement, {id: 'p', html: `<img src="media:${have}"><img src="media:${absent}"><img src="media:${tooBig}">`}, 'k', host);
+  assert.deepEqual(read, [have]);
+  assert.deepEqual(missing.sort(), [absent, tooBig].sort());
 });
