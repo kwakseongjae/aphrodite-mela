@@ -176,3 +176,14 @@ test('an aphrodite:// link names a board and a page and nothing else', () => {
   assert.deepEqual(readOpenLink(openLink('b-1', 'p_2')), {board: 'b-1', page: 'p_2'});
   assert.deepEqual(readOpenLink(openLink('b-1')), {board: 'b-1'});
 });
+
+test('macOS opens .aphrodite files and aphrodite:// links with the app, which asks for nothing more', () => {
+  const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  assert.deepEqual(conf.bundle.fileAssociations.map((a: {ext: string[]}) => a.ext), [['aphrodite']]);
+  const plist = readFileSync(new URL('../src-tauri/Info.plist', import.meta.url), 'utf8');
+  assert.match(plist, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>aphrodite<\/string>\s*<\/array>/);
+  assert.doesNotMatch(plist, /UsageDescription/, 'no camera, microphone or other ask rides along');
+  const rust = readFileSync(new URL('../src-tauri/src/opened.rs', import.meta.url), 'utf8');
+  assert.match(rust, /pub const MAX_BOARD_FILE: u64 = 1024 \* 1024 \* 1024;/);
+  assert.equal(MAX_BOARD_FILE, 1024 * 1024 * 1024);
+});

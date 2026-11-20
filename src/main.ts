@@ -63,7 +63,7 @@ import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {exportPage,pageSource,pageDownload,type ExportChoice} from './page-export';
-import {readBoardFile,writeBoardFile,MAX_BOARD_FILE} from './board-file';
+import {readBoardFile,writeBoardFile,readOpenLink,openLink,MAX_BOARD_FILE,type OpenLink} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -186,6 +186,20 @@ function openPageView(id:string){
   else mountPagePreview(body.querySelector<HTMLIFrameElement>('iframe')!,project,page);
 }
 function closePageView(){if(!pageView)return;pageView=undefined;pageViewRoot.innerHTML='';syncStateAttributes();}
+/**
+ * Following an aphrodite:// link (src/board-file.ts reads it, here and from macOS): the board it names is
+ * opened and the page it names shown on its own. It opens and never edits: the board's open page, its
+ * history and the library stay as they are, and a board or a page this Mac does not have opens Home.
+ */
+async function followOpenLink(link:OpenLink|undefined){
+  const entry=link&&library.entries.find(e=>e.project.id===link.board);
+  if(!link||!entry){if(screen==='editor'){await guardSwitch();closePageView();screen='home';closeModal();render();}return;}
+  if(screen!=='editor'||project.id!==entry.project.id){await guardSwitch();openProject(entry.project);}
+  if(link.page&&project.pages.some(p=>p.id===link.page))openPageView(link.page);
+}
+let opening=Promise.resolve();
+/** What macOS handed the app to open (src-tauri/src/opened.rs), each once and in turn: links followed, board files opened as new boards. */
+function takeOpened(){return opening=opening.then(async()=>{const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take');for(const link of waiting.links)await followOpenLink(readOpenLink(openLink(link.board,link.page)));for(const file of waiting.files){try{await openBoardFile(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}}}).catch(error=>toast(String(error)));}
 /** Gives each new picture or video on the board its file: once, since the board keeps it after. */
 function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted]),[data-board-media][data-mounted="missing"]')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{const missing=el.parentElement?.querySelector<HTMLElement>('.board-missing');if(url){el.src=url;missing?.setAttribute('hidden','');if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else{el.dataset.mounted='missing';missing?.removeAttribute('hidden');}});}}
 document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
@@ -2248,6 +2262,9 @@ async function boot(){
   }
   render();if(startupError)toast(startupError);
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
+  if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
+  // The browser build has no macOS to hand it links; a check follows one through the same door.
+  else (window as unknown as {aphroditeOpenLink?:(href:string)=>Promise<void>}).aphroditeOpenLink=href=>followOpenLink(readOpenLink(href));
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

@@ -1337,7 +1337,9 @@ export const commands = [
     input: {type: 'object', properties: {name: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('new-project'), form('new-project-form'), action('import-project'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open')],
+    /* `opened` is what macOS hands the app: a board file opened from Finder becomes a new board, and an
+       aphrodite:// link opens a board and a page and edits nothing (src-tauri/src/opened.rs). */
+    controls: [action('new-project'), form('new-project-form'), action('import-project'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open'), listener('opened')],
   },
   {
     id: 'outside.project-manage',
