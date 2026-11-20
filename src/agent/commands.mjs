@@ -1112,7 +1112,7 @@ export const commands = [
     ledger: sources('editor:change'),
     author: 'transport',
     surfaces: UI,
-    controls: [action('page')],
+    controls: [action('page'), action('page-view-edit')],
   },
   {
     id: 'edit.page-add',
@@ -1457,6 +1457,9 @@ export const commands = [
   chrome('chrome.dialogs', 'Open or close a dialog', '창 열기·닫기', [
     action('commands'), field('command-search'), action('close-modal'), action('about'), action('brand-kit'), action('storage-info'), action('agent'),
     action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'),
+  ]),
+  chrome('chrome.page-view', 'See a page on its own, or go back to the board', '페이지만 보기·보드로 돌아가기', [
+    action('page-view'), action('page-view-close'),
   ]),
   chrome('chrome.catalog', 'Browse and compare components', '컴포넌트 둘러보기·비교', [
     action('component-explorer'), action('explorer-variant-pick'), action('explorer-reset'), action('explorer-group'), action('explorer-kind-pick'),
