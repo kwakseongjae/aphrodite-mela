@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
 import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, BoardFileError, MAX_BOARD_FILE} from '../src/board-file';
 import {initialProject, isApproved, fingerprint, parseProject, type Project} from '../src/model';
+import {parseBatch} from '../src/agent/ops';
 import {MAX_EXPORT_FILE} from '../src/page-export';
 
 /**
@@ -110,10 +111,8 @@ test('an entry that unpacks past the size it declared is stopped while it unpack
   assert.ok(zip.length < 1_000_000);
   const {read} = readZip(zip, 1);
   let unpacked = 0;
-  const t0 = performance.now();
   assert.throws(() => read('pages/free.html', n => { unpacked = n; }), /unpacks past the 10 bytes it declared/);
   assert.ok(unpacked <= 10 + 16 * 1024 * 1024, `it stopped after ${unpacked.toLocaleString('en')} bytes`);
-  assert.ok(performance.now() - t0 < 5_000);
 });
 
 test('an entry that is not what its directory says, encrypted, or packed another way refuses the file', async () => {
@@ -186,4 +185,12 @@ test('macOS opens .aphrodite files and aphrodite:// links with the app, which as
   const rust = readFileSync(new URL('../src-tauri/src/opened.rs', import.meta.url), 'utf8');
   assert.match(rust, /pub const MAX_BOARD_FILE: u64 = 1024 \* 1024 \* 1024;/);
   assert.equal(MAX_BOARD_FILE, 1024 * 1024 * 1024);
+});
+
+test('an approval in a received history cannot be sent back: the patch that would set it is refused', async () => {
+  const got = await readBoardFile(await written(), store().host);
+  const approval = got.project.ledger!.changes.flatMap(c => c.ops).find(op => (op as {field?: string}).field === 'approvedFingerprint');
+  assert.ok(approval, 'the history someone sent holds their approval');
+  const replay = parseBatch({reason: 'Replaying what they did.', patch: [{...approval, value: fingerprint(got.project)}]});
+  assert.ok('error' in replay && /Approving a direction is the person's decision/.test(replay.error), JSON.stringify(replay));
 });

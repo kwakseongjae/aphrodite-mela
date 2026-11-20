@@ -166,8 +166,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   if (project!.ledger) project!.ledger = elsewhere(project!.ledger);
   const left: ReadBoard['left'] = [];
   let files = 0;
+  const carried = new Map(zip.names.flatMap(n => { const m = MEDIA.exec(n); return m ? [[m[1], n] as const] : []; }));
   for (const sha of filesNamed(project!)) {
-    const name = zip.names.find(n => MEDIA.exec(n)?.[1] === sha);
+    const name = carried.get(sha);
     if (!name) { left.push({file: sha, why: 'the file does not carry it'}); continue; }
     const data = zip.read(name), mime = sniffMedia(data.subarray(0, 16));
     if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture or video its name says'}); continue; }
