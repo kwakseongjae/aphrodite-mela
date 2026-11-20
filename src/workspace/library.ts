@@ -93,6 +93,16 @@ export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }
+/**
+ * A project file someone opened from disk, as it comes into this library: read like any saved project, a copy
+ * when its id is one this library has, and never approved. No file can make an approval (0.3-P3-fix1).
+ */
+export function importedProject(raw:string,library:Library):Project{
+  const loaded=parseProject(raw);
+  const project=library.entries.some(e=>e.project.id===loaded.id)?cloneProject(loaded):loaded;
+  delete project.approvedFingerprint;
+  return project;
+}
 export function cloneProject(project:Project):Project{
   const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;
 }
