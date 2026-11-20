@@ -134,7 +134,7 @@ export const commands = [
       description: [
         'The html of one html page, exactly as it is stored: what to read before you change it, and where to copy the passage you send as `find` to html_replace.',
         '',
-        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make.',
+        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make, and `link`, an aphrodite:// address that opens the page in the app for the person.',
         'A section page has no html; read it with aphrodite_get_contract. For the words of a page without its markup, aphrodite_get_page_text is shorter.',
         '',
         'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
@@ -481,7 +481,7 @@ export const commands = [
       name: 'aphrodite_apply_edits',
       title: 'Change the design',
       description: [
-        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`.',
+        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`, and carries `link`: an aphrodite:// address that opens the page made (or the one open) in the app, to give the person. Opening it changes nothing.',
         'Put a screenshot or a video on the board with `media_add` (`path` on this Mac, or `library_id`); it is placed beside the pages, and a page shows it as <img src="media:<sha256>"> once you read its hash from aphrodite_get_contract.',
         'On a section page made before html: add, update, move, delete a component, resize a page frame, or make and name a section page (`page`). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle it.',
         '',

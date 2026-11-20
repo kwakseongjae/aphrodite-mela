@@ -1768,7 +1768,8 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
+  // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1808,7 +1809,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   if(c.kind==='html'||c.kind==='text'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     const read=c.kind==='html'?pageHtmlRead(project,c):pageTextRead(project,c);
-    return 'error' in read?read:{...read,...revisionInfo()};
+    return 'error' in read?read:{...read,...revisionInfo(),link:openLink(project.id,c.pageId??project.activePageId)};
   }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='changes'){
