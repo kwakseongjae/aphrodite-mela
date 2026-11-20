@@ -20,8 +20,14 @@ export const MAX_EXPORT_FILE = 1024 * 1024 * 1024;
 /** How big one exported page may be with its pictures put in, in bytes: about what a browser still opens without trouble. */
 export const MAX_EXPORTED_PAGE = 100_000_000;
 
-/** Elements whose content is text up to their own end tag: their content is copied, never read for tags. */
-const RAW_TEXT = new Set(['style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript']);
+/**
+ * Elements whose content is text up to their own end tag: their content is copied, never read for tags. Not
+ * `<noscript>`, which is markup wherever scripts are off (a preview, a mail reader), and none of them inside
+ * `<svg>` or `<math>`, where they hold markup too; there everything is read as markup, which at worst takes
+ * out text that only looked like a tag.
+ */
+const RAW_TEXT = new Set(['style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']);
+const FOREIGN = new Set(['svg', 'math']);
 const SPACE = /[\t\n\f\r ]/;
 type Attribute = {name: string; value: string; text: string};
 /** The attributes of a start tag from just after its name, and where the tag ends (its `>`), or -1 when it never does. */
@@ -61,8 +67,13 @@ const decoded = (value: string) => value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/g
   const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1));
   return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
 });
-/** Whether an attribute's value would run something when used: `javascript:` and its kind, however it is written. */
-const RUNS = (value: string) => /^(?:javascript|vbscript|livescript):/i.test(decoded(value).replace(/[\u0000-\u0020\u007f-\u009f]/g, ''));
+/**
+ * Whether an attribute's value would run something when used: `javascript:` and its kind, however it is written,
+ * and anywhere in what a drawing's animation sets (`to`, `from`, `by`, `values`), which can set an address.
+ */
+const SCHEME = /(?:javascript|vbscript|livescript):/i;
+const ANIMATED = new Set(['to', 'from', 'by', 'values']);
+const RUNS = (name: string, value: string) => { const plain = decoded(value).replace(/[\u0000-\u0020\u007f-\u009f]/g, ''); return ANIMATED.has(name) ? SCHEME.test(plain) : new RegExp(`^${SCHEME.source}`, 'i').test(plain); };
 /** What a `<link>` may keep: one that names something written into the page itself. */
 const STAYS_IN = (value: string) => /^data:/i.test(value.trim());
 
@@ -72,7 +83,7 @@ const STAYS_IN = (value: string) => /^data:/i.test(value.trim());
  * else is copied as written.
  */
 export function staticPage(html: string): string {
-  let out = '';
+  let out = '', foreign = 0;
   for (let i = 0; i < html.length;) {
     const open = html.indexOf('<', i);
     if (open < 0) { out += html.slice(i); break; }
@@ -87,11 +98,13 @@ export function staticPage(html: string): string {
     // A tag the page never ends is dropped by the browser too.
     if (end < 0) break;
     i = end + 1;
-    if (closing) { if (name !== 'script') out += html.slice(open, i); continue; }
+    if (closing) { if (FOREIGN.has(name) && foreign) foreign--; if (name !== 'script') out += html.slice(open, i); continue; }
     if (name === 'script') { const close = rawEnd(html, i, 'script'); const gt = html.indexOf('>', close); i = close >= html.length ? html.length : gt < 0 ? html.length : gt + 1; continue; }
-    if (name === 'base' || (name === 'link' && !STAYS_IN(list.find(a => a.name === 'href')?.value ?? '')) || (name === 'meta' && list.some(a => a.name === 'http-equiv' && /^\s*refresh\s*$/i.test(a.value)))) continue;
-    const kept = list.filter(a => !a.name.startsWith('on') && a.name !== 'srcdoc' && !RUNS(a.value));
+    if (name === 'base' || (name === 'link' && !STAYS_IN(list.find(a => a.name === 'href')?.value ?? '')) || (name === 'meta' && list.some(a => a.name === 'http-equiv' && /^\s*refresh\s*$/i.test(decoded(a.value))))) continue;
+    const kept = list.filter(a => !a.name.startsWith('on') && a.name !== 'srcdoc' && a.name !== 'ping' && !RUNS(a.name, a.value));
     out += kept.length === list.length ? html.slice(open, i) : `<${tag[0]}${kept.map(a => ' ' + a.text).join('')}${html[end - 1] === '/' ? ' /' : ''}>`;
+    if (FOREIGN.has(name) && html[end - 1] !== '/') { foreign++; continue; }
+    if (foreign) continue;
     if (name === 'plaintext') { out += html.slice(i); break; }
     if (RAW_TEXT.has(name)) { const close = rawEnd(html, i, name); out += html.slice(i, close); i = close; }
   }

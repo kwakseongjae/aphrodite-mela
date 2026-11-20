@@ -23,6 +23,13 @@ const runs = [
   ['a refresh', '<meta http-equiv="Refresh" content="0;url=https://elsewhere.example"><meta charset="utf-8">', '<meta charset="utf-8">'],
   ['a preconnect and a prefetch', '<link rel="preconnect" href="https://fonts.example"><LINK REL=dns-prefetch HREF=//x.example><link rel=stylesheet href="https://x.example/a.css">', ''],
   ['a tag the page never ends', '<p>a</p><img src=x onerror=alert(1)', '<p>a</p>'],
+  ['a refresh written with a reference', '<meta http-equiv="re&#102;resh" content="0;url=https://elsewhere.example">', ''],
+  ['a preconnect in a drawing\'s title', '<svg><title><link rel=preconnect href=//x.example></title></svg>', '<svg><title></title></svg>'],
+  ['a refresh in a drawing\'s style', '<svg><style><meta http-equiv=refresh content="0;url=https://x.example"></style></svg>', '<svg><style></style></svg>'],
+  ['a refresh after a plaintext in a drawing', '<svg><plaintext></svg><meta http-equiv=refresh content="0;url=https://x.example">', '<svg><plaintext></svg>'],
+  ['markup in a noscript', '<noscript><link rel=preconnect href=//x.example><img src=x onerror=go()></noscript>', '<noscript><img src=x></noscript>'],
+  ['an address an animation sets', '<svg><a><animate attributeName="href" values="x;javascript:alert(1)"/><text>t</text></a></svg>', '<svg><a><animate attributeName="href" /><text>t</text></a></svg>'],
+  ['a ping', '<a href="#x" ping="https://x.example/ping">x</a>', '<a href="#x">x</a>'],
 ] as const;
 for (const [what, html, expected] of runs) test(`a page goes out without ${what}`, () => assert.equal(staticPage(html), expected));
 
@@ -39,6 +46,7 @@ test('words that only look like a script are left exactly as written', () => {
     '<!-- <script>alert(1)</script> --><p>after</p>',
     '<title><script>alert(1)</script></title>',
     '<noscript><img src="media:x"></noscript>',
+    '<svg viewBox="0 0 1 1"><title>a <b> drawing</title><circle r="1"/></svg><textarea><link rel=preconnect></textarea>',
     '<p>javascript: a word</p><pre>&lt;script&gt;</pre>',
   ]) assert.equal(staticPage(html), html);
 });
