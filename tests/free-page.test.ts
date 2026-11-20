@@ -84,6 +84,28 @@ test('the words of a page, without its scripts and styles', () => {
   assert.equal(pageText("<p data-x='a>b' title=\"c>'d\">Hi</p><p>Next</p>"), 'Hi\n\nNext\n');
 });
 
+/**
+ * How many characters of `html` the reading searches through: every indexOf and regular expression run over
+ * it, counted from where each starts to where it stops. One pass reads each character about once; a reading
+ * that searches to the end again for every tag left open reads the page over and over. A count, not a clock:
+ * a wall-clock cap failed on a Mac under load (1,663ms against 1,500ms at a load average of 40), and a ratio
+ * of times at two sizes still swung with the load.
+ */
+function searched(html: string, read: (html: string) => unknown): number {
+  const indexOf = String.prototype.indexOf, exec = RegExp.prototype.exec;
+  let count = 0;
+  String.prototype.indexOf = function (this: string, search: string, from = 0) { const at = indexOf.call(this, search, from); if (this === html) count += (at < 0 ? html.length : at) - Math.max(0, from); return at; };
+  RegExp.prototype.exec = function (this: RegExp, text: string) { const from = this.global || this.sticky ? this.lastIndex : 0; const hit = exec.call(this, text); if (text === html) count += (hit ? hit.index : html.length) - from; return hit; };
+  try { read(html); } finally { String.prototype.indexOf = indexOf; RegExp.prototype.exec = exec; }
+  return count;
+}
+
+test('the count of what is searched tells one pass from a search to the end at every tag', () => {
+  const html = '<p>' + 'x'.repeat(10_000);
+  assert.ok(searched(html, h => h.indexOf('<')) < 2 * html.length);
+  assert.ok(searched(html, h => { for (let i = 0; i < h.length; i += 100) h.indexOf('<', i + 1); }) > 10 * html.length);
+});
+
 test('reading the words of a 2MB page takes one pass, however its tags are left open', () => {
   for (const [what, html] of [
     ['rows never closed', '<table>' + '<tr><td>cell'.repeat(150_000)],
@@ -93,9 +115,8 @@ test('reading the words of a 2MB page takes one pass, however its tags are left 
     ['tags that never end', '<p>text</p>' + '<a'.repeat(900_000)],
     ['quotes that never close', '<p>text</p>' + '<a title="x>'.repeat(150_000)],
   ] as const) {
-    const t0 = performance.now();
-    pageText(html);
-    assert.ok(performance.now() - t0 < 1_500, `${what}: ${Math.round(performance.now() - t0)}ms`);
+    const count = searched(html, pageText);
+    assert.ok(count <= 3 * html.length, `${what}: ${count.toLocaleString('en')} characters searched in a page of ${html.length.toLocaleString('en')}`);
   }
 });
 
