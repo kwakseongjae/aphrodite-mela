@@ -193,7 +193,10 @@ function placePageView(){pageViewRoot.style.setProperty('--page-view-top',`${Mat
  * opened and the page it names shown on its own. It opens and never edits: the board's open page, its
  * history and the library stay as they are, and a board or a page this Mac does not have opens Home.
  */
+/** A link that arrived while the person was answering who may edit: it waits for their answer, and the request is never closed by a link. */
+let heldLink:OpenLink|undefined;
 async function followOpenLink(link:OpenLink|undefined){
+  if(askOpen()){heldLink=link;return;}
   const entry=link&&library.entries.find(e=>e.project.id===link.board);
   if(!link||!entry){if(screen==='editor'){await guardSwitch();closePageView();screen='home';closeModal();render();}return;}
   if(screen!=='editor'||project.id!==entry.project.id){await guardSwitch();openProject(entry.project);}
@@ -937,7 +940,7 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2){closeModal();return;}ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldLink&&!askOpen()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -1437,7 +1440,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if (andExport) exportModal(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
       break;
     }
-    case 'export': exportModal(); break;
+    case 'export': exportChoice={scripts:false,videos:'beside'}; exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     case 'download-page-html': { const page=currentPage(project);if(!page.kind)break;el.setAttribute('disabled','');try{const out=await pageDownload(await exportPage(pageSource(page),exportChoice,frameHost),fileName({...project,name:page.name},'html').slice(0,-'.html'.length),frameHost);const accepted=await saveFile(out.name,out.bytes,out.mime);recordRun('page:exported',{scripts:exportChoice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast(ui(exportChoice.scripts?'Page exported with its scripts':'Page exported without its scripts',exportChoice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
