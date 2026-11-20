@@ -19,14 +19,17 @@ import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
 import {framedDocument, renderShell, FRAME_PREFIX_END, FRAME_ALLOW} from '../src/free-page.ts';
 import {requestProbe} from './wall/probes.mjs';
-import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
+import {unzipSync} from 'fflate';
 
 /** Files to drop from "the Finder", made here and removed when the gate ends. */
 const filesDir = mkdtempSync(join(tmpdir(), 'aphrodite-pages-'));
 const fileAt = name => join(filesDir, name);
-const removeFiles = () => { try { for (const name of readdirSync(filesDir)) unlinkSync(fileAt(name)); rmdirSync(filesDir); } catch {} };
+/** Each file and folder this gate made, one by one: a folder only once it is empty. */
+const removeUnder = dir => { for (const name of readdirSync(dir)) { const path = join(dir, name); if (statSync(path).isDirectory()) { removeUnder(path); rmdirSync(path); } else unlinkSync(path); } };
+const removeFiles = () => { try { removeUnder(filesDir); rmdirSync(filesDir); } catch {} };
 
 const PORT = 4223, TRAP = 4224;
 const SERVER = `http://127.0.0.1:${TRAP}`;
@@ -780,6 +783,22 @@ check('an agent\'s reply carries a link that opens its page on its own; followin
   assert.equal(await revision(), rev, 'and changed nothing');
 });
 
+check('a link that arrives while the person is asked who may edit waits for their answer, and neither closes nor answers the request', async () => {
+  const link = (await agent('html', {page_id: viewId})).link;
+  await personPresses('agent-disconnect'); await sleep(300);
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  await waitFor(() => evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), 'the request on screen');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(link)})`); await sleep(600);
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), true, 'the request is still there');
+  assert.equal(await pageView(), '', 'and the link waits');
+  await personPresses('ask-decline');
+  await waitFor(async () => (await pageView()) === viewId, 'the link to open once the person has answered');
+  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'the answer was the person\'s: declined');
+  await personPresses('page-view-close'); await sleep(300);
+  await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
+});
+
 check('a page sent as one file runs nothing and reaches nothing where it is opened, and keeps words that only look like scripts', async () => {
   const TRAP_SRC = SERVER + '/exported';
   const hostile = `<!doctype html><html><head><title>kept</title><link rel="preconnect" href="http://127.0.0.1:${TCP}"><link rel="stylesheet" href="${TRAP_SRC}/css"><meta http-equiv="refresh" content="1;url=${TRAP_SRC}/refresh"><style>@import url(${TRAP_SRC}/import);</style></head><body><h1 id="h">Exported</h1>
@@ -818,6 +837,32 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   assert.ok(withScripts.includes(hostile), 'with its scripts, the page is the one stored');
   await evaluate(`document.querySelector('[data-export-scripts]').click(), true`); await sleep(300);
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+});
+
+check('a page sent with its video beside it is a zip of the page and the video, and the video plays from the folder under the page\'s policy', async () => {
+  const video = result.dropped.find(m => m.mime.startsWith('video/'));
+  assert.ok(video, 'the video dropped earlier');
+  await sleep(5_200);
+  const id = await makePage('Sent with its video', `<h1>Clip</h1><video id="v" src="${video.src}" controls muted playsinline></video>`);
+  await personPresses('page', {id}); await sleep(300);
+  const save = await downloads();
+  await personPresses('export'); await sleep(600);
+  await waitFor(() => evaluate(`!document.querySelector('[data-export-videos]')?.hidden`), 'the videos choice, for a page with a video');
+  const zip = await save('download-page-html');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+  assert.equal(zip.name, 'sent-with-its-video.zip');
+  const files = unzipSync(new Uint8Array(zip.bytes));
+  const sha = video.src.slice('media:'.length), ext = video.mime === 'video/mp4' ? 'mp4' : 'webm';
+  assert.deepEqual(Object.keys(files).sort(), ['media/' + sha + '.' + ext, 'sent-with-its-video.html']);
+  const folder = join(filesDir, 'sent-with-its-video');
+  mkdirSync(join(folder, 'media'), {recursive: true});
+  for (const [name, bytes] of Object.entries(files)) writeFileSync(join(folder, name), bytes);
+  const opened = await openPage(`file://${join(folder, 'sent-with-its-video.html')}`, {cdp: 9388, profile: '/tmp/aphrodite-pages-video-profile'});
+  try {
+    await sleep(1500);
+    const played = await opened.evaluate(`(async () => { const v = document.getElementById('v'); try { await v.play(); } catch (e) { return {error: String(e), code: v.error && v.error.code}; } await new Promise(r => setTimeout(r, 800)); return {ready: v.readyState, time: v.currentTime > 0, code: v.error && v.error.code}; })()`);
+    assert.deepEqual(played, {ready: 4, time: true, code: null}, JSON.stringify(played));
+  } finally { opened.close(); }
 });
 
 check('a board saved as .aphrodite opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
