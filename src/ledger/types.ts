@@ -6,7 +6,11 @@ import type {PatchOp} from './patch';
 import {passageHash} from './sha256';
 
 /** `unknown` is a change caught after the fact (an edit made outside `commit()`): nobody can say whose it was. */
-export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string};
+/**
+ * `elsewhere` marks a change made in another copy of the board and read in from a file (src/board-file.ts):
+ * whoever it names, it was not this Mac's person or one of its agents.
+ */
+export type Author = {kind: 'person' | 'agent' | 'unknown'; name: string; elsewhere?: true};
 export const UNKNOWN: Author = {kind: 'unknown', name: 'unknown'};
 export type Change = {
   /** Its own, never reused: what 0.5's folders and branches name a change by. */
@@ -153,7 +157,7 @@ export function readLedger(raw: unknown): Ledger | undefined {
     if (!c || typeof c !== 'object' || !Number.isInteger(c.seq) || c.seq <= last || c.seq > l.seq) return undefined;
     last = c.seq;
     if ((c.id !== undefined && !isStr(c.id, 100)) || (c.parent !== undefined && !isStr(c.parent, 100)) || !isStr(c.at, 40) || !isStr(c.source, 80) || !isStr(c.baseRevision, 100) || !isStr(c.revision, 100)) return undefined;
-    if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100)) return undefined;
+    if (!c.author || !['person', 'agent', 'unknown'].includes(c.author.kind) || !isStr(c.author.name, 100) || (c.author.elsewhere !== undefined && c.author.elsewhere !== true)) return undefined;
     if (c.reason !== undefined && !isStr(c.reason, MAX_REASON)) return undefined;
     if (!Array.isArray(c.ops) || typeof c.view !== 'boolean' || !Number.isInteger(c.size)) return undefined;
     if (!c.anchors || !ids(c.anchors.pages) || !ids(c.anchors.nodes) || (c.anchors.truncated !== undefined && c.anchors.truncated !== true)) return undefined;
@@ -168,7 +172,7 @@ export function readLedger(raw: unknown): Ledger | undefined {
     previous = id;
     // Only the fields a change has are carried, and its anchors are held to the cap a change recorded now has.
     const kept: Change = {
-      id, ...(parent ? {parent} : {}), seq: c.seq, at: c.at, author: {kind: c.author.kind, name: c.author.name}, source: c.source,
+      id, ...(parent ? {parent} : {}), seq: c.seq, at: c.at, author: {kind: c.author.kind, name: c.author.name, ...(c.author.elsewhere ? {elsewhere: true as const} : {})}, source: c.source,
       ...(c.reason !== undefined ? {reason: c.reason} : {}), ops: slim(forSaving(c.ops)), anchors: capAnchors(c.anchors),
       baseRevision: c.baseRevision, revision: c.revision, view: c.view,
       ...(c.undoes !== undefined ? {undoes: c.undoes} : {}), ...(c.redoes !== undefined ? {redoes: c.redoes} : {}), ...(c.compacted ? {compacted: true as const} : {}), size: 0,
