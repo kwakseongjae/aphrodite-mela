@@ -186,6 +186,8 @@ function openPageView(id:string){
   else mountPagePreview(body.querySelector<HTMLIFrameElement>('iframe')!,project,page);
 }
 function closePageView(){if(!pageView)return;pageView=undefined;pageViewRoot.innerHTML='';syncStateAttributes();}
+/** The page view sits under the banners, which say who may edit and stay in sight. */
+function placePageView(){pageViewRoot.style.setProperty('--page-view-top',`${Math.max(0,Math.round(document.querySelector('#banners')?.getBoundingClientRect().bottom??0))}px`);}
 /**
  * Following an aphrodite:// link (src/board-file.ts reads it, here and from macOS): the board it names is
  * opened and the page it names shown on its own. It opens and never edits: the board's open page, its
@@ -485,6 +487,7 @@ function syncStateAttributes(){
     undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
     pageView:pageView?.page??'',
   };
+  if(pageView)placePageView();
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
   if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
@@ -534,7 +537,7 @@ function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko
 function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
-  slot.innerHTML=bannersHtml();
+  slot.innerHTML=bannersHtml();if(pageView)placePageView();
   const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
