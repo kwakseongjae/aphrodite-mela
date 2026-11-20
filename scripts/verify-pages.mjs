@@ -721,7 +721,7 @@ check('a free page captures nothing: every frame refuses camera, microphone, scr
 
 const downloads = async () => {
   // What saveFile hands the browser to download, taken from the blob it makes (the app's policy lets it fetch no blob: address).
-  await evaluate(`(() => { if (window.__downloads) return true; window.__downloads = []; const blobs = new Map(); const make = URL.createObjectURL; URL.createObjectURL = blob => { const url = make.call(URL, blob); blobs.set(url, blob); return url; }; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { const blob = this.download && blobs.get(this.href); if (blob) { const name = this.download; blob.arrayBuffer().then(b => { const s = new Uint8Array(b); let out = ''; for (let i = 0; i < s.length; i += 32768) out += String.fromCharCode(...s.subarray(i, i + 32768)); window.__downloads.push({name, b64: btoa(out)}); }); return; } return click.call(this); }; return true; })()`);
+  await evaluate(`(() => { if (window.__downloads) return true; window.__downloads = []; const blobs = new Map(); const make = URL.createObjectURL; URL.createObjectURL = blob => { const url = make.call(URL, blob); blobs.set(url, blob); return url; }; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { const blob = this.download && blobs.get(this.href); if (blob) { const name = this.download; if (window.__toggleOnSave) { window.__toggleOnSave = false; document.querySelector('[data-export-scripts]')?.click(); } blob.arrayBuffer().then(b => { const s = new Uint8Array(b); let out = ''; for (let i = 0; i < s.length; i += 32768) out += String.fromCharCode(...s.subarray(i, i + 32768)); window.__downloads.push({name, b64: btoa(out)}); }); return; } return click.call(this); }; return true; })()`);
   return async (action, data) => { const n = await evaluate('window.__downloads.length'); await personPresses(action, data); await waitFor(async () => (await evaluate('window.__downloads.length')) > n, `the download from ${action}`, 40).catch(async error => { throw new Error(`${error.message}; the app said: ${await evaluate(`document.querySelector('#toast')?.textContent ?? ''`)}`); }); const got = await evaluate('window.__downloads.at(-1)'); return {name: got.name, bytes: Buffer.from(got.b64, 'base64')}; };
 };
 const pageView = () => evaluate('document.querySelector("#app").dataset.pageView');
@@ -842,7 +842,29 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   assert.ok(await evaluate(`!!document.querySelector('[data-export-page] .export-page-note[role="note"]')`), 'choosing the scripts says in one line where they will run');
   const withScripts = (await save('download-page-html')).bytes.toString('utf8');
   assert.equal(withScripts, '\ufeff' + hostile, 'with its scripts, the page is the one stored, and nothing more');
-  await evaluate(`document.querySelector('[data-export-scripts]').click(), true`); await sleep(300);
+  // 0.3-P3-fix1 #7: the file, its record and its toast follow the choice made when Save was pressed, whatever the box says after.
+  await waitFor(() => evaluate(`!document.querySelector('#toast').textContent.includes('페이지를 내보냈습니다')`), 'the earlier toasts to go', 15);
+  const n = await evaluate('window.__downloads.length');
+  // The box changes in the moment the file is handed over, after the page is made and before it is recorded.
+  await evaluate('window.__toggleOnSave = true');
+  await personPresses('download-page-html');
+  await waitFor(async () => (await evaluate('window.__downloads.length')) > n, 'the download pressed with the scripts');
+  await waitFor(() => evaluate(`document.querySelector('#toast').textContent.includes('페이지를 내보냈습니다')`), 'the toast');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /스크립트를 포함해 페이지를 내보냈습니다/, 'the toast says what was saved');
+  assert.equal(Buffer.from(await evaluate('window.__downloads.at(-1).b64'), 'base64').toString('utf8'), '\ufeff' + hostile, 'the file is the one chosen when Save was pressed');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
+  // Every way into the dialog starts with the scripts left out: Export, and Ready to export on an approved board.
+  for (const opening of ['export', 'approve', 'approve']) {
+    await personPresses('export'); await sleep(500);
+    if (!(await evaluate(`document.querySelector('[data-export-scripts]')?.checked`))) await evaluate(`document.querySelector('[data-export-scripts]').click(), true`);
+    await sleep(300);
+    await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
+    await personPresses(opening); await sleep(600);
+    if (!(await evaluate(`!!document.querySelector('[data-export-page]')`))) continue; // approving the first time opens no dialog
+    assert.equal(await evaluate(`document.querySelector('[data-export-scripts]').checked`), false, `opened by ${opening}, the dialog leaves the scripts out`);
+    await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
+  }
+  assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'approved', 'the board was approved by the person, so Ready to export was the way in');
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
 });
 
