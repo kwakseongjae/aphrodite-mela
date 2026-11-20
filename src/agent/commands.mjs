@@ -1314,12 +1314,12 @@ export const commands = [
   {
     /* A page, or a board, made into a file the person sends elsewhere (0.3-P3): it leaves the app, and no ⌘Z brings it back. */
     id: 'outside.export-page',
-    label: {en: 'Export a page as one HTML file', ko: '페이지를 HTML 파일 하나로 내보내기'},
+    label: {en: 'Export a page as one HTML file, or the board as a .aphrodite file', ko: '페이지를 HTML 파일 하나로, 보드를 .aphrodite 파일로 내보내기'},
     grade: 'outside',
     input: NOTHING,
     ...plain,
     surfaces: UI,
-    controls: [action('download-page-html')],
+    controls: [action('download-page-html'), action('download-board-file')],
   },
   {
     id: 'outside.clipboard',
@@ -1332,7 +1332,7 @@ export const commands = [
   },
   {
     id: 'outside.project-new',
-    label: {en: 'Make, open, import or duplicate a project', ko: '프로젝트 만들기·열기·가져오기·복제'},
+    label: {en: 'Make, open, import or duplicate a project, or open a board someone sent', ko: '프로젝트 만들기·열기·가져오기·복제, 받은 보드 열기'},
     grade: 'outside',
     input: {type: 'object', properties: {name: {type: 'string'}}, additionalProperties: false},
     ...plain,
