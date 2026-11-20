@@ -90,3 +90,16 @@ test('an export never ships the placeholder a lazy chunk leaves behind',async()=
   assert.doesNotMatch(html,/official-pending/,'the runtime had not arrived when the pages were rendered');
   assert.match(html,/official-component official-action/,'the real component is in the bundle');
 });
+
+/* 0.3-P3: the handoff wrote every page through the section renderer, so an html page and a media item went out blank. */
+test('the handoff carries an html page as its own document without its scripts, and a media item as a page holding its picture',async()=>{
+  const p=initialProject(),sha='a'.repeat(64);
+  p.pages[0].blocks=[];
+  p.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:'<h1>Spring launch</h1><script>alert(1)</script><img src="media:'+sha+'">'} as never,{id:'pic',name:'Pic',blocks:[],kind:'media',media:{src:'media:'+sha,mime:'image/png',width:1,height:1}} as never);
+  const media={stat:async(s:string)=>s===sha?{mime:'image/png',bytes:3}:undefined,read:async(s:string)=>s===sha?new Uint8Array([1,2,3]):undefined};
+  const files=unzipSync(await exportBundle(p,undefined,media));
+  const free=strFromU8(files['page-2.html']),pic=strFromU8(files['page-3.html']);
+  assert.ok(free.includes('<h1>Spring launch</h1>')&&!free.includes('<script>'),free.slice(0,300));
+  assert.ok(free.includes('src="data:image/png;base64,AQID"'));
+  assert.ok(pic.includes('<img alt="Pic" width="1" height="1" src="data:image/png;base64,AQID">'),pic.slice(0,300));
+});

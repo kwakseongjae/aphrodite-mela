@@ -9,11 +9,14 @@
  * The page is read one tag at a time, never searched for words: text that looks like a script inside a
  * `<textarea>`, a `<style>`, an attribute or a comment is left exactly as it was written.
  */
-import {mediaExtension, type FrameHost} from './free-page';
+import {strToU8, zipSync, type Zippable} from 'fflate';
+import {isFreePage, mediaExtension, type FrameHost} from './free-page';
 import {utf8Length} from './workspace/library';
 
 /** The policy the cleaned file carries: its own styles, pictures and fonts as data, its videos beside it, and nothing else. */
 export const STATIC_PAGE_CSP = [`default-src 'none'`, `script-src 'none'`, `style-src 'unsafe-inline'`, 'img-src data:', `media-src 'self' file: data:`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `object-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
+/** The most one file the app writes for the person to send may be, in bytes: a page with its videos beside it, or a board (src/board-file.ts). */
+export const MAX_EXPORT_FILE = 1024 * 1024 * 1024;
 /** How big one exported page may be with its pictures put in, in bytes: about what a browser still opens without trouble. */
 export const MAX_EXPORTED_PAGE = 100_000_000;
 
@@ -147,4 +150,25 @@ export function mediaPage(name: string, media: {src: string; mime: string; width
   const title = name.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const alt = title.replace(/"/g, '&quot;');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>html,body{margin:0;background:#fff}img,video{display:block;max-width:100%;height:auto;margin:0 auto}</style></head><body>${media.mime.startsWith('video/') ? `<video controls playsinline width="${media.width}" height="${media.height}" src="${media.src}"></video>` : `<img alt="${alt}" width="${media.width}" height="${media.height}" src="${media.src}">`}</body></html>`;
+}
+
+/** The document a page goes out from: an html page's own, or a media item as a page holding it. */
+export function pageSource(page: {name: string; kind?: string; html?: string; media?: {src: string; mime: string; width: number; height: number}}): string {
+  if (isFreePage(page)) return page.html;
+  return page.media ? mediaPage(page.name, page.media) : '';
+}
+
+/**
+ * What is written for an exported page: the html file alone, or a zip holding it and its videos. The zip's
+ * size is added up from the videos' sizes before any is read. The text is marked UTF-8 by its first bytes,
+ * so a page that does not say its charset still reads right; the text itself is as exported.
+ */
+export async function pageDownload(out: ExportedPage, name: string, host: Pick<FrameHost, 'read'>): Promise<{name: string; bytes: Uint8Array; mime: string}> {
+  const html = strToU8('\ufeff' + out.html);
+  if (!out.beside.length) return {name: `${name}.html`, bytes: html, mime: 'text/html'};
+  const total = html.length + out.beside.reduce((sum, file) => sum + file.bytes, 0);
+  if (total > MAX_EXPORT_FILE) throw new Error(`with its videos the page comes to ${total.toLocaleString('en')} bytes; one file holds at most ${MAX_EXPORT_FILE.toLocaleString('en')}. Leave the videos out, or send them apart.`);
+  const files: Zippable = {[`${name}.html`]: html};
+  for (const file of out.beside) { const bytes = await host.read(file.sha); if (bytes) files[file.path] = [bytes, {level: 0}]; }
+  return {name: `${name}.zip`, bytes: zipSync(files, {level: 6}), mime: 'application/zip'};
 }

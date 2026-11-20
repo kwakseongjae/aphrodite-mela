@@ -2,6 +2,8 @@ import { strToU8, zipSync } from 'fflate';
 import {localRefsIn,extensionFor,LOCAL_PREFIX} from './design/local-images';
 import {sampleImages} from './design/sample-images';
 import { type Project, isApproved, type DesignSystem } from './model';
+import {exportPage,pageSource} from './page-export';
+import type {FrameHost} from './free-page';
 import { pageHtml } from './render';
 import { loadLibraryRuntime } from './library-render';
 import { sceneManifest } from './components';
@@ -71,7 +73,8 @@ function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[
     return `${u.name} → ${used.join(', ')}`;
   }).join('\n');
 }
-export async function exportBundle(p: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
+/** `media` gives an html page's and a media item's files; without it, what they name is left as named. */
+export async function exportBundle(p: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>, media?: Pick<FrameHost, 'stat' | 'read'>): Promise<Uint8Array> {
   // The exported HTML has to stand alone on someone else's machine, so the vendor runtime must be
   // here before a single page is rendered — a lazy chunk that has not arrived would ship a
   // placeholder into the handoff.
@@ -107,7 +110,8 @@ export async function exportBundle(p: Project, resolveLocal?: (id: string) => Pr
     localFiles.push({ref:`${LOCAL_PREFIX}${id}`,name});
   }
   const rewriteLocal=(html:string)=>localFiles.reduce((acc,f)=>acc.replaceAll(`src="${f.ref}"`,`src="${f.name}"`),html);
-  p.pages.forEach((page, i) => { files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(rewriteLocal(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads))); });
+  // An html page or a media item goes out as a page sent alone does by default: without its scripts, its pictures in it, its videos left out.
+  for (const [i, page] of p.pages.entries()) files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(page.kind ? (await exportPage(pageSource(page), {scripts: false, videos: 'out'}, media ?? {stat: async () => undefined, read: async () => undefined})).html : rewriteLocal(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)));
   for(const u of uploads)files[u.name]=u.bytes;
   if(uploads.length)files['UPLOADS.md']=strToU8(uploadsMarkdown(p,uploads));
   for (const sample of sampleImages) {

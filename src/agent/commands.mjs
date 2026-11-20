@@ -1312,6 +1312,16 @@ export const commands = [
     ],
   },
   {
+    /* A page, or a board, made into a file the person sends elsewhere (0.3-P3): it leaves the app, and no ⌘Z brings it back. */
+    id: 'outside.export-page',
+    label: {en: 'Export a page as one HTML file', ko: '페이지를 HTML 파일 하나로 내보내기'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    surfaces: UI,
+    controls: [action('download-page-html')],
+  },
+  {
     id: 'outside.clipboard',
     label: {en: 'Copy to the clipboard', ko: '클립보드에 복사'},
     grade: 'outside',
