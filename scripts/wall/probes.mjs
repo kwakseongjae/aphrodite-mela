@@ -56,7 +56,12 @@ const say = (name, value) => top.postMessage({rtc: '${tag}', name, value: String
 say('ran', true);
 (async () => { try { const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:127.0.0.1:${UDP}'}, {urls: 'turn:127.0.0.1:${UDP}', username: 'u', credential: 'p'}]}); pc.createDataChannel('x'); await pc.setLocalDescription(await pc.createOffer()); say('here', 'offer made'); } catch (e) { say('here', 'refused'); } })();
 try { const C = window.webkitRTCPeerConnection; say('webkit-prefixed', C ? 'present' : 'refused'); } catch (e) { say('webkit-prefixed', 'refused'); }
-try { navigator.mediaDevices.enumerateDevices().then(() => say('media-devices', 'present'), () => say('media-devices', 'refused')); } catch (e) { say('media-devices', 'refused'); }
+(async () => { const md = navigator.mediaDevices; if (!md) { say('media-devices', 'absent'); return; } say('media-devices', 'present');
+  const capture = async (name, ask) => { try { const s = await ask(); s.getTracks().forEach(t => t.stop()); say(name, 'stream'); } catch (e) { say(name, 'refused ' + (e && e.name)); } };
+  await capture('capture-audio', () => md.getUserMedia({audio: true}));
+  await capture('capture-video', () => md.getUserMedia({video: true}));
+  if (md.getDisplayMedia) await capture('capture-display', () => md.getDisplayMedia()); else say('capture-display', 'absent');
+  try { say('labelled-devices', (await md.enumerateDevices()).filter(d => d.label).length); } catch (e) { say('labelled-devices', 'refused ' + (e && e.name)); } })();
 try { const t = new WebTransport('https://127.0.0.1:${UDP}/'); t.ready.then(() => say('webtransport', 'ready'), () => say('webtransport', 'refused')); } catch (e) { say('webtransport', 'refused'); }
 { const f = document.createElement('iframe'); f.srcdoc = '<script>${nested('srcdoc')}<\\/script>'; document.body.append(f); }
 { const d = document.createElement('div'); d.innerHTML = '<iframe srcdoc="<script>${attr(nested('parsed'))}<\\/script>"></iframe>'; document.body.append(d); }

@@ -35,7 +35,7 @@ import {execFile, spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import {runChecks} from './lib/headless.mjs';
 import {attacks} from './wall/probes.mjs';
-import {framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
+import {framedDocument, renderShell, FRAME_PREFIX_END, FRAME_ALLOW} from '../src/free-page.ts';
 import {appPolicy} from '../src/csp.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -106,7 +106,7 @@ const work = join(tmpdir(), `aphrodite-wall-runs-${process.pid}`);
 mkdirSync(work, {recursive: true});
 const READ = `JSON.stringify((window.__m||[]).filter(m=>m&&(m.atk||m.rtc||m.probe)).map(m=>(m.n||m.name)+'='+(m.v||m.value)))`;
 async function measure(binary, run) {
-  const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','${run.scriptless ? '' : 'allow-scripts'}');f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
+  const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','${run.scriptless ? '' : 'allow-scripts'}');f.setAttribute('allow',${JSON.stringify(FRAME_ALLOW).replace(/'/g, "\\'")});f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
   const spec = run.shape === 'board'
     ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, wait: 6, read: READ}]}
     : {url: `http://127.0.0.1:${PAGES}/shell/${run.tag}`, when: 'afterCreate', steps: [{wait: 6, read: READ}]};
@@ -155,8 +155,23 @@ check('with the wall in, no probe reaches anything: UDP 0, TCP 0, HTTP 0, on the
   const leaks = runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length);
   assert.deepEqual(leaks, []);
   assert.deepEqual(unknown, [], 'and nothing else reached the server');
-  const worked = runs.filter(r => r.walled && r.name !== 'legit').flatMap(r => r.said.filter(s => /offer made|=present|=ready/.test(s)).map(s => r.tag + ' ' + s));
+  const worked = runs.filter(r => r.walled && r.name !== 'legit').flatMap(r => r.said.filter(s => /offer made|=ready|^webkit-prefixed=present/.test(s)).map(s => r.tag + ' ' + s));
   assert.deepEqual(worked, [], 'no peer connection was made');
+});
+
+/* 0.3-P2-fix5: that a page sees navigator.mediaDevices is not a leak (macOS 15 shows it, this one may not);
+   being able to capture would be. Where it is there, every ask must be refused and no device named. */
+const MACOS = spawnSync('sw_vers', ['-productVersion'], {encoding: 'utf8'}).stdout.trim();
+check('with the wall in, a page captures nothing: no stream from the microphone, the camera or the screen, and no device named', async () => {
+  const rtc = runs.filter(r => r.walled && r.name === 'rtc-self');
+  const got = rtc.flatMap(r => r.said.filter(s => /^(capture-|labelled-devices=|media-devices=)/.test(s)).map(s => r.tag + ' ' + s));
+  assert.deepEqual(got.filter(s => /=stream$/.test(s) || /labelled-devices=[1-9]/.test(s)), [], 'nothing captured');
+  for (const r of rtc) {
+    const present = r.said.includes('media-devices=present');
+    if (present) for (const ask of ['capture-audio', 'capture-video', 'capture-display']) assert.ok(r.said.some(s => s.startsWith(ask + '=refused') || s === ask + '=absent'), `${r.tag}: ${ask} answered, refused: ${JSON.stringify(r.said)}`);
+    else assert.ok(r.said.includes('media-devices=absent'), `${r.tag}: ${JSON.stringify(r.said)}`);
+  }
+  console.log(`       macOS ${MACOS}: ${rtc.every(r => r.said.includes('media-devices=absent')) ? 'media devices absent on this macOS, so the refusals are not run here (a macOS that has them runs them)' : JSON.stringify(got)}`);
 });
 
 check('with the wall in, a page that does nothing wrong still works', async () => {
@@ -182,6 +197,6 @@ checks.push(['(numbers)', async () => {
   assert.deepEqual(runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length), [], 'still nothing, at the end');
   const table = {};
   for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}${r.scriptless ? ' scriptless' : ''}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
-  console.log('       ' + JSON.stringify(table));
+  console.log(`       macOS ${MACOS} ` + JSON.stringify(table));
 }]);
 await runChecks(checks, () => { for (const s of sockets) try { s.close(); } catch {} try { for (const f of readdirSync(work)) unlinkSync(join(work, f)); rmdirSync(work); } catch {} });
