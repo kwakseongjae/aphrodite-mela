@@ -60,16 +60,17 @@ function measurer() {
 
 /** A framed document with no host script in it: the charset and the policy, then the page. */
 const bare = html => { const doc = framedDocument(html, {media: () => undefined, origins: ORIGINS}); return doc.slice(0, doc.indexOf('<script>')) + doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length); };
+/** A one-second, 64-pixel H.264 file (scripts/wall/fixtures/v.mp4, made with ffmpeg's testsrc), given as the desktop gives board media: by the asset address, in the board and in the render shell alike. */
+const VIDEO = readFileSync(join(ROOT, 'scripts/wall/fixtures/v.mp4'));
 const DOT = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 const runs = [];
 for (const name of Object.keys(attacks)) for (const shape of ['board', 'shell']) for (const walled of [true, false]) {
-  if (name === 'legit' && !walled) continue;
   runs.push({name, shape, walled, tag: `${name}-${shape}-${walled ? 'wall' : 'none'}`});
 }
 // The known fact: no wall, no scripts, and preconnect still opens connections from the page's markup.
 for (const shape of ['board', 'shell']) runs.push({name: 'preconnect', shape, walled: false, scriptless: true, tag: `preconnect-${shape}-none-scriptless`});
-for (const [k, run] of runs.entries()) run.ports = {udp: UDP0 + k, tcp: Array.from({length: 6}, (_, i) => TCP0 + k * 6 + i), http: HTTP, asset: 'asset://localhost/media/dot.png'};
+for (const [k, run] of runs.entries()) run.ports = {udp: UDP0 + k, tcp: Array.from({length: 6}, (_, i) => TCP0 + k * 6 + i), http: HTTP, asset: 'asset://localhost/media/dot.png', video: 'asset://localhost/media/v.mp4'};
 /** What each probe must reach without the wall, in every shape, for its zero with the wall to mean anything. */
 const ALIVE = {'rtc-self': 'udp', 'poison-remove': 'udp', 'poison-matches': 'udp', 'poison-then-markup': 'udp', 'poison-length': 'udp', preconnect: 'tcp'};
 const page = run => bare(attacks[run.name](run.tag, run.ports));
@@ -96,6 +97,13 @@ await new Promise(r => pages.listen(PAGES, '127.0.0.1', r)); sockets.push(pages)
 const frames = createServer((req, res) => {
   const path = req.url.split('?')[0].slice(1);
   if (path === 'media/dot.png') { res.writeHead(200, {'content-type': 'image/png'}); res.end(DOT); return; }
+  if (path === 'media/v.mp4') {
+    // A media player asks for ranges of the file.
+    const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range ?? '');
+    if (!range) { res.writeHead(200, {'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': VIDEO.length}); res.end(VIDEO); return; }
+    const start = range[1] ? Number(range[1]) : 0, end = Math.min(range[2] ? Number(range[2]) : VIDEO.length - 1, VIDEO.length - 1);
+    res.writeHead(206, {'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${VIDEO.length}`, 'content-length': end - start + 1}); res.end(VIDEO.subarray(start, end + 1)); return;
+  }
   if (!byTag.has(path)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(page(byTag.get(path)));
 });
@@ -177,8 +185,13 @@ check('with the wall in, no frame has the media devices, and the window is never
   console.log(`       macOS ${MACOS}, before the wall this WebKit had ${JSON.stringify(walled.find(r => r.before)?.before)}; without the wall: ` + JSON.stringify(Object.fromEntries(open.map(r => [r.tag, {asked: r.asked.length, said: r.said.filter(s => /^(media-devices|capture-|labelled-devices)/.test(s))}]))));
 });
 
-check('with the wall in, a page that does nothing wrong still works', async () => {
-  for (const run of runs.filter(r => r.name === 'legit')) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1', 'video=playing']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
+check('with the wall in, a page that does nothing wrong still works, and plays its video wherever it plays without the wall', async () => {
+  for (const shape of ['board', 'shell']) {
+    const [walled, open] = [true, false].map(w => runs.find(r => r.name === 'legit' && r.shape === shape && r.walled === w));
+    assert.ok(open.said.includes('video=playing'), `legit-${shape}: the probe's video does not play even without the wall, so the probe is wrong, not the wall: ${JSON.stringify(open.said)}`);
+    assert.ok(walled.said.includes('video=playing'), `legit-${shape}: plays without the wall and not with it, so the wall breaks it: ${JSON.stringify(walled.said)}`);
+  }
+  for (const run of runs.filter(r => r.name === 'legit' && r.walled)) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
 });
 
 /* Names WebKit does not have, the way a future macOS might drop one: nothing is called, nothing dies, and
@@ -200,6 +213,7 @@ checks.push(['(numbers)', async () => {
   assert.deepEqual(runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length), [], 'still nothing, at the end');
   const table = {};
   for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}${r.scriptless ? ' scriptless' : ''}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
+  console.log(`       macOS ${MACOS} video: ` + JSON.stringify(Object.fromEntries(runs.filter(r => r.name === 'legit').map(r => [`${r.shape} ${r.walled ? 'wall' : 'none'}`, r.said.filter(s => s.startsWith('video=')).join(' ') || 'nothing'])) ));
   console.log(`       macOS ${MACOS} ` + JSON.stringify(table));
 }]);
 await runChecks(checks, () => { for (const s of sockets) try { s.close(); } catch {} try { for (const f of readdirSync(work)) unlinkSync(join(work, f)); rmdirSync(work); } catch {} });
