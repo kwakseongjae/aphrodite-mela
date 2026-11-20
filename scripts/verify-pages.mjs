@@ -150,6 +150,7 @@ for (const [tag, html] of [['probe', probe('probe')]]) {
     assert.deepEqual(seen, [], `the server was reached: ${JSON.stringify(seen)}`);
     assert.equal(await evaluate('location.href'), url, 'the app stayed where it was');
     assert.equal(await evaluate(`!!document.querySelector('[data-page-id="${id}"] iframe')`), true, 'the frame is still on the board');
+    await waitFor(() => evaluate(`window.__frameMessages.some(m => m && m.probe === '${tag}' && m.name === 'entity-hidden-file')`), 'the probe to say what its file: address loaded', 20);
     assert.equal(await evaluate(`window.__frameMessages.find(m => m && m.probe === '${tag}' && m.name === 'entity-hidden-file')?.value`), '0', 'a file: address hidden behind an entity loads nothing (Chrome refuses file: from a web page in any case; the http address hidden the same way, counted at the server above, is the probe that tells)');
   });
 }
@@ -990,6 +991,16 @@ check('without the page wall no free page is in any frame, on the board or in Pr
   assert.deepEqual(drawn.unframed.sort(), drawn.items.sort(), `a placeholder for every free page on the board: ${JSON.stringify(drawn)}`);
   assert.ok(listed.every(p => drawn.items.includes(p.page_id)), 'every free page the contract lists is on the board');
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.board-unframed')].filter(u => u.querySelector('strong').textContent !== u.closest('.space-frame').querySelector('.frame-name span').textContent).length`), 0, 'each placeholder names its page');
+  // 0.3-P3-fix1 #9: on a Mac in dark mode the placeholder is the light one, like the rest of the app (until F3's setting).
+  assert.equal(await evaluate('document.documentElement.dataset.theme'), 'light', 'the app document is the light theme');
+  const sunken = 'getComputedStyle(document.querySelector(".board-unframed")).backgroundColor';
+  const lightToken = `(() => { const d = document.createElement('div'); d.dataset.theme = 'light'; d.style.background = 'var(--ui-bg-sunken)'; document.body.append(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`;
+  await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-color-scheme', value: 'dark'}]});
+  await sleep(200);
+  const inDark = await evaluate(sunken), light = await evaluate(lightToken);
+  await send('Emulation.setEmulatedMedia', {features: []});
+  result.theme = {inDark, light};
+  assert.equal(inDark, light, 'with the Mac in dark mode the placeholder is the light theme');
   const free = listed;
   assert.equal(await evaluate(`document.querySelectorAll('iframe[data-frame-page]').length`), 0, 'no free page has a frame');
   const read = await Promise.all(free.map(p => agent('text', {page_id: p.page_id})));
