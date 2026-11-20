@@ -378,7 +378,8 @@ async function showVault(refresh=true){
   if(refresh||!vaultState)vaultState=await invoke<Vault>('vault_sync',{projectId:vaultProjectId,expected:entry.project,design:designMarkdown(entry.project)});
   showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
-async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
+/** Before leaving a board, by any way: what the person was typing is saved as their own change, then the store is flushed. */
+async function guardSwitch(){saveTyping();await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
@@ -393,7 +394,7 @@ async function openBoardFile(bytes:Uint8Array){
   saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();openProject(read.project);
   toast(read.left.length?ui(`Board opened as a new board · ${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`새 보드로 열었습니다 · 파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
-function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
  * src/ledger/patch.ts), recorded in the ledger under `d` — who made it, through what, and why — and

@@ -764,6 +764,7 @@ check('Edit in the app opens the page on the board, as the person\'s own step', 
 });
 
 check('an agent\'s reply carries a link that opens its page on its own; following one edits nothing, and one for a board this Mac lacks opens Home', async () => {
+  await sleep(5_200); // the person's last press holds the screen for a moment
   const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Linked', html: '<p>linked</p><script>parent.postMessage({boot: "linked"}, "*")</script>'}]});
   assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
   const projectId = (await agent('contract', {})).project.project_id, page = made.created_pages[0].page_id;
@@ -897,6 +898,37 @@ check('a board saved as a board file opens again as a new board, its pages runni
   await personPresses('zoom-fit'); await sleep(500);
   await waitFor(async () => (await messages('boot')).filter(b => b === 'alone').length > boots, 'its page to start on the new board', 30);
   result.board = {bytes: board.bytes.length, pages: got.pages.length};
+});
+
+/* 0.3-P3-fix1 #3: leaving a board by a link or by opening a board file saves what the person was typing first. */
+check('what the person was typing is kept when a link or a board file takes them to another board', async () => {
+  const here = (await agent('contract', {})).project.project_id;
+  const link = id => `aphrodite://open?board=${id}`;
+  const lib = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`);
+  const other = (await lib()).find(id => id !== here);
+  assert.ok(other, 'another board to go to');
+  await sleep(5_200);
+  const typed = await typeIntoTitle(' 링크 전');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(link(other))})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === other, 'the other board');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(link(here))})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the first board');
+  assert.match(await titleOf(typed) ?? '', / 링크 전$/, 'kept across a link');
+  const since = await seq();
+  const typedAgain = await typeIntoTitle(' 파일 전');
+  const count = (await lib()).length;
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]});
+  await waitFor(async () => (await lib()).length > count, 'the board file to open', 30);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(link(here))})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the first board');
+  assert.match(await titleOf(typedAgain) ?? '', / 파일 전$/, 'kept across a board file');
+  const {changes} = await agent('changes', {since, limit: 20});
+  assert.ok(changes.some(c => c.author.kind === 'person' && !c.author.elsewhere && JSON.stringify(c.ops).includes(' 파일 전')), `as the person's own change: ${JSON.stringify(changes.map(c => [c.author, c.source, JSON.stringify(c.ops).slice(0, 120)]))}`);
 });
 
 check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
