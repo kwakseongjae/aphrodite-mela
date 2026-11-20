@@ -1113,7 +1113,20 @@ export const commands = [
     ledger: sources('editor:change'),
     author: 'transport',
     surfaces: UI,
-    controls: [action('page'), action('page-view-edit')],
+    controls: [action('page')],
+  },
+  {
+    /* Edit in the app, from a page seen on its own: the person going from looking at a page to working on it (0.3-P3-fix1). */
+    id: 'edit.page-view-edit',
+    label: {en: 'Edit the page seen on its own', ko: '보고 있는 페이지를 앱에서 편집'},
+    grade: 'edit',
+    input: NOTHING,
+    reason: 'none',
+    revision: 'none',
+    ledger: sources('editor:change'),
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('page-view-edit')],
   },
   {
     id: 'edit.page-add',
@@ -1319,6 +1332,7 @@ export const commands = [
     grade: 'outside',
     input: NOTHING,
     ...plain,
+    author: 'person-only',
     surfaces: UI,
     controls: [action('download-page-html'), action('download-board-file')],
   },
@@ -1338,9 +1352,20 @@ export const commands = [
     input: {type: 'object', properties: {name: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    /* `opened` is what macOS hands the app: a board file opened from Finder becomes a new board, and an
+    controls: [action('new-project'), form('new-project-form'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open')],
+  },
+  {
+    /* A file or a link from outside the app: someone else's input, opened by the person and nobody else (0.3-P3-fix1).
+       `opened` is what macOS hands the app: a board file opened from Finder becomes a new board, and an
        aphrodite:// link opens a board and a page and edits nothing (src-tauri/src/opened.rs). */
-    controls: [action('new-project'), form('new-project-form'), action('import-project'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open'), listener('opened')],
+    id: 'outside.import',
+    label: {en: 'Open a project or board file, or a link to a board', ko: '프로젝트·보드 파일이나 보드 링크 열기'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('import-project'), listener('opened')],
   },
   {
     id: 'outside.project-manage',
@@ -1488,6 +1513,16 @@ export const commands = [
 
 /** Rows by id. */
 export const commandById = Object.fromEntries(commands.map(row => [row.id, row]));
+/**
+ * The row only the person may do that a screen action belongs to, outside the interface around the design
+ * (chrome rows are the person's too, and an agent may still act them): an agent's act, click or palette
+ * command that would reach one is refused before it runs (0.3-P3-fix1).
+ */
+export function personOnlyRow(actionName) {
+  if (typeof actionName !== 'string') return undefined;
+  const name = actionName.trim().toLowerCase();
+  return commands.find(row => row.author === 'person-only' && row.grade !== 'chrome' && row.controls.some(c => c.kind === 'action' && c.name === name))?.id;
+}
 
 /** The grade the permission rule judges a gate kind by, or undefined for a kind no row has. */
 export function gradeOfKind(kind) {

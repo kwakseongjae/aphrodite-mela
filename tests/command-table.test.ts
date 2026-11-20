@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {commands,grades,surfaceNames,commandById,gradeOfKind,kindsOfGrade,loopbackRoutes,mcpTools,type Row} from '../src/agent/commands.mjs';
+import {personOnlyRow,commands,grades,surfaceNames,commandById,gradeOfKind,kindsOfGrade,loopbackRoutes,mcpTools,type Row} from '../src/agent/commands.mjs';
 import {tools,toolByName} from '../mcp/aphrodite-mcp/tools.mjs';
 import {parseAgentCommand} from '../src/agent/bridge';
 import {judge,gateFor,isRead,isWrite,isAsk,readKinds,askKinds,writeKinds,HUMAN_ONLY_KIND,DOOR_KIND,type Authority} from '../src/agent/authority';
@@ -82,7 +82,14 @@ test('the interface around the design is offered to no agent surface',()=>{
     assert.deepEqual(row.surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row.id);
     assert.equal(row.author,'person-only');
   }
-  for(const row of commands.filter(r=>r.author==='person-only'))assert.ok(['human','chrome'].includes(row.grade),`${row.id}: only a human or chrome row is person-only`);
+  // 0.3-P3-fix1: besides approving, the door and the chrome, three rows are the person's alone: files out and in (with links), and Edit in the app.
+  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.page-view-edit','outside.export-page','outside.import']);
+});
+
+test('a screen action only the person does is found by its name, and the chrome an agent may still act is not',()=>{
+  for(const [action,row] of [['page-view-edit','edit.page-view-edit'],['download-page-html','outside.export-page'],['download-board-file','outside.export-page'],['import-project','outside.import'],[' Import-Project ','outside.import']])assert.equal(personOnlyRow(action),row,action);
+  for(const action of ['zoom-fit','page-view','export','download-bundle','page',undefined,42])assert.equal(personOnlyRow(action),undefined,String(action));
+  for(const row of ['edit.page-view-edit','outside.export-page','outside.import'])assert.deepEqual(commandById[row].surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row);
 });
 
 test('a route, a tool and a surface flag say the same thing',()=>{
