@@ -6,7 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
-import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, type BlockKind, type Page, type Project} from '../model';
+import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, MAX_PAGES, MAX_PAGE_NAME, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
 import {patternVariants} from '../patterns';
@@ -17,7 +17,8 @@ import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
 import {SELECTION, type Op} from './ops';
-import {htmlProblem, isFreePage, MAX_PAGE_HTML} from '../free-page';
+import {htmlProblem, isFreePage, mediaFrame, noSections, MAX_PAGE_HTML, type PageMedia, type FrameHost} from '../free-page';
+import {commandById, type Surface} from './commands.mjs';
 
 /**
  * `created` is every page the batch made, in order, so the agent can address what it just made.
@@ -72,10 +73,27 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
   return setHtml(target, next + html.slice(from));
 }
 
+/**
+ * A picture or a video placed on the board, beside the others, in a frame of its own shape. `media` is
+ * the file the host has already put on the board for this op; without it there is nothing to place.
+ */
+function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media: PageMedia | undefined, at: {x: number; y: number} | undefined, focus: Focus): string | undefined {
+  if (!media) return 'the file was not put on the board, so there is nothing to place. Send media_add through aphrodite_apply_edits, which copies the file first.';
+  if (project.pages.length >= MAX_PAGES) return `this project already has ${MAX_PAGES} pages and media items, which is the limit.`;
+  ensureSpace(project);
+  const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
+  const created: Page = {id: uid(), name: name.slice(0, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
+  project.pages.push(created);
+  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(project.space!, 'desktop'));
+  focus.created.push(created.id);
+  return undefined;
+}
+
 /** One operation against a page of `project`, which it changes in place. Returns an error sentence, or nothing. */
-function runOp(project: Project, page: Page, op: Op, focus: Focus): string | undefined {
+function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>, focus: Focus): string | undefined {
   if (op.op === 'html_page' || op.op === 'html_set' || op.op === 'html_replace') return runHtmlOp(project, op, focus);
-  if (isFreePage(page) && ['add', 'update', 'move', 'delete'].includes(op.op)) return `page ${page.id} is an html page, which has no sections. Change it with html_set or html_replace.`;
+  const sectionless = ['add', 'update', 'move', 'delete'].includes(op.op) ? noSections(page) : undefined;
+  if (sectionless) return sectionless;
   const blocks = page.blocks;
   const find = (id: string) => blocks.find(b => b.id === (id === SELECTION ? focus.selected : id));
   if (op.op === 'add') {
@@ -162,20 +180,20 @@ function runOp(project: Project, page: Page, op: Op, focus: Focus): string | und
  * A batch: the ops in order, then the patch. All of it lands or none of it does. The ledger is left
  * on the project passed in; the caller carries it over.
  */
-export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
+export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia> = {}, places: Record<number, {x: number; y: number}> = {}): BatchResult {
   // Whatever goes wrong inside, the answer is a sentence and the project passed in is untouched.
-  try { return attempt(project, batch, selected); }
+  try { return attempt(project, batch, selected, media, places); }
   catch (error) { return {ok: false, index: -1, part: batch.patch?.length && !batch.ops.length ? 'patch' : 'ops', error: `the batch could not be applied: ${error instanceof Error ? error.message : String(error)}`}; }
 }
 
-function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): BatchResult {
+function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia>, places: Record<number, {x: number; y: number}>): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
   const focus: Focus = {selected, created: []};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};
     for (const [index, op] of batch.ops.entries()) {
-      const error = runOp(next, target, op, focus);
+      const error = op.op === 'media_add' ? runMediaAdd(next, op, media[index], places[index], focus) : runOp(next, target, op, focus);
       if (error) return {ok: false, index, part: 'ops', error};
       /* Making a page moves the batch onto it, the way a person making a frame lands inside it.
          Without this, "make a mobile page and put a hero on it" quietly puts the hero back on the
@@ -189,6 +207,8 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
+    // What the patch changed is read against what the ops made: a media item media_add placed is theirs, not the patch's.
+    const was = new Map(next.pages.map(p => [p.id, p]));
     try { next = applyPatch(next, batch.patch); }
     catch (error) {
       if (error instanceof PatchError) return {ok: false, index: error.index, part: 'patch', error: error.message};
@@ -197,7 +217,6 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     // A patch can say anything the model can hold, so the result is held to what a saved project must be.
     try { next = parseProject(JSON.stringify(next)); }
     catch (error) { return {ok: false, index: -1, part: 'patch', error: `the patch would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
-    const was = new Map(project.pages.map(p => [p.id, p]));
     for (const page of next.pages) {
       const problem = typeof page.html === 'string' && page.html !== was.get(page.id)?.html ? htmlProblem(page.html) : undefined;
       if (problem) return {ok: false, index: -1, part: 'patch', error: `page ${page.id}: ${problem}`};
@@ -212,4 +231,34 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
   const designChars = (batch.patch?.length || !json ? JSON.stringify(next) : json).length;
   if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
   return {ok: true, project: next, selected: focus.selected, created: focus.created, designChars};
+}
+
+/**
+ * A batch with files waits while they are copied (importMedia), and a page picked meanwhile must not take
+ * it: it is held to the page it arrived on. One without files runs at once and needs no hold.
+ */
+export function heldBatch<B extends {ops: Op[]; pageId?: string}>(batch: B, project: Project): B {
+  return batch.ops.some(o => o.op === 'media_add') && !batch.pageId ? {...batch, pageId: currentPage(project).id} : batch;
+}
+
+/**
+ * An agent's media_add files, put on the board before the batch runs (src-tauri/src/board.rs checks each
+ * before it is copied). A path on this Mac is read only for an agent running here (the apply row's
+ * `reads`), and that is decided before the host is asked to read anything. `measure` reads a kept file's
+ * size, which needs the page (src/main.ts mediaSize).
+ */
+export async function importMedia(ops: Op[], surface: Surface, host: Pick<FrameHost, 'importFile' | 'mediaUrl'>, projectId: string, measure: (url: string, mime: string) => Promise<{width: number; height: number; duration?: number}>): Promise<{media: Record<number, PageMedia>} | {error: string; status?: number; failed_at?: number}> {
+  const reads = commandById['edit.apply'].reads!;
+  if (!reads.surfaces.includes(surface) && ops.some(o => o.op === 'media_add' && o.path !== undefined)) return {error: `media_add reads a file by its path only for an agent running on this Mac (${reads.surfaces.join(', ')}); from here, name a picture in the image library with library_id.`, status: 403};
+  const media: Record<number, PageMedia> = {};
+  for (const [i, op] of ops.entries()) {
+    if (op.op !== 'media_add') continue;
+    try {
+      const stored = await host.importFile({path: op.path, libraryId: op.library_id, project: projectId}), url = await host.mediaUrl(stored.sha);
+      if (!url) throw new Error('the file was not kept');
+      const size = await measure(url, stored.mime);
+      media[i] = {src: `media:${stored.sha}`, mime: stored.mime, width: size.width, height: size.height, ...(size.duration !== undefined ? {duration: size.duration} : {})};
+    } catch (error) { return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
+  }
+  return {media};
 }

@@ -15,13 +15,31 @@ const MIN_WIDTH: f64 = 240.0;
 const MAX_WIDTH: f64 = 2_000.0;
 const MAX_HEIGHT: f64 = 6_000.0;
 
+/// Whether the render window may load `to`: the one page it was opened on, and the frames inside it.
+/// wry asks for every frame's loads, not only the window's (wry navigation.rs, no main-frame check), and
+/// a frame drawn from srcdoc loads `about:srcdoc`; an `about:` document reaches nothing outside.
+fn stays_on(page: &tauri::Url, to: &tauri::Url) -> bool {
+    to == page || to.scheme() == "about"
+}
+
 fn clamp(value: f64, low: f64, high: f64) -> f64 {
     if value.is_finite() { value.max(low).min(high) } else { low }
 }
 
-/// Renders `html` off screen at `width` and answers with a PNG, base64 encoded.
+/// Renders a section page's `html` off screen at `width` and answers with a PNG, base64 encoded.
 #[tauri::command]
 pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) -> Result<String, String> {
+    render(app, html, width, height, false).await
+}
+
+/// Renders a free page's render shell (src/free-page.ts renderDocument) the same way, only behind the page
+/// wall: where it does not hold, the page is refused and never loaded (crate::page_wall::may_render).
+#[tauri::command]
+pub async fn render_free_page(app: AppHandle, html: String, width: f64, height: f64) -> Result<String, String> {
+    render(app, html, width, height, true).await
+}
+
+async fn render(app: AppHandle, html: String, width: f64, height: f64, free: bool) -> Result<String, String> {
     let width = clamp(width, MIN_WIDTH, MAX_WIDTH);
     let height = clamp(height, 320.0, MAX_HEIGHT);
     if html.len() > 4_000_000 {
@@ -29,10 +47,15 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
     }
     // A window of its own, never shown, closed as soon as the picture is taken.
     let label = format!("render-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
-    // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
-    // loopback server and fetched from there.
-    let url = crate::agent::stash_render(&app.state::<crate::agent::AgentBridge>(), html)?;
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse().map_err(|_| "could not build the page url")?))
+    // The window opens on nothing, takes the page wall (src-tauri/src/page_wall.rs), and only then loads
+    // the page, if the wall lets it (may_render).
+    let parked: std::sync::Arc<std::sync::Mutex<Option<tauri::Url>>> = Default::default();
+    let only = parked.clone();
+    let blank: tauri::Url = "about:blank".parse().map_err(|_| "could not build the page url")?;
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
+        // The window stays on the page it was given. A free page drawn here sits in a sandboxed frame
+        // whose shell lets it be sent nowhere (renderShell); this holds the window itself as well.
+        .on_navigation(move |to| to.scheme() == "about" || only.lock().ok().and_then(|page| page.clone()).is_some_and(|page| stays_on(&page, to)))
         .title("render")
         .inner_size(width, height)
         // A window that is never composited cannot be photographed: macOS gives back an empty image.
@@ -44,6 +67,21 @@ pub async fn render_page(app: AppHandle, html: String, width: f64, height: f64) 
         .position(-9_000.0, -9_000.0)
         .build()
         .map_err(|e| format!("could not open an off-screen webview: {e}"))?;
+    let bridge = app.state::<crate::agent::AgentBridge>();
+    let loaded = crate::page_wall::put_then_load(&window, |wall| {
+        crate::page_wall::may_render(free, wall)?;
+        let page = html;
+        // WKWebView refuses to navigate to a top-level data: URL, so the page is parked on the app's own
+        // loopback server and fetched from there.
+        let url: tauri::Url = crate::agent::stash_render(&bridge, page)?.parse().map_err(|_| "could not build the page url")?;
+        *parked.lock().map_err(|e| e.to_string())? = Some(url.clone());
+        Ok(url)
+    })
+    .await;
+    if let Err(error) = loaded {
+        let _ = window.close();
+        return Err(error);
+    }
 
     // Let the page lay out and fetch what it needs before the shutter.
     tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(1_500))).await.ok();
@@ -137,6 +175,17 @@ mod tests {
         assert_eq!(clamp(99_999.0, MIN_WIDTH, MAX_WIDTH), MAX_WIDTH);
         assert_eq!(clamp(f64::NAN, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
         assert_eq!(clamp(f64::INFINITY, MIN_WIDTH, MAX_WIDTH), MIN_WIDTH);
+    }
+
+    #[test]
+    fn the_render_window_stays_on_the_page_it_was_given() {
+        let page: tauri::Url = "http://127.0.0.1:4100/render/abc".parse().unwrap();
+        assert!(stays_on(&page, &page.clone()));
+        assert!(stays_on(&page, &"about:srcdoc".parse().unwrap()), "the page's own frame, and the srcdoc frames of official components on a section page");
+        assert!(stays_on(&page, &"about:blank".parse().unwrap()));
+        for other in ["http://127.0.0.1:4224/probe", "http://127.0.0.1:4100/render/abd", "http://127.0.0.1:4100/render/abc#x", "https://example.com/", "data:text/html,x", "file:///etc/hosts", "asset://localhost/x"] {
+            assert!(!stays_on(&page, &other.parse().unwrap()), "{other}");
+        }
     }
 
     #[test]

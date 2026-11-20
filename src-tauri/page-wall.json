@@ -1,0 +1,18 @@
+{
+  "note": "The page wall (0.3-P2-fix3, fix6): the WebKit settings that keep a free page off the network, and off the camera and the microphone, where a page's policy cannot. Read by src-tauri/src/page_wall.rs (include_str!) and by scripts/verify-wall.mjs, so the names are written once. Private WebKit API: each is asked for before it is called, never set by key.",
+  "peerConnection": {
+    "setter": "_setPeerConnectionEnabled:",
+    "getter": "_peerConnectionEnabled"
+  },
+  "mediaDevices": {
+    "setter": "_setMediaDevicesEnabled:",
+    "getter": "_mediaDevicesEnabled"
+  },
+  "features": [
+    "LinkPreconnect"
+  ],
+  "featureList": "_features",
+  "featureKey": "key",
+  "featureSetter": "_setEnabled:forFeature:",
+  "featureGetter": "_isEnabledForFeature:"
+}

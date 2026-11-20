@@ -16,6 +16,15 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {commands, commandById} from '../src/agent/commands.mjs';
+import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+/** A picture to drop from "the Finder": one pixel, written here, removed when the gate ends. */
+const filesDir = mkdtempSync(join(tmpdir(), 'aphrodite-ledger-'));
+const PICTURE = join(filesDir, 'dot.png');
+writeFileSync(PICTURE, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+const removeFiles = () => { try { unlinkSync(PICTURE); rmdirSync(filesDir); } catch {} };
 
 const {evaluate, send, personClicks, personPresses, presses, close} = await openApp({port: 4207, cdp: 9367, profile: '/tmp/aphrodite-ledger-profile'});
 const checks = [];
@@ -478,6 +487,13 @@ const person = {
   'edit.redo': {source: 'redo', run: () => presses('z', 4 | 8)},
   'edit.system': {source: 'editor:change', setup: () => personPresses('systems'), run: () => pressAt('#modal-root [data-action="choose-system"][data-system="atelier"]')},
   'edit.text': {source: 'editor:change', setup: () => select('hero'), run: () => typeInto('[data-field="title"]', 'Written by hand')},
+  'edit.media': {source: 'media:drop', setup: frameInView, run: async () => {
+    const to = await at('#canvas-scroll');
+    await send('Input.dispatchMouseEvent', {type: 'mouseMoved', x: to.x, y: to.y});
+    const data = {items: [], files: [PICTURE], dragOperationsMask: 1};
+    for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', {type, x: to.x, y: to.y, data});
+    await waitFor(() => evaluate(`!!document.querySelector('.board-media img[src]')`), 'the picture on the board', 20);
+  }},
 };
 const onScreen = commands.filter(r => r.grade === 'edit' && r.surfaces.ui);
 
@@ -536,4 +552,18 @@ check('a layer the person drags to a new place is theirs', async () => {
   matches('layer reorder', await oneChange('layer reorder', () => drag(grips[0], {x: grips[1].x, y: grips[1].y + grips[1].h * 0.4})), {row: 'edit.move', author: PERSON, source: 'layer:move'});
 });
 
-await runChecks(checks, close);
+check('a picture the person pastes onto the board is theirs', async () => {
+  await send('Emulation.setFocusEmulationEnabled', {enabled: true});
+  await send('Browser.grantPermissions', {permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: await evaluate('location.origin')});
+  const written = await evaluate(`(async () => { const c = document.createElement('canvas'); c.width = 8; c.height = 6; c.getContext('2d').fillRect(0, 0, 8, 6); const b = await new Promise(r => c.toBlob(r, 'image/png')); await navigator.clipboard.write([new ClipboardItem({'image/png': b})]); return true; })()`);
+  assert.equal(written, true);
+  await evaluate('document.activeElement?.blur(), true');
+  const before = await seq();
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86, commands: ['paste']});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86});
+  await waitFor(async () => (await seq()) > before, 'the pasted picture', 20);
+  const [change] = (await read('changes', {since: before, include_view: true, limit: 5})).changes;
+  matches('paste', change, {row: 'edit.media', author: PERSON, source: 'media:paste'});
+});
+
+await runChecks(checks, () => { removeFiles(); close(); });

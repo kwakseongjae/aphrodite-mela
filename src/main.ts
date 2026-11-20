@@ -3,7 +3,7 @@ import { createIcons, createElement } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
+import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -58,9 +58,10 @@ import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
-import {parseBatch,type Batch} from './agent/ops';
-import {runBatch,type BatchResult} from './agent/apply';
-import {isFreePage} from './free-page';
+import {parseBatch,type Batch,type Op} from './agent/ops';
+import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
+import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -81,7 +82,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,type Camera,type FramePreset} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -91,7 +92,7 @@ import {createArchive} from './workspace/archive';
 import {fitWithin,worthShrinking,base64Of} from './design/downscale';
 import {deriveTaste,renderTaste,parseTaste,mergeTaste,orderDirections,againstLabel,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
 import './workspace/home.css';
-import {invoke,isTauri} from '@tauri-apps/api/core';
+import {invoke,isTauri,convertFileSrc} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
 import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
@@ -104,6 +105,116 @@ let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storage
 let vanished:Breadcrumb|undefined;
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
+/** Free pages and media on the board: how frames get their documents here (src/free-page.ts decides), and the board layer that keeps them (src/editor/board.ts). */
+// `?page-wall=off` makes the browser build answer as a Mac without the page wall does, to see and check the placeholder there.
+const frameHost:FrameHost=nativeDesktop?desktopFrameHost({invoke,fileSrc:convertFileSrc}):browserFrameHost({pageWall:new URLSearchParams(location.search).get('page-wall')==='off'?false:undefined});
+/** What the page wall last said (src/free-page.ts pageWall): undefined until asked. A free page's frame is made only after a yes; after a no the board shows a placeholder. */
+let pageWallKnown:boolean|undefined;
+function pageWall(){return frameHost.pageWall().catch(()=>false).then(on=>{const was=pageWallKnown;pageWallKnown=on;if(on!==(was??true)&&screen==='editor')render();return on;});}
+type FramePlace=(frame:HTMLIFrameElement)=>void;
+/** The one place a free page's frame is made, with its scripts, and only once the page wall says yes. */
+async function freePageFrame(page:Page,className:string,place:FramePlace):Promise<HTMLIFrameElement|undefined>{if(!await pageWall())return undefined;const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('allow',FRAME_ALLOW);frame.className=className;frame.dataset.framePage=page.id;frame.title=page.name;place(frame);return frame;}
+/** What stands where a free page would be when the page wall does not hold: its name, and why it is not drawn. */
+function unframedHtml(p:Page){return `<div class="board-unframed" data-unframed-page="${esc(p.id)}" role="note"><strong>${esc(p.name)}</strong><span>${ui('This Mac\'s macOS cannot keep a page inside its frame, so it is not drawn. An agent can still read its words.','이 Mac의 macOS에서는 페이지를 틀 안에 가둘 수 없어 그리지 않았습니다. 글은 에이전트가 읽을 수 있습니다.')}</span></div>`;}
+const FREE_PAGE_HEIGHT=900;
+function freePageItem(p:Page&{html:string},f:FrameLayout){const id=esc(p.id),unframed=pageWallKnown===false;return `<div class="board-item" data-keep="item:${esc(project.id)}:${id}:${frameKey(p.id,p.html)}${unframed?`:unframed:${esc(p.name)}`:''}" data-keep-whole data-free-page="${id}" style="height:${f.height??FREE_PAGE_HEIGHT}px">${unframed?unframedHtml(p):''}<div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div></div>`;}
+/** A picture or a video on the board. Its file is found once the item is on the board (mountBoard); a video waits for a press on its play button. */
+function mediaItem(p:Page,m:PageMedia,f:FrameLayout){const id=esc(p.id),video=m.mime.startsWith('video/');return `<div class="board-item board-media" data-keep="media:${esc(project.id)}:${id}:${esc(m.src)}" data-keep-whole style="height:${f.height??FREE_PAGE_HEIGHT}px">${video?`<video data-board-media="${id}" preload="metadata" playsinline></video>`:`<img data-board-media="${id}" alt="${esc(p.name)}" draggable="false">`}<span class="board-missing" hidden>${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</span><div class="board-shield" data-action="page" data-id="${id}" data-frame-handle="${id}" data-board-shield="${id}"></div>${video?`<button type="button" class="ui-icon-btn ui-icon-btn-md board-play" data-board-play="${id}" aria-label="${ui('Play','재생')} ${esc(p.name)}">${icon('play')}</button>`:''}</div>`;}
+/** The editor drawn again around what the board holds: a frame already on it stays, and keeps running. */
+function paintApp(html:string){if(!app.querySelector('#space-world')){app.innerHTML=html;return;}const fresh=document.createElement('template');fresh.innerHTML=html;morph(app,fresh.content);}
+/** Gives each new frame on the board its page. A frame that was kept already has it. */
+/** Board items whose frame is being made: kept here, since the board item's own attributes are brought back to the template's on every paint (morph). */
+const framing=new WeakSet<HTMLElement>();
+function mountBoard(){mountMedia();for(const item of app.querySelectorAll<HTMLElement>('.board-item[data-free-page]')){const page=project.pages.find(p=>p.id===item.dataset.freePage);if(!page||!isFreePage(page)||item.querySelector('.board-unframed'))continue;const frame=item.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');if(frame){frame.title=page.name;frame.inert=enteredPage!==page.id;if(frame.dataset.mounted==='busy'||frame.dataset.mounted&&!frame.dataset.missing)continue;}else if(framing.has(item))continue;void (async()=>{
+  // A frame that named a file this board did not have is loaded again once the file is here; one that has all it names is left running.
+  // Asked the way the frame is given its files (frameCost): a file the board has but cannot put in a frame changes nothing.
+  if(frame?.dataset.mounted&&!(await Promise.all(frame.dataset.missing!.split(' ').map(sha=>frameHost.frameCost(sha)))).some(cost=>cost!==undefined))return;
+  // No frame is made before the page wall answers, and none after a no: the board is drawn again with the placeholder.
+  if(!frame)framing.add(item);
+  const target=frame??await freePageFrame(page,'board-frame',made=>{made.tabIndex=-1;made.inert=enteredPage!==page.id;made.dataset.mounted='busy';item.prepend(made);}).finally(()=>framing.delete(item));
+  if(!target)return;
+  target.dataset.mounted='busy';
+  try{const missing=await loadFreePage(target,page,frameKey(page.id,page.html),frameHost);if(missing.length)target.dataset.missing=missing.join(' ');else delete target.dataset.missing;}
+  finally{target.dataset.mounted='1';}
+})().catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));}}
+/**
+ * Going into a free page. Shut, a shield lies over the frame: one press selects the page, the wheel moves
+ * the board, and the frame takes no input at all (it is inert). Two presses take the shield away and the
+ * page has the mouse and the keys until a press outside it or Esc. Neither is an edit.
+ */
+let enteredPage='',boardProject='';
+function boardSection(id:string){return app.querySelector<HTMLElement>(`.space-frame[data-page-id="${CSS.escape(id)}"]`);}
+function enterPage(id:string){leavePage();const section=boardSection(id),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');if(!section||!frame)return;enteredPage=id;section.classList.add('entered');frame.inert=false;frame.focus();}
+function leavePage(){if(!enteredPage)return;const section=boardSection(enteredPage),frame=section?.querySelector<HTMLIFrameElement>('iframe[data-frame-page]');enteredPage='';section?.classList.remove('entered');if(frame){if(document.activeElement===frame)frame.blur();frame.inert=true;}}
+document.addEventListener('dblclick',e=>{const shield=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-shield]');if(shield&&e.isTrusted)enterPage(shield.dataset.boardShield!);});
+document.addEventListener('pointerdown',e=>{if(enteredPage&&!(e.target as HTMLElement).closest?.('.space-frame.entered .board-item'))leavePage();},true);
+/**
+ * What a page's frame may ask of the host, and only while the person is in it: Esc, a look at another
+ * page, a link out shown to the person. Read by which frame sent it, not by what it says it is; no
+ * message changes the design, the door or an approval.
+ */
+addEventListener('message',e=>{
+  const frame=Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')).find(f=>f.contentWindow===e.source);
+  const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
+  if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal'))return;
+  if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else leavePage();}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){leavePage();fitFrame(m.id);}
+  else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
+});
+/** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
+function offerLink(href:string){if(modalRoot.children.length)return;const link=linkOut(href);if('refused' in link){toast(ui('This link was not opened: ','이 링크는 열지 않았습니다: ')+link.refused);return;}leavePage();showModal(ui('This page links outside the app.','이 페이지가 앱 밖으로 연결합니다.'),ui('Nothing opens until you press Open.','열기를 누르기 전에는 아무것도 열리지 않습니다.'),`<p class="link-host ui-text-20" dir="ltr"><strong>${esc(link.host)}</strong></p><p class="link-address"><code dir="ltr" title="${esc(link.href)}">${esc(link.shown)}</code></p><button class="primary-button" data-action="open-link" data-href="${esc(link.href)}">${ui('Open in the browser','브라우저에서 열기')}</button>`);}
+/** Gives each new picture or video on the board its file: once, since the board keeps it after. */
+function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted]),[data-board-media][data-mounted="missing"]')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{const missing=el.parentElement?.querySelector<HTMLElement>('.board-missing');if(url){el.src=url;missing?.setAttribute('hidden','');if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else{el.dataset.mounted='missing';missing?.removeAttribute('hidden');}});}}
+document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
+/** How big a board file is, read off the file itself in this browser. */
+function mediaSize(url:string,mime:string):Promise<{width:number;height:number;duration?:number}>{return new Promise((resolve,reject)=>{const video=mime.startsWith('video/');const el=video?document.createElement('video'):new Image();const timer=setTimeout(()=>reject(new Error(ui('it could not be read','읽을 수 없습니다'))),15_000);const done=(w:number,h:number,duration?:number)=>{clearTimeout(timer);if(!w||!h){reject(new Error(ui('it has no size','크기가 없습니다')));return;}const scale=Math.min(1,20_000/Math.max(w,h));resolve({width:Math.max(1,Math.round(w*scale)),height:Math.max(1,Math.round(h*scale)),...(duration!==undefined&&Number.isFinite(duration)&&duration<=86_400?{duration:Math.round(duration*100)/100}:{})});};el.onerror=()=>{clearTimeout(timer);reject(new Error(ui('it could not be read','읽을 수 없습니다')));};if(el instanceof HTMLVideoElement){el.preload='metadata';el.onloadedmetadata=()=>done(el.videoWidth,el.videoHeight,el.duration);}else el.onload=()=>done(el.naturalWidth,el.naturalHeight);el.src=url;});}
+/**
+ * Pictures and videos the person drops on the board or pastes: each file is checked by its size and first
+ * bytes before it is read in, kept by the hash of its bytes (src/free-page.ts), and placed as one change in
+ * the person's name. A file that cannot go on the board says why and places nothing.
+ */
+async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
+  const projectId=project.id;
+  if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
+  const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
+  for(const file of files.slice(0,12)){
+    const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);
+    if(refused){toast(refused);continue;}
+    try{
+      const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);
+      if(!url)throw new Error(ui('it was not kept','보관되지 않았습니다'));
+      const size=await mediaSize(url,stored.mime),i=ops.length;
+      ops.push({op:'media_add',name:file.name||ui('Media','미디어')});
+      media[i]={src:`media:${stored.sha}`,mime:stored.mime,width:size.width,height:size.height,...(size.duration!==undefined?{duration:size.duration}:{})};
+      places[i]=last?{x:last.x+frameWidth(last)+FRAME_GAP/2,y:last.y}:at;
+      last=mediaFrame(size.width,size.height,places[i]);
+    }catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}
+  }
+  if(!ops.length)return;
+  // Reading the files took a moment: they land on the project they were dropped on, or nowhere.
+  if(screen!=='editor'||project.id!==projectId){toast(ui('The project changed while the files were read, so nothing was placed.','파일을 읽는 사이 프로젝트가 바뀌어 아무것도 놓지 않았습니다.'));return;}
+  // The batch is run inside the change, after the commit has saved what the person was typing: one read
+  // before that would put their text back. It is the batch an agent's media_add runs, so what lands is
+  // held to what a saved project may be.
+  let refused:string|undefined;
+  const place=()=>{
+    const result=runBatch(project,{ops},selected,media,places);
+    refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
+    if(result.ok&&!refused)project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+  };
+  commit(place,d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
+  if(refused){toast(refused);return;}
+  recordRun('media:placed',{count:ops.length,source});
+}
+
+/** A paste of pictures or videos onto the board, from the person's own keys; text pastes into fields as ever. */
+document.addEventListener('paste',e=>{
+  if(screen!=='editor'||modalRoot.children.length||enteredPage||(e.target as HTMLElement).closest?.('input,textarea,select,[contenteditable]'))return;
+  const files=[...(e.clipboardData?.files??[])];if(!files.length)return;
+  e.preventDefault();const d=who(e);if(!d)return;
+  const space=spaceEl();if(!space)return;
+  void putMedia(files,screenToWorld(camera,{x:space.clientWidth/3,y:space.clientHeight/3}),d,'media:paste');
+});
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
 let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
 let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
@@ -536,11 +647,14 @@ function render() {
   document.documentElement.lang=uiLanguage;
   if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
+  // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
+  // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
+  if(boardProject!==project.id){boardProject=project.id;enteredPage='';if(pageWallKnown===false)pageWallKnown=undefined;}
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
-  app.innerHTML = `<div id="banners">${bannersHtml()}</div>
-  <div class="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
+  paintApp(`<div id="banners">${bannersHtml()}</div>
+  <div class="studio" data-keep="studio" data-left="${panels.left}" data-right="${panels.right}" style="--inspector-w:${inspectorWidth}px">
     ${panels.left==='collapsed'?`<button type="button" class="panel-tab panel-tab-left" data-action="panel-pin" data-side="left" aria-label="${ui('Show the library','라이브러리 열기')}" title="${ui('Hover to peek · click to pin','호버해 잠깐 보기 · 클릭해 고정')}">${icon('panel-left')}</button>`:''}
     <aside class="library" aria-label="Component library">
       <button type="button" class="panel-collapse" data-action="panel-collapse" data-side="left" aria-label="${ui('Collapse the library','라이브러리 접기')}" title="${ui('Collapse','접기')}">${icon('panel-left-close')}</button>
@@ -559,21 +673,21 @@ function render() {
       <button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>
       <div class="library-bottom"><span class="agent-orb">${icon('sparkles')}</span><div><strong>${ui('Made for you. And your agent.','당신과 에이전트를 위해.')}</strong><span>${ui('Same canvas. Shared direction.','같은 캔버스. 공유된 방향.')}</span></div>${iconButton('agent', 'arrow-up-right', 'Computer use guide')}</div>
     </aside>
-    <main class="workbench">
+    <main class="workbench" data-keep="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-tool="${dockTool}"><div class="space-world" id="space-world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''}" data-page-id="${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × Auto</span>${active?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
     </main>
     <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${button('preview','play','Preview','inspector-action')}${button('export','arrow-up-right','Export','inspector-action primary')}</div>${inspectorPanelHtml()}</aside>
-  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`;
+  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`);
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
   if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell'))canvas.classList.add('moa-desktop');
   const add=canvas.querySelector('.canvas-add')!.outerHTML;
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
-  mountSpace();mountPanels();mountInspectorResize();
+  mountSpace();mountBoard();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
   decorateInspector(page);
@@ -843,7 +957,7 @@ function exportModal(view = 'prompt') {
   if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
 }
 function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
-  if (isFreePage(currentPage(project))) { toast(ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
+  const pageKind=currentPage(project).kind;if (pageKind) { toast(pageKind==='html'?ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.'):ui('This is a picture or a video, which has no sections. Open a section page to add one.','그림·영상에는 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
   const blocks=currentPage(project).blocks,b=choice?explorerBlock(kind,choice.provider,choice.variant):makeBlock(kind),target=blocks.find(x=>x.id===before);
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
@@ -1163,6 +1277,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       showModal(ui('Delete this picture?','이 사진을 삭제할까요?'),esc(image.name),`<p class="panel-description">${ui('The file is removed from the folder. Any component still using it shows a gap until you pick another.','폴더에서 파일이 삭제됩니다. 이 사진을 쓰던 컴포넌트는 다른 사진을 고를 때까지 빈 자리로 남습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="local-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete','삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
     case 'local-delete-confirm': {const id=el.dataset.id!;try{await invoke('image_library_delete',{id,project:project.id});}catch(error){toast(String(error));break;}forgetLocal(id);await loadLocalLibrary(true);closeModal();refreshLibraryPanel();render();toast(ui('Deleted','삭제했습니다'));break;}
     case 'local-refresh': forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();toast(ui('Library refreshed','라이브러리를 새로고침했습니다'));break;
+    case 'open-link': {const link=linkOut(el.dataset.href??'');if(!trusted||'refused' in link)break;closeModal();if(nativeDesktop)void invoke('open_link',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));else window.open(link.href,'_blank','noopener,noreferrer');break;}
     case 'local-reveal': try{const dir=await invoke<string>('image_library_reveal',{project:localScope==='project'?project.id:undefined});toast(dir);}catch(error){toast(String(error));}break;
     case 'local-import': pickFile('image/png,image/jpeg,image/webp',async file=>{
       if(file.size>12_000_000)throw new Error(ui('Pick an image under 12 MB.','12MB 이하 이미지를 골라주세요.'));
@@ -1257,7 +1372,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
-    case 'preview': recordRun('preview:opened',{device,interactionCapture:false},d);showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
+    case 'preview': { recordRun('preview:opened',{device,interactionCapture:false},d); const page = currentPage(project), free = isFreePage(page); showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(page.name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
@@ -1540,12 +1655,38 @@ function staleSince(baseRevision:string|undefined,what:string):Record<string,unk
  * ledger, one undo step and one receipt, or none of it lands. `d` carries the agent, its reason and
  * the revision it read; a batch written against one the person has since changed is refused.
  */
-function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
-  const stale=staleSince(d.baseRevision,'batch');if(stale)return stale;
-  const before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[];
+/**
+ * `stillAllowed` asks the door again, for a batch that waited on files: an agent the person let go while
+ * they were copied places nothing.
+ */
+async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllowed:()=>{error:string;status?:number}|undefined=()=>undefined):Promise<Record<string,unknown>>{
+  const early=staleSince(d.baseRevision,'batch');if(early)return early;
+  const projectId=project.id,revision=revisionInfo().revision;
+  // An agent's pictures and videos are put on the board first. A file kept for a batch that then fails
+  // stays in board-media under its hash, placed nowhere; the design does not move. Only such a batch waits,
+  // and it holds the page it arrived on while it does: a page picked meanwhile does not take it. One without
+  // files lands at once, as it always did.
+  const withFiles=batch.ops.some(o=>o.op==='media_add');
+  const held:Batch=heldBatch(batch,project);
+  const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
+  if('error' in imported)return {...imported,part:'ops',applied:0};
+  const {media}=imported;
+  // Copying took a moment: the project and the door are asked again before anything moves.
+  if(Object.keys(media).length){
+    if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
+    const shut=stillAllowed();if(shut)return {...shut,applied:0};
+  }
+  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined,before:Project|undefined;
   commit(()=>{
-    const result=runBatch(project,batch,selected);
+    // What the receipt compares against is read here too, once the person's typing is saved: their words are their own change, not the agent's.
+    before=JSON.parse(JSON.stringify(designOf(project))) as Project;
+    // The revision is read here, after the commit has saved what the person was typing: a batch written
+    // against the revision before their text is a batch written without it, and is refused.
+    stale=staleSince(d.baseRevision,'batch');
+    if(!stale&&Object.keys(media).length&&revisionInfo().revision!==revision)stale={error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
+    if(stale)return;
+    if(withFiles&&held.pageId&&!project.pages.some(p=>p.id===held.pageId)){stale={error:'the page this batch arrived on was removed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};return;}
+    const result=runBatch(project,held,selected,media);
     if(!result.ok){failure=result;return;}
     // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
     const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
@@ -1554,11 +1695,12 @@ function applyBatch(batch:Batch,d:Dispatch):Record<string,unknown>{
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
     selected=result.selected;
   },d,'edit.apply',{source:'agent:apply'});
+  if(stale)return stale;
   if(failure){
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before,project),...revisionInfo(),state:agentState(d.author.name)};
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1622,7 +1764,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
          picture that is perfectly fine on the person's screen came back to an agent as a broken
          image, and an agent checking its own work would go and "fix" something that was never
          wrong. Fetch what the page points at and inline it, for this render only. */
-      const png=await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
+      // A free page goes to the command that refuses it where the page wall does not hold (src-tauri/src/page_wall.rs may_render).
+      const png=isFreePage(page)?await invoke<string>('render_free_page',{html:await renderDocument(page,frameHost),width,height}):await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
@@ -1764,7 +1907,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         if('error' in parsed)return {error:parsed.error};
-        const result=applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}));
+        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }
@@ -1908,10 +2051,12 @@ function mountSpace(){
     const frameId=handle?.dataset.frameHandle;const frameEl=handle?.closest<HTMLElement>('.space-frame');
     const origin=frameId?{...project.space!.frames[frameId]}:undefined;
     const startCamera={...camera};
-    space.setPointerCapture(e.pointerId);
+    // Held only once it is a drag: a capture taken on the press sends the click to the space, and a press
+    // on a frame's name or a free page's shield is a click that selects the page.
     const onMove=(ev:PointerEvent)=>{
       const dx=ev.clientX-start.x,dy=ev.clientY-start.y;
       if(!moved&&Math.hypot(dx,dy)<4)return;
+      if(!moved)space.setPointerCapture(ev.pointerId);
       moved=true;
       if(panning){space.classList.add('panning');camera=panBy(startCamera,dx,dy);applyCamera();}
       else if(frameEl&&origin){frameEl.classList.add('dragging');frameEl.style.left=`${origin.x+dx/camera.zoom}px`;frameEl.style.top=`${origin.y+dy/camera.zoom}px`;}
@@ -1933,6 +2078,9 @@ function mountSpace(){
     };
     space.addEventListener('pointermove',onMove,{signal});space.addEventListener('pointerup',onUp,{signal});space.addEventListener('pointercancel',onUp,{signal});
   },{capture:true,signal});
+  // Files from the Finder, dropped where they should land.
+  space.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}},{signal});
+  space.addEventListener('drop',e=>{const files=[...(e.dataTransfer?.files??[])];if(!files.length)return;e.preventDefault();const d=who(e);if(!d)return;void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
     const d=who(e);if(!d)return;
@@ -1951,6 +2099,7 @@ document.addEventListener('keydown', e => {
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
+  if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }

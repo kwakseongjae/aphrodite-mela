@@ -10,7 +10,7 @@ export type Control =
   | {kind: 'action'; name: string; data?: Record<string, string>}
   | {kind: 'field'; name: string; data?: Record<string, string>}
   | {kind: 'form'; id: string}
-  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'undo-key' | 'redo-key'}
+  | {kind: 'gesture'; name: 'catalog-drop' | 'block-move-drop' | 'layer-reorder' | 'pointer' | 'frame-move' | 'media-drop' | 'media-paste' | 'undo-key' | 'redo-key'}
   /** An effect outside the app with no button: a link the app opens, the update check at launch. */
   | {kind: 'listener'; name: 'external-link' | 'update-check'};
 
@@ -49,6 +49,11 @@ export type Row = {
   mcp?: McpBlock;
   /** act, click, type, key, command, ui: the payload names another control, and that is what runs. */
   resolves?: true;
+  /**
+   * A file outside the app's own folders that the row reads, at a path the caller names, and the agent
+   * surfaces that may ask for it: the ones running on this Mac, which can read its files already.
+   */
+  reads?: {what: string; field: string; surfaces: Surface[]};
 };
 
 export declare const grades: readonly Grade[];

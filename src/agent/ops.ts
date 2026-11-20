@@ -16,8 +16,9 @@ import {framePresets, type FramePreset} from '../editor/space';
 import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
 import {MAX_PAGE_HTML} from '../free-page';
+import {MAX_PAGE_NAME} from '../model';
 
-export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace';
+export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace' | 'media_add';
 export type Op =
   | {op: 'add'; component_kind: string; variant?: string; before_block_id?: string; content?: Partial<Record<EditableField, string>>}
   | {op: 'update'; block_id: string; fields: Partial<Record<EditableField, string>>; variant?: string; image?: string}
@@ -27,13 +28,14 @@ export type Op =
   | {op: 'page'; name: string; preset?: FramePreset; page_id?: string}
   | {op: 'html_page'; name: string; html: string; width?: number; height?: number}
   | {op: 'html_set'; page_id: string; html: string}
-  | {op: 'html_replace'; page_id: string; find: string; replace: string; all?: boolean};
+  | {op: 'html_replace'; page_id: string; find: string; replace: string; all?: boolean}
+  | {op: 'media_add'; path?: string; library_id?: string; name?: string};
 
 export const MAX_OPS = 100;
 export const MAX_TEXT = 4_000;
 /** The person's current selection, usable anywhere a block_id is. */
 export const SELECTION = 'selection';
-export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame', 'page', 'html_page', 'html_set', 'html_replace'];
+export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'frame', 'page', 'html_page', 'html_set', 'html_replace', 'media_add'];
 
 /**
  * The control a person would reach for to do the same thing as each op — a button with a data-action,
@@ -43,7 +45,7 @@ export const opKinds: readonly OpKind[] = ['add', 'update', 'move', 'delete', 'f
  * of these controls really exists: an op with no way for a person to do it would leave an agent that
  * reads labels off the screen quietly behind.
  */
-export type OpControl = {kind: 'action' | 'attribute'; name: string} | {kind: 'not-yet'; until: string; why: string};
+export type OpControl = {kind: 'action' | 'attribute'; name: string} | {kind: 'gesture'; name: 'media-drop'} | {kind: 'not-yet'; until: string; why: string};
 /* Writing a page's html has no control a person can reach yet: hand editing inside a page is 0.4 (plan
    §16.4), and until then an agent writes the html and a person reads, undoes and decides. Each of these
    is a named exception, pinned by tests/agent-op-actions.test.ts, not a gap that can quietly grow. */
@@ -58,6 +60,8 @@ export const opControl: Record<OpKind, OpControl> = {
   html_page: HAND_EDITING,
   html_set: HAND_EDITING,
   html_replace: HAND_EDITING,
+  // A person puts a picture or a video on the board by dropping it there (edit.media).
+  media_add: {kind: 'gesture', name: 'media-drop'},
 };
 
 const str = (value: unknown, max = MAX_TEXT): string | undefined =>
@@ -128,6 +132,17 @@ function parseOne(raw: unknown, index: number): {op: Op} | {error: string} {
       if (replace === undefined) return {error: missingField(`${where}.replace`, '"replace": "<what goes in its place>"')};
       if (o.all !== undefined && typeof o.all !== 'boolean') return {error: `${where}.all is true or false.`};
       return {op: {op: 'html_replace', page_id: page, find, replace, ...(o.all ? {all: true} : {})}};
+    }
+    /* A picture or a video from this Mac: a file by its absolute path, or a picture in the image library.
+       The host copies it onto the board before the batch runs (src/main.ts applyBatch). */
+    case 'media_add': {
+      const path = o.path === undefined ? undefined : str(o.path, 4096), library = o.library_id === undefined ? undefined : str(o.library_id, 16);
+      if ((path === undefined) === (library === undefined)) return {error: `${where} names one file: "path" (an absolute path on this Mac) or "library_id" (from aphrodite_list_images), not both.`};
+      if (path !== undefined && !path.startsWith('/')) return {error: `${where}.path is an absolute path to a file on this Mac, for example "/Users/you/Desktop/shot.png".`};
+      if (library !== undefined && !/^[0-9a-f]{16}$/.test(library)) return {error: `${where}.library_id is the 16-character id from aphrodite_list_images.`};
+      const name = o.name === undefined ? undefined : str(o.name, MAX_PAGE_NAME);
+      if (o.name !== undefined && !name) return {error: `${where}.name is what to call it on the board, at most ${MAX_PAGE_NAME} characters.`};
+      return {op: {op: 'media_add', ...(path !== undefined ? {path} : {library_id: library}), ...(name ? {name} : {})}};
     }
     case 'add': {
       const componentKind = str(o.component_kind, 60);

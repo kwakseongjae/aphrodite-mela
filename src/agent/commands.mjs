@@ -432,8 +432,10 @@ export const commands = [
           items: {
             type: 'object',
             properties: {
-              op: {type: 'string', enum: ['html_page', 'html_set', 'html_replace', 'add', 'update', 'move', 'delete', 'frame', 'page']},
-              name: {type: 'string', description: 'html_page/page: what to call it, for example "Briefing".'},
+              op: {type: 'string', enum: ['html_page', 'html_set', 'html_replace', 'media_add', 'add', 'update', 'move', 'delete', 'frame', 'page']},
+              name: {type: 'string', description: 'html_page/page/media_add: what to call it, for example "Briefing".'},
+              path: {type: 'string', description: 'media_add: the absolute path of a picture or a video on this Mac (PNG, JPEG, GIF, WebP, MP4, WebM; at most 500 MB). It is copied onto the board; the page names it as "media:<sha256>". Desktop app only, and only for an agent running on this Mac (MCP or the local channel).'},
+              library_id: {type: 'string', description: 'media_add: instead of path, a picture in the image library, by its id from aphrodite_list_images.'},
               html: {type: 'string', maxLength: 2000000, description: 'html_page/html_set: the whole document, scripts and styles included, up to 2,000,000 characters. A picture or a video is "media:<sha256>", another page "page:<id>"; never a path on this machine.'},
               find: {type: 'string', description: 'html_replace: the exact passage to change, as aphrodite_get_page_html returns it. Refused when it is not on the page, or is there more than once without all.'},
               replace: {type: 'string', description: 'html_replace: what goes in its place, taken literally.'},
@@ -467,6 +469,10 @@ export const commands = [
     ledger: sources('agent:apply'),
     author: 'transport',
     surfaces: MCP_PANEL,
+    /* media_add with a path copies a picture or a video from this Mac onto the board, where it can be read
+       back (get_render). An agent on this Mac can read its files already; a model in the app cannot, and
+       may name a library picture (library_id) instead. */
+    reads: {what: 'a picture or a video on this Mac, at the path media_add names, copied onto the board', field: 'ops[].path', surfaces: ['loopback', 'mcp']},
     controls: [],
     route: {method: 'POST', path: '/agent/apply'},
     example: {reason: 'The brief asks for a calmer first screen.', ops: [{op: 'delete', block_id: 'selection'}]},
@@ -476,6 +482,7 @@ export const commands = [
       title: 'Change the design',
       description: [
         'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`.',
+        'Put a screenshot or a video on the board with `media_add` (`path` on this Mac, or `library_id`); it is placed beside the pages, and a page shows it as <img src="media:<sha256>"> once you read its hash from aphrodite_get_contract.',
         'On a section page made before html: add, update, move, delete a component, resize a page frame, or make and name a section page (`page`). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle it.',
         '',
         'Every call needs a `reason`: one sentence, for the person, on why. It is shown beside the change and kept with it. Send `base_revision` (the revision from aphrodite_get_changes or aphrodite_get_contract) so a batch written against an older state is refused with what changed, instead of writing over the person\'s work.',
@@ -1180,6 +1187,20 @@ export const commands = [
     controls: [field('data-frame-preset'), gesture('frame-move'), action('tidy-frames')],
   },
   {
+    /* 0.3-P2: a picture or a video the person drops from the Finder or pastes; an agent's arrives with
+       media_add, inside edit.apply. */
+    id: 'edit.media',
+    label: {en: 'Put a picture or a video on the board', ko: '보드에 그림·영상 놓기'},
+    grade: 'edit',
+    input: NOTHING,
+    reason: 'none',
+    revision: 'none',
+    ledger: sources('media:drop', 'media:paste'),
+    author: 'transport',
+    surfaces: UI,
+    controls: [gesture('media-drop'), gesture('media-paste')],
+  },
+  {
     id: 'edit.project-rename',
     label: {en: 'Rename the project', ko: '프로젝트 이름 바꾸기'},
     grade: 'edit',
@@ -1355,7 +1376,7 @@ export const commands = [
     input: {type: 'object', properties: {id: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('reference-open'), action('local-reveal'), listener('external-link')],
+    controls: [action('reference-open'), action('local-reveal'), listener('external-link'), action('open-link')],
   },
   {
     id: 'outside.fonts',

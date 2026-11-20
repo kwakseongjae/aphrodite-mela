@@ -54,10 +54,11 @@ test('the contract names an html page as one and says how long it is, without th
   assert.equal(contract.pages[0].kind, undefined, 'a section page reads as it always has');
 });
 
-test('a picture of an html page waits for the frame that holds it (P2), and says how to read the page instead', () => {
+test('an html page is photographed, held in its frame (0.3-P2); a media item has no page to draw', () => {
   const p = project();
-  assert.match(renderRefusal(p.pages[1]) ?? '', /aphrodite_get_page_html/);
+  assert.equal(renderRefusal(p.pages[1]), undefined);
   assert.equal(renderRefusal(p.pages[0]), undefined);
+  assert.match(renderRefusal({id: 'm', name: 'Clip', blocks: [], kind: 'media'} as never) ?? '', /media item/);
 });
 
 /* 0.3-P1-fix1: a reply that lists changes keeps their ops to 200,000 characters in all, leaving out the

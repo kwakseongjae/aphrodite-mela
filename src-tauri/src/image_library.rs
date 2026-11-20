@@ -224,6 +224,18 @@ pub fn image_library_read(app: AppHandle, id: String, project: Option<String>) -
     Err(format!("no image {id} in the library"))
 }
 
+/// Where a library picture is, by its id: the file media_add copies onto a board (src-tauri/src/board.rs).
+pub(crate) fn library_file(app: &AppHandle, id: &str, project: Option<&str>) -> Option<PathBuf> {
+    for dir in scopes(app, project).ok()? {
+        for entry in fs::read_dir(&dir).ok()?.flatten() {
+            if read_entry(&entry.path()).is_some_and(|(image, _)| image.id == id) {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
+}
+
 /// The folders a lookup may touch: the project's own first, then the shared one.
 fn scopes(app: &AppHandle, project: Option<&str>) -> Result<Vec<PathBuf>, String> {
     let mut dirs = Vec::new();

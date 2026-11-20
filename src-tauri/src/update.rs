@@ -228,6 +228,55 @@ pub fn open_external(url: String) -> Result<String, String> {
     Ok(url)
 }
 
+/// Opens a link out of a free page, once the person has seen its address and pressed Open (0.3-P2):
+/// a web address or an email address, nothing that `open` would read as a file, an app or a flag.
+#[tauri::command]
+pub fn open_link(url: String) -> Result<String, String> {
+    if !link_allowed(&url) {
+        return Err("only a web address or an email address opens from a page".into());
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(url)
+}
+
+/// A web or mail address with nothing in it that hides where it goes, judged as the app judges it
+/// (linkOut in src/free-page.ts; both read tests/support/link-addresses.json in their tests): read as
+/// written, with no name or password (even an empty one) and nothing encoded before the host, and a mail
+/// address that names who it goes to; then parsed (url, through tauri::Url) so a port out of range or a
+/// host that is no host is refused too.
+fn link_allowed(url: &str) -> bool {
+    if url.len() > 2_000 || url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')) {
+        return false;
+    }
+    let lower = url.to_ascii_lowercase();
+    let web = lower.starts_with("https://") || lower.starts_with("http://");
+    if web {
+        let rest = &url[url.find("://").map_or(0, |at| at + 3)..];
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        if authority.is_empty() || authority.contains(['@', '%']) {
+            return false;
+        }
+    } else if lower.starts_with("mailto:") {
+        // Who it goes to ends where the query or the fragment begins, as the app reads it (src/free-page.ts linkOut).
+        let to = url[7..].split(['?', '#']).next().unwrap_or("");
+        let mut parts = to.split('@');
+        let (name, host) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        if name.is_empty() || host.is_empty() || parts.next().is_some() || to.contains('%') {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    match tauri::Url::parse(url) {
+        Ok(parsed) => !web || (parsed.host_str().is_some_and(|h| !h.is_empty()) && parsed.username().is_empty() && parsed.password().is_none()),
+        Err(_) => false,
+    }
+}
+
 /// Opens this release's notes in the browser. Only a page on this repository is accepted, so a
 /// tampered feed cannot turn the button into a link to anywhere else.
 #[tauri::command]
@@ -303,6 +352,29 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    /// The same table the app's linkOut is held to (tests/free-frame.test.ts): the two must agree.
+    #[test]
+    fn open_link_gives_the_answers_of_the_shared_table() {
+        let table: serde_json::Value = serde_json::from_str(include_str!("../../tests/support/link-addresses.json")).unwrap();
+        for address in table["accept"].as_array().unwrap() {
+            assert!(super::link_allowed(address.as_str().unwrap()), "accepts {address}");
+        }
+        for address in table["refuse"].as_array().unwrap() {
+            assert!(!super::link_allowed(address.as_str().unwrap()), "refuses {address}");
+        }
+    }
+
+    #[test]
+    fn a_page_may_open_a_web_or_mail_address_and_nothing_else() {
+        for ok in ["https://example.com/a?b=c#d", "http://example.com", "mailto:someone@example.com", "HTTPS://EXAMPLE.COM"] {
+            assert!(super::link_allowed(ok), "{ok}");
+        }
+        for bad in ["https://trusted.example@evil.example/", "https://user:pass@example.com/", "https://example.com/\u{202E}gpj.exe", "https://example.com/\u{2066}x", "file:///etc/hosts", "/Applications/Calculator.app", "-a Calculator", "javascript:alert(1)", "https://example.com/a b", "https://example.com/\"x", "https://example.com/\nx", "ftp://example.com", "x-apple.systempreferences:", ""] {
+            assert!(!super::link_allowed(bad), "{bad}");
+        }
+        assert!(!super::link_allowed(&format!("https://example.com/{}", "a".repeat(2_000))));
+    }
+
     #[test]
     fn a_release_body_becomes_three_sentences_a_person_would_read() {
         // Shaped like a real one: wrapped at eighty columns, download list before the news.

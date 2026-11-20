@@ -29,6 +29,9 @@ export type Page = { id: string; name: string; blocks: Block[]; referenceEvidenc
 /** `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. */
 export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger };
 export const uid = () => crypto.randomUUID();
+/** How many pages (and media items) a project holds, and how long a page's name may be. */
+export const MAX_PAGES = 30;
+export const MAX_PAGE_NAME = 100;
 export const systems: DesignSystem[] = [
   ...ownSystems,
   {id:'mui',name:'Material · MUI',description:'Official React adapters + project tokens',accent:'#1976d2',background:'#ffffff',foreground:'#1b1b1f',radius:4,font:'sans',source:'MUI official package adapters for Button, TextField, Card. Remaining compositions are Aphrodite originals.'},
@@ -101,7 +104,7 @@ export function parseProject(raw: string): Project {
   const p = JSON.parse(raw) as Project;
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
-  if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > 30) throw new Error('지원하지 않는 프로젝트 형식입니다.');
+  if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > MAX_PAGES) throw new Error('지원하지 않는 프로젝트 형식입니다.');
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
@@ -124,7 +127,7 @@ export function parseProject(raw: string): Project {
   if (![s.accent, s.background, s.foreground].every(v => /^#[a-fA-F0-9]{6}$/.test(v)) || !Number.isFinite(s.radius) || s.radius < 0 || s.radius > 48 || !['serif', 'sans'].includes(s.font) || ![s.name, s.id, s.description, s.source].every(v => str(v)) || (s.originalMarkdown !== undefined && !str(s.originalMarkdown, 200000))) throw new Error('디자인 토큰 형식이 올바르지 않습니다.');
   const ids = new Set<string>();
   for (const page of p.pages) {
-    if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, 100) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
+    if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, MAX_PAGE_NAME) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
     ids.add(page.id);
     const shape = pageShapeProblem(page);
     if (shape) throw new Error(`페이지 형식이 올바르지 않습니다: ${shape}.`);
