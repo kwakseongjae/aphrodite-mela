@@ -226,7 +226,7 @@ export function renderShell(doc: string, origins: readonly string[]): string {
   const media = ['data:', ...origins].join(' ');
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
   const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(doc)}"></iframe>`;
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */
 export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia'>): Promise<string> {
@@ -287,6 +287,12 @@ export type StoredMedia = {sha: string; mime: string; bytes: number};
  * pretend to. It frames free pages by this named constant.
  */
 export const DEVELOPMENT_BUILD_FRAMES_PAGES = true;
+/**
+ * What a free page's frame may ask for, in the frame's own allow attribute (0.3-P2-fix5): no camera, microphone,
+ * screen or location. Its sandboxed origin is not the app's, so none of these is allowed it by default either;
+ * this says so in the frame itself. Autoplay is left out: it captures nothing, and a page may play its own video.
+ */
+export const FRAME_ALLOW = "camera 'none'; microphone 'none'; display-capture 'none'; geolocation 'none'";
 /** How long one asking of the wall may take, the status and the probe frame together, before it is a no. */
 export const WALL_DEADLINE = 5000;
 /** How many times a no that came from silence or an error is asked again; a no the wall read back is final. */
@@ -418,6 +424,7 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       if (read?.rtc !== 'off' || read.preconnect !== 'off') return end({holds: false, final: !!read});
       frame = document.createElement('iframe');
       frame.setAttribute('sandbox', 'allow-scripts');
+      frame.setAttribute('allow', FRAME_ALLOW);
       frame.hidden = true;
       addEventListener('message', hear);
       document.body.append(frame);

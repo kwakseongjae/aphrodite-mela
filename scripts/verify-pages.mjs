@@ -17,7 +17,7 @@ import {createServer as createNetServer} from 'node:net';
 import {createHash} from 'node:crypto';
 import {openApp, openPage, runChecks, sleep, waitFor} from './lib/headless.mjs';
 import {appPolicy} from '../src/csp.mjs';
-import {framedDocument, renderShell, FRAME_PREFIX_END} from '../src/free-page.ts';
+import {framedDocument, renderShell, FRAME_PREFIX_END, FRAME_ALLOW} from '../src/free-page.ts';
 import {requestProbe} from './wall/probes.mjs';
 import {mkdtempSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -356,8 +356,8 @@ check('Preview shows a free page running, in the same kind of frame', async () =
   const boots = (await messages('boot')).length;
   await personClicks('preview');
   await waitFor(async () => (await messages('boot')).length > boots, 'the page to start in Preview');
-  const frame = await evaluate(`(() => { const f = document.querySelector('#modal-root iframe'); return f && {sandbox: f.getAttribute('sandbox'), page: f.dataset.framePage}; })()`);
-  assert.deepEqual(frame, {sandbox: 'allow-scripts', page: enterId});
+  const frame = await evaluate(`(() => { const f = document.querySelector('#modal-root iframe'); return f && {sandbox: f.getAttribute('sandbox'), allow: f.getAttribute('allow'), page: f.dataset.framePage}; })()`);
+  assert.deepEqual(frame, {sandbox: 'allow-scripts', allow: FRAME_ALLOW, page: enterId});
   await sleep(800); // the dialog's opening motion
   const at = await evaluate(`(() => { const r = document.querySelector('#modal-root iframe').getBoundingClientRect(); return {x: r.left + 140, y: r.top + 60}; })()`);
   const was = (await messages('pressed')).length;
@@ -684,6 +684,25 @@ check('an agent’s receipt holds only its own change, not the words the person 
   const {changes} = await agent('changes', {since, limit: 20});
   const holding = changes.filter(c => JSON.stringify(c.ops).includes('사람이 치는 중')).map(c => [c.author?.kind, c.source]);
   assert.deepEqual(holding, [['person', 'editor:change']], `the person’s words are one change, theirs, apart from the agent’s: ${JSON.stringify(changes.map(c => [c.seq, c.author, c.source]))}`);
+});
+
+/* 0.3-P2-fix5: every free page's frame refuses capture in its own allow attribute, and a page that asks gets no stream. */
+check('a free page captures nothing: every frame refuses camera, microphone, screen and location, and asking gets no stream', async () => {
+  const html = `<p>capture</p><script>(async () => { const say = (n, v) => parent.postMessage({capture: n, value: String(v)}, '*');
+    say('policy', document.featurePolicy ? ['camera', 'microphone', 'display-capture', 'geolocation'].filter(f => document.featurePolicy.allowsFeature(f)).join(',') || 'none' : 'unknown');
+    const md = navigator.mediaDevices; if (!md) { say('done', 'absent'); return; }
+    for (const [n, f] of [['audio', () => md.getUserMedia({audio: true})], ['video', () => md.getUserMedia({video: true})], ['display', () => md.getDisplayMedia()]]) { try { const s = await f(); s.getTracks().forEach(t => t.stop()); say(n, 'stream'); } catch (e) { say(n, 'refused ' + e.name); } }
+    try { say('labelled', (await md.enumerateDevices()).filter(d => d.label).length); } catch (e) { say('labelled', 'refused ' + e.name); }
+    say('done', 1); })();<\/script>`;
+  await makePage('Capture test', html);
+  await waitFor(async () => (await messages('capture')).includes('done'), 'the capture page to finish');
+  const said = await evaluate(`Object.fromEntries(window.__frameMessages.filter(m => m && m.capture).map(m => [m.capture, m.value]))`);
+  result.capture = said;
+  assert.equal(said.policy, 'none', 'the frame is allowed none of them');
+  assert.deepEqual(Object.entries(said).filter(([, v]) => v === 'stream'), [], 'no stream');
+  assert.ok(said.labelled === undefined || said.labelled === '0' || said.labelled.startsWith('refused'), `no device named: ${said.labelled}`);
+  const frames = await evaluate(`[...document.querySelectorAll('iframe[data-frame-page]')].map(f => f.getAttribute('allow'))`);
+  assert.ok(frames.length > 1 && frames.every(a => a === FRAME_ALLOW), JSON.stringify(frames));
 });
 
 /* 0.3-P2-fix4: where the page wall does not hold (on the desktop: a WebKit without the settings, or one that

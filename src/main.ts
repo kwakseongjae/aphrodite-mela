@@ -60,7 +60,7 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,renderDocument,linkOut,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
@@ -113,7 +113,7 @@ let pageWallKnown:boolean|undefined;
 function pageWall(){return frameHost.pageWall().catch(()=>false).then(on=>{const was=pageWallKnown;pageWallKnown=on;if(on!==(was??true)&&screen==='editor')render();return on;});}
 type FramePlace=(frame:HTMLIFrameElement)=>void;
 /** The one place a free page's frame is made, with its scripts, and only once the page wall says yes. */
-async function freePageFrame(page:Page,className:string,place:FramePlace):Promise<HTMLIFrameElement|undefined>{if(!await pageWall())return undefined;const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.className=className;frame.dataset.framePage=page.id;frame.title=page.name;place(frame);return frame;}
+async function freePageFrame(page:Page,className:string,place:FramePlace):Promise<HTMLIFrameElement|undefined>{if(!await pageWall())return undefined;const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('allow',FRAME_ALLOW);frame.className=className;frame.dataset.framePage=page.id;frame.title=page.name;place(frame);return frame;}
 /** What stands where a free page would be when the page wall does not hold: its name, and why it is not drawn. */
 function unframedHtml(p:Page){return `<div class="board-unframed" data-unframed-page="${esc(p.id)}" role="note"><strong>${esc(p.name)}</strong><span>${ui('This Mac\'s macOS cannot keep a page inside its frame, so it is not drawn. An agent can still read its words.','이 Mac의 macOS에서는 페이지를 틀 안에 가둘 수 없어 그리지 않았습니다. 글은 에이전트가 읽을 수 있습니다.')}</span></div>`;}
 const FREE_PAGE_HEIGHT=900;

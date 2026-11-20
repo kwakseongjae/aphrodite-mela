@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, browserFrameHost, desktopFrameHost, DEVELOPMENT_BUILD_FRAMES_PAGES, WALL_ASKS, type FrameHost} from '../src/free-page.ts';
+import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, browserFrameHost, desktopFrameHost, DEVELOPMENT_BUILD_FRAMES_PAGES, WALL_ASKS, FRAME_ALLOW, type FrameHost} from '../src/free-page.ts';
 
 const SHA = 'b'.repeat(64);
 const directives = (csp: string) => new Map(csp.split(';').map(d => d.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
@@ -178,7 +178,7 @@ test('a free page is framed only when the wall reads back off and a real frame h
 
 test('the render shell has one shape, its frame with scripts: there is no scriptless way to draw a free page', () => {
   const doc = framedDocument('<script>1</script>', {media: () => undefined, origins: []});
-  assert.match(renderShell(doc, []), /<iframe sandbox="allow-scripts" srcdoc=/);
+  assert.match(renderShell(doc, []), new RegExp(`<iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc=`));
   assert.equal(renderShell.length, 2);
   const source = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /frameSandbox|sandbox="\$\{/);
@@ -186,16 +186,17 @@ test('the render shell has one shape, its frame with scripts: there is no script
 
 /** A window with just enough of the DOM for the desktop's probe frame, and the commands it is given. */
 function probeWindow(commands: Record<string, (args?: unknown) => Promise<unknown>>) {
+  const made: {attributes: Record<string, string>}[] = [];
   const attached = new Set<{contentWindow: object; remove(): void}>(), listeners = new Set<(e: unknown) => void>(), asked: string[] = [];
   const saved = {document: (globalThis as Record<string, unknown>).document, add: (globalThis as Record<string, unknown>).addEventListener, remove: (globalThis as Record<string, unknown>).removeEventListener};
   Object.assign(globalThis, {
-    document: {createElement: () => { const frame = {contentWindow: {}, hidden: false, src: '', setAttribute() {}, remove() { attached.delete(frame); }}; return frame; }, body: {append: (frame: {contentWindow: object; remove(): void}) => attached.add(frame)}},
+    document: {createElement: () => { const frame = {contentWindow: {}, hidden: false, src: '', attributes: {} as Record<string, string>, setAttribute(name: string, value: string) { frame.attributes[name] = value; }, remove() { attached.delete(frame); }}; made.push(frame); return frame; }, body: {append: (frame: {contentWindow: object; remove(): void}) => attached.add(frame)}},
     addEventListener: (_type: string, fn: (e: unknown) => void) => listeners.add(fn),
     removeEventListener: (_type: string, fn: (e: unknown) => void) => listeners.delete(fn),
   });
   const host = desktopFrameHost({invoke: (async (command: string, args?: unknown) => { asked.push(command); return commands[command]!(args); }) as never, fileSrc: path => 'asset://localhost/' + path}, {deadline: 40});
   return {
-    host, attached, listeners, asked,
+    host, attached, listeners, asked, made,
     say: (value: string) => { for (const frame of attached) for (const fn of [...listeners]) fn({source: frame.contentWindow, data: {wallProbe: value}}); },
     restore: () => Object.assign(globalThis, {document: saved.document, addEventListener: saved.add, removeEventListener: saved.remove}),
   };
@@ -258,6 +259,7 @@ test('the wall holds when both settings read back off and the probe frame has no
     await wait(5);
     w.say('undefined');
     assert.equal(await answer, true);
+    assert.deepEqual(w.made.map(f => f.attributes), [{sandbox: 'allow-scripts', allow: FRAME_ALLOW}], 'the probe frame is made as free pages are, capture refused');
     assert.equal(w.attached.size, 0);
     assert.equal(await w.host.pageWall(), true);
     assert.deepEqual(w.asked, ['page_wall_status', 'free_page_write']);
@@ -290,4 +292,14 @@ test('the browser build frames free pages by a named development constant, unles
   assert.equal(DEVELOPMENT_BUILD_FRAMES_PAGES, true);
   assert.equal(await browserFrameHost().pageWall(), true);
   assert.equal(await browserFrameHost({pageWall: false}).pageWall(), false);
+});
+
+/* 0.3-P2-fix5: a free page's frame says, in the frame's own allow attribute, that it may capture nothing: no
+   camera, microphone, screen or location. Every frame a free page is drawn in gets the same words. */
+test('every frame a free page is drawn in refuses camera, microphone, screen and location by its allow attribute', () => {
+  for (const feature of ['camera', 'microphone', 'display-capture', 'geolocation']) assert.match(FRAME_ALLOW, new RegExp(`(^|; )${feature} 'none'(;|$)`), feature);
+  assert.doesNotMatch(FRAME_ALLOW, /autoplay/, 'a page may still play its own video');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /async function freePageFrame\([^\n]*frame\.setAttribute\('sandbox','allow-scripts'\);frame\.setAttribute\('allow',FRAME_ALLOW\);/);
+  assert.match(renderShell('x', []), new RegExp(`allow="${FRAME_ALLOW}"`));
 });
