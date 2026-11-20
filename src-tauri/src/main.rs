@@ -75,6 +75,8 @@ fn main() {
             board::board_media_begin,
             board::board_media_chunk,
             board::board_media_finish,
+            board::board_media_stat,
+            board::board_media_read,
             board::board_media_import,
             board::board_media_path,
             board::free_page_write

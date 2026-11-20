@@ -35,6 +35,8 @@ const INTERNAL_COMMANDS=[
   'references_list','references_poster','render_free_page','render_page','taste_read','vault_read','workspace_read','workspace_recovery',
   // A free page's frame reads its copy from free-pages/ and its media from board-media/ (0.3-P2): drawing, not an edit.
   'free_page_write','board_media_path',
+  // A board file's kind and size, and its bytes, read from board-media/ for what the person exports (0.3-P3): the export is the row's.
+  'board_media_stat','board_media_read',
   // Puts the page wall into this window's WebKit and reads it back (src-tauri/src/page_wall.rs): the app's own setting.
   'page_wall_status',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the

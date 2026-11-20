@@ -188,6 +188,20 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     EXTENSIONS.iter().map(|ext| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
 }
 
+/// What a board's file is, by its name here: its kind and its size, without reading it.
+pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
+    let path = media_file(base, sha)?;
+    let mime = match path.extension()?.to_str()? {
+        "png" => "image/png",
+        "jpg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        _ => "video/webm",
+    };
+    Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
+}
+
 /// Writes the copy a frame loads: one file per page, named for this version of it, the older ones gone.
 pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Result<PathBuf, String> {
     if page.is_empty() || page.len() > 200 || !page.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
@@ -257,6 +271,20 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
 #[tauri::command]
 pub fn board_media_path(app: AppHandle, sha: String) -> Result<Option<String>, String> {
     Ok(media_file(&base(&app)?, &sha).map(|p| p.to_string_lossy().to_string()))
+}
+
+/// A board's file by its kind and size, for an export to be measured before anything is read.
+#[tauri::command]
+pub fn board_media_stat(app: AppHandle, sha: String) -> Result<Option<Stored>, String> {
+    Ok(media_stat(&base(&app)?, &sha))
+}
+
+/// A board's file, whole, for a page or a board the person exports. Read off the command workers.
+#[tauri::command]
+pub async fn board_media_read(app: AppHandle, sha: String) -> Result<tauri::ipc::Response, String> {
+    let path = media_file(&base(&app)?, &sha).ok_or("this board has no such file")?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || fs::read(path)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -341,6 +369,19 @@ mod tests {
         assert!(!path.exists(), "the refused upload is gone");
         assert_eq!(append(dir.path(), "../../etc/passwd", b"x").unwrap_err(), "no such upload");
         assert!(finish(dir.path(), &"0".repeat(48)).is_err());
+    }
+
+    #[test]
+    fn a_kept_file_is_told_by_its_kind_and_size_without_reading_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("a.png");
+        let mut bytes = PNG.to_vec();
+        bytes.extend_from_slice(&[7; 93]);
+        fs::write(&from, &bytes).unwrap();
+        let kept = store(dir.path(), &from).unwrap();
+        assert_eq!(media_stat(dir.path(), &kept.sha), Some(Stored { sha: kept.sha.clone(), mime: "image/png".into(), bytes: 101 }));
+        assert_eq!(media_stat(dir.path(), &"0".repeat(64)), None);
+        assert_eq!(media_stat(dir.path(), "../a"), None);
     }
 
     #[test]

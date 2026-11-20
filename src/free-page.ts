@@ -328,6 +328,10 @@ export type FrameHost = {
   frameCost(sha: string): Promise<number | undefined>;
   /** The address a frame may load a media file from, or undefined when this board has no such file. */
   frameMedia(sha: string): Promise<string | undefined>;
+  /** What a board file is, its kind and its size in bytes, without reading it; undefined when this board has no such file. */
+  stat(sha: string): Promise<{mime: string; bytes: number} | undefined>;
+  /** A board file's bytes, whole, for a page or a board the person exports; undefined when this board has no such file. */
+  read(sha: string): Promise<Uint8Array | undefined>;
   /** Whether a free page may be put in a frame (wallHolds), asked before any is made. */
   pageWall(): Promise<boolean>;
   /** Puts the framed document in the frame. `key` names this version of the page. */
@@ -335,6 +339,14 @@ export type FrameHost = {
 };
 
 const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
+/** Each file a page names as `media:<sha256>`, once. */
+export function mediaNamed(html: string): string[] {
+  return [...new Set(Array.from(html.matchAll(MEDIA_REFS), m => m[1]))];
+}
+/** The extension a board keeps a file of this kind under (src-tauri/src/board.rs names them the same). */
+export function mediaExtension(mime: string): string {
+  return ({'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm'} as Record<string, string>)[mime] ?? 'bin';
+}
 /**
  * The addresses a page's media is given, read one file at a time and only while it fits: each file's
  * cost is asked first (frameCost reads nothing), counted as many times as the page names it, and a file
@@ -394,6 +406,8 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
+    stat: async sha => { const blob = await read(sha); return blob ? {mime: blob.type, bytes: blob.size} : undefined; },
+    read: async sha => { const blob = await read(sha); return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined; },
     frameCost: async sha => { const blob = await read(sha); return blob && blob.size <= INLINE_MEDIA ? `data:${blob.type};base64,`.length + Math.ceil(blob.size / 3) * 4 : undefined; },
     frameMedia: async sha => {
       const blob = await read(sha);
@@ -447,6 +461,8 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
+    stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha}).catch(() => null)) ?? undefined,
+    read: async sha => { try { return new Uint8Array(await native.invoke<ArrayBuffer>('board_media_read', {sha})); } catch { return undefined; } },
     frameCost: async sha => (await where(sha))?.length,
     frameMedia: where,
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
