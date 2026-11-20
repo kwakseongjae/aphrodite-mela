@@ -4,8 +4,8 @@
  * fix1 put the wall against WebRTC in the page's own window, and a page that spoiled the DOM's functions
  * first got a peer connection out of a frame of its own; preconnect reached any host with no script at all
  * (lab/review-board/evidence/reviews/2026-11-19-opus-0.3-P2-sandbox.md). The wall is now the engine's:
- * two WebKit settings the desktop puts in every webview (src-tauri/src/page_wall.rs), named once in
- * src-tauri/page-wall.json. This measures them where the desktop draws free pages, a WKWebView, with the
+ * WebKit settings the desktop puts in every webview, peer connections, preconnect and the media devices
+ * (src-tauri/src/page_wall.rs), named once in src-tauri/page-wall.json. This measures them where the desktop draws free pages, a WKWebView, with the
  * framed document stripped of every host script:
  *
  *   board  the app's own page (a custom scheme, the desktop's policy) that later puts the page in a
@@ -107,16 +107,21 @@ mkdirSync(work, {recursive: true});
 const READ = `JSON.stringify((window.__m||[]).filter(m=>m&&(m.atk||m.rtc||m.probe)).map(m=>(m.n||m.name)+'='+(m.v||m.value)))`;
 async function measure(binary, run) {
   const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','${run.scriptless ? '' : 'allow-scripts'}');f.setAttribute('allow',${JSON.stringify(FRAME_ALLOW).replace(/'/g, "\\'")});f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
+  // Walled runs are answered as wry answers the app's window: every request for the camera or the microphone is
+  // granted. Unwalled ones are only counted and refused, so a control run never reaches a real device.
+  const delegate = run.walled ? 'grant' : 'deny';
   const spec = run.shape === 'board'
     ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, wait: 6, read: READ}]}
     : {url: `http://127.0.0.1:${PAGES}/shell/${run.tag}`, when: 'afterCreate', steps: [{wait: 6, read: READ}]};
   const file = join(work, run.tag + '.json');
-  writeFileSync(file, JSON.stringify({...spec, wall: run.walled ? wallFile : undefined, schemes: {app: `http://127.0.0.1:${PAGES}`, asset: `http://127.0.0.1:${FRAMES}`}}));
+  writeFileSync(file, JSON.stringify({...spec, delegate, wall: run.walled ? wallFile : undefined, schemes: {app: `http://127.0.0.1:${PAGES}`, asset: `http://127.0.0.1:${FRAMES}`}}));
   let lines;
   try { lines = (await promisify(execFile)(binary, [file], {encoding: 'utf8', timeout: 70_000})).stdout.trim().split('\n').map(l => JSON.parse(l)); }
   catch (error) { lines = [{failed: String(error.message).slice(0, 300)}]; }
   unlinkSync(file);
   run.wall = lines.find(l => l.wall)?.wall;
+  run.asked = lines.filter(l => l.delegate).map(l => l.delegate);
+  run.before = lines.find(l => l.before)?.before;
   run.said = JSON.parse(lines.find(l => l.read)?.read ?? '[]');
   run.failed = lines.find(l => l.failed || l.timeout);
 }
@@ -147,8 +152,8 @@ check('known: without the wall, a frame with no scripts still preconnects from i
   for (const run of runs.filter(r => r.scriptless)) assert.ok(counts.get(run.tag).tcp > 0, `${run.tag}: TCP ${counts.get(run.tag).tcp}`);
 });
 
-check('with the wall in, both settings read back off', async () => {
-  for (const run of runs.filter(r => r.walled)) assert.deepEqual(run.wall, {rtc: 'off', preconnect: 'off'}, run.tag);
+check('with the wall in, every setting reads back off', async () => {
+  for (const run of runs.filter(r => r.walled)) assert.deepEqual(run.wall, {rtc: 'off', preconnect: 'off', capture: 'off'}, run.tag);
 });
 
 check('with the wall in, no probe reaches anything: UDP 0, TCP 0, HTTP 0, on the board and in the render shell', async () => {
@@ -159,36 +164,34 @@ check('with the wall in, no probe reaches anything: UDP 0, TCP 0, HTTP 0, on the
   assert.deepEqual(worked, [], 'no peer connection was made');
 });
 
-/* 0.3-P2-fix5: that a page sees navigator.mediaDevices is not a leak (macOS 15 shows it, this one may not);
-   being able to capture would be. Where it is there, every ask must be refused and no device named. */
+/* 0.3-P2-fix6: the app's window grants every request for the camera or the microphone (wry 0.55), so the wall
+   takes the media devices away from every document, frames inside frames included: no page can ask at all.
+   The frame's own allow attribute is not what stops it (a free page's frame is refused by default either way). */
 const MACOS = spawnSync('sw_vers', ['-productVersion'], {encoding: 'utf8'}).stdout.trim();
-check('with the wall in, a page captures nothing: no stream from the microphone, the camera or the screen, and no device named', async () => {
-  const rtc = runs.filter(r => r.walled && r.name === 'rtc-self');
-  const got = rtc.flatMap(r => r.said.filter(s => /^(capture-|labelled-devices=|media-devices=)/.test(s)).map(s => r.tag + ' ' + s));
-  assert.deepEqual(got.filter(s => /=stream$/.test(s) || /labelled-devices=[1-9]/.test(s)), [], 'nothing captured');
-  for (const r of rtc) {
-    const present = r.said.includes('media-devices=present');
-    if (present) for (const ask of ['capture-audio', 'capture-video', 'capture-display']) assert.ok(r.said.some(s => s.startsWith(ask + '=refused') || s === ask + '=absent'), `${r.tag}: ${ask} answered, refused: ${JSON.stringify(r.said)}`);
-    else assert.ok(r.said.includes('media-devices=absent'), `${r.tag}: ${JSON.stringify(r.said)}`);
-  }
-  console.log(`       macOS ${MACOS}: ${rtc.every(r => r.said.includes('media-devices=absent')) ? 'media devices absent on this macOS, so the refusals are not run here (a macOS that has them runs them)' : JSON.stringify(got)}`);
+check('with the wall in, no frame has the media devices, and the window is never asked for the camera or the microphone', async () => {
+  const walled = runs.filter(r => r.walled);
+  assert.deepEqual(walled.flatMap(r => r.said.filter(s => /(^media-devices|-md)=present$/.test(s)).map(s => r.tag + ' ' + s)), [], 'navigator.mediaDevices in a frame');
+  for (const r of walled.filter(r => r.name === 'rtc-self')) assert.ok(r.said.includes('media-devices=absent') && r.said.includes('srcdoc-md=absent'), `${r.tag}: ${JSON.stringify(r.said)}`);
+  assert.deepEqual(walled.filter(r => r.asked.length).map(r => [r.tag, r.asked]), [], 'the window was asked');
+  const open = runs.filter(r => !r.walled && r.name === 'rtc-self');
+  console.log(`       macOS ${MACOS}, before the wall this WebKit had ${JSON.stringify(walled.find(r => r.before)?.before)}; without the wall: ` + JSON.stringify(Object.fromEntries(open.map(r => [r.tag, {asked: r.asked.length, said: r.said.filter(s => /^(media-devices|capture-|labelled-devices)/.test(s))}]))));
 });
 
 check('with the wall in, a page that does nothing wrong still works', async () => {
-  for (const run of runs.filter(r => r.name === 'legit')) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
+  for (const run of runs.filter(r => r.name === 'legit')) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1', 'video=playing']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
 });
 
 /* Names WebKit does not have, the way a future macOS might drop one: nothing is called, nothing dies, and
-   both settings read as unavailable, and then no free page is put in a frame (src/free-page.ts pageWall). */
+   every setting reads as unavailable, and then no free page is put in a frame (src/free-page.ts pageWall). */
 check('names this WebKit does not have are reported unavailable, and nothing dies', async () => {
   const wrong = join(work, 'wrong-wall.json');
-  writeFileSync(wrong, JSON.stringify({...JSON.parse(readFileSync(WALL, 'utf8')), peerConnection: {setter: '_setNoSuchSettingEnabled:', getter: '_noSuchSettingEnabled'}, features: ['NoSuchFeature']}));
+  writeFileSync(wrong, JSON.stringify({...JSON.parse(readFileSync(WALL, 'utf8')), peerConnection: {setter: '_setNoSuchSettingEnabled:', getter: '_noSuchSettingEnabled'}, mediaDevices: {setter: '_setNoSuchDevicesEnabled:', getter: '_noSuchDevicesEnabled'}, features: ['NoSuchFeature']}));
   const spec = join(work, 'wrong-run.json');
   writeFileSync(spec, JSON.stringify({url: `http://127.0.0.1:${PAGES}/shell/${runs.find(r => r.name === 'legit' && r.shape === 'shell').tag}`, when: 'afterCreate', wall: wrong, steps: [{wait: 1, read: READ}]}));
   const {stdout} = await promisify(execFile)(binary, [spec], {encoding: 'utf8', timeout: 70_000});
   unlinkSync(spec); unlinkSync(wrong);
   const lines = stdout.trim().split('\n').map(l => JSON.parse(l));
-  assert.deepEqual(lines.find(l => l.wall)?.wall, {rtc: 'unavailable', preconnect: 'unavailable'});
+  assert.deepEqual(lines.find(l => l.wall)?.wall, {rtc: 'unavailable', preconnect: 'unavailable', capture: 'unavailable'});
   assert.ok(lines.some(l => l.done), 'the page ran to the end');
 });
 

@@ -47,7 +47,7 @@ addEventListener('load', () => report('entity-hidden-file', document.getElementB
 </script></body></html>`;
 
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-const nestedRtc = (tag, udp, name) => `try{const pc=new RTCPeerConnection({iceServers:[{urls:"stun:127.0.0.1:${udp}"}]});pc.createDataChannel("x");pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>top.postMessage({rtc:"${tag}",name:"${name}",value:"offer made"},"*"))}catch(e){top.postMessage({rtc:"${tag}",name:"${name}",value:"refused"},"*")}`;
+const nestedRtc = (tag, udp, name) => `top.postMessage({rtc:"${tag}",name:"${name}-md",value:navigator.mediaDevices?"present":"absent"},"*");try{const pc=new RTCPeerConnection({iceServers:[{urls:"stun:127.0.0.1:${udp}"}]});pc.createDataChannel("x");pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>top.postMessage({rtc:"${tag}",name:"${name}",value:"offer made"},"*"))}catch(e){top.postMessage({rtc:"${tag}",name:"${name}",value:"refused"},"*")}`;
 /** A peer connection here and in every kind of frame a page can make of its own. Reports {rtc, name, value}. */
 export const rtcProbe = (tag, UDP) => {
   const nested = name => nestedRtc(tag, UDP, name);
@@ -95,5 +95,8 @@ export const attacks = {
   /** The same requests from a frame the page makes of its own, which nothing takes out any more. */
   'nested-requests': (t, p) => "<script>addEventListener('message',e=>{if(e.data&&e.data.probe)top.postMessage(e.data,'*')})</" + "script><iframe srcdoc=\"" + attr(requestProbe(t, 'http://127.0.0.1:' + p.http, p.http)) + "\"></iframe>",
   /** A page that does nothing wrong, which must still work behind the wall. */
-  legit: (t, p) => "<p>" + t + "</p><canvas id=c width=4 height=4></canvas><img id=d src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='><img id=a src='" + p.asset + "'>" + head(t) + "const g=document.getElementById('c').getContext('2d');g.fillStyle='#f00';g.fillRect(0,0,4,4);say('canvas',g.getImageData(1,1,1,1).data[0]);addEventListener('load',()=>{say('data-img',document.getElementById('d').naturalWidth);say('asset-img',document.getElementById('a').naturalWidth)});</" + "script>",
+  legit: (t, p) => "<p>" + t + "</p><canvas id=c width=4 height=4></canvas><img id=d src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='><img id=a src='" + p.asset + "'>" + head(t) + "const g=document.getElementById('c').getContext('2d');g.fillStyle='#f00';g.fillRect(0,0,4,4);say('canvas',g.getImageData(1,1,1,1).data[0]);addEventListener('load',()=>{say('data-img',document.getElementById('d').naturalWidth);say('asset-img',document.getElementById('a').naturalWidth)});"
+    // A video the page makes of its own and plays: recorded from a canvas, then played from a data: address, as a file would be.
+    + "try{const cv=document.createElement('canvas');cv.width=cv.height=16;const cx=cv.getContext('2d');let i=0;const tick=setInterval(()=>{cx.fillStyle=i++%2?'#0f0':'#00f';cx.fillRect(0,0,16,16)},40);const rec=new MediaRecorder(cv.captureStream(25));const parts=[];rec.ondataavailable=e=>parts.push(e.data);rec.onstop=()=>{clearInterval(tick);const r=new FileReader();r.onload=()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.addEventListener('playing',()=>say('video','playing'),{once:true});v.onerror=()=>say('video','error '+(v.error&&v.error.code));v.src=r.result;document.body.append(v);v.play().catch(e=>say('video','refused '+e.name))};r.readAsDataURL(new Blob(parts,{type:rec.mimeType}))};rec.start(100);setTimeout(()=>rec.stop(),900)}catch(e){say('video','threw '+e.name)}"
+    + "</" + "script>",
 };

@@ -1,11 +1,13 @@
-//! The page wall (0.3-P2-fix3): two WebKit settings that keep a free page off the network where its
+//! The page wall (0.3-P2-fix3, fix6): WebKit settings that keep a free page off the network where its
 //! frame's policy cannot. WebRTC reaches any address over UDP whatever `connect-src` says, and
 //! `<link rel=preconnect>` opens a connection to a host of the page's choosing with no script at all; a
 //! script in the page's own window cannot hold either (lab/review-board/evidence/reviews/2026-11-19-opus-
 //! 0.3-P2-sandbox.md). WebKit can: with peer connections off, no document made afterwards has
 //! `RTCPeerConnection`, frames inside frames included; with the `LinkPreconnect` feature off, preconnect
-//! opens nothing. Both are private API, named in src-tauri/page-wall.json (scripts/verify-wall.mjs reads
-//! the same file and measures them).
+//! opens nothing. A third (0.3-P2-fix6) takes the media devices away: wry grants every request a page
+//! makes for the camera or the microphone (wry_web_view_ui_delegate.rs), so with media devices off no
+//! document has `navigator.mediaDevices` and none can ask. All are private API, named in
+//! src-tauri/page-wall.json (scripts/verify-wall.mjs reads the same file and measures them).
 //!
 //! Each setting is asked for before it is called and never set by key: a key WebKit does not have throws
 //! an Objective-C exception, which unwinding cannot catch, and the app would die. A setting this WebKit
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Names {
     pub peer_connection: Pair,
+    pub media_devices: Pair,
     pub features: Vec<String>,
     pub feature_list: String,
     pub feature_key: String,
@@ -47,13 +50,14 @@ pub enum Setting {
 pub struct Status {
     pub rtc: Setting,
     pub preconnect: Setting,
+    pub capture: Setting,
 }
 
 impl Status {
-    pub const UNKNOWN: Status = Status { rtc: Setting::Unavailable, preconnect: Setting::Unavailable };
-    /// Whether page scripts may run: only when both settings read back off.
+    pub const UNKNOWN: Status = Status { rtc: Setting::Unavailable, preconnect: Setting::Unavailable, capture: Setting::Unavailable };
+    /// Whether a free page may be framed: only when every setting reads back off.
     pub fn holds(&self) -> bool {
-        self.rtc == Setting::Off && self.preconnect == Setting::Off
+        self.rtc == Setting::Off && self.preconnect == Setting::Off && self.capture == Setting::Off
     }
 }
 
@@ -79,18 +83,21 @@ mod mac {
         CString::new(name).ok().map(|c| Sel::register(&c))
     }
 
-    /// Puts both settings into a webview's preferences, each only when WebKit says it has it, and reads them back.
+    /// Puts every setting into a webview's preferences, each only when WebKit says it has it, and reads them back.
     pub(crate) unsafe fn put(prefs: &AnyObject, names: &Names) -> Status {
         let class = prefs.class();
-        let rtc = match (sel(&names.peer_connection.setter), sel(&names.peer_connection.getter)) {
+        Status { rtc: unsafe { pair_off(prefs, class, &names.peer_connection) }, preconnect: unsafe { features_off(prefs, class, names) }, capture: unsafe { pair_off(prefs, class, &names.media_devices) } }
+    }
+
+    unsafe fn pair_off(prefs: &AnyObject, class: &AnyClass, pair: &super::Pair) -> Setting {
+        match (sel(&pair.setter), sel(&pair.getter)) {
             (Some(set), Some(get)) if class.responds_to(set) && class.responds_to(get) => {
                 let _: () = unsafe { prefs.send_message(set, (Bool::NO,)) };
                 let on: Bool = unsafe { prefs.send_message(get, ()) };
                 if on.as_bool() { Setting::On } else { Setting::Off }
             }
             _ => Setting::Unavailable,
-        };
-        Status { rtc, preconnect: unsafe { features_off(prefs, class, names) } }
+        }
     }
 
     unsafe fn features_off(prefs: &AnyObject, class: &AnyClass, names: &Names) -> Setting {
@@ -188,26 +195,28 @@ mod tests {
         let n = names();
         assert_eq!(n.peer_connection.setter, "_setPeerConnectionEnabled:");
         assert_eq!(n.peer_connection.getter, "_peerConnectionEnabled");
+        assert_eq!(n.media_devices.setter, "_setMediaDevicesEnabled:");
+        assert_eq!(n.media_devices.getter, "_mediaDevicesEnabled");
         assert_eq!(n.features, vec!["LinkPreconnect".to_string()]);
         assert!(include_str!("../../scripts/verify-wall.mjs").contains("src-tauri/page-wall.json"));
     }
 
     #[test]
     fn scripts_may_run_only_when_both_settings_read_back_off() {
-        assert!(Status { rtc: Setting::Off, preconnect: Setting::Off }.holds());
-        for (rtc, preconnect) in [(Setting::On, Setting::Off), (Setting::Off, Setting::Unavailable), (Setting::Unavailable, Setting::Unavailable)] {
-            assert!(!Status { rtc, preconnect }.holds());
+        assert!(Status { rtc: Setting::Off, preconnect: Setting::Off, capture: Setting::Off }.holds());
+        for (rtc, preconnect, capture) in [(Setting::On, Setting::Off, Setting::Off), (Setting::Off, Setting::Unavailable, Setting::Off), (Setting::Off, Setting::Off, Setting::On), (Setting::Off, Setting::Off, Setting::Unavailable), (Setting::Unavailable, Setting::Unavailable, Setting::Unavailable)] {
+            assert!(!Status { rtc, preconnect, capture }.holds());
         }
         assert!(!Status::UNKNOWN.holds());
-        assert_eq!(serde_json::to_string(&Status::UNKNOWN).unwrap(), r#"{"rtc":"unavailable","preconnect":"unavailable"}"#);
+        assert_eq!(serde_json::to_string(&Status::UNKNOWN).unwrap(), r#"{"rtc":"unavailable","preconnect":"unavailable","capture":"unavailable"}"#);
     }
 
     #[test]
     fn a_free_page_is_rendered_only_behind_the_wall_and_otherwise_refused_with_where_to_read_it() {
-        let off = Status { rtc: Setting::Off, preconnect: Setting::Off };
+        let off = Status { rtc: Setting::Off, preconnect: Setting::Off, capture: Setting::Off };
         assert!(may_render(true, off).is_ok());
-        for (rtc, preconnect) in [(Setting::On, Setting::Off), (Setting::Off, Setting::Unavailable), (Setting::Unavailable, Setting::Off), (Setting::Unavailable, Setting::Unavailable)] {
-            let refused = may_render(true, Status { rtc, preconnect }).unwrap_err();
+        for (rtc, preconnect, capture) in [(Setting::On, Setting::Off, Setting::Off), (Setting::Off, Setting::Unavailable, Setting::Off), (Setting::Unavailable, Setting::Off, Setting::Off), (Setting::Off, Setting::Off, Setting::Unavailable)] {
+            let refused = may_render(true, Status { rtc, preconnect, capture }).unwrap_err();
             assert!(refused.contains("aphrodite_get_page_text"), "{refused}");
         }
         // A section page is the app's own markup and draws as it did before the wall.
