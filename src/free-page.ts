@@ -277,8 +277,8 @@ export type StoredMedia = {sha: string; mime: string; bytes: number};
 /**
  * Whether a free page may be put in a frame at all, asked before the first frame is made (0.3-P2-fix4). A
  * free page is framed, with its scripts, only behind the engine's own wall (src-tauri/src/page_wall.rs):
- * both settings read back off, and a frame made the way free pages are made says it has no
- * `RTCPeerConnection`. Anything else, a macOS whose WebKit lacks a setting, a wall or a frame that does not
+ * every setting reads back off, and a frame made the way free pages are made says it has neither
+ * `RTCPeerConnection` nor `navigator.mediaDevices`. Anything else, a macOS whose WebKit lacks a setting, a wall or a frame that does not
  * answer in time, and no free page is put in any frame: the board and Preview show a placeholder and a
  * render is refused. Drawing it without scripts would not do: preconnect needs none (scripts/verify-wall.mjs).
  *
@@ -289,17 +289,22 @@ export type StoredMedia = {sha: string; mime: string; bytes: number};
 export const DEVELOPMENT_BUILD_FRAMES_PAGES = true;
 /**
  * What a free page's frame may ask for, in the frame's own allow attribute (0.3-P2-fix5): no camera, microphone,
- * screen or location. Its sandboxed origin is not the app's, so none of these is allowed it by default either;
- * this says so in the frame itself. Autoplay is left out: it captures nothing, and a page may play its own video.
+ * screen or location. It says so in the frame itself; it is not what keeps a page from them. Measured in WebKit
+ * (0.3-P2-fix6), a free page's frame is refused them by default with or without it, its sandboxed origin not
+ * being the app's, and the wall takes the media devices away altogether (src-tauri/src/page_wall.rs). Autoplay
+ * is left out: it captures nothing, and a page may play its own video.
  */
 export const FRAME_ALLOW = "camera 'none'; microphone 'none'; display-capture 'none'; geolocation 'none'";
 /** How long one asking of the wall may take, the status and the probe frame together, before it is a no. */
 export const WALL_DEADLINE = 5000;
 /** How many times a no that came from silence or an error is asked again; a no the wall read back is final. */
 export const WALL_ASKS = 3;
-export type WallStatus = {rtc: 'off' | 'on' | 'unavailable'; preconnect: 'off' | 'on' | 'unavailable'};
-export function wallHolds(status: WallStatus | undefined, frameSays: string | undefined): boolean {
-  return status?.rtc === 'off' && status?.preconnect === 'off' && frameSays === 'undefined';
+type Setting = 'off' | 'on' | 'unavailable';
+export type WallStatus = {rtc: Setting; preconnect: Setting; capture: Setting};
+/** What the probe frame says it has: `typeof RTCPeerConnection` and `typeof navigator.mediaDevices`. */
+export type FrameSays = {rtc?: string; media?: string};
+export function wallHolds(status: WallStatus | undefined, frameSays: FrameSays | undefined): boolean {
+  return status?.rtc === 'off' && status?.preconnect === 'off' && status?.capture === 'off' && frameSays?.rtc === 'undefined' && frameSays?.media === 'undefined';
 }
 
 /**
@@ -415,20 +420,20 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
      A no from silence or an error is not final (pageWall asks again); one read back from WebKit is. */
   const ask = () => new Promise<{holds: boolean; final: boolean}>(resolve => {
     let done = false, frame: HTMLIFrameElement | undefined, status: WallStatus | undefined;
-    const hear = (e: MessageEvent) => { if (frame && e.source === frame.contentWindow && e.data && typeof e.data.wallProbe === 'string') end({holds: wallHolds(status, e.data.wallProbe), final: true}); };
+    const hear = (e: MessageEvent) => { if (frame && e.source === frame.contentWindow && e.data && typeof e.data.wallProbe === 'string') end({holds: wallHolds(status, {rtc: e.data.wallProbe, media: e.data.media}), final: true}); };
     const end = (answer: {holds: boolean; final: boolean}) => { if (done) return; done = true; clearTimeout(timer); removeEventListener('message', hear); frame?.remove(); resolve(answer); };
     const timer = setTimeout(() => end({holds: false, final: false}), timing.deadline);
     native.invoke<WallStatus>('page_wall_status').then(read => {
       if (done) return;
       status = read;
-      if (read?.rtc !== 'off' || read.preconnect !== 'off') return end({holds: false, final: !!read});
+      if (read?.rtc !== 'off' || read.preconnect !== 'off' || read.capture !== 'off') return end({holds: false, final: !!read});
       frame = document.createElement('iframe');
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.setAttribute('allow', FRAME_ALLOW);
       frame.hidden = true;
       addEventListener('message', hear);
       document.body.append(frame);
-      return host.load(frame, 'page-wall-probe', 'probe', framedDocument('<script>parent.postMessage({wallProbe: typeof RTCPeerConnection}, "*")</script>', {media: () => undefined, origins: host.origins}));
+      return host.load(frame, 'page-wall-probe', 'probe', framedDocument('<script>parent.postMessage({wallProbe: typeof RTCPeerConnection, media: typeof navigator.mediaDevices}, "*")</script>', {media: () => undefined, origins: host.origins}));
     }).catch(() => end({holds: false, final: false}));
   });
   const host: FrameHost = {

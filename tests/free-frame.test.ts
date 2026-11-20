@@ -4,7 +4,7 @@
  * picture or a video it names as `media:<sha256>` becomes a real address only there.
  */
 import {test} from 'node:test';
-import {readFileSync} from 'node:fs';
+import {readFileSync, readdirSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {frameCsp, framedDocument, renderShell, FRAME_PREFIX_END, MAX_FRAMED_DOCUMENT, linkOut, loadFreePage, renderDocument, wallHolds, browserFrameHost, desktopFrameHost, DEVELOPMENT_BUILD_FRAMES_PAGES, WALL_ASKS, FRAME_ALLOW, type FrameHost} from '../src/free-page.ts';
 
@@ -166,13 +166,14 @@ test('the app refuses and accepts exactly the link addresses the shared table sa
   for (const address of table.refuse) assert.ok('refused' in linkOut(address), `refuses ${JSON.stringify(address)}`);
 });
 
-/* 0.3-P2-fix4: all or nothing. A free page is put in a frame, with its scripts, only when both settings
+/* 0.3-P2-fix4: all or nothing. A free page is put in a frame, with its scripts, only when every setting
    read back off and a frame made the way free pages are made says it has no peer connection. Anything else
    and no frame is made at all: preconnect needs no script (scripts/verify-wall.mjs), so scripts off is no fallback. */
-test('a free page is framed only when the wall reads back off and a real frame has no peer connection', () => {
-  const off = {rtc: 'off', preconnect: 'off'} as const;
-  assert.equal(wallHolds(off, 'undefined'), true);
-  for (const [status, said] of [[off, 'function'], [off, undefined], [{rtc: 'off', preconnect: 'unavailable'}, 'undefined'], [{rtc: 'unavailable', preconnect: 'off'}, 'undefined'], [{rtc: 'on', preconnect: 'off'}, 'undefined'], [undefined, 'undefined']] as const)
+test('a free page is framed only when the wall reads back off and a real frame has neither a peer connection nor media devices', () => {
+  const off = {rtc: 'off', preconnect: 'off', capture: 'off'} as const;
+  const none = {rtc: 'undefined', media: 'undefined'};
+  assert.equal(wallHolds(off, none), true);
+  for (const [status, said] of [[off, {rtc: 'function', media: 'undefined'}], [off, {rtc: 'undefined', media: 'object'}], [off, {rtc: 'undefined'}], [off, undefined], [{...off, preconnect: 'unavailable'}, none], [{...off, rtc: 'unavailable'}, none], [{...off, rtc: 'on'}, none], [{...off, capture: 'on'}, none], [{...off, capture: 'unavailable'}, none], [{rtc: 'off', preconnect: 'off'}, none], [undefined, none]] as const)
     assert.equal(wallHolds(status as never, said as never), false, JSON.stringify([status, said]));
 });
 
@@ -197,11 +198,11 @@ function probeWindow(commands: Record<string, (args?: unknown) => Promise<unknow
   const host = desktopFrameHost({invoke: (async (command: string, args?: unknown) => { asked.push(command); return commands[command]!(args); }) as never, fileSrc: path => 'asset://localhost/' + path}, {deadline: 40});
   return {
     host, attached, listeners, asked, made,
-    say: (value: string) => { for (const frame of attached) for (const fn of [...listeners]) fn({source: frame.contentWindow, data: {wallProbe: value}}); },
+    say: (rtc: string, media = 'undefined') => { for (const frame of attached) for (const fn of [...listeners]) fn({source: frame.contentWindow, data: {wallProbe: rtc, media}}); },
     restore: () => Object.assign(globalThis, {document: saved.document, addEventListener: saved.add, removeEventListener: saved.remove}),
   };
 }
-const OFF = async () => ({rtc: 'off', preconnect: 'off'});
+const OFF = async () => ({rtc: 'off', preconnect: 'off', capture: 'off'});
 const never = () => new Promise<never>(() => {});
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -252,7 +253,7 @@ test('a no from silence or an error is asked again the next time, a few times at
   } finally { has.restore(); }
 });
 
-test('the wall holds when both settings read back off and the probe frame has no peer connection; the frame is taken away and the yes kept', async () => {
+test('the wall holds when every setting reads back off and the probe frame has no peer connection or media devices; the frame is taken away and the yes kept', async () => {
   const w = probeWindow({page_wall_status: OFF, free_page_write: async () => 'probe.html'});
   try {
     const answer = w.host.pageWall();
@@ -302,4 +303,28 @@ test('every frame a free page is drawn in refuses camera, microphone, screen and
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   assert.match(main, /async function freePageFrame\([^\n]*frame\.setAttribute\('sandbox','allow-scripts'\);frame\.setAttribute\('allow',FRAME_ALLOW\);/);
   assert.match(renderShell('x', []), new RegExp(`allow="${FRAME_ALLOW}"`));
+});
+
+/* 0.3-P2-fix6: a frame that still has media devices is a final no, even with the settings read back off. */
+test('a probe frame that still has media devices is a final no', async () => {
+  const w = probeWindow({page_wall_status: OFF, free_page_write: async () => 'probe.html'});
+  try {
+    const answer = w.host.pageWall();
+    await wait(5);
+    w.say('undefined', 'object');
+    assert.equal(await answer, false);
+    assert.equal(await w.host.pageWall(), false);
+    assert.deepEqual(w.asked, ['page_wall_status', 'free_page_write']);
+  } finally { w.restore(); }
+});
+
+/* The app's own document never asks for the camera, the microphone or the screen: only the wall's probe names the devices. */
+test('nothing in the app asks for the camera, the microphone or the screen', () => {
+  const files = (readdirSync(new URL('../src/', import.meta.url), {recursive: true}) as string[]).filter(f => /\.(ts|mjs|js)$/.test(f) && !f.startsWith('generated') && !f.startsWith('vendor'));
+  const naming = files.filter(f => /getUserMedia|getDisplayMedia|mediaDevices/.test(readFileSync(new URL('../src/' + f, import.meta.url), 'utf8')));
+  assert.deepEqual(naming, ['free-page.ts']);
+  const page = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /getUserMedia|getDisplayMedia/);
+  const code = page.split('\n').filter(line => /mediaDevices/.test(line) && !/^\s*(\*|\/\*\*|\/\/)/.test(line));
+  assert.ok(code.length === 1 && code[0].includes('typeof navigator.mediaDevices'), 'only the probe, asking whether they are there');
 });
