@@ -709,6 +709,148 @@ check('a free page captures nothing: every frame refuses camera, microphone, scr
    does not answer), no free page is put in any frame, since preconnect needs no script: a placeholder stands
    in its place, the page can still be selected and renamed, and an agent still reads its words. The browser
    build is told so with ?page-wall=off. Last, since it reloads the app. */
+/* ---- 0.3-P3: a page on its own, a page sent as a file, a board sent as a file, a link that opens ---- */
+
+const downloads = async () => {
+  // What saveFile hands the browser to download, taken from the blob it makes (the app's policy lets it fetch no blob: address).
+  await evaluate(`(() => { if (window.__downloads) return true; window.__downloads = []; const blobs = new Map(); const make = URL.createObjectURL; URL.createObjectURL = blob => { const url = make.call(URL, blob); blobs.set(url, blob); return url; }; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { const blob = this.download && blobs.get(this.href); if (blob) { const name = this.download; blob.arrayBuffer().then(b => { const s = new Uint8Array(b); let out = ''; for (let i = 0; i < s.length; i += 32768) out += String.fromCharCode(...s.subarray(i, i + 32768)); window.__downloads.push({name, b64: btoa(out)}); }); return; } return click.call(this); }; return true; })()`);
+  return async (action, data) => { const n = await evaluate('window.__downloads.length'); await personPresses(action, data); await waitFor(async () => (await evaluate('window.__downloads.length')) > n, `the download from ${action}`, 40).catch(async error => { throw new Error(`${error.message}; the app said: ${await evaluate(`document.querySelector('#toast')?.textContent ?? ''`)}`); }); const got = await evaluate('window.__downloads.at(-1)'); return {name: got.name, bytes: Buffer.from(got.b64, 'base64')}; };
+};
+const pageView = () => evaluate('document.querySelector("#app").dataset.pageView');
+let viewId;
+
+check('a page opens on its own, framed the way every free page is; inside it the page runs, and leaving it edits nothing', async () => {
+  viewId = await makePage('Seen alone', `<!doctype html><body style="margin:0;font:16px sans-serif"><button id="b" style="position:fixed;left:20px;top:20px;width:240px;height:80px">Pressed</button><a id="pg" href="page:${sampleId}" style="position:fixed;left:20px;top:140px;display:block;width:240px;height:40px">the sample</a><script>parent.postMessage({boot: 'alone'}, '*'); let n = 0; document.getElementById('b').onclick = () => parent.postMessage({alonePressed: ++n}, '*');</script></body>`);
+  await personPresses('page', {id: viewId}); await sleep(400);
+  const before = await seq(), boots = (await messages('boot')).filter(b => b === 'alone').length;
+  await personPresses('page-view', {id: viewId});
+  await waitFor(async () => (await messages('boot')).filter(b => b === 'alone').length > boots, 'the page to start on its own');
+  assert.equal(await pageView(), viewId);
+  const frame = await evaluate(`(() => { const f = document.querySelector('#page-view-root iframe'); return f && {sandbox: f.getAttribute('sandbox'), allow: f.getAttribute('allow'), page: f.dataset.framePage, inert: f.inert}; })()`);
+  assert.deepEqual(frame, {sandbox: 'allow-scripts', allow: FRAME_ALLOW, page: viewId, inert: false});
+  const at = await evaluate(`(() => { const r = document.querySelector('#page-view-root iframe').getBoundingClientRect(); return {x: r.left + 140, y: r.top + 60}; })()`);
+  await click(at);
+  assert.deepEqual(await messages('alonePressed'), [1], 'a press reaches the page at once');
+  await click({x: at.x, y: at.y + 100});
+  await waitFor(async () => (await pageView()) === sampleId, 'a page: link to show that page on its own');
+  assert.equal(await active(), viewId, 'the board\'s open page is the one it was');
+  await personPresses('page-view-close'); await sleep(300);
+  assert.equal(await pageView(), '');
+  const again = (await messages('boot')).filter(b => b === 'alone').length;
+  await personPresses('page-view', {id: viewId});
+  await waitFor(async () => (await messages('boot')).filter(b => b === 'alone').length > again, 'the page to start again');
+  await click(at);
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  await sleep(300);
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27});
+  assert.equal(await pageView(), '', 'Esc typed inside the page goes back to the board');
+  assert.equal(await seq(), before, 'nothing was recorded');
+});
+
+check('Edit in the app opens the page on the board, as the person\'s own step', async () => {
+  await personPresses('page', {id: sampleId}); await sleep(300);
+  await personPresses('page-view', {id: viewId}); await sleep(600);
+  const before = await seq();
+  await personPresses('page-view-edit', {id: viewId}); await sleep(500);
+  assert.equal(await pageView(), '');
+  assert.equal(await active(), viewId);
+  const {changes} = await agent('changes', {since: before, include_view: true, limit: 5});
+  assert.deepEqual(changes.map(c => [c.author.kind, c.view]), [['person', true]]);
+});
+
+check('an agent\'s reply carries a link that opens its page on its own; following one edits nothing, and one for a board this Mac lacks opens Home', async () => {
+  const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Linked', html: '<p>linked</p><script>parent.postMessage({boot: "linked"}, "*")</script>'}]});
+  assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
+  const projectId = (await agent('contract', {})).project.project_id, page = made.created_pages[0].page_id;
+  assert.equal(made.link, `aphrodite://open?board=${projectId}&page=${page}`);
+  assert.equal((await agent('html', {page_id: page})).link, made.link, 'a page read carries it too');
+  const before = await seq(), rev = await revision();
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link)})`);
+  await waitFor(async () => (await pageView()) === page, 'the link to show its page');
+  await waitFor(async () => (await messages('boot')).includes('linked'), 'the page to start');
+  await evaluate(`window.aphroditeOpenLink('aphrodite://open?board=not-a-board-here')`); await sleep(500);
+  assert.equal(await evaluate('document.querySelector("#app").dataset.screen'), 'home', 'a board this Mac lacks opens Home');
+  assert.equal(await pageView(), '');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link + '&file=/etc/passwd')})`); await sleep(300);
+  assert.equal(await evaluate('document.querySelector("#app").dataset.screen'), 'home', 'a link naming anything more opens nothing');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link)})`);
+  await waitFor(async () => (await pageView()) === page, 'the link to open the board from Home');
+  await personPresses('page-view-close'); await sleep(300);
+  assert.equal(await seq(), before, 'following links recorded nothing');
+  assert.equal(await revision(), rev, 'and changed nothing');
+});
+
+check('a page sent as one file runs nothing and reaches nothing where it is opened, and keeps words that only look like scripts', async () => {
+  const TRAP_SRC = SERVER + '/exported';
+  const hostile = `<!doctype html><html><head><title>kept</title><link rel="preconnect" href="http://127.0.0.1:${TCP}"><link rel="stylesheet" href="${TRAP_SRC}/css"><meta http-equiv="refresh" content="1;url=${TRAP_SRC}/refresh"><style>@import url(${TRAP_SRC}/import);</style></head><body><h1 id="h">Exported</h1>
+<script>document.title = 'ran'; fetch('${TRAP_SRC}/script')</script><img src="nothing" onerror="document.title = 'ran'; fetch('${TRAP_SRC}/onerror')"><img src="${TRAP_SRC}/img">
+<a id="j" href="jav&#97;script:fetch('${TRAP_SRC}/js')">j</a><iframe srcdoc="<script>parent.document.title = 'ran'; fetch('${TRAP_SRC}/srcdoc')</script>"></iframe><svg><script>fetch('${TRAP_SRC}/svg')</script></svg>
+<form action="${TRAP_SRC}/form"><button id="f">f</button></form><textarea id="t"><script>fetch('/x')</script></textarea><p id="p" title="<script>x</script>">onclick=go() is only words</p></body></html>`;
+  await sleep(5_200); // the person's last press holds the screen for a moment
+  const id = await makePage('Sent alone', hostile);
+  await personPresses('page', {id}); await sleep(300);
+  const save = await downloads();
+  await personPresses('export'); await sleep(600);
+  assert.equal(await evaluate(`!!document.querySelector('[data-export-page] [data-export-scripts]') && !document.querySelector('[data-export-page] [data-export-scripts]').checked`), true, 'scripts are left out unless chosen');
+  const file = await save('download-page-html');
+  assert.equal(file.name, 'sent-alone.html');
+  const html = file.bytes.toString('utf8');
+  assert.ok(!/<script/i.test(html.replace(/<textarea id="t"><script>fetch\('\/x'\)<\/script><\/textarea>/, '').replace(/title="<script>x<\/script>"/, '')), 'no script element is left');
+  writeFileSync(fileAt('sent-alone.html'), file.bytes);
+  // UDP is not counted here: the known-limit page still on the board keeps sending its STUN, and this file has no peer connection to send any.
+  const before = {hits: hits.length, tcp: connections.length};
+  const opened = await openPage(`file://${fileAt('sent-alone.html')}`, {cdp: 9387, profile: '/tmp/aphrodite-pages-export-profile'});
+  try {
+    await sleep(2500);
+    await opened.evaluate(`document.getElementById('j').click(), document.getElementById('f').click(), true`);
+    await sleep(1500);
+    assert.deepEqual({hits: hits.slice(before.hits), tcp: connections.length - before.tcp}, {hits: [], tcp: 0}, 'nothing reached outside');
+    assert.equal(await opened.evaluate('document.title'), 'kept', 'nothing ran');
+    assert.equal(await opened.evaluate('document.scripts.length'), 0);
+    assert.equal(await opened.evaluate(`document.getElementById('t').value`), "<script>fetch('/x')</script>", 'the textarea says what it said');
+    assert.equal(await opened.evaluate(`document.getElementById('p').title + '|' + document.getElementById('p').textContent`), '<script>x</script>|onclick=go() is only words');
+    assert.equal(await opened.evaluate(`document.getElementById('h').textContent`), 'Exported');
+    result.exported = {bytes: file.bytes.length};
+  } finally { opened.close(); }
+  await evaluate(`(() => { const box = document.querySelector('[data-export-scripts]'); box.click(); return true; })()`); await sleep(500);
+  assert.ok(await evaluate(`!!document.querySelector('[data-export-page] .export-page-note[role="note"]')`), 'choosing the scripts says in one line where they will run');
+  const withScripts = (await save('download-page-html')).bytes.toString('utf8');
+  assert.ok(withScripts.includes(hostile), 'with its scripts, the page is the one stored');
+  await evaluate(`document.querySelector('[data-export-scripts]').click(), true`); await sleep(300);
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+});
+
+check('a board saved as .aphrodite opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
+  await personPresses('page', {id: viewId}); await sleep(300);
+  await personPresses('export'); await sleep(600);
+  if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export'); await sleep(400); }
+  assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'approved', 'the board sent is approved here');
+  const save = await downloads();
+  const board = await save('download-board-file');
+  assert.match(board.name, /\.aphrodite$/);
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+  const sent = await agent('contract', {});
+  writeFileSync(fileAt('sent.aphrodite'), board.bytes);
+  const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
+  const boots = (await messages('boot')).filter(b => b === 'alone').length;
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project'); await sleep(500);
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt('sent.aphrodite')]});
+  await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > lib.entries.length, 'the board to open', 30);
+  await sleep(1000);
+  const got = await agent('contract', {});
+  assert.notEqual(got.project.project_id, sent.project.project_id, 'a new board');
+  assert.deepEqual(got.pages.map(p => [p.page_id, p.name, p.kind ?? null]), sent.pages.map(p => [p.page_id, p.name, p.kind ?? null]), 'the same pages');
+  assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'draft', 'nothing in it is approved here');
+  const {changes} = await agent('changes', {limit: 3, include_view: true});
+  assert.ok(changes.length && changes.every(c => c.author.elsewhere === true), `every change in it was made elsewhere: ${JSON.stringify(changes.map(c => c.author))}`);
+  await personPresses('zoom-fit'); await sleep(500);
+  await waitFor(async () => (await messages('boot')).filter(b => b === 'alone').length > boots, 'its page to start on the new board', 30);
+  result.board = {bytes: board.bytes.length, pages: got.pages.length};
+});
+
 check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
   const SENTENCE = 'A sentence only this page holds, which agents still read.';
   const wordsId = await makePage('Words page', `<h1>Never framed here</h1><p>${SENTENCE}</p>`);
@@ -753,6 +895,11 @@ check('without the page wall no free page is in any frame, on the board or in Pr
   await personPresses('preview'); await sleep(1500);
   assert.equal(await evaluate(`document.querySelectorAll('#modal-root iframe').length`), 0, 'Preview makes no frame');
   assert.equal(await evaluate(`!!document.querySelector('#modal-root .board-unframed')`), true, 'Preview shows the placeholder');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+  await personPresses('page-view', {id: wordsId}); await sleep(1500);
+  assert.equal(await evaluate(`document.querySelectorAll('#page-view-root iframe').length`), 0, 'the page on its own makes no frame');
+  assert.equal(await evaluate(`document.querySelector('#page-view-root .board-unframed')?.dataset.unframedPage`), wordsId, 'it shows the placeholder');
+  await personPresses('page-view-close');
 });
 
 checks.push(['(numbers)', async () => { const {probe, bare, ...rest} = result; console.log('       ' + JSON.stringify(rest).slice(0, 3000)); }]);
