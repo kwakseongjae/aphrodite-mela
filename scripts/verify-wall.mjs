@@ -62,6 +62,28 @@ function measurer() {
 const bare = html => { const doc = framedDocument(html, {media: () => undefined, origins: ORIGINS}); return doc.slice(0, doc.indexOf('<script>')) + doc.slice(doc.indexOf(FRAME_PREFIX_END) + FRAME_PREFIX_END.length); };
 /** A one-second, 64-pixel H.264 file (scripts/wall/fixtures/v.mp4, made with ffmpeg's testsrc), given as the desktop gives board media: by the asset address, in the board and in the render shell alike. */
 const VIDEO = readFileSync(join(ROOT, 'scripts/wall/fixtures/v.mp4'));
+/**
+ * A board file answered the way Tauri's asset protocol answers (tauri 2.11 src/protocol/asset.rs): the
+ * window's origin allowed; with a Range header, Accept-Ranges, content-range exposed, and one range as 206 with
+ * Content-Range and Content-Length (at most 1000 KiB); a range past the end as 416; HEAD with the length and
+ * no body; otherwise the whole file with its length. The measurer passes these on as they are.
+ */
+function asset(req, res, bytes, type) {
+  const head = {'access-control-allow-origin': 'app://localhost', 'content-type': type};
+  const range = req.headers.range;
+  if (range) {
+    Object.assign(head, {'accept-ranges': 'bytes', 'access-control-expose-headers': 'content-range'});
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    let start = m && m[1] !== '' ? Number(m[1]) : NaN, end = m && m[2] !== '' ? Number(m[2]) : bytes.length - 1;
+    if (m && m[1] === '' && m[2] !== '') { start = Math.max(0, bytes.length - Number(m[2])); end = bytes.length - 1; }
+    end = Math.min(end, bytes.length - 1);
+    if (!(start >= 0) || start >= bytes.length || end < start) { res.writeHead(416, {'content-range': `bytes */${bytes.length}`}); res.end(); return; }
+    end = start + Math.min(end - start, 1000 * 1024 - 1);
+    res.writeHead(206, {...head, 'content-range': `bytes ${start}-${end}/${bytes.length}`, 'content-length': end + 1 - start}); res.end(bytes.subarray(start, end + 1)); return;
+  }
+  res.writeHead(200, {...head, 'content-length': bytes.length});
+  res.end(req.method === 'HEAD' ? undefined : bytes);
+}
 const DOT = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 const runs = [];
@@ -96,14 +118,7 @@ const pages = createServer((req, res) => {
 await new Promise(r => pages.listen(PAGES, '127.0.0.1', r)); sockets.push(pages);
 const frames = createServer((req, res) => {
   const path = req.url.split('?')[0].slice(1);
-  if (path === 'media/dot.png') { res.writeHead(200, {'content-type': 'image/png'}); res.end(DOT); return; }
-  if (path === 'media/v.mp4') {
-    // A media player asks for ranges of the file.
-    const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range ?? '');
-    if (!range) { res.writeHead(200, {'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': VIDEO.length}); res.end(VIDEO); return; }
-    const start = range[1] ? Number(range[1]) : 0, end = Math.min(range[2] ? Number(range[2]) : VIDEO.length - 1, VIDEO.length - 1);
-    res.writeHead(206, {'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${VIDEO.length}`, 'content-length': end - start + 1}); res.end(VIDEO.subarray(start, end + 1)); return;
-  }
+  if (path === 'media/dot.png' || path === 'media/v.mp4') { asset(req, res, path === 'media/v.mp4' ? VIDEO : DOT, path === 'media/v.mp4' ? 'video/mp4' : 'image/png'); return; }
   if (!byTag.has(path)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(page(byTag.get(path)));
 });
@@ -185,13 +200,21 @@ check('with the wall in, no frame has the media devices, and the window is never
   console.log(`       macOS ${MACOS}, before the wall this WebKit had ${JSON.stringify(walled.find(r => r.before)?.before)}; without the wall: ` + JSON.stringify(Object.fromEntries(open.map(r => [r.tag, {asked: r.asked.length, said: r.said.filter(s => /^(media-devices|capture-|labelled-devices)/.test(s))}]))));
 });
 
-check('with the wall in, a page that does nothing wrong still works, and plays its video wherever it plays without the wall', async () => {
+/* The wall breaks nothing a page does: each thing the page tries answers the same with the wall and without
+   it. The pictures and the canvas must work in both; the video must play with the wall wherever it plays
+   without. Where it plays in neither, in one shape on one macOS, that is the measurer's, said by name. */
+const LEGIT = ['canvas', 'data-img', 'asset-img', 'video'];
+const legitSaid = run => Object.fromEntries(LEGIT.map(n => [n, run.said.find(s => s.startsWith(n + '='))?.slice(n.length + 1) ?? 'nothing']));
+check('with the wall in, a page that does nothing wrong does all it does without the wall', async () => {
+  const plays = {};
   for (const shape of ['board', 'shell']) {
-    const [walled, open] = [true, false].map(w => runs.find(r => r.name === 'legit' && r.shape === shape && r.walled === w));
-    assert.ok(open.said.includes('video=playing'), `legit-${shape}: the probe's video does not play even without the wall, so the probe is wrong, not the wall: ${JSON.stringify(open.said)}`);
-    assert.ok(walled.said.includes('video=playing'), `legit-${shape}: plays without the wall and not with it, so the wall breaks it: ${JSON.stringify(walled.said)}`);
+    const [walled, open] = [true, false].map(w => legitSaid(runs.find(r => r.name === 'legit' && r.shape === shape && r.walled === w)));
+    assert.deepEqual(walled, open, `legit-${shape}: the wall changes what the page does`);
+    for (const [n, ok] of [['canvas', '255'], ['data-img', '1'], ['asset-img', '1']]) assert.equal(open[n], ok, `legit-${shape}: ${n} does not work even without the wall, so the probe is dead: ${JSON.stringify(open)}`);
+    plays[shape] = open.video === 'playing';
+    if (!plays[shape]) console.log(`       known on macOS ${MACOS}: the measurer's asset scheme does not play video in the ${shape} shape, with or without the wall (${open.video})`);
   }
-  for (const run of runs.filter(r => r.name === 'legit' && r.walled)) for (const said of ['canvas=255', 'data-img=1', 'asset-img=1']) assert.ok(run.said.includes(said), `${run.tag}: ${said} in ${JSON.stringify(run.said)}`);
+  assert.ok(plays.board || plays.shell, `the probe's video plays in no shape even without the wall, so the video probe is dead`);
 });
 
 /* Names WebKit does not have, the way a future macOS might drop one: nothing is called, nothing dies, and
@@ -213,7 +236,7 @@ checks.push(['(numbers)', async () => {
   assert.deepEqual(runs.filter(r => r.walled).map(r => [r.tag, counts.get(r.tag)]).filter(([, c]) => c.udp || c.tcp || c.http.length), [], 'still nothing, at the end');
   const table = {};
   for (const r of runs) { const c = counts.get(r.tag); (table[r.name] ??= {})[`${r.shape} ${r.walled ? 'wall' : 'none'}${r.scriptless ? ' scriptless' : ''}`] = `udp ${c.udp} tcp ${c.tcp} http ${c.http.length}`; }
-  console.log(`       macOS ${MACOS} video: ` + JSON.stringify(Object.fromEntries(runs.filter(r => r.name === 'legit').map(r => [`${r.shape} ${r.walled ? 'wall' : 'none'}`, r.said.filter(s => s.startsWith('video=')).join(' ') || 'nothing'])) ));
+  console.log(`       macOS ${MACOS} a page that does nothing wrong: ` + JSON.stringify(Object.fromEntries(runs.filter(r => r.name === 'legit').map(r => [`${r.shape} ${r.walled ? 'wall' : 'none'}`, legitSaid(r)]))));
   console.log(`       macOS ${MACOS} ` + JSON.stringify(table));
 }]);
 await runChecks(checks, () => { for (const s of sockets) try { s.close(); } catch {} try { for (const f of readdirSync(work)) unlinkSync(join(work, f)); rmdirSync(work); } catch {} });

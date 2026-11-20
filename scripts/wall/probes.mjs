@@ -95,8 +95,12 @@ export const attacks = {
   /** The same requests from a frame the page makes of its own, which nothing takes out any more. */
   'nested-requests': (t, p) => "<script>addEventListener('message',e=>{if(e.data&&e.data.probe)top.postMessage(e.data,'*')})</" + "script><iframe srcdoc=\"" + attr(requestProbe(t, 'http://127.0.0.1:' + p.http, p.http)) + "\"></iframe>",
   /** A page that does nothing wrong, which must still work behind the wall. */
-  legit: (t, p) => "<p>" + t + "</p><canvas id=c width=4 height=4></canvas><img id=d src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='><img id=a src='" + p.asset + "'>" + head(t) + "const g=document.getElementById('c').getContext('2d');g.fillStyle='#f00';g.fillRect(0,0,4,4);say('canvas',g.getImageData(1,1,1,1).data[0]);addEventListener('load',()=>{say('data-img',document.getElementById('d').naturalWidth);say('asset-img',document.getElementById('a').naturalWidth)});"
+  /** A page that does nothing wrong. Each thing it tries starts on its own and answers on its own within four seconds, so one that hangs cannot keep the others quiet. */
+  legit: (t, p) => "<p>" + t + "</p><canvas id=c width=4 height=4></canvas>" + head(t)
+    + "const once=(n,ms)=>{let said=false;const t=setTimeout(()=>{if(!said){said=true;say(n,'timeout')}},ms||4000);return v=>{if(!said){said=true;clearTimeout(t);say(n,v)}}};"
+    + "try{const g=document.getElementById('c').getContext('2d');g.fillStyle='#f00';g.fillRect(0,0,4,4);say('canvas',g.getImageData(1,1,1,1).data[0])}catch(e){say('canvas','threw '+e.name)}"
+    + "for(const[n,src]of[['data-img','data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='],['asset-img','" + p.asset + "']]){const done=once(n);const i=new Image();i.onload=()=>done(i.naturalWidth);i.onerror=()=>done('error');i.src=src;document.body.append(i)}"
     // A video file the page names, played the way a page plays its own: muted, inline, from the address the host gives it.
-    + "const v=document.createElement('video');v.muted=true;v.playsInline=true;v.addEventListener('playing',()=>say('video','playing'),{once:true});v.onerror=()=>say('video','error '+(v.error&&v.error.code));v.src='" + p.video + "';document.body.append(v);v.play().catch(e=>say('video','refused '+e.name));"
+    + "{const done=once('video');const v=document.createElement('video');v.muted=true;v.playsInline=true;v.addEventListener('playing',()=>done('playing'),{once:true});v.onerror=()=>done('error '+(v.error&&v.error.code));v.src='" + p.video + "';document.body.append(v);const pl=v.play();if(pl&&pl.catch)pl.catch(e=>done('refused '+e.name))}"
     + "</" + "script>",
 };

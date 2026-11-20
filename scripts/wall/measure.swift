@@ -58,12 +58,13 @@ class Proxy: NSObject, WKURLSchemeHandler {
     let u = task.request.url!
     var path = u.path; if let q = u.query { path += "?" + q }
     let id = ObjectIdentifier(task)
-    var rq = URLRequest(url: URL(string: base + path)!); for (k, v) in task.request.allHTTPHeaderFields ?? [:] { rq.setValue(v, forHTTPHeaderField: k) }
+    var rq = URLRequest(url: URL(string: base + path)!); rq.httpMethod = task.request.httpMethod ?? "GET"; rq.cachePolicy = .reloadIgnoringLocalCacheData; for (k, v) in task.request.allHTTPHeaderFields ?? [:] { rq.setValue(v, forHTTPHeaderField: k) }
     URLSession.shared.dataTask(with: rq) { data, resp, err in
       DispatchQueue.main.async {
         if self.stopped.contains(id) { return }
         guard let r = resp as? HTTPURLResponse else { task.didFailWithError(err ?? NSError(domain: "wall", code: 1)); return }
-        var h: [String: String] = [:]; for (k, v) in r.allHeaderFields { h[String(describing: k)] = String(describing: v) }
+        // Only the headers the server meant, not its connection's own: Tauri's asset protocol sends none of those.
+        var h: [String: String] = [:]; for (k, v) in r.allHeaderFields where !["connection", "keep-alive", "date", "transfer-encoding"].contains(String(describing: k).lowercased()) { h[String(describing: k)] = String(describing: v) }
         task.didReceive(HTTPURLResponse(url: u, statusCode: r.statusCode, httpVersion: "HTTP/1.1", headerFields: h)!)
         task.didReceive(data ?? Data()); task.didFinish()
       }
