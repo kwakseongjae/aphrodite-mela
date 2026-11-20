@@ -1,16 +1,12 @@
 /**
- * A page as a file of its own, to send to someone (0.3-P3). It opens in their browser, where the app's wall
- * is not: so by default its scripts are taken out and the browser is told to run none and fetch nothing (the
- * policy comes first in the file, the same way a framed page's does, and is what holds when the cleaning
- * misses something), and every `<link>` that would reach out is taken out, since no policy stops a
- * preconnect (scripts/verify-wall.mjs measured it). Keeping the scripts is the person's choice; then the file
- * is the page as stored, its media put in. A board that should keep running is sent as a board file (src/board-file.ts).
- *
- * The page is read one tag at a time, never searched for words: text that looks like a script inside a
- * `<textarea>`, a `<style>`, an attribute or a comment is left exactly as it was written.
+ * A page as a file of its own, to send to someone (0.3-P3). It opens in their browser, where the app's wall is
+ * not: so by default it goes cleaned (src/page-clean.ts: the browser's own parser, DOMPurify to a list of what may
+ * stay, our rules below, and a second reading that must match), with a policy that runs nothing and fetches
+ * nothing at the front. Keeping the scripts is the person's choice; then the file is the page as stored, its board
+ * files put in where it names them as addresses. A board that should keep running is sent as a board file.
  */
 import {strToU8, zipSync, type Zippable} from 'fflate';
-import {isFreePage, mediaExtension, type FrameHost} from './free-page';
+import {isFreePage, mediaExtension, mediaNamed, type FrameHost} from './free-page';
 import {utf8Length} from './workspace/library';
 import boardFile from '../src-tauri/board-file.json';
 
@@ -21,138 +17,90 @@ export const MAX_EXPORT_FILE = 1024 * 1024 * 1024;
 /** How big one exported page may be with its pictures put in, in bytes: about what a browser still opens without trouble. */
 export const MAX_EXPORTED_PAGE = 100_000_000;
 
-/**
- * Elements whose content is text up to their own end tag: their content is copied, never read for tags. Not
- * `<noscript>`, which is markup wherever scripts are off (a preview, a mail reader), and none of them inside
- * `<svg>` or `<math>`, where they hold markup too; there everything is read as markup, which at worst takes
- * out text that only looked like a tag.
- */
-const RAW_TEXT = new Set(['style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']);
-const FOREIGN = new Set(['svg', 'math']);
-const SPACE = /[\t\n\f\r ]/;
-type Attribute = {name: string; value: string; text: string};
-/** The attributes of a start tag from just after its name, and where the tag ends (its `>`), or -1 when it never does. */
-function attributes(html: string, at: number): {list: Attribute[]; end: number} {
-  const list: Attribute[] = [];
-  for (let i = at; i < html.length;) {
-    const c = html[i];
-    if (c === '>') return {list, end: i};
-    if (SPACE.test(c) || c === '/') { i++; continue; }
-    const start = i;
-    i++;
-    while (i < html.length && !SPACE.test(html[i]) && html[i] !== '/' && html[i] !== '>' && html[i] !== '=') i++;
-    const name = html.slice(start, i).toLowerCase();
-    let j = i;
-    while (j < html.length && SPACE.test(html[j])) j++;
-    if (html[j] !== '=') { list.push({name, value: '', text: html.slice(start, i)}); continue; }
-    j++;
-    while (j < html.length && SPACE.test(html[j])) j++;
-    let value: string;
-    if (html[j] === '"' || html[j] === "'") { const close = html.indexOf(html[j], j + 1); if (close < 0) return {list, end: -1}; value = html.slice(j + 1, close); j = close + 1; }
-    else { const from = j; while (j < html.length && !SPACE.test(html[j]) && html[j] !== '>') j++; value = html.slice(from, j); }
-    list.push({name, value, text: html.slice(start, j)});
-    i = j;
-  }
-  return {list, end: -1};
-}
-/** Where the end tag of a raw-text element begins, or the end of the page when it has none. */
-function rawEnd(html: string, from: number, name: string): number {
-  const end = new RegExp(`</${name}[\\t\\n\\f\\r />]`, 'gi');
-  end.lastIndex = from;
-  return end.exec(html)?.index ?? html.length;
-}
-const NAMED: Record<string, string> = {colon: ':', tab: '\t', newline: '\n', amp: '&', lpar: '(', rpar: ')', sol: '/', nbsp: ' '};
-/** An attribute's value as the browser reads it: character references decoded, so `jav&#97;script:` is seen for what it is. */
-const decoded = (value: string) => value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (all, e: string) => {
-  if (e[0] !== '#') return NAMED[e.toLowerCase()] ?? all;
-  const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1));
-  return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
-});
-/**
- * Whether an attribute's value would run something when used: `javascript:` and its kind, however it is written,
- * and anywhere in what a drawing's animation sets (`to`, `from`, `by`, `values`), which can set an address.
- */
-const SCHEME = /(?:javascript|vbscript|livescript):/i;
-const ANIMATED = new Set(['to', 'from', 'by', 'values']);
-const RUNS = (name: string, value: string) => { const plain = decoded(value).replace(/[\u0000-\u0020\u007f-\u009f]/g, ''); return ANIMATED.has(name) ? SCHEME.test(plain) : new RegExp(`^${SCHEME.source}`, 'i').test(plain); };
-/** What a `<link>` may keep: one that names something written into the page itself. */
-const STAYS_IN = (value: string) => /^data:/i.test(value.trim());
+/* ---- What a page sent without its scripts may keep, as rules that need no browser (src/page-clean.ts applies them). ---- */
 
+/** Elements taken out whole, with whatever they hold: what runs, what reaches out, what loads another document, and what a browser reads in more than one way. */
+export const CLEAN_FORBID_TAGS = ['script', 'noscript', 'template', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'base', 'link', 'meta', 'plaintext', 'xmp', 'listing', 'noembed', 'noframes', 'foreignobject', 'animate', 'set', 'animatetransform', 'animatemotion', 'discard', 'math', 'portal', 'fencedframe'];
+/** Attributes taken out wherever they are: where a form goes, what is pinged, a frame's own document, and the addresses this file cannot keep. */
+export const CLEAN_FORBID_ATTR = ['action', 'formaction', 'ping', 'srcdoc', 'srcset', 'imagesrcset', 'imagesizes', 'background', 'codebase', 'manifest', 'longdesc', 'usemap', 'lowsrc', 'dynsrc', 'archive', 'classid', 'attributionsrc'];
+const MEDIA_ADDRESS_VALUE = /^media:[0-9a-f]{64}$/;
+const FRAGMENT = /^#[^\s]*$/;
+const DATA_FILE = /^data:(?:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)|video\/(?:mp4|webm)|audio\/(?:mpeg|mp4|ogg|wav|webm)|font\/(?:woff2?|ttf|otf))[;,]/i;
+const OUT = /^(?:https?:|mailto:)/i;
+const URL_ATTRS = new Set(['src', 'href', 'xlink:href', 'poster', 'data', 'cite', 'action', 'formaction', 'background', 'icon', 'profile', 'itemtype']);
 /**
- * The page without anything that runs or reaches out: `<script>` elements, `on…` attributes, `javascript:`
- * addresses, `srcdoc`, `<base>`, a `<meta>` refresh, and every `<link>` but one to a data: address. Everything
- * else is copied as written.
+ * Whether an attribute may keep its value in a page sent without its scripts. An address is kept only when it
+ * stays in the page: a fragment, a file written into it as data (a picture, a video, a sound, a font), or a board
+ * file (`media:<sha256>`) the export puts in. A link a person presses (`<a href>` to the web or to mail) is the
+ * one address that leads out. Anything else that names an address, `url(…)` in a drawing's paint included, goes.
  */
-export function staticPage(html: string): string {
-  let out = '', foreign = 0;
-  for (let i = 0; i < html.length;) {
-    const open = html.indexOf('<', i);
-    if (open < 0) { out += html.slice(i); break; }
-    out += html.slice(i, open);
-    if (html.startsWith('<!--', open)) { const close = html.indexOf('-->', open + 4); const to = close < 0 ? html.length : close + 3; out += html.slice(open, to); i = to; continue; }
-    if (html[open + 1] === '!' || html[open + 1] === '?') { const close = html.indexOf('>', open); const to = close < 0 ? html.length : close + 1; out += html.slice(open, to); i = to; continue; }
-    const closing = html[open + 1] === '/';
-    const tag = /^[a-zA-Z][^\t\n\f\r />]*/.exec(html.slice(open + (closing ? 2 : 1), open + 200));
-    if (!tag) { out += '<'; i = open + 1; continue; }
-    const name = tag[0].toLowerCase(), after = open + (closing ? 2 : 1) + tag[0].length;
-    const {list, end} = attributes(html, after);
-    // A tag the page never ends is dropped by the browser too.
-    if (end < 0) break;
-    i = end + 1;
-    if (closing) { if (FOREIGN.has(name) && foreign) foreign--; if (name !== 'script') out += html.slice(open, i); continue; }
-    if (name === 'script') { const close = rawEnd(html, i, 'script'); const gt = html.indexOf('>', close); i = close >= html.length ? html.length : gt < 0 ? html.length : gt + 1; continue; }
-    if (name === 'base' || (name === 'link' && !STAYS_IN(list.find(a => a.name === 'href')?.value ?? '')) || (name === 'meta' && list.some(a => a.name === 'http-equiv' && /^\s*refresh\s*$/i.test(decoded(a.value))))) continue;
-    const kept = list.filter(a => !a.name.startsWith('on') && a.name !== 'srcdoc' && a.name !== 'ping' && !RUNS(a.name, a.value));
-    out += kept.length === list.length ? html.slice(open, i) : `<${tag[0]}${kept.map(a => ' ' + a.text).join('')}${html[end - 1] === '/' ? ' /' : ''}>`;
-    if (FOREIGN.has(name) && html[end - 1] !== '/') { foreign++; continue; }
-    if (foreign) continue;
-    if (name === 'plaintext') { out += html.slice(i); break; }
-    if (RAW_TEXT.has(name)) { const close = rawEnd(html, i, name); out += html.slice(i, close); i = close; }
+export function keepsAttribute(tag: string, namespace: 'html' | 'svg', name: string, value: string): boolean {
+  const v = value.trim(), lc = name.toLowerCase();
+  if (/^on/i.test(lc) || CLEAN_FORBID_ATTR.includes(lc)) return false;
+  if (URL_ATTRS.has(lc)) {
+    if (v === '') return true;
+    if (FRAGMENT.test(v)) return true;
+    if (lc === 'href' || lc === 'xlink:href') {
+      if (tag === 'a' || (namespace === 'html' && tag === 'area')) return OUT.test(v);
+      if (namespace === 'svg' && tag === 'image') return MEDIA_ADDRESS_VALUE.test(v) || DATA_FILE.test(v);
+      return false;
+    }
+    if (lc === 'src' || lc === 'poster') return MEDIA_ADDRESS_VALUE.test(v) || DATA_FILE.test(v);
+    return false;
   }
-  return out;
+  // Any other value that names an address with url(…): only a fragment, a data file or a board file.
+  for (const m of v.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi)) { const target = m[2].trim(); if (!(FRAGMENT.test(target) || DATA_FILE.test(target) || MEDIA_ADDRESS_VALUE.test(target))) return false; }
+  if (/url\(/i.test(v) && !/url\(\s*(['"]?)([^'")]*)\1\s*\)/i.test(v)) return false;
+  return true;
 }
 
 /** What the person chose: whether the scripts go too, and whether the page's videos go beside it as files or stay behind (their posters do not). */
 export type ExportChoice = {scripts: boolean; videos: 'beside' | 'out'};
 export type ExportedPage = {html: string; beside: {path: string; sha: string; bytes: number}[]};
-const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
 const dataLength = (mime: string, bytes: number) => `data:${mime};base64,`.length + Math.ceil(bytes / 3) * 4;
 
 /**
+ * Where a page names a board file as an address, in its stored text: an attribute that loads it, or a style's
+ * url(…). The page's own words that happen to say `media:<sha256>` are left as they are.
+ */
+const ADDRESSED = /((?:\s(?:src|poster|href|xlink:href|data)\s*=\s*["']?)|url\(\s*["']?)media:([0-9a-f]{64})(?![0-9a-f])/gi;
+export function withMediaAddresses(html: string, address: (sha: string) => string | undefined): string {
+  return html.replace(ADDRESSED, (all, lead: string, sha: string) => { const to = address(sha); return to === undefined ? all : lead + to; });
+}
+
+/**
  * The file a page goes out as. A picture is put in as a data: address; a video is a file beside it
- * (`media/<sha256>.<extension>`) or is left out. Its size is added up from what the host says each file holds
- * before any is read, and a page past MAX_EXPORTED_PAGE is refused. With `inline: false` nothing is read at
- * all and each picture is shown by its size, for the dialog's preview.
+ * (`media/<sha256>.<extension>`) or is left out. Without its scripts the page is cleaned in the app's window
+ * (cleanPage, which throws anywhere else); with them it is the stored page with its board files put in. The size is
+ * added up from what the host says each file holds before any is read, and a page past MAX_EXPORTED_PAGE is refused.
+ * The cleaning runs with short placeholders, so the check that the cleaned page reads back the same never carries a
+ * picture's bytes; they go in after. With `inline: false` nothing is read and each picture is shown by its size.
  */
 export async function exportPage(source: string, choice: ExportChoice, host: Pick<FrameHost, 'stat' | 'read'>, {inline = true}: {inline?: boolean} = {}): Promise<ExportedPage> {
-  const head = choice.scripts ? '' : `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${STATIC_PAGE_CSP}"><meta http-equiv="x-dns-prefetch-control" content="off">`;
-  const body = choice.scripts ? source : staticPage(source);
-  const counts = new Map<string, number>();
-  for (const m of body.matchAll(MEDIA_REFS)) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
-  const use = new Map<string, string>(), beside: ExportedPage['beside'] = [];
-  let length = utf8Length(head) + utf8Length(body);
   const files = new Map<string, {bytes: number; mime: string}>();
-  for (const [sha, times] of counts) {
-    const file = await host.stat(sha);
-    if (!file || mediaExtension(file.mime) === 'bin') continue;
-    files.set(sha, file);
-    const address = file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : '' : '';
-    length += times * ((file.mime.startsWith('image/') ? dataLength(file.mime, file.bytes) : address.length) - 'media:'.length - 64);
+  for (const sha of mediaNamed(source)) { const file = await host.stat(sha); if (file && mediaExtension(file.mime) !== 'bin') files.set(sha, file); }
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
+  const placeholder = (sha: string) => `aphrodite-media-${nonce}-${sha}`;
+  const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : '' : placeholder(sha); };
+  let html = choice.scripts ? withMediaAddresses(source, address) : (await import('./page-clean')).cleanPage(source, address);
+  const beside: ExportedPage['beside'] = [];
+  let length = utf8Length(html);
+  const pictures: [string, {bytes: number; mime: string}, number][] = [];
+  for (const [sha, file] of files) {
+    if (file.mime.startsWith('video/')) { if (choice.videos === 'beside' && html.includes(`media/${sha}.`)) beside.push({path: `media/${sha}.${mediaExtension(file.mime)}`, sha, bytes: file.bytes}); continue; }
+    const times = html.split(placeholder(sha)).length - 1;
+    if (!times) continue;
+    pictures.push([sha, file, times]);
+    length += times * (dataLength(file.mime, file.bytes) - placeholder(sha).length);
   }
   if (length > MAX_EXPORTED_PAGE) throw new Error(`with its pictures put in, the page comes to ${length.toLocaleString('en')} bytes; one page holds at most ${MAX_EXPORTED_PAGE.toLocaleString('en')}. Use smaller pictures, or send the board as a .${boardFile.extension} file.`);
-  for (const [sha, file] of files) {
-    if (file.mime.startsWith('video/')) {
-      if (choice.videos === 'out') { use.set(sha, ''); continue; }
-      const path = `media/${sha}.${mediaExtension(file.mime)}`;
-      use.set(sha, path);
-      beside.push({path, sha, bytes: file.bytes});
-      continue;
-    }
-    if (!inline) { use.set(sha, `data:${file.mime};base64,… (${Math.ceil(file.bytes / 1024).toLocaleString('en')} KB)`); continue; }
-    const bytes = await host.read(sha);
-    if (bytes) use.set(sha, `data:${file.mime};base64,${base64(bytes)}`);
+  for (const [sha, file] of pictures) {
+    let to: string | undefined;
+    if (!inline) to = `data:${file.mime};base64,… (${Math.ceil(file.bytes / 1024).toLocaleString('en')} KB)`;
+    else { const bytes = await host.read(sha); if (bytes) to = `data:${file.mime};base64,${base64(bytes)}`; }
+    html = html.split(placeholder(sha)).join(to ?? `media:${sha}`);
   }
-  return {html: head + body.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all), beside};
+  return {html, beside};
 }
 function base64(bytes: Uint8Array): string {
   let text = '';

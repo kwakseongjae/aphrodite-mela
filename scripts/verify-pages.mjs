@@ -23,6 +23,8 @@ import {mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync, truncateSy
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
 import {unzipSync} from 'fflate';
+import {build} from 'esbuild';
+import {vectors, QUIET} from '../tests/support/clean-vectors.mjs';
 /** What a board file is called (src-tauri/board-file.json): nothing here spells it out. */
 const BOARD_FILE = JSON.parse(readFileSync(new URL('../src-tauri/board-file.json', import.meta.url), 'utf8'));
 
@@ -830,16 +832,54 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
     assert.equal(await opened.evaluate('document.title'), 'kept', 'nothing ran');
     assert.equal(await opened.evaluate('document.scripts.length'), 0);
     assert.equal(await opened.evaluate(`document.getElementById('t').value`), "<script>fetch('/x')</script>", 'the textarea says what it said');
-    assert.equal(await opened.evaluate(`document.getElementById('p').title + '|' + document.getElementById('p').textContent`), '<script>x</script>|onclick=go() is only words');
+    // An attribute whose value holds markup is one DOMPurify takes out; the words around it stay.
+    assert.equal(await opened.evaluate(`document.getElementById('p').title + '|' + document.getElementById('p').textContent`), '|onclick=go() is only words');
     assert.equal(await opened.evaluate(`document.getElementById('h').textContent`), 'Exported');
     result.exported = {bytes: file.bytes.length};
   } finally { opened.close(); }
   await evaluate(`(() => { const box = document.querySelector('[data-export-scripts]'); box.click(); return true; })()`); await sleep(500);
   assert.ok(await evaluate(`!!document.querySelector('[data-export-page] .export-page-note[role="note"]')`), 'choosing the scripts says in one line where they will run');
   const withScripts = (await save('download-page-html')).bytes.toString('utf8');
-  assert.ok(withScripts.includes(hostile), 'with its scripts, the page is the one stored');
+  assert.equal(withScripts, '\ufeff' + hostile, 'with its scripts, the page is the one stored, and nothing more');
   await evaluate(`document.querySelector('[data-export-scripts]').click(), true`); await sleep(300);
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
+});
+
+/* 0.3-P3-fix1 #1: the input review's pages and the others, each cleaned by the app's own export code in Chrome and
+   opened from disk: cleaned, none reaches the recording servers or leaves for another address; sent with its scripts,
+   each that a browser sets off on opening does (QUIET lists those that need a press), so the probe is alive. */
+check('every page built to slip past the cleaner reaches nothing once cleaned, where the same page with its scripts reaches out', async () => {
+  const pages = vectors(TRAP, TCP);
+  const bundle = await build({stdin: {contents: "import {exportPage} from './src/page-export.ts'; const host = {stat: async () => undefined, read: async () => undefined}; window.exportPage = (src, scripts) => exportPage(src, {scripts, videos: 'out'}, host).then(r => r.html, e => 'refused: ' + e.message);", resolveDir: process.cwd(), loader: 'ts'}, bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent'});
+  writeFileSync(fileAt('cleaner.html'), '<!doctype html><meta charset=utf-8><script>' + bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script') + '</script>');
+  const cleaner = await openPage(`file://${fileAt('cleaner.html')}`, {cdp: 9389, profile: '/tmp/aphrodite-pages-cleaner-profile'});
+  const made = [];
+  try {
+    await waitFor(() => cleaner.evaluate('typeof window.exportPage === "function"'), 'the export code');
+    for (const [name, page] of Object.entries(pages)) for (const scripts of [false, true]) {
+      const id = `${name}--${scripts ? 'S' : 'C'}`;
+      const html = await cleaner.evaluate(`exportPage(${JSON.stringify('<!doctype html><html><head><title>t</title></head><body>' + page(id) + '</body></html>')}, ${scripts})`);
+      assert.ok(!html.startsWith('refused: '), `${id}: ${html}`);
+      writeFileSync(fileAt(`${id}.html`), '\ufeff' + html);
+      made.push(id);
+    }
+  } finally { cleaner.close(); }
+  const viewer = await openPage('about:blank', {cdp: 9390, profile: '/tmp/aphrodite-pages-viewer-profile'});
+  const reached = {};
+  try {
+    for (const id of made) {
+      const h = hits.length, t = connections.length;
+      await viewer.send('Page.navigate', {url: `file://${fileAt(`${id}.html`)}`});
+      await sleep(1_200);
+      const left = !(await viewer.evaluate('location.href')).startsWith('file:');
+      reached[id] = hits.length - h + connections.length - t + (left ? 1 : 0);
+      if (left) await viewer.send('Page.navigate', {url: 'about:blank'});
+    }
+  } finally { viewer.close(); }
+  result.cleaner = {pages: Object.keys(pages).length, cleanedReached: Object.entries(reached).filter(([id, n]) => id.endsWith('--C') && n).map(([id]) => id), controlsAlive: Object.entries(reached).filter(([id, n]) => id.endsWith('--S') && n).length};
+  assert.deepEqual(result.cleaner.cleanedReached, [], 'a cleaned page reached out');
+  const dead = Object.keys(pages).filter(name => !QUIET.includes(name) && !reached[`${name}--S`]);
+  assert.deepEqual(dead, [], 'each probe reaches out with its scripts, so a quiet cleaned page means something');
 });
 
 check('a page sent with its video beside it is a zip of the page and the video, and the video plays from the folder under the page\'s policy', async () => {

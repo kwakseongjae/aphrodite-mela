@@ -65,6 +65,7 @@ The catalog previews render official component libraries inside sandboxed iframe
 | `@mui/material`, `@emotion/react`, `@emotion/styled` | MIT |
 | `@radix-ui/react-slot`, `class-variance-authority`, `clsx`, `tailwind-merge`, `@stylexjs/stylex` | MIT |
 | `react`, `react-dom`, `fflate` | MIT |
+| `dompurify` 3.4.18 (cleans a page sent without its scripts) | MPL-2.0 or Apache-2.0, used under Apache-2.0 |
 | `lucide` (icons) | ISC |
 | `tailwindcss` (build-time only) | MIT |
 
