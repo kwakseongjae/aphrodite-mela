@@ -23,6 +23,8 @@ import {mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync, truncateSy
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
 import {unzipSync} from 'fflate';
+/** What a board file is called (src-tauri/board-file.json): nothing here spells it out. */
+const BOARD_FILE = JSON.parse(readFileSync(new URL('../src-tauri/board-file.json', import.meta.url), 'utf8'));
 
 /** Files to drop from "the Finder", made here and removed when the gate ends. */
 const filesDir = mkdtempSync(join(tmpdir(), 'aphrodite-pages-'));
@@ -865,24 +867,25 @@ check('a page sent with its video beside it is a zip of the page and the video, 
   } finally { opened.close(); }
 });
 
-check('a board saved as .aphrodite opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
+check('a board saved as a board file opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
   await personPresses('page', {id: viewId}); await sleep(300);
   await personPresses('export'); await sleep(600);
   if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export'); await sleep(400); }
   assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'approved', 'the board sent is approved here');
   const save = await downloads();
   const board = await save('download-board-file');
-  assert.match(board.name, /\.aphrodite$/);
+  assert.ok(board.name.endsWith(`.${BOARD_FILE.extension}`), board.name);
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
   const sent = await agent('contract', {});
-  writeFileSync(fileAt('sent.aphrodite'), board.bytes);
+  const sent = `sent.${BOARD_FILE.extension}`;
+  writeFileSync(fileAt(sent), board.bytes);
   const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
   const boots = (await messages('boot')).filter(b => b === 'alone').length;
   await send('Page.setInterceptFileChooserDialog', {enabled: true});
   await personPresses('import-project'); await sleep(500);
   const {root} = (await send('DOM.getDocument', {depth: 0})).result;
   const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
-  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt('sent.aphrodite')]});
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(sent)]});
   await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > lib.entries.length, 'the board to open', 30);
   await sleep(1000);
   const got = await agent('contract', {});

@@ -1,4 +1,4 @@
-//! What macOS hands the app to open (0.3-P3): a board file opened from Finder, or an `aphrodite://open` link
+//! What macOS hands the app to open (0.3-P3): a board file opened from Finder (its name in src-tauri/board-file.json), or an `aphrodite://open` link
 //! pressed in a terminal. Both come from outside. A link is read for the board and the page it names and for
 //! nothing else, the way src/board-file.ts reads it (both held to tests/support/open-links.json), so following
 //! one opens and never edits. A file is kept here by its path, and the app has it only as bytes, once, through
@@ -11,6 +11,12 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// The most a board file may be, in bytes; src/board-file.ts holds the same.
 pub const MAX_BOARD_FILE: u64 = 1024 * 1024 * 1024;
+
+/// The extension a board file goes by, read from the one place it is named, which the app reads too.
+pub fn extension() -> String {
+    let named: serde_json::Value = serde_json::from_str(include_str!("../board-file.json")).expect("src-tauri/board-file.json names the board file");
+    named["extension"].as_str().expect("src-tauri/board-file.json gives an extension").to_string()
+}
 /// How many links and files wait at once; past that the oldest go, so nothing from outside grows without end.
 const MAX_WAITING: usize = 20;
 
@@ -66,17 +72,18 @@ pub fn read_link(href: &str) -> Option<OpenLink> {
     Some(OpenLink { board: board?, page })
 }
 
-/// Where a board file really is, when it is one to read: a regular file named .aphrodite, where it ends up
+/// Where a board file really is, when it is one to read: a regular file with the board file's extension, where it ends up
 /// as well as as it was handed over, and no bigger than MAX_BOARD_FILE. Checked before a byte is read.
 pub fn board_file(path: &Path) -> Result<PathBuf, String> {
-    let named = |p: &Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("aphrodite"));
+    let ext = extension();
+    let named = |p: &Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(&ext));
     if !named(path) {
-        return Err("only a .aphrodite file opens as a board".into());
+        return Err(format!("only a .{ext} file opens as a board"));
     }
     let real = std::fs::canonicalize(path).map_err(|e| format!("the file could not be found: {e}"))?;
     let meta = std::fs::metadata(&real).map_err(|e| format!("the file could not be read: {e}"))?;
     if !meta.is_file() || !named(&real) {
-        return Err("only a .aphrodite file opens as a board".into());
+        return Err(format!("only a .{ext} file opens as a board"));
     }
     if meta.len() > MAX_BOARD_FILE {
         return Err(format!("the file is {} bytes; a board file holds at most {MAX_BOARD_FILE}", meta.len()));
@@ -159,6 +166,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_board_file_is_named_where_the_app_names_it() {
+        let ext = extension();
+        assert!(!ext.is_empty() && ext.len() <= 16 && ext.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
+        assert!(include_str!("../../src/board-file.ts").contains("src-tauri/board-file.json"));
+    }
+
+    #[test]
     fn a_link_is_read_as_the_app_reads_it() {
         let table: serde_json::Value = serde_json::from_str(include_str!("../../tests/support/open-links.json")).unwrap();
         let rows = table.as_array().unwrap();
@@ -171,39 +185,42 @@ mod tests {
     }
 
     #[test]
-    fn only_a_regular_aphrodite_file_within_the_cap_is_read() {
+    fn only_a_regular_board_file_within_the_cap_is_read() {
         let dir = tempfile::tempdir().unwrap();
-        let board = dir.path().join("a.aphrodite");
+        let ext = extension();
+        let named = |stem: &str| dir.path().join(format!("{stem}.{ext}"));
+        let board = named("a");
         std::fs::write(&board, b"PK").unwrap();
         assert_eq!(read_board_file(&board).unwrap(), b"PK");
         let other = dir.path().join("a.zip");
         std::fs::write(&other, b"PK").unwrap();
         assert!(board_file(&other).is_err());
-        let folder = dir.path().join("f.aphrodite");
+        let folder = named("f");
         std::fs::create_dir(&folder).unwrap();
         assert!(board_file(&folder).is_err());
-        // A link named .aphrodite is read only when what it leads to is one too.
+        // A link named as a board file is read only when what it leads to is one too.
         let secret = dir.path().join("secret.txt");
         std::fs::write(&secret, b"secret").unwrap();
-        let pointing = dir.path().join("b.aphrodite");
+        let pointing = named("b");
         std::os::unix::fs::symlink(&secret, &pointing).unwrap();
         assert!(board_file(&pointing).is_err());
-        let alias = dir.path().join("c.aphrodite");
+        let alias = named("c");
         std::os::unix::fs::symlink(&board, &alias).unwrap();
         assert_eq!(board_file(&alias).unwrap(), std::fs::canonicalize(&board).unwrap());
-        let big = dir.path().join("big.aphrodite");
+        let big = named("big");
         std::fs::File::create(&big).unwrap().set_len(MAX_BOARD_FILE + 1).unwrap();
         assert!(board_file(&big).unwrap_err().contains("at most"));
-        assert!(board_file(&dir.path().join("gone.aphrodite")).is_err());
+        assert!(board_file(&named("gone")).is_err());
     }
 
     #[test]
     fn what_macos_hands_over_is_kept_by_kind_and_held_to_a_few() {
         let mut opened = Opened::default();
-        let urls: Vec<tauri::Url> = ["file:///tmp/a%20b.aphrodite", "aphrodite://open?board=b1&page=p1", "aphrodite://open?board=b1&file=/etc/passwd", "https://example.com/", "aphrodite://edit?board=b1"].iter().map(|u| tauri::Url::parse(u).unwrap()).collect();
+        let file = format!("file:///tmp/a%20b.{}", extension());
+        let urls: Vec<tauri::Url> = [file.as_str(), "aphrodite://open?board=b1&page=p1", "aphrodite://open?board=b1&file=/etc/passwd", "https://example.com/", "aphrodite://edit?board=b1"].iter().map(|u| tauri::Url::parse(u).unwrap()).collect();
         receive(&mut opened, &urls);
         assert_eq!(opened.links, vec![OpenLink { board: "b1".into(), page: Some("p1".into()) }]);
-        assert_eq!(opened.files, vec![(1, PathBuf::from("/tmp/a b.aphrodite"))]);
+        assert_eq!(opened.files, vec![(1, PathBuf::from(format!("/tmp/a b.{}", extension())))]);
         let many: Vec<tauri::Url> = (0..30).map(|i| tauri::Url::parse(&format!("aphrodite://open?board=b{i}")).unwrap()).collect();
         receive(&mut opened, &many);
         assert_eq!(opened.links.len(), MAX_WAITING);

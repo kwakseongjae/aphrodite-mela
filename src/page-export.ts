@@ -4,7 +4,7 @@
  * policy comes first in the file, the same way a framed page's does, and is what holds when the cleaning
  * misses something), and every `<link>` that would reach out is taken out, since no policy stops a
  * preconnect (scripts/verify-wall.mjs measured it). Keeping the scripts is the person's choice; then the file
- * is the page as stored, its media put in. A board that should keep running is sent as a .aphrodite file.
+ * is the page as stored, its media put in. A board that should keep running is sent as a board file (src/board-file.ts).
  *
  * The page is read one tag at a time, never searched for words: text that looks like a script inside a
  * `<textarea>`, a `<style>`, an attribute or a comment is left exactly as it was written.
@@ -12,6 +12,7 @@
 import {strToU8, zipSync, type Zippable} from 'fflate';
 import {isFreePage, mediaExtension, type FrameHost} from './free-page';
 import {utf8Length} from './workspace/library';
+import boardFile from '../src-tauri/board-file.json';
 
 /** The policy the cleaned file carries: its own styles, pictures and fonts as data, its videos beside it, and nothing else. */
 export const STATIC_PAGE_CSP = [`default-src 'none'`, `script-src 'none'`, `style-src 'unsafe-inline'`, 'img-src data:', `media-src 'self' file: data:`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `object-src 'none'`, `form-action 'none'`, `base-uri 'none'`].join('; ');
@@ -138,7 +139,7 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
     const address = file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : '' : '';
     length += times * ((file.mime.startsWith('image/') ? dataLength(file.mime, file.bytes) : address.length) - 'media:'.length - 64);
   }
-  if (length > MAX_EXPORTED_PAGE) throw new Error(`with its pictures put in, the page comes to ${length.toLocaleString('en')} bytes; one page holds at most ${MAX_EXPORTED_PAGE.toLocaleString('en')}. Use smaller pictures, or send the board as a .aphrodite file.`);
+  if (length > MAX_EXPORTED_PAGE) throw new Error(`with its pictures put in, the page comes to ${length.toLocaleString('en')} bytes; one page holds at most ${MAX_EXPORTED_PAGE.toLocaleString('en')}. Use smaller pictures, or send the board as a .${boardFile.extension} file.`);
   for (const [sha, file] of files) {
     if (file.mime.startsWith('video/')) {
       if (choice.videos === 'out') { use.set(sha, ''); continue; }

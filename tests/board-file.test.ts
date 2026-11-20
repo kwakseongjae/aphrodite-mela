@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
-import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, BoardFileError, MAX_BOARD_FILE} from '../src/board-file';
+import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
+import {readdirSync, statSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {initialProject, isApproved, fingerprint, parseProject, type Project} from '../src/model';
 import {parseBatch} from '../src/agent/ops';
 import {MAX_EXPORT_FILE} from '../src/page-export';
 
 /**
- * 0.3-P3: a .aphrodite file is someone else's. Nothing in it is taken on its word: names off a list, sizes
+ * 0.3-P3: a board file is someone else's. Nothing in it is taken on its word: names off a list, sizes
  * added up before anything is unpacked and held while it is, every page, file and change checked, and no
  * approval, ever. A received board is always a new board.
  */
@@ -176,9 +179,10 @@ test('an aphrodite:// link names a board and a page and nothing else', () => {
   assert.deepEqual(readOpenLink(openLink('b-1')), {board: 'b-1'});
 });
 
-test('macOS opens .aphrodite files and aphrodite:// links with the app, which asks for nothing more', () => {
+test('macOS opens board files and aphrodite:// links with the app, which asks for nothing more', () => {
   const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
-  assert.deepEqual(conf.bundle.fileAssociations.map((a: {ext: string[]}) => a.ext), [['aphrodite']]);
+  // tauri.conf.json cannot read src-tauri/board-file.json, so it is held to it here, word for word.
+  assert.deepEqual(conf.bundle.fileAssociations, [{ext: [BOARD_FILE.extension], name: BOARD_FILE.name, description: BOARD_FILE.description, role: 'Editor', rank: 'Owner', mimeType: BOARD_FILE.mime, exportedType: {identifier: BOARD_FILE.type, conformsTo: ['public.zip-archive', 'public.data']}}]);
   const plist = readFileSync(new URL('../src-tauri/Info.plist', import.meta.url), 'utf8');
   assert.match(plist, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>aphrodite<\/string>\s*<\/array>/);
   assert.doesNotMatch(plist, /UsageDescription/, 'no camera, microphone or other ask rides along');
@@ -193,4 +197,19 @@ test('an approval in a received history cannot be sent back: the patch that woul
   assert.ok(approval, 'the history someone sent holds their approval');
   const replay = parseBatch({reason: 'Replaying what they did.', patch: [{...approval, value: fingerprint(got.project)}]});
   assert.ok('error' in replay && /Approving a direction is the person's decision/.test(replay.error), JSON.stringify(replay));
+});
+
+/* The board file's name is the owner's to change in one line: its extension, MIME type and macOS type are in
+   src-tauri/board-file.json, and nothing else in the repository spells the extension out. */
+test('the board file is named in one place, and nothing else spells its extension', () => {
+  const named = JSON.parse(readFileSync(new URL('../src-tauri/board-file.json', import.meta.url), 'utf8'));
+  assert.deepEqual(BOARD_FILE, named);
+  assert.match(BOARD_FILE.extension, /^[a-z0-9]{1,16}$/);
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const spelled = new RegExp(`\\.${BOARD_FILE.extension}(?![\\w.\\-:/!=]|\\s*[!=]==?)`, 'i');
+  const skip = new Set(['node_modules', 'generated', 'vendor', 'target', 'bin', 'icons', 'dmg', 'dist', '.git', 'lab']);
+  const found: string[] = [];
+  const walk = (dir: string) => { for (const name of readdirSync(dir)) { const path = join(dir, name); if (skip.has(name)) continue; if (statSync(path).isDirectory()) walk(path); else if (/\.(ts|mjs|mts|js|rs|json|md|html|css|plist)$/.test(name)) { const rel = path.slice(root.length); if (rel === 'src-tauri/board-file.json' || rel === 'src-tauri/tauri.conf.json' || rel === 'package-lock.json') continue; readFileSync(path, 'utf8').split('\n').forEach((line, i) => { if (spelled.test(line)) found.push(`${rel}:${i + 1}`); }); } } };
+  for (const dir of ['src', 'src-tauri', 'scripts', 'tests', 'mcp', 'docs']) walk(join(root, dir));
+  assert.deepEqual(found, []);
 });

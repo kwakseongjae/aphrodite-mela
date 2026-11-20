@@ -1,5 +1,5 @@
 /**
- * The .aphrodite file: one board, as a zip, to hand to someone else's Aphrodite and open there as it was,
+ * The board file: one board, as a zip, to hand to someone else's Aphrodite and open there as it was,
  * scripts and all (0.3-P3). `board.json` is the project without its pages' html, `pages/<id>.html` each html
  * page's document, `media/<sha256>.<extension>` each file the board names and `ledger/changes.json` its history.
  *
@@ -16,8 +16,15 @@ import {htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, snif
 import {LEDGER_BUDGET, type Ledger} from './ledger/types';
 import {MAX_EXPORT_FILE} from './page-export';
 import {utf8Length} from './workspace/library';
+import named from '../src-tauri/board-file.json';
 
-export const BOARD_FILE_EXTENSION = 'aphrodite';
+/**
+ * What a board file is called, in the one place it is named (src-tauri/board-file.json): its extension, MIME type
+ * and macOS document type. Rust reads the same file, and tests hold tauri.conf.json to it.
+ */
+export const BOARD_FILE: {extension: string; mime: string; type: string; name: string; description: string} = named;
+/** The file name a board goes out as: what `fileName` makes of it, with the board file's extension. */
+export const isBoardFileName = (name: string) => name.toLowerCase().endsWith(`.${BOARD_FILE.extension}`);
 /** The most a board file may be, packed and unpacked alike, in bytes: what any file the app writes to send may be (src-tauri/src/opened.rs refuses a bigger one the same). */
 export const MAX_BOARD_FILE = MAX_EXPORT_FILE;
 const MAX_ENTRIES = 2_000;

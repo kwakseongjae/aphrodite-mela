@@ -205,7 +205,7 @@ export const commands = [
         'Call it at the start of each turn with the `seq` from your last reply, and before you edit. Every reply carries `revision`: send it as `base_revision` with aphrodite_apply_edits, and a batch written against an older state is refused with what changed, instead of quietly writing over the person\'s work.',
         'Undo does not erase anything here: it appears as its own change that names the one it took back (`undoes`). Changes that only moved the view — opening another page, dragging a frame around the space — are left out unless you pass include_view.',
         'Each change names at most 500 components in its anchors; one with `anchors.truncated` touched more, so take it to have touched the pages it names whole.',
-        'A change whose author says `elsewhere: true` came with a board someone sent as a .aphrodite file: it was made in their copy, by whoever it names, never by the person here or by you.',
+        'A change whose author says `elsewhere: true` came with a board someone sent as a board file: it was made in their copy, by whoever it names, never by the person here or by you.',
         'Each change has its own `id` and names the change it was made on as `parent`. A change to a page\'s html is a text diff ({"op": "text"}): the passages that changed, each with `at`, `insert`, and the length and hash of what it took out.',
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
         'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
@@ -1315,7 +1315,7 @@ export const commands = [
   {
     /* A page, or a board, made into a file the person sends elsewhere (0.3-P3): it leaves the app, and no ⌘Z brings it back. */
     id: 'outside.export-page',
-    label: {en: 'Export a page as one HTML file, or the board as a .aphrodite file', ko: '페이지를 HTML 파일 하나로, 보드를 .aphrodite 파일로 내보내기'},
+    label: {en: 'Export a page as one HTML file, or the board as a board file', ko: '페이지를 HTML 파일 하나로, 보드를 보드 파일로 내보내기'},
     grade: 'outside',
     input: NOTHING,
     ...plain,
