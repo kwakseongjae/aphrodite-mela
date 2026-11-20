@@ -877,15 +877,15 @@ check('a board saved as a board file opens again as a new board, its pages runni
   assert.ok(board.name.endsWith(`.${BOARD_FILE.extension}`), board.name);
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
   const sent = await agent('contract', {});
-  const sent = `sent.${BOARD_FILE.extension}`;
-  writeFileSync(fileAt(sent), board.bytes);
+  const sentFile = `sent.${BOARD_FILE.extension}`;
+  writeFileSync(fileAt(sentFile), board.bytes);
   const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
   const boots = (await messages('boot')).filter(b => b === 'alone').length;
   await send('Page.setInterceptFileChooserDialog', {enabled: true});
   await personPresses('import-project'); await sleep(500);
   const {root} = (await send('DOM.getDocument', {depth: 0})).result;
   const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
-  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(sent)]});
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(sentFile)]});
   await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > lib.entries.length, 'the board to open', 30);
   await sleep(1000);
   const got = await agent('contract', {});
