@@ -999,6 +999,7 @@ check('the handoff zip carries an html page cleaned, and opened from disk it rea
   const files = unzipSync(new Uint8Array(zip.bytes));
   const [name, bytes] = Object.entries(files).find(([, b]) => Buffer.from(b).toString('utf8').includes('<h1 id="h">Exported</h1>')) ?? [];
   result.handoff = Object.entries(files).filter(([n, b]) => n.endsWith('.html') && Buffer.from(b).toString('utf8').includes('reads differently once cleaned')).map(([n]) => n);
+  assert.deepEqual(result.handoff, [], 'every page on this board goes out cleaned; none is refused');
   assert.ok(name, `the page is in the zip: ${Object.keys(files).join(', ')}`);
   const html = Buffer.from(bytes).toString('utf8');
   assert.ok(html.startsWith('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"'), html.slice(0, 200));

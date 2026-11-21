@@ -76,6 +76,9 @@ export function cleanPage(source: string, address: (sha: string) => string | und
     for (const attribute of Array.from(element.attributes)) if (attribute.value.includes('media:')) element.setAttribute(attribute.name, put(attribute.value));
     if (element.localName === 'style' && element.textContent?.includes('media:')) element.textContent = put(element.textContent);
   }
+  // What cleaning took out between two pieces of text leaves them side by side, which a parser never makes: they are
+  // joined, as a second reading would join them, so only a real difference refuses the page.
+  doc.documentElement.normalize();
   const was = shape(doc.documentElement);
   // The parser drops one newline right after <pre>, <textarea> and <listing>, and writing does not put it back:
   // a text that starts with one is written with another in front, so it reads back as it was.

@@ -69,6 +69,8 @@ export const ORDINARY = {
   'custom-element': '<my-card data-x="1" title="t"><span>inside the card</span></my-card>',
   'id-anchor': '<nav><a href="#title">to the title</a> <a href="#links">to the links</a></nav><h1 id="title">Title</h1><h2 id="links">Links</h2><style>#title{color:#a33}</style>',
   'links': '<a href="https://example.com/x">out</a> <a href="#top">up</a> <a href="mailto:a@b.co">mail</a> <a href="javascript:alert(1)">js</a>',
+  // Text on both sides of what cleaning takes out joins into one text, as a second reading makes it.
+  'text-around-removed': '<p>a</p>\n<script></script>\n<link rel="icon" href="x.png">\n<p>b</p>',
   'details': '<details open><summary>More</summary><p>Hidden text</p></details><dialog open>hi</dialog>',
 };
 /** Whole documents: the page as stored, its head, its html and body attributes. */
