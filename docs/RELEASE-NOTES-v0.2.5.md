@@ -27,6 +27,8 @@ do it for you.
 
 - This update does not go back over approvals made before it. It cannot tell which of them an agent
   made, so they keep the mark they have; that is why the check above is worth the minute.
+- A project file saved from a board's Files and imported again opens as a draft, as it did before
+  this update. Approve it again.
 - An Aphrodite older than v0.1.6 has no updater and must be replaced from the disk image once.
 
 ## Download
