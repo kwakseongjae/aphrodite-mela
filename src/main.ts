@@ -3,7 +3,7 @@ import { createIcons } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
+import { assemble, canonicalSystem, catalog, currentPage, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -53,7 +53,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,writesApproval,APPROVAL_REFUSED,APPROVAL_CLEARED,type AgentTurn,type Origin} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,writesApproval,APPROVAL_REFUSED,APPROVAL_CLEARED,NO_BOARD,pressedBy,type AgentTurn,type Origin,type Pressed} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -159,13 +159,32 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
 /** Who caused an event. Only the person's own input is trusted; an agent's synthetic event carries its turn; anything else is neither. */
-type Pressed=Event&{by?:AgentTurn};
-function pressedBy(e:Event):Origin{return e.isTrusted?'person':(e as Pressed).by;}
+/** The editor is the only screen with an open board. Off it, the copy left in memory is not what the person sees, so nothing reads or writes it. */
+function boardOpen(){return screen==='editor';}
+class NoBoardOpen extends Error{constructor(){super(NO_BOARD);}}
 /** An agent's click, tagged with its turn. click() dispatches synchronously, so the tag lands on that one event and on no other. */
 function clickAs(el:HTMLElement,turn:AgentTurn){const tag=(ev:Event)=>{(ev as Pressed).by=turn;};window.addEventListener('click',tag,{capture:true,once:true});try{el.click();}finally{window.removeEventListener('click',tag,{capture:true});}}
 /** A control pressed by `origin`: a click on it, or Enter on a palette row, which is the key's press and not a click's. */
-function pressControl(control:HTMLElement,origin:Origin){if(control.hasAttribute('data-palette'))closeModal();void action(control,origin).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');});}
+function pressControl(control:HTMLElement,origin:Origin){if(control.hasAttribute('data-palette'))closeModal();void action(control,origin).catch(error => {if(error instanceof NoBoardOpen&&origin&&origin!=='person'){origin.noBoard=true;return;}recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');});}
 /** Asked where an approval is written, after any wait. Only the person's own input says yes; an agent's turn learns it was refused. */
+/** Commands that read or change the open board, or file things under its id. Off the editor they are refused. */
+function needsBoard(c:AgentCommand){return ['contract','tokens','render','export','apply','edit','system','unkeep','library'].includes(c.kind)||(c.kind==='keep'&&c.scope!=='global');}
+function exportView(){return modalRoot.querySelector<HTMLElement>('[data-action="export-tab"].active')?.dataset.view??'prompt';}
+/** After a change: the review card's stamp follows the board, and an open export window says it no longer shows the board. */
+function boardChanged(){
+  const fp=fingerprint(project);
+  const card=document.querySelector<HTMLElement>('.review-card [data-action="approve"]');if(card)card.dataset.fingerprint=fp;
+  const status=modalRoot.querySelector<HTMLElement>('.export-status');
+  if(status&&status.dataset.fingerprint!==fp&&!modalRoot.querySelector('.export-stale')){status.insertAdjacentHTML('afterend',`<p class="export-stale" role="status">${ui('The board changed while this window was open.','이 창을 연 뒤에 보드가 바뀌었습니다.')} ${button('export','history','Refresh','secondary-button')}</p>`);hydrateIcons();}
+}
+/** An approval is for the board the person was shown: the press carries the stamp drawn with its button, and a board that has
+ *  changed since is redrawn instead of approved. */
+function boardShown(el:HTMLElement){
+  if(el.dataset.fingerprint===fingerprint(project))return true;
+  toast(ui('The board changed. Check it again, then approve.','보드가 바뀌었습니다. 다시 확인한 뒤 승인해 주세요.'));
+  if(modalRoot.querySelector('.export-status'))exportModal(exportView());else render();
+  return false;
+}
 function personPressed(origin:Origin){if(origin==='person')return true;if(origin)origin.refused=true;return false;}
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
@@ -211,7 +230,7 @@ function paintToasts(){
 function toast(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
 /* Every write to disk or browser storage passes here, so a path that forgot to drop a stale fingerprint still never saves one. */
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);withoutStaleApprovals(next);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
-function persist() { try { dropStaleApproval(project); saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+function persist() { if(!boardOpen()||!library.entries.some(e=>e.project.id===project.id))return; try { dropStaleApproval(project); saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -222,21 +241,24 @@ async function showVault(refresh=true){
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 function commit(change: () => void, updateUI = true,source='editor:change') {
+  if(!boardOpen())throw new NoBoardOpen();
   dropStaleApproval(project);
   const before = JSON.stringify(project),pageBefore=project.activePageId;
   change();
   dropStaleApproval(project);
-  if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
+  if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();boardChanged();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
 function history(direction: 'undo' | 'redo', origin?: Origin) {
   const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
+  if(!boardOpen())throw new NoBoardOpen();
   const snapshot = from.pop(); if (!snapshot) return;
   dropStaleApproval(project);
-  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before);
-  /* An undo by anyone but the person brings the content back and never the approval: going back to a board they approved is their own ⌘Z. */
-  const cleared=origin!=='person'&&project.approvedFingerprint!==undefined;if(cleared){delete project.approvedFingerprint;if(origin)origin.cleared=true;}
-  persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(cleared)recordRun('agent:approval-cleared');if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  const before=project,was=project.approvedFingerprint;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before);
+  /* An undo by anyone but the person brings the content back and never an approval it did not already have: going back to a
+     board they approved is their own ⌘Z. A step that changed nothing approved keeps the approval it had. */
+  const cleared=origin!=='person'&&project.approvedFingerprint!==undefined&&project.approvedFingerprint!==was;if(cleared){delete project.approvedFingerprint;if(origin)origin.cleared=true;}
+  persist();boardChanged();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(cleared)recordRun('agent:approval-cleared');if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
@@ -680,7 +702,7 @@ function inspectorHtml() {
   return `<div class="inspector-title"><span>${ui('Design','디자인')}</span><span class="inspector-kicker">${ui('PROJECT TOKENS','프로젝트 토큰')}</span></div>
   <section class="inspector-section"><div class="section-heading"><h2>${ui('Look & feel','분위기와 스타일')}</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">${ui('Color palette','색상 팔레트')} <span>${ui('Shared across pages','모든 페이지에 공유')}</span></label><div class="color-swatches">${([['accent',ui('Primary','메인')],['background',ui('Background','배경')],['foreground',ui('Foreground','전경')],['surface',ui('Surface','표면')],['line',ui('Line','선')]] as const).map(([key,label])=>{const colour=key==='accent'||key==='background'||key==='foreground'?project.system[key]:resolveTokens(project.system)[key as SemanticToken];return `<span style="background:${colour}" title="${label}: ${colour}"></span>`;}).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${[ui('Primary','메인'), ui('Canvas','캔버스'), ui('Text','텍스트')][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>${ui('Typeface','서체')}<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>${ui('Editorial serif','에디토리얼 세리프')}</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>${ui('Modern sans','모던 산스')}</option></select></label><label class="font-family-field">${ui('Heading font','제목 서체')}<button type="button" class="font-pick" data-action="font-picker" style="font-family:${esc(fontStack({family:project.system.headingFamily,category:project.system.font}))}"><span>${esc(project.system.headingFamily??(project.system.font==='serif'?ui('Editorial serif','에디토리얼 세리프'):ui('Modern sans','모던 산스')))}</span>${icon('chevron-down')}</button></label><label>${ui('Radius','모서리')}<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><details class="token-group"${tokensOpen?' open':''}><summary>${ui('Semantic colours','의미 색상')}<em>${semanticTokens.filter(t=>project.system[t]).length}/${semanticTokens.length}</em></summary><div class="color-inputs">${semanticTokens.map(name=>{const resolved=resolveTokens(project.system)[name];const set=!!project.system[name];return `<label${set?'':' class="token-inherited"'}><input type="color" aria-label="${name}" data-token="${name}" value="${resolved}"><span>${semanticLabel(name)}</span><code>${set?resolved.toUpperCase():ui('default','기본값')}</code></label>`;}).join('')}</div><p class="token-note">${ui('Left alone, each is what the page is painted with today. A design system that names one takes over.','비워두면 지금 페이지가 칠해지는 값 그대로입니다. 디자인 시스템이 지정하면 그쪽이 이깁니다.')}</p></details><button class="text-link" data-action="design-md">${icon('file-text')}${ui('View DESIGN.md','DESIGN.md 보기')}${icon('arrow-up-right')}</button></section>
   <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', currentPage(project).blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', currentPage(project).blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
-  <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button')}</div>`;
+  <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-fingerprint="${fingerprint(project)}"`)}</div>`;
 }
 function showModal(title: string, subtitle: string, body: string, wide = false) {
   comparisonObserver?.disconnect(); comparisonObserver = null;
@@ -711,7 +733,7 @@ function autofillModal() {
 }
 function exportModal(view = 'prompt') {
   const approved = isApproved(project);
-  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : pageHtml(project, project.pages[0]))}</pre><div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions">${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
+  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}" data-fingerprint="${fingerprint(project)}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export" data-fingerprint="${fingerprint(project)}">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : pageHtml(project, project.pages[0]))}</pre><div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions">${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
   const activeIndex = project.pages.findIndex(page => page.id === project.activePageId);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
   if (htmlTab) htmlTab.textContent = activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
@@ -845,7 +867,7 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),'파일 미리보기 · 원문은 지시가 아닌 데이터입니다.',`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
     case 'hub-theme': toggleNight();break;
-    case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
+    case 'home': await guardSwitch();screen='home';undoStack=[];redoStack=[];closeModal();render();window.scrollTo(0,0);break;
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
@@ -870,7 +892,7 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
     case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}break;}
     case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
-    case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
+    case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});if(id===project.id){undoStack=[];redoStack=[];}closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});hubRefresh();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
     /* One project to another workspace. The bulk move that already existed only runs when a whole
        workspace is deleted, so until now a project's workspace was fixed from the moment it was made. */
@@ -931,7 +953,7 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'new-frame': showModal(ui('A new frame on the space.','공간 위에 새 프레임.'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
 
     case 'systems': designBridgeModal(); break;
-    case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
+    case 'choose-system': commit(() => { project.system = canonicalSystem(project,{ ...systems.find(s => s.id === el.dataset.system)! }); }); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
     case 'brief': briefModal(); break;
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
@@ -943,7 +965,7 @@ async function action(el: HTMLElement, origin?: Origin) {
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
       if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
-      commit(()=>{project.system=system;},true,'design:apply-source');closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+      commit(()=>{project.system=canonicalSystem(project,system);},true,'design:apply-source');closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
     }
     case 'omd-issue': {
       const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
@@ -1082,29 +1104,29 @@ async function action(el: HTMLElement, origin?: Origin) {
         const read = importDesignGraph(JSON.parse(text));
         if (!read.report.read) throw new Error(ui('No tokens were found in that file.','이 파일에서 토큰을 찾지 못했습니다.'));
         commit(() => {
-          project.system = {
+          project.system = canonicalSystem(project, {
             ...project.system, id: 'imported', name: read.report.name ?? file.name.replace(/\.json$/i, ''),
             description: ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'),
             ...(read.accent ? {accent: read.accent} : {}), ...(read.background ? {background: read.background} : {}),
             ...(read.foreground ? {foreground: read.foreground} : {}), ...read.tokens,
             ...(read.type ? {type: read.type} : {}),
             ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
-          };
+          });
         });
         closeModal();
         toast(importSummary(read.report, uiLanguage === 'ko'));
         return;
       }
       const s = importDesignMarkdown(text, file.name, project.system);
-      commit(() => { project.system = s; });
+      commit(() => { project.system = canonicalSystem(project, s); });
       closeModal();
       toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
     }); break;
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
     case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
-    case 'approve-human-only': if (isApproved(project)) exportModal(); else { if(!personPressed(origin))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
-    case 'approve-export': if(!personPressed(origin))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
+    case 'approve-human-only': if (isApproved(project)) exportModal(); else { if(!personPressed(origin)||!boardShown(el))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
+    case 'approve-export': if(!personPressed(origin)||!boardShown(el))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
@@ -1310,7 +1332,7 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));if(entry.project.id===project.id){project.name=name.slice(0,100);dropStaleApproval(project);}closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
@@ -1363,7 +1385,7 @@ async function inlineAssets(html:string):Promise<string>{
 }
 function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>,origin:Origin){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,origin);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>,origin:Origin){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;app.append(btn);try{await action(btn,origin);}finally{btn.remove();}}
 /**
  * One operation against a page. Returns an error string rather than throwing, so the batch can be
  * abandoned cleanly and nothing is left half-applied.
@@ -1478,9 +1500,10 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
 /** Every agent command comes through here with a turn of its own. An approve it reached is refused in its reply, and an undo
  *  or redo that put content back without its fingerprint says so in its reply; nothing is shared with any other command. */
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
-  const turn:AgentTurn={refused:false,cleared:false};
+  const turn:AgentTurn={refused:false,cleared:false,noBoard:false};
   const result=await agentCommand(kind,payload,caller,turn);
   if(turn.refused)return {error:APPROVAL_REFUSED,status:403};
+  if(turn.noBoard)return {error:NO_BOARD,status:409};
   return turn.cleared?{...result,approval:APPROVAL_CLEARED}:result;
 }
 async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined,turn:AgentTurn):Promise<Record<string,unknown>>{
@@ -1491,6 +1514,7 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
   const verdict=judge(gateFor(c),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
   lease=verdict.hold;
+  if(!boardOpen()&&needsBoard(c))return {error:NO_BOARD,status:409};
   if(c.kind==='state')return agentState();
   if(c.kind==='contract')return {ok:true,...designContract(project,selected,{format:c.format,pageId:c.pageId})};
   if(c.kind==='tokens')return {ok:true,...designTokens(project,themeVars(project))};
@@ -1512,7 +1536,7 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }
-  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:project.name,pageCount:project.pages.length,approved:isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
+  if(c.kind==='guide')return {ok:true,guide:guideFor({mode:agentMode(),holder:lease&&lease.label!==HUMAN?lease.label:null,projectName:boardOpen()?project.name:'none open (the person is on Home)',pageCount:boardOpen()?project.pages.length:0,approved:boardOpen()&&isApproved(project),canWrite:agentMode()!=='design',askedRecently:!!askState&&Date.now()-askState.at<ASK_COOLDOWN_MS&&askState.answered!=='allowed'})};
   if(c.kind==='connect'){
     const outcome=considerAsk(who,agentMode(),askState,Date.now());
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending'};refreshBanners();toast(`${who} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
@@ -1608,6 +1632,7 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
           next=cleaned.system;
         }
         if(!next)return {error:'system changed nothing'};
+        next=canonicalSystem(project,next);
         const before=project.system.name;
         commit(()=>{project.system=next!;});
         recordRun('agent:system',{from:before,to:next.name});
@@ -1647,7 +1672,7 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
       }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
-  }catch(error){commandCaller='';return {error:error instanceof Error?error.message:String(error)};}
+  }catch(error){commandCaller='';if(error instanceof NoBoardOpen)return {error:NO_BOARD,status:409};return {error:error instanceof Error?error.message:String(error)};}
   commandCaller='';
   if(agentMode()==='connected')bumpConnect(who);
   await new Promise(r=>setTimeout(r,60));

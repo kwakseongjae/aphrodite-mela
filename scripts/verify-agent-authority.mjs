@@ -34,6 +34,23 @@ check('an agent cannot open the door for itself', async () => {
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'no banner appeared');
 });
 
+check('with no board open, an agent that reads or writes the board is told so', async () => {
+  // export is a write in the permission rule, so with the door shut it is refused by that first; the Home scenes below ask it with the door open.
+  for (const [kind, payload] of [['contract', {}], ['tokens', {}]]) {
+    const answer = await agent(kind, payload);
+    assert.equal(answer.status, 409, `${kind}: ${JSON.stringify(answer).slice(0, 200)}`);
+    assert.match(answer.error, /no board is open/, kind);
+  }
+});
+
+check('the person opens a project', async () => {
+  await personClicks('welcome-blank');
+  await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Start'}), true, 'the new-project dialog was filled in');
+  await sleep(600);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor');
+});
+
 check('an agent can ask, and the request reaches the person with its name on it', async () => {
   const asked = await agent('connect', {}, 'claude-code');
   assert.equal(asked.status, 'asked', JSON.stringify(asked));
@@ -559,6 +576,150 @@ check('in Agent mode an undo onto an approved board brings the content back as a
   assert.equal(await approval(), 'draft');
   assert.equal(await stored(), '');
   await agent('end', {}, 'astra');
+});
+
+/* Opus review 2026-11-22, M2: data could rename the button act pressed, past the refusal that read the name. */
+check('act cannot rename the action it presses through data', async () => {
+  await agent('end', {}, 'astra');
+  await personClicks('agent-connect-toggle');
+  await sleep(250);
+  await closeModal();
+  const before = await freshDraft();
+  for (const action of ['approve-export', 'approve-human-only']) {
+    const answer = await agent('act', {action: 'export', data: {action}});
+    assert.match(answer.error ?? '', /"action"/, `data.action ${action}: ${JSON.stringify(answer).slice(0, 200)}`);
+    await closeModal();
+    assert.equal(await approval(), 'draft');
+    assert.equal(await stored(), before);
+  }
+});
+
+/* The write itself is the last door. A press with no origin at all (in-page code, not the person and
+   not an agent's command) reaches it past every refusal before it, and must find it shut. */
+check('a press nobody vouches for approves nothing, on either approve button', async () => {
+  const before = await freshDraft();
+  await control('approve');
+  await sleep(200);
+  assert.equal(await approval(), 'draft', 'Approve direction');
+  await control('export');
+  await sleep(200);
+  await control('approve-export');
+  await sleep(200);
+  assert.equal(await approval(), 'draft', 'Approve now');
+  assert.equal(await stored(), before);
+  await closeModal();
+});
+
+/* Opus review 2026-11-22, M1: an agent undo of a step that changed nothing approved took the approval away. */
+check("an agent's undo of a step that changed nothing keeps the person's approval", async () => {
+  await agentEdits('First light');
+  const pages = await agent('contract');
+  let second = pages.pages.find(p => p.name === 'Second');
+  if (!second) { assert.equal((await agent('apply', {ops: [{op: 'page', name: 'Second'}]})).ok, true); second = (await agent('contract')).pages.find(p => p.name === 'Second'); await agent('act', {action: 'page', data: {id: pages.pages[0].page_id}}); }
+  await personApproves();
+  const fp = await stored();
+  assert.equal((await agent('act', {action: 'page', data: {id: second.page_id}})).error, undefined);
+  assert.equal(await approval(), 'approved', 'moving to another page changes nothing approved');
+  const undo = await agent('act', {action: 'undo'});
+  assert.equal(undo.approval, undefined, JSON.stringify(undo).slice(0, 200));
+  assert.equal(await approval(), 'approved');
+  assert.equal(await stored(), fp);
+});
+
+/* Opus review 2026-11-22, H2: the export window is not redrawn on a change, so Approve now approved what the person had not seen. */
+check('Approve now in a window the board changed under is refused, and the redrawn one approves', async () => {
+  await agentEdits('What the person saw');
+  await control('export');
+  await sleep(200);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') === null`), true, 'nothing stale yet');
+  await agentEdits('Agent changed this');
+  await sleep(100);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') !== null`), true, 'the window says the board changed under it');
+  await personPresses('[data-action="approve-export"]');
+  await sleep(250);
+  assert.equal(await approval(), 'draft', 'the press did not approve what the window had not shown');
+  assert.equal(await stored(), '');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /board changed|보드가 바뀌었/);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') === null`), true, 'the window was redrawn with the board as it is');
+  await personPresses('[data-action="approve-export"]');
+  await sleep(250);
+  assert.equal(await approval(), 'approved', 'pressed again on the redrawn window, it approves');
+  assert.equal(await title(), 'Agent changed this');
+  await closeModal();
+  await sleep(5_200);
+});
+
+check('the person reaches Approve now with Tab and presses Enter', async () => {
+  await freshDraft();
+  await control('export');
+  await sleep(300);
+  let on = '';
+  for (let i = 0; i < 12 && on !== 'approve-export'; i++) {
+    await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9});
+    await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9});
+    await sleep(60);
+    on = await evaluate(`document.activeElement?.dataset?.action ?? ''`);
+  }
+  assert.equal(on, 'approve-export', 'Tab reached Approve now');
+  await personKeys('Enter');
+  await sleep(250);
+  assert.equal(await approval(), 'approved');
+  await closeModal();
+  await sleep(5_200);
+});
+
+/* Opus review 2026-11-22, H1: Home left the last board in memory, and an agent's write put the old copy back. */
+const toHome = async () => { await control('home'); await sleep(300); assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home'); };
+const refusedNoBoard = (answer, what) => {
+  assert.equal(answer.status, 409, `${what}: ${JSON.stringify(answer).slice(0, 200)}`);
+  assert.match(answer.error, /no board is open/, what);
+};
+const agentWritesFromHome = async () => {
+  refusedNoBoard(await agent('act', {action: 'page', data: {id: 'x'}}), 'act page');
+  refusedNoBoard(await agent('apply', {ops: [{op: 'frame', preset: 'mobile'}]}), 'apply frame');
+  refusedNoBoard(await agent('edit', {blockId: hero, field: 'title', text: 'First light'}), 'edit');
+  refusedNoBoard(await agent('contract'), 'contract');
+  refusedNoBoard(await agent('export', {format: 'contract'}), 'export');
+};
+
+check('a board renamed on Home stays the draft the rename made, whatever an agent then sends', async () => {
+  await agentEdits('First light');
+  await personApproves();
+  const id = (await saved()).id;
+  await toHome();
+  await control('hub-rename', {id});
+  await sleep(200);
+  assert.equal(await personSubmits('#hub-rename-form', {name: 'Renamed by person'}), true);
+  await sleep(300);
+  assert.equal(await stored('Renamed by person'), '', 'the rename made it a draft');
+  await agentWritesFromHome();
+  assert.equal(await stored('Renamed by person'), '', 'still the draft the person left');
+  assert.equal(await evaluate(`(JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries ?? []).some(e => e.project.name === 'Approval')`), false, 'the old name did not come back');
+  await control('hub-open', {id});
+  await sleep(500);
+  assert.equal(await approval(), 'draft', 'and it opens as a draft');
+  await control('hub-rename', {id});
+  await sleep(200);
+  await personSubmits('#hub-rename-form', {name: NAME});
+  await sleep(300);
+  await closeModal();
+});
+
+check('a board deleted on Home stays deleted, whatever an agent then sends', async () => {
+  await control('hub-open', {id: (await saved()).id});
+  await sleep(500);
+  await agentEdits('First light');
+  await personApproves();
+  const id = (await saved()).id;
+  await toHome();
+  await control('hub-delete-confirm', {id});
+  await sleep(300);
+  const gone = () => evaluate(`(JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries ?? []).some(e => e.project.id === ${JSON.stringify(id)})`);
+  assert.equal(await gone(), false, 'the person deleted it');
+  refusedNoBoard(await agent('act', {action: 'page', data: {id: 'x'}}), 'act page');
+  refusedNoBoard(await agent('apply', {ops: [{op: 'frame', preset: 'mobile'}]}), 'apply frame');
+  await sleep(200);
+  assert.equal(await gone(), false, 'and it was not written back');
 });
 
 await runChecks(checks, close);

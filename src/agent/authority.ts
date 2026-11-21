@@ -115,6 +115,15 @@ export function writesApproval(action: string, approved: boolean): boolean {
 export const APPROVAL_REFUSED = 'approving a direction is the person\'s decision: they press Approve direction on their own screen. Nothing was changed. Ask them to review it instead.';
 export const APPROVAL_CLEARED = 'cleared — only the person approves';
 /** One agent command while it runs: what the app refused or cleared on its behalf, so that command's reply can say so. */
-export type AgentTurn = {refused: boolean; cleared: boolean};
+export type AgentTurn = {refused: boolean; cleared: boolean; noBoard: boolean};
 /** Who pressed: the person's own trusted input, an agent command's turn, or nobody known, which is never the person. */
 export type Origin = 'person' | AgentTurn | undefined;
+/**
+ * Who caused a press. Only the person's own input is trusted; an agent's synthetic event carries its turn; anything else is
+ * neither. Ask it about presses only (click, keydown). A submit an agent's `type` sends with requestSubmit() is trusted in
+ * Chrome and WebKit, and so are focus and change, so asking about those would hand an agent the person's name.
+ */
+export type Pressed = Event & {by?: AgentTurn};
+export function pressedBy(e: Event): Origin { return e.isTrusted ? 'person' : (e as Pressed).by; }
+/** Off the editor there is no open board: the copy left in memory is not the one the person sees on Home. */
+export const NO_BOARD = 'no board is open: the person is on Home. Reading and changing the board wait until they open a project.';
