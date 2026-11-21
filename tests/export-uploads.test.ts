@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {build} from 'esbuild';
-import {initialProject,makeBlock} from '../src/model';
+import {initialProject,makeBlock,fingerprint} from '../src/model';
+import {themeProposal} from '../src/design/theme-proposal';
 import {unzipSync,strFromU8} from 'fflate';
 
 const PNG1='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -89,4 +90,16 @@ test('an export never ships the placeholder a lazy chunk leaves behind',async()=
   const html=Object.entries(files).filter(([name])=>name.endsWith('.html')).map(([,bytes])=>strFromU8(bytes)).join('');
   assert.doesNotMatch(html,/official-pending/,'the runtime had not arrived when the pages were rendered');
   assert.match(html,/official-component official-action/,'the real component is in the bundle');
+});
+
+/* Codex 2026-11-22, high 5: the theme draft ZIP is built from the candidate, which cloned the old
+   fingerprint, so a candidate that restored the approved accent shipped as approved. */
+test('a theme draft that restores an approved accent is exported as a draft',async()=>{
+  const p=initialProject();p.pages[0].blocks=[makeBlock('hero')];const accent=p.system.accent;
+  p.approvedFingerprint=fingerprint(p);p.system.accent='#2255cc';
+  const originalFetch=globalThis.fetch;globalThis.fetch=async()=>({ok:false} as Response);
+  let files:Record<string,Uint8Array>;
+  try{files=unzipSync(await exportBundle(themeProposal(p,accent,p.system.font).candidate));}finally{globalThis.fetch=originalFetch;}
+  assert.equal(JSON.parse(strFromU8(files['project.aphrodite.json'])).approvedFingerprint,undefined,'the project in the ZIP carries no fingerprint');
+  assert.match(strFromU8(files['PROMPT.md']),/DRAFT/,'and its prompt says draft');
 });
