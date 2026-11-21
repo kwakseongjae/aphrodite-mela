@@ -3,7 +3,7 @@ import { createIcons } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
+import { assemble, catalog, currentPage, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -202,8 +202,9 @@ function paintToasts(){
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
 }
 function toast(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
-function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+/* Every write to disk or browser storage passes here, so a path that forgot to drop a stale fingerprint still never saves one. */
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);for(const e of next.entries)dropStaleApproval(e.project);if(diskQueue){diskQueue.enqueue(JSON.stringify(next));}else{writeLibrary(localStorage,next);}library=next;}
+function persist() { try { dropStaleApproval(project); saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -214,14 +215,17 @@ async function showVault(refresh=true){
 async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
 function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';undoStack=[];redoStack=[];referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 function commit(change: () => void, updateUI = true,source='editor:change') {
+  dropStaleApproval(project);
   const before = JSON.stringify(project),pageBefore=project.activePageId;
   change();
+  dropStaleApproval(project);
   if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
 function history(direction: 'undo' | 'redo') {
   const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
   const snapshot = from.pop(); if (!snapshot) return;
+  dropStaleApproval(project);
   const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}

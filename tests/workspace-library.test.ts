@@ -104,3 +104,12 @@ test('moving one project does not disturb the counts of other workspaces',()=>{
   const after=workspaceCounts(moveEntry(lib,a.id,'studio'));
   assert.equal(after.personal,1);assert.equal(after.studio,2);
 });
+
+test('a library entry saved with a stale fingerprint is read back as a draft',()=>{
+ const store=memory();const p=initialProject();p.approvedFingerprint='stale:0:0';
+ writeLibrary(store,upsertProject({version:1,entries:[]},p));
+ const raw=JSON.parse(store.values.get(LIBRARY_KEY)!);
+ assert.equal(raw.entries[0].project.approvedFingerprint,undefined,'the stale fingerprint never reaches storage');
+ raw.entries[0].project.approvedFingerprint='stale:0:0';store.values.set(LIBRARY_KEY,JSON.stringify(raw));
+ assert.equal(readLibrary(store).entries[0].project.approvedFingerprint,undefined,'and one already there is gone when read');
+});

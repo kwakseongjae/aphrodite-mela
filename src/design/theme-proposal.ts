@@ -1,8 +1,8 @@
-import {fingerprint,type Project} from '../model';
+import {fingerprint,dropStaleApproval,type Project} from '../model';
 import {contrastRatio} from './contrast';
 export function themeProposal(project:Project,accent:string,font:'serif'|'sans'){
  if(!/^#[0-9a-f]{6}$/i.test(accent)||!['serif','sans'].includes(font))throw new Error('Invalid theme proposal');
- const candidate=structuredClone(project);candidate.system.accent=accent;candidate.system.font=font;
+ const candidate=dropStaleApproval(structuredClone(project));candidate.system.accent=accent;candidate.system.font=font;dropStaleApproval(candidate);
  return {base:fingerprint(project),projectId:project.id,candidate,bodyContrast:contrastRatio(candidate.system.foreground,candidate.system.background)};
 }
 export function applyThemeProposal(project:Project,proposal:ReturnType<typeof themeProposal>){

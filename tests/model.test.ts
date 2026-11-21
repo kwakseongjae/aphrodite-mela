@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assemble, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, safeImage } from '../src/model.ts';
+import { assemble, currentPage, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, safeImage } from '../src/model.ts';
 
 test('project round-trip preserves ordered composition and tokens', () => {
   const p = initialProject();
@@ -70,4 +70,31 @@ test('a card saved as cover opens as banner',()=>{
   page.blocks=[{...makeBlock('moacard',true),variant:'cover'}];
   const back=parseProject(JSON.stringify(p));
   assert.equal(back.pages[0].blocks[0].variant,'banner');
+});
+
+/* v0.2.4 kept a fingerprint after the content moved on, so content that came back — by an agent's
+   edit, a late handler, a rename on the home screen — came back approved. A stale one now goes. */
+test('a fingerprint the content no longer matches is dropped, and one it matches is kept', () => {
+  const p = initialProject(); p.approvedFingerprint = fingerprint(p);
+  assert.equal(dropStaleApproval(p).approvedFingerprint, fingerprint(p), 'an approval that still holds stays');
+  const title = currentPage(p).blocks[1].title;
+  currentPage(p).blocks[1].title = 'Changed';
+  dropStaleApproval(p);
+  assert.equal(p.approvedFingerprint, undefined, 'the change made it a draft and the old fingerprint went with it');
+  currentPage(p).blocks[1].title = title;
+  assert.equal(isApproved(p), false, 'the content coming back does not bring the approval back');
+  const none = initialProject();
+  assert.equal(dropStaleApproval(none).approvedFingerprint, undefined);
+});
+
+test('a project read back with a stale fingerprint opens as the draft it already was', () => {
+  const p = initialProject(); p.approvedFingerprint = fingerprint(p);
+  const title = currentPage(p).blocks[1].title;
+  currentPage(p).blocks[1].title = 'Changed';
+  const read = parseProject(JSON.stringify(p));
+  assert.equal(read.approvedFingerprint, undefined);
+  currentPage(read).blocks[1].title = title;
+  assert.equal(isApproved(read), false, 'putting the title back after opening is still a draft');
+  const kept = initialProject(); kept.approvedFingerprint = fingerprint(kept);
+  assert.equal(isApproved(parseProject(JSON.stringify(kept))), true, 'an approval that holds survives a round trip');
 });
