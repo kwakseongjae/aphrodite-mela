@@ -853,7 +853,7 @@ check('a link to a board in another workspace opens it in its own workspace, so 
 });
 
 /* 0.3-P3-fix1 #6 (Opus L8): a page seen on its own shows another page only after the person has pressed into it. */
-check('a page seen on its own cannot show other pages by itself until the person presses into it, and two pages calling each other then stop after twenty in ten seconds', async () => {
+check('a page seen on its own cannot show other pages by itself, and two pages calling each other stop after the one the person pressed', async () => {
   // Each calls the other as soon as it loads and again and again after; A also calls B a moment after a press in it
   // (after the press is over: a frame taken away under a press it is still answering stalls the test browser's input).
   const calls = (to, onPress) => `<!doctype html><body style="margin:0;height:100vh"><script>const go = () => parent.postMessage({aphrodite: 'frame', kind: 'page', id: ${JSON.stringify(to)}}, '*'); go(); ${onPress ? "document.addEventListener('click', () => setTimeout(go, 400));" : 'setInterval(go, 150);'}</script></body>`;
@@ -872,16 +872,10 @@ check('a page seen on its own cannot show other pages by itself until the person
   await sleep(1_500);
   assert.equal(await pageView(), a, 'its own calls show nothing else');
   const at = await evaluate(`(() => { const r = document.querySelector('#page-view-root iframe').getBoundingClientRect(); return {x: r.left + 100, y: r.top + 100}; })()`);
-  // 0.3-P3-fix2 #9: the press shows B, and from there the two call each other, and stop after twenty in ten seconds, saying so.
-  await evaluate(`(() => { window.__views = []; new MutationObserver(() => window.__views.push(document.querySelector('#app').dataset.pageView)).observe(document.querySelector('#app'), {attributes: true, attributeFilter: ['data-page-view']}); return true; })()`);
   await click(at);
-  await waitFor(() => evaluate(`/멈췄습니다|so that stopped/.test(document.querySelector('#toast').textContent)`), 'the calls to stop');
-  const views = (await evaluate('window.__views')).filter((x, i, all) => x !== all[i - 1]);
-  assert.equal(views[0], b, 'the press showed the page it calls');
-  assert.ok(views.length >= 18 && views.length <= 22, `about twenty pages shown: ${views.length}`);
-  const stoppedOn = await pageView();
+  await waitFor(async () => (await pageView()) === b, 'the press inside to show the page it calls');
   await sleep(1_500);
-  assert.equal(await pageView(), stoppedOn, 'and they stay stopped');
+  assert.equal(await pageView(), b, 'and the page it shows, not pressed into, shows nothing else');
   await personPresses('page-view-close'); await sleep(300);
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
   await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
@@ -890,7 +884,7 @@ check('a page seen on its own cannot show other pages by itself until the person
 
 /* 0.3-P3-fix2 #9: a page seen on its own shows another page only once the person is in its frame itself, and a page
    that keeps showing pages by itself (here, itself: each showing loads it again) stops after twenty in ten seconds. */
-check('a page seen on its own shows another only once its frame itself has the keys, and one that keeps doing it stops, saying so', async () => {
+check('a page seen on its own shows another only once its frame itself has the keys, and one that keeps doing it, however often it gets them, stops after twenty in ten seconds, saying so', async () => {
   // In a board of its own, so the one the other checks use stays under its page limit.
   const home = (await agent('contract', {})).project.project_id;
   await personPresses('new-project'); await sleep(400);
@@ -912,20 +906,20 @@ check('a page seen on its own shows another only once its frame itself has the k
   await evaluate(`(() => { document.querySelector('.page-view [data-action="page-view-close"]').focus(); dispatchEvent(new Event('blur')); return true; })()`);
   await sleep(1_500);
   assert.equal(await boots(), settled, 'with the bar holding the keys the page shows nothing');
-  // The frame has the keys: the page shows itself again and again, and stops.
-  await evaluate(`(() => { document.querySelector('.page-view iframe').focus(); dispatchEvent(new Event('blur')); return true; })()`);
-  await sleep(4_000);
+  // The frame takes the keys again and again, as presses into each page shown would: it shows itself, and stops.
+  const enter = `(() => { const f = document.querySelector('.page-view iframe'); if (f) { f.focus(); dispatchEvent(new Event('blur')); } return true; })()`;
+  const pump = async ms => { const until = Date.now() + ms; while (Date.now() < until) { await evaluate(enter); await sleep(120); } };
+  await pump(4_000);
   const shown = (await boots()) - settled;
   assert.ok(shown >= 15 && shown <= 22, `it stopped after about twenty: ${shown}`);
   assert.match(await evaluate(`document.querySelector('#toast').textContent`), /멈췄습니다|so that stopped/, 'and says so');
-  // It stays stopped past the ten seconds, until the person opens a page anew.
-  await sleep(11_000);
+  // It stays stopped past the ten seconds, however often the frame takes the keys, until the person opens a page anew.
+  await pump(11_000);
   assert.equal((await boots()) - settled, shown, 'and stays stopped');
   await personPresses('page-view-close'); await sleep(300);
   await personPresses('page-view', {id}); await sleep(1_500);
   const again = await boots();
-  await evaluate(`(() => { document.querySelector('.page-view iframe').focus(); dispatchEvent(new Event('blur')); return true; })()`);
-  await sleep(1_500);
+  await pump(1_500);
   assert.ok((await boots()) > again, 'opened anew and pressed into, it shows pages again');
   await personPresses('page-view-close'); await sleep(300);
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
@@ -1102,7 +1096,10 @@ check('every page built to slip past the cleaner reaches nothing once cleaned, w
     await sleep(4_000);
   } finally { viewer.close(); }
   const end = Date.now(), mine = hits.slice(h0);
-  const named = (url, id) => new RegExp(`/${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(url);
+  // An input's name, perhaps with more after a dash (css-import--S-bg); ids end in --C or --S, so none is another's start.
+  const named = (url, id) => new RegExp(`/${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`).test(url);
+  // The browser asks for /favicon.ico itself when a page has taken the whole tab to the server, which is counted as leaving.
+  assert.deepEqual(mine.filter(h => h.url !== '/favicon.ico' && !made.some(id => named(h.url ?? '', id))).map(h => h.url), [], 'every request names the input it came from');
   for (const [i, {id, t0}] of starts.entries()) {
     const t1 = starts[i + 1]?.t0 ?? end;
     reached[id] = mine.filter(h => named(h.url ?? '', id)).length + connections.filter(t => t >= t0 && t < t1).length + (left[id] ? 1 : 0);

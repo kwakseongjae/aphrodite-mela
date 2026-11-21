@@ -177,8 +177,9 @@ function offerLink(href:string){if(modalRoot.children.length)return;const link=l
 let pageView:{project:string;page:string;key:string}|undefined;
 /**
  * Whether the person has pressed into the page seen on its own: the window lost the keys to its frame itself, not to
- * a button of the bar (0.3-P3-fix2 #9). And how often its links have shown another page lately: a press inside the
- * frame never reaches the app, so the count goes by time (src/page-hops.ts), and opening a page anew starts it again.
+ * a button of the bar (0.3-P3-fix2 #9); each page shown asks it again (0.3-P3-fix1). And how often its links have
+ * shown another page lately: a press inside the frame never reaches the app, so the count goes by time
+ * (src/page-hops.ts), and opening a page anew starts it again.
  */
 let pageViewEntered=false,pageViewStopped=false;
 const pageViewHops=hopLimit();
@@ -188,7 +189,7 @@ const pageViewRoot=document.createElement('div');pageViewRoot.id='page-view-root
 const pageViewKey=(p:Page)=>frameKey(p.id,p.html??JSON.stringify(p.media??p.blocks));
 function openPageView(id:string,hop=false){
   const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
-  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};if(!hop){pageViewEntered=false;pageViewStopped=false;pageViewHops.reset();}
+  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;if(!hop){pageViewStopped=false;pageViewHops.reset();}
   const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
   pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar"><button type="button" class="page-view-back" data-action="page-view-close" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left')}<span>${esc(project.name)}</span></button><strong class="page-view-title">${esc(page.name)}</strong><span class="page-view-kind">${kind}</span><button type="button" class="primary-button page-view-edit" data-action="page-view-edit">${icon('mouse-pointer-2')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
   hydrateIconsIn(pageViewRoot);syncStateAttributes();
