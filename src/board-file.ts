@@ -13,7 +13,8 @@
 import {Inflate, strFromU8, strToU8, zipSync, type Zippable} from 'fflate';
 import {MAX_PROJECT, parseProject, uid, type Project} from './model';
 import {htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
-import {LEDGER_BUDGET} from './ledger/types';
+import {LEDGER_BUDGET, readLedger} from './ledger/types';
+import {fitSaved} from './ledger/ledger';
 import {MAX_EXPORT_FILE} from './page-export';
 import {utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
@@ -37,7 +38,12 @@ export class BoardFileError extends Error {}
 const refuse = (why: string): never => { throw new BoardFileError(why); };
 
 const FOLDERS = ['pages/', 'media/', 'ledger/', 'local/'];
-const PAGE = /^pages\/([a-zA-Z0-9_-]{1,200})\.html$/;
+const PAGE = /^pages\/(\d{4})\.html$/;
+/** The entry an html page travels in: its place in the board, never its id, so ids that differ only in case both travel. */
+const pageEntry = (index: number) => `pages/${String(index + 1).padStart(4, '0')}.html`;
+/** board.json says which board file format it is; a reader refuses a newer one by name (0.3-P3-fix2 #6). */
+const FORMAT_KEY = 'aphroditeBoardFile';
+export const BOARD_FILE_FORMAT = 1;
 const MEDIA = /^media\/([0-9a-f]{64})\.(png|jpg|gif|webp|mp4|webm)$/;
 /** A picture from the image library a section page shows (`local:<id>`), carried by its id: what src-tauri/src/image_library.rs keeps, at most 12 MB. */
 const LOCAL = /^local\/([0-9a-f]{16})\.(png|jpg|webp)$/;
@@ -155,7 +161,7 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
 }
 
 const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
-const json = (bytes: Uint8Array, what: string): unknown => { try { return JSON.parse(strFromU8(bytes)); } catch { return refuse(`${what} is not JSON`); } };
+const json = (input: Uint8Array | string, what: string): unknown => { try { return JSON.parse(typeof input === 'string' ? input : strFromU8(input)); } catch { return refuse(`${what} is not JSON`); } };
 /** A page's text as it was written, a byte order mark at its front included. */
 const plain = (bytes: Uint8Array) => new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes);
 /** Where in a project (or what reads as one) half a surrogate pair stands on its own, said by page name: "the page \"Home\", its html". */
@@ -214,28 +220,37 @@ const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-
 export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes' | 'hold' | 'settle'>): Promise<ReadBoard> {
   const zip = readZip(bytes, host.maxBytes);
   if (!zip.names.includes('board.json')) refuse('it has no board.json');
-  const raw = json(zip.read('board.json'), 'board.json') as {pages?: unknown; [key: string]: unknown};
+  const read = new Set<string>();
+  const take = (name: string) => { read.add(name); return zip.read(name); };
+  // Characters are counted as each text is unpacked, and the file is refused the moment they pass what a board holds.
+  let characters = 0;
+  const count = (text: string, what: string) => { characters += text.length; if (characters > MAX_PROJECT) refuse(`its words come to more than ${MAX_PROJECT.toLocaleString('en')} characters by ${what}, more than one board holds`); return text; };
+  const raw = json(count(strFromU8(take('board.json')), 'board.json'), 'board.json') as {pages?: unknown; [key: string]: unknown};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Array.isArray(raw.pages)) refuse('board.json is not a board');
+  const format = raw[FORMAT_KEY];
+  if (typeof format === 'number' && format > BOARD_FILE_FORMAT) refuse(`it was made by a newer Aphrodite (board file format ${format}); this one reads format ${BOARD_FILE_FORMAT}`);
+  if (format !== BOARD_FILE_FORMAT) refuse('board.json does not say it is a board file this Aphrodite reads');
+  delete raw[FORMAT_KEY];
   // What a file says about approval, its own id and its history is not read from board.json: a received
   // board is new, unapproved, and its history comes from ledger/ alone.
   delete raw.approvedFingerprint; delete raw.ledger;
   raw.id = uid();
-  for (const page of raw.pages as {id?: unknown; kind?: unknown; html?: unknown}[]) {
+  for (const [i, page] of (raw.pages as {id?: unknown; kind?: unknown; html?: unknown}[]).entries()) {
     if (!page || typeof page !== 'object') continue;
-    if (page.kind !== 'html') { delete page.html; continue; }
-    const name = `pages/${String(page.id)}.html`;
-    // A page that cannot be written as UTF-8 unchanged (a lone surrogate) travels inside board.json instead.
-    if (!PAGE.test(name) || (!zip.names.includes(name) && typeof page.html !== 'string')) refuse(`the page ${String(page.id).slice(0, 80)} has no html in the file`);
+    delete page.html;
+    if (page.kind !== 'html') continue;
+    const name = pageEntry(i);
+    if (!zip.names.includes(name)) refuse(`the page ${String(page.id).slice(0, 80)} has no html in the file`);
     let html: string;
-    if (zip.names.includes(name)) { try { html = plain(zip.read(name)); } catch (error) { if (error instanceof BoardFileError) throw error; refuse(`${name} is not UTF-8 text`); } }
-    else html = page.html as string;
+    try { html = plain(take(name)); } catch (error) { if (error instanceof BoardFileError) throw error; refuse(`${name} is not UTF-8 text`); }
+    count(html!, name);
     const problem = htmlProblem(html!);
     if (problem) refuse(`${name}: ${problem}`);
     page.html = html!;
   }
-  const history = zip.names.includes('ledger/changes.json') ? json(zip.read('ledger/changes.json'), 'ledger/changes.json') as {changes?: unknown} : undefined;
+  const history = zip.names.includes('ledger/changes.json') ? json(strFromU8(take('ledger/changes.json')), 'ledger/changes.json') as {changes?: unknown} : undefined;
   // A change made in the other copy is that copy's, whoever it says made it: never this Mac's person or agents.
-  // Marked before the history is read, so each change is counted with the mark and the whole kept to its budget.
+  // Marked before the history is read, so each change is counted with the mark.
   if (history && Array.isArray(history.changes)) for (const c of history.changes as {author?: Record<string, unknown>}[]) if (c && typeof c === 'object' && c.author && typeof c.author === 'object') c.author.elsewhere = true;
   // Half a surrogate pair is looked for in the values themselves: written out as JSON it is an escape, and looks whole.
   const half = halfPairWhere({...raw, ...(history ? {ledger: history} : {})});
@@ -249,7 +264,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   for (const sha of new Set([...text.matchAll(MEDIA_NAMED)].map(m => m[1]))) {
     const name = carried.get(sha);
     if (!name) { left.push({file: sha, why: 'the file does not carry it'}); continue; }
-    const data = zip.read(name), mime = sniffMedia(data.subarray(0, 16));
+    const data = take(name), mime = sniffMedia(data.subarray(0, 16));
     if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture or video its name says'}); continue; }
     if (await digest(data) !== sha) { left.push({file: sha, why: 'its bytes are not the ones its name was made from'}); continue; }
     verified.push([sha, name, mime]);
@@ -259,13 +274,22 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   for (const id of new Set([...text.matchAll(LOCAL_NAMED)].map(m => m[1]))) {
     const name = carriedLocal.get(id);
     if (!name) { left.push({file: `local:${id}`, why: 'the file does not carry it'}); continue; }
-    const data = zip.read(name), mime = sniffMedia(data.subarray(0, 16));
+    const data = take(name), mime = sniffMedia(data.subarray(0, 16));
     if (!mime || !['image/png', 'image/jpeg', 'image/webp'].includes(mime) || mediaExtension(mime) !== LOCAL.exec(name)![2]) { left.push({file: `local:${id}`, why: 'it is not the picture its name says'}); continue; }
     if (contentId(data) !== id) { left.push({file: `local:${id}`, why: 'its bytes are not the ones its name was made from'}); continue; }
     pictures.push({id, mime, name, read: () => zip.read(name)});
   }
+  // Every entry is one the board names, and every one has been read and its CRC checked: a file holding anything else is not a board file.
+  const stray = zip.names.find(n => !read.has(n));
+  if (stray) refuse(`it holds ${stray.slice(0, 80)}, which the board does not name`);
+  // The design first, then its history, held to what a saved project holds the way a save holds it (fitSaved).
   let project: Project;
-  try { project = parseProject(text); } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
+  try {
+    project = parseProject(JSON.stringify(raw));
+    const ledger = history ? readLedger(history) : undefined;
+    if (ledger) { project.ledger = ledger; fitSaved(project); }
+    project = parseProject(JSON.stringify(project));
+  } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
   let ticket: string | undefined;
   return {
@@ -286,16 +310,18 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
 /**
  * Writes a board as a board file. Its entries are counted and measured first by the reader's own rule
  * (checkEntries), each file by what the host says it holds, and a board the reader would refuse is refused before
- * any file is read; the image library's pictures, small, are read first to be measured. A page that cannot be written
- * as UTF-8 unchanged stays in board.json. A file the board names but does not have is left out and said so.
+ * any file is read; the image library's pictures, small, are read first to be measured. Each html page is an entry
+ * named by its place in the board (pages/0001.html), never by its id. A file the board names but does not have is
+ * left out and said so.
  * Approval does not travel: the person who opens it has not approved anything.
  */
 export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'stat' | 'read'> & {local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>}): Promise<{bytes: Uint8Array; left: string[]}> {
-  const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined})) as Project;
+  const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined})) as Project & Record<string, unknown>;
+  board[FORMAT_KEY] = BOARD_FILE_FORMAT;
   const texts: Record<string, string> = {};
   const half = halfPairWhere(project);
   if (half) refuse(`${half} holds half of a surrogate pair on its own, which no file can carry and no Mac can save. Write the whole character, or leave it out.`);
-  for (const page of board.pages) if (isFreePage(page)) { texts[`pages/${page.id}.html`] = page.html; delete (page as {html?: string}).html; }
+  for (const [i, page] of board.pages.entries()) if (isFreePage(page)) { texts[pageEntry(i)] = page.html; delete (page as {html?: string}).html; }
   texts['board.json'] = JSON.stringify(board);
   if (project.ledger) texts['ledger/changes.json'] = JSON.stringify(project.ledger);
   const entries = Object.entries(texts).map(([name, text]) => ({name, size: utf8Length(text)}));

@@ -79,7 +79,7 @@ test('a board goes out and comes back as a new board: its pages, its files and i
 
 test('what board.json and the history say about approval and the board\'s own id is not read', async () => {
   const p = board();
-  const files: Zippable = {'board.json': strToU8(JSON.stringify({...p, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))})), 'pages/free.html': strToU8(p.pages[1].html!)};
+  const files: Zippable = {'board.json': strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))})), 'pages/0002.html': strToU8(p.pages[1].html!)};
   files['ledger/changes.json'] = strToU8(JSON.stringify(p.ledger));
   const got = await readBoardFile(zipSync(files), store().host);
   assert.equal(isApproved(got.project), false);
@@ -113,7 +113,7 @@ test('a name a board file does not have refuses the whole file, before anything 
 });
 
 test('a link inside the file refuses it', async () => {
-  const zip = patched(zipSync({'board.json': strToU8('{}'), 'pages/free.html': strToU8('/etc/passwd')}), 'pages/free.html', (view, at) => { view.setUint16(at + 4, (3 << 8) | 20, true); view.setUint32(at + 38, (0o120777 << 16) >>> 0, true); });
+  const zip = patched(zipSync({'board.json': strToU8('{}'), 'pages/0002.html': strToU8('/etc/passwd')}), 'pages/0002.html', (view, at) => { view.setUint16(at + 4, (3 << 8) | 20, true); view.setUint32(at + 38, (0o120777 << 16) >>> 0, true); });
   await refused(zip, /is a link/);
 });
 
@@ -130,12 +130,12 @@ test('sizes are added up from the directory and held to their caps before anythi
 
 test('an entry that unpacks past the size it declared is stopped while it unpacks', async () => {
   // 200 MB of zeros packs into a few hundred kilobytes; its directory says ten bytes.
-  const blown = zipSync({'board.json': strToU8('{}'), 'pages/free.html': [new Uint8Array(200 * 1024 * 1024), {level: 9}]});
-  const zip = patched(blown, 'pages/free.html', (view, entry) => view.setUint32(entry + 24, 10, true));
+  const blown = zipSync({'board.json': strToU8('{}'), 'pages/0002.html': [new Uint8Array(200 * 1024 * 1024), {level: 9}]});
+  const zip = patched(blown, 'pages/0002.html', (view, entry) => view.setUint32(entry + 24, 10, true));
   assert.ok(zip.length < 1_000_000);
   const {read} = readZip(zip, 1);
   let unpacked = 0;
-  assert.throws(() => read('pages/free.html', n => { unpacked = n; }), /unpacks past the 10 bytes it declared/);
+  assert.throws(() => read('pages/0002.html', n => { unpacked = n; }), /unpacks past the 10 bytes it declared/);
   assert.ok(unpacked <= 10 + 16 * 1024 * 1024, `it stopped after ${unpacked.toLocaleString('en')} bytes`);
 });
 
@@ -156,24 +156,24 @@ test('more entries than a board file has refuses it', async () => {
 
 test('each page is held to what a page may be, and a page with no html in the file refuses it', async () => {
   const p = board();
-  const json = strToU8(JSON.stringify({...p, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
+  const json = strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
   await refused(zipSync({'board.json': json}), /the page free has no html in the file/);
-  await refused(zipSync({'board.json': json, 'pages/free.html': strToU8('<img src="file:///etc/passwd">')}), /a place on this machine/);
-  await refused(zipSync({'board.json': json, 'pages/free.html': new Uint8Array([0xff, 0xfe])}), /not UTF-8/);
+  await refused(zipSync({'board.json': json, 'pages/0002.html': strToU8('<img src="file:///etc/passwd">')}), /a place on this machine/);
+  await refused(zipSync({'board.json': json, 'pages/0002.html': new Uint8Array([0xff, 0xfe])}), /not UTF-8/);
   await refused(zipSync({'board.json': strToU8('{"pages":"no"}')}), /not a board/);
   await refused(zipSync({'board.json': strToU8('not json')}), /board\.json is not JSON/);
-  await refused(zipSync({'board.json': strToU8(JSON.stringify({pages: []}))}), /board\.json: /);
+  await refused(zipSync({'board.json': strToU8(JSON.stringify({aphroditeBoardFile: 1, pages: []}))}), /board\.json: /);
 });
 
 test('a file whose bytes are not its name, or not a picture or a video, is left out and said so; the board still comes', async () => {
   const p = board();
-  const json = strToU8(JSON.stringify({...p, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
+  const json = strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
   const other = new Uint8Array([...PNG, 9]);
   const s = store();
-  const got = await readBoardFile(zipSync({'board.json': json, 'pages/free.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: [other, {level: 0}]}), s.host);
+  const got = await readBoardFile(zipSync({'board.json': json, 'pages/0002.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: [other, {level: 0}]}), s.host);
   assert.deepEqual(got.left, [{file: PIC, why: 'its bytes are not the ones its name was made from'}]);
   assert.equal(s.kept.size, 0);
-  const text = await readBoardFile(zipSync({'board.json': json, 'pages/free.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: strToU8('hello')}), store().host);
+  const text = await readBoardFile(zipSync({'board.json': json, 'pages/0002.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: strToU8('hello')}), store().host);
   assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture or video its name says'}]);
 });
 
@@ -250,8 +250,8 @@ test('a received board is kept word for word: a file it names and did not carry 
 test('a file whose texts could unpack past what a board holds is refused before any is unpacked', () => {
   const a = new Uint8Array(5_900_000).fill(0x61);
   const p = board();
-  const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, pages: Array.from({length: 11}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
-  for (let i = 0; i < 11; i++) entries[`pages/p${i}.html`] = [a, {level: 1}];
+  const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, pages: Array.from({length: 11}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
+  for (let i = 0; i < 11; i++) entries[`pages/${String(i + 1).padStart(4, '0')}.html`] = [a, {level: 1}];
   const bytes = zipSync(entries);
   assert.ok(bytes.length < 2_000_000, `the file itself is small: ${bytes.length}`);
   assert.throws(() => readZip(bytes, 500 * 1024 * 1024), /its words come to more than/);
@@ -273,7 +273,7 @@ test('a page starting with a byte order mark comes back exactly as it went, read
   p.pages[1].html = '\ufeff<p>front</p>';
   const bytes = await written(p);
   const zip = readZip(bytes, 500 * 1024 * 1024);
-  assert.ok(zip.names.includes('pages/free.html') || zip.names.some(n => /^pages\/.+\.html$/.test(n)), 'the page travels as its own entry');
+  assert.ok(zip.names.includes('pages/0002.html') || zip.names.some(n => /^pages\/.+\.html$/.test(n)), 'the page travels as its own entry');
   assert.ok(!new TextDecoder().decode(zip.read('board.json')).includes('front'), 'not inside board.json');
   const got = await readBoardFile(bytes, store().host);
   assert.equal(got.project.pages[1].html, p.pages[1].html);
@@ -332,10 +332,61 @@ test('a picture from the image library goes with the board, and one it could not
   assert.deepEqual(got.left.map(l => l.file), [`local:${gone}`]);
 });
 
+/* 0.3-P3-fix2 #6: what the writer makes, the reader takes, and the reader reads every entry the file holds. */
+test('pages whose ids differ only in case both travel: each page is an entry by its place, not its id', async () => {
+  const p = board();
+  p.pages.push({id: 'Page', name: 'Upper', blocks: [], kind: 'html', html: '<p>upper</p>'} as never, {id: 'page', name: 'Lower', blocks: [], kind: 'html', html: '<p>lower</p>'} as never);
+  const bytes = await written(p);
+  assert.ok(readZip(bytes, 500 * 1024 * 1024).names.includes('pages/0004.html'));
+  const got = await readBoardFile(bytes, store().host);
+  assert.deepEqual(got.project.pages.slice(-2).map(x => [x.id, x.html]), [['Page', '<p>upper</p>'], ['page', '<p>lower</p>']]);
+});
+
+test('a board just under what a board holds comes back: its history, marked as made elsewhere, gives way the way a save makes it', async () => {
+  const p = board();
+  for (let i = 0; i < 9; i++) p.pages.push({id: 'big' + i, name: 'Big ' + i, blocks: [], kind: 'html', html: '<p>' + 'a'.repeat(1_999_000) + '</p>'} as never);
+  p.ledger!.changes.push(...Array.from({length: 200}, (_, i) => ({id: 'x' + i, parent: i ? 'x' + (i - 1) : 'c2', seq: 3 + i, at: '2026-11-20T00:00:02.000Z', author: {kind: 'person', name: 'you'}, source: 'editor:change', ops: [{op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(4_000)} as never], anchors: {pages: [], nodes: []}, baseRevision: 'r' + i, revision: 'r' + (i + 1), view: false, size: 0})));
+  p.ledger!.seq = 202;
+  // A last page filled until the saved board is 500 characters under what a board holds; the marks add more than that.
+  p.pages.push({id: 'fill', name: 'Fill', blocks: [], kind: 'html', html: ''} as never);
+  const fill = p.pages.at(-1)!;
+  fill.html = '<p>' + 'f'.repeat(20_000_000 - 20_000 - JSON.stringify(p).length) + '</p>';
+  let saved = parseProject(JSON.stringify(p));
+  fill.html = '<p>' + 'f'.repeat(fill.html!.length - 7 + 20_000_000 - 500 - JSON.stringify(saved).length) + '</p>';
+  saved = parseProject(JSON.stringify(p));
+  assert.equal(JSON.stringify(saved).length, 20_000_000 - 500, 'just under what a board holds');
+  const got = await readBoardFile(await written(saved), store().host);
+  assert.ok(JSON.stringify(got.project).length <= 20_000_000, 'and it fits once more after the marks');
+  assert.ok(got.project.ledger!.changes.every(c => c.author.elsewhere === true));
+});
+
+test('the words are counted as they are unpacked, and the reading stops at the page that passes what a board holds', async () => {
+  const p = board();
+  const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: Array.from({length: 11}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
+  const a = new Uint8Array(1_950_000).fill(0x61);
+  for (let i = 0; i < 11; i++) entries[`pages/${String(i + 1).padStart(4, '0')}.html`] = [a, {level: 1}];
+  await refused(zipSync(entries), /more than 20,000,000 characters by pages\/0011\.html/);
+});
+
+test('a file holding an entry the board does not name, a newer format, or a file bigger than this host takes is refused whole', async () => {
+  const clean = await written();
+  const zip = readZip(clean, 500 * 1024 * 1024), files: Zippable = {};
+  for (const n of zip.names) files[n] = zip.read(n);
+  await refused(zipSync({...files, [`media/${'e'.repeat(64)}.png`]: [PNG, {level: 0}]}), /which the board does not name/);
+  const newer = JSON.parse(new TextDecoder().decode(files['board.json'] as Uint8Array));
+  newer.aphroditeBoardFile = 2;
+  await refused(zipSync({...files, 'board.json': strToU8(JSON.stringify(newer))}), /made by a newer Aphrodite/);
+  const small = {...store().host, maxBytes: 100 * 1024 * 1024};
+  const big = zipSync({...files});
+  const name = `media/${PIC}.png`, at = Buffer.from(big).lastIndexOf(Buffer.from(name)) - 46;
+  new DataView(big.buffer).setUint32(at + 24, 101 * 1024 * 1024, true);
+  await assert.rejects(readBoardFile(big, small), /may be at most 104,857,600/);
+});
+
 test('a history that does not hold together is dropped, the board kept', async () => {
   const p = board();
-  const json = strToU8(JSON.stringify({...p, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
-  const got = await readBoardFile(zipSync({'board.json': json, 'pages/free.html': strToU8(p.pages[1].html!), 'ledger/changes.json': strToU8('{"seq":1,"changes":[{"seq":5}]}')}), store().host);
+  const json = strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: p.pages.map(x => ({...x, html: undefined}))}));
+  const got = await readBoardFile(zipSync({'board.json': json, 'pages/0002.html': strToU8(p.pages[1].html!), 'ledger/changes.json': strToU8('{"seq":1,"changes":[{"seq":5}]}')}), store().host);
   assert.equal(got.project.ledger, undefined);
 });
 
