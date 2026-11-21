@@ -3,11 +3,8 @@
  * desktop's save refuses the JSON escape it becomes (src-tauri/src/workspace.rs, its test). Such text is refused at
  * the doors it could come in by: an html page (htmlProblem), a board file, and a project file.
  */
-const HALF = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-/** Where in `text` a lone half of a surrogate pair is, or -1. */
-export function halfPair(text: string): number {
-  return text.search(HALF);
-}
+import {halfPair} from './free-page';
+export {halfPair};
 /** The path of the first string value (or key) in a parsed JSON value holding one, or undefined. */
 export function halfPairIn(value: unknown, path = ''): string | undefined {
   if (typeof value === 'string') return halfPair(value) >= 0 ? path || '(the text)' : undefined;

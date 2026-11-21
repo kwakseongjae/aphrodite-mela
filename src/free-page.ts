@@ -14,7 +14,6 @@
  * The browser build cannot do the second: a browser has no such settings, so a page there can still reach
  * out over WebRTC and preconnect. It is for development and checks, not for people's pages.
  */
-import {halfPair} from './text';
 
 /** An html page's own cap, apart from the 20,000 characters every other string in a project is held to. */
 export const MAX_PAGE_HTML = 2_000_000;
@@ -71,6 +70,10 @@ const CSS_URL = /(?:url\(|@import)\s*["']?\s*(file:|asset:|https?:\/\/asset\.loc
  * page loads or links something is read. It keeps what is stored portable; keeping a page from reaching
  * anything is the frame's job (P2), not this.
  */
+/** Where in `text` half of a surrogate pair stands on its own, or -1 (0.3-P3-fix2 #4; src/text.ts). Here, not imported: checks load this file in Node as it is. */
+export function halfPair(text: string): number {
+  return text.search(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+}
 export function htmlProblem(html: string): string | undefined {
   if (html.length > MAX_PAGE_HTML) return `the html is ${html.length.toLocaleString('en')} characters; a page holds at most ${MAX_PAGE_HTML.toLocaleString('en')}.`;
   const half = halfPair(html);
