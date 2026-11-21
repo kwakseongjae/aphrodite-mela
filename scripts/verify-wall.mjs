@@ -137,8 +137,9 @@ async function measure(binary, run) {
   // granted. Unwalled ones are only counted and refused, so a control run never reaches a real device.
   const delegate = run.walled ? 'grant' : 'deny';
   // Read once every item the probe has has answered (each answers by itself within its own time, "timeout" included):
-  // the page that does nothing wrong names four, every other probe says it ran. A run with no scripts says nothing and is read after the wait.
-  const until = run.scriptless ? undefined : UNTIL(run.name === 'legit' ? ['ran', ...LEGIT] : ['ran']);
+  // the page that does nothing wrong names four, every other probe says it is done: 'ran' comes first, before its work
+  // (0.3-P3-fix2 #12). A run with no scripts says nothing and is read after the wait.
+  const until = run.scriptless ? undefined : UNTIL(run.name === 'legit' ? ['ran', ...LEGIT] : ['done']);
   const wait = {wait: 6, ...(until ? {until, cap: 40} : {}), read: READ};
   const spec = run.shape === 'board'
     ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, ...wait}]}

@@ -11,6 +11,9 @@ export function vectors(HP, TP) {
   const V = {
   'control-plain': id => '<p>hi</p>'+P(id),
   'control-script': id => '<p>hi</p><script>new Image().src="http://127.0.0.1:'+HP+'/'+id+'"</script>',
+  // Reaches out only as it is left, so its request lands while the next input is open: it must still be counted on its
+  // own input, by its name, never on the next one's (0.3-P3-fix2 #12).
+  'control-late': id => '<p>hi</p><script>addEventListener("pagehide", () => navigator.sendBeacon("http://127.0.0.1:'+HP+'/'+id+'", "x"))</script>',
   'comment-abrupt': id => '<p>a</p><!-->'+P(id)+'-->',
   'comment-abrupt2': id => '<p>a</p><!--->'+P(id)+'-->',
   'comment-bang': id => '<p>a</p><!-- x --!>'+P(id)+'-->',

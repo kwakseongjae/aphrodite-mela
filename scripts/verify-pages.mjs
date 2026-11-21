@@ -1084,19 +1084,29 @@ check('every page built to slip past the cleaner reaches nothing once cleaned, w
     }
   } finally { cleaner.close(); }
   const viewer = await openPage('about:blank', {cdp: 9390, profile: '/tmp/aphrodite-pages-viewer-profile'});
-  const reached = {}, held = {};
+  const reached = {}, held = {}, left = {}, starts = [];
+  // 0.3-P3-fix2 #12: each input's requests carry its name, and are counted by it, however late they come; a raw
+  // connection carries nothing, so it is counted in the time from its input's opening to the next one's.
+  const h0 = hits.length;
   try {
     for (const id of made) {
-      const h = hits.length, t = connections.length;
+      starts.push({id, t0: Date.now()});
       await viewer.send('Page.navigate', {url: `file://${fileAt(`${id}.html`)}`});
       await sleep(1_200);
-      const left = !(await viewer.evaluate('location.href')).startsWith('file:');
-      reached[id] = hits.length - h + connections.length - t + (left ? 1 : 0);
-      if (left) { await viewer.send('Page.navigate', {url: 'about:blank'}); continue; }
+      left[id] = !(await viewer.evaluate('location.href')).startsWith('file:');
+      if (left[id]) { await viewer.send('Page.navigate', {url: 'about:blank'}); continue; }
       // A quiet page proves nothing for a probe that needs a press, so what the cleaned page still holds is read too.
       if (id.endsWith('--C')) held[id] = await viewer.evaluate(HELD);
     }
+    // Time for a late request to land, still counted on its own input.
+    await sleep(4_000);
   } finally { viewer.close(); }
+  const end = Date.now(), mine = hits.slice(h0);
+  const named = (url, id) => new RegExp(`/${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(url);
+  for (const [i, {id, t0}] of starts.entries()) {
+    const t1 = starts[i + 1]?.t0 ?? end;
+    reached[id] = mine.filter(h => named(h.url ?? '', id)).length + connections.filter(t => t >= t0 && t < t1).length + (left[id] ? 1 : 0);
+  }
   result.cleaner = {pages: Object.keys(pages).length, cleanedReached: Object.entries(reached).filter(([id, n]) => id.endsWith('--C') && n).map(([id]) => id), controlsAlive: Object.entries(reached).filter(([id, n]) => id.endsWith('--S') && n).length};
   assert.deepEqual(result.cleaner.cleanedReached, [], 'a cleaned page reached out');
   assert.deepEqual(Object.entries(held).filter(([, bad]) => bad.length), [], 'nothing that runs, loads or sends is left in a cleaned page');
@@ -1122,6 +1132,47 @@ check('the handoff zip carries an html page cleaned, and opened from disk it rea
   const opened = await openPage(`file://${fileAt('handed-off.html')}`, {cdp: 9393, profile: '/tmp/aphrodite-pages-handoff-profile'});
   try { await sleep(1_500); assert.equal(await opened.evaluate('document.getElementById("h").textContent'), 'Exported'); } finally { opened.close(); }
   assert.deepEqual(hits.slice(h), [], 'nothing was reached');
+});
+
+/* 0.3-P3-fix2 #12: a handoff of several pages, one of which the cleaner refuses: that one goes as a page saying why,
+   the others cleaned, and opened from disk none reaches anything, over HTTP or a raw connection. */
+check('a handoff of several pages carries each one cleaned, and one the cleaner refuses as a page saying why; opened from disk none reaches anything', async () => {
+  const home = (await agent('contract', {})).project.project_id;
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Handed off'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== home, 'a board of its own');
+  await sleep(5_200);
+  await makePage('Plain', '<h1 id="plain">Plain</h1><p>Only words.</p>');
+  await makePage('Reaches', `<h1 id="reaches">Reaches</h1><link rel="preconnect" href="http://127.0.0.1:${TCP}"><img src="${SERVER}/handoff/img"><script>fetch('${SERVER}/handoff/script')</script>`);
+  // Two forms nested by the parser: written out, a second reading drops the inner one, so the cleaner refuses the page.
+  await makePage('Nested forms', '<form><div></form><form><input name="q"></form></div><p>after</p>');
+  await sleep(5_200);
+  const save = await downloads();
+  const zip = await save('download-bundle');
+  const files = unzipSync(new Uint8Array(zip.bytes));
+  const text = name => Buffer.from(files[name]).toString('utf8');
+  const pages = Object.keys(files).filter(n => n.endsWith('.html'));
+  const refused = pages.filter(n => text(n).includes('reads differently once cleaned'));
+  assert.equal(refused.length, 1, `one page refused: ${refused}`);
+  assert.match(text(refused[0]), /<p>Nested forms: the page reads differently once cleaned/, 'and it says which page and why');
+  for (const [id, words] of [['plain', 'Plain'], ['reaches', 'Reaches']]) {
+    const name = pages.find(n => text(n).includes(`<h1 id="${id}">${words}</h1>`));
+    assert.ok(name, `${words} is in the zip`);
+    assert.ok(text(name).startsWith('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"'), `${words} goes cleaned`);
+  }
+  const dir = fileAt('handoff-many');
+  mkdirSync(dir, {recursive: true});
+  for (const [name, bytes] of Object.entries(files)) { mkdirSync(join(dir, name, '..'), {recursive: true}); writeFileSync(join(dir, name), bytes); }
+  const before = {hits: hits.length, tcp: connections.length};
+  const viewer = await openPage('about:blank', {cdp: 9393, profile: '/tmp/aphrodite-pages-handoff-many-profile'});
+  try {
+    for (const name of pages) { await viewer.send('Page.navigate', {url: `file://${join(dir, name)}`}); await sleep(1_200); }
+    await sleep(2_000);
+  } finally { viewer.close(); }
+  assert.deepEqual({hits: hits.slice(before.hits), tcp: connections.length - before.tcp}, {hits: [], tcp: 0}, 'nothing was reached, over HTTP or a raw connection');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
+  await sleep(5_200);
 });
 
 /* 0.3-P3-fix1 #1: cleaning keeps an ordinary page: the same words as with its scripts, its styles, its drawing's
