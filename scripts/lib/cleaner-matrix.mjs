@@ -27,7 +27,8 @@ function webkit(tmp) {
   const binary = join(tmp, 'pages-' + createHash('sha256').update(readFileSync(source)).digest('hex').slice(0, 12));
   if (!existsSync(binary)) { const b = spawnSync('swiftc', ['-O', source, '-o', binary], {encoding: 'utf8'}); if (b.status !== 0) throw new Error('the WebKit page tool did not build: ' + b.stderr); }
   // Run beside this process's servers, never blocking them: the tool loads the cleaner from one of them.
-  return spec => new Promise(resolve => { const f = join(tmp, 'spec-' + Math.random().toString(36).slice(2) + '.json'); writeFileSync(f, JSON.stringify(spec)); execFile(binary, [f], {encoding: 'utf8', maxBuffer: 1 << 28, timeout: 1500e3}, (_e, stdout) => resolve(String(stdout ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l)))); });
+  // A run that does not end well fails the matrix, whatever it printed (0.3-P3-fix3 #9).
+  return spec => new Promise((resolve, reject) => { const f = join(tmp, 'spec-' + Math.random().toString(36).slice(2) + '.json'); writeFileSync(f, JSON.stringify(spec)); execFile(binary, [f], {encoding: 'utf8', maxBuffer: 1 << 28, timeout: 1500e3}, (error, stdout) => { if (error) { reject(new Error(`the WebKit page tool ended badly in ${spec.mode} (${error.code ?? error.signal ?? error.message})`)); return; } resolve(String(stdout ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))); }); });
 }
 
 /** Runs the matrix; returns what the checks assert. `only` keeps the inputs whose name it matches. */
@@ -65,6 +66,10 @@ export async function cleanerMatrix(tmp, {only} = {}) {
         else if (o.id !== undefined) { let read = {}; try { read = JSON.parse(o.read); } catch { read = {err: o.read}; } windows.push({engine: 'webkit', variant, name: o.id, t0: starts[o.id], t1: o.t, href: read.href, held: read.held, navs: (o.navs ?? []).filter(x => !/^(main|sub):(file:|about:)/.test(x))}); }
       }
     }
+    // Every file sent to be opened in WebKit came back with what it did: one with no record fails the matrix.
+    const expected = [...opened.map(n => 'C ' + n), ...names.filter(n => existsSync(join(files, n + '.S.html'))).map(n => 'S ' + n)];
+    const recorded = new Set(windows.filter(w => w.engine === 'webkit').map(w => w.variant + ' ' + w.name));
+    const unrecorded = expected.filter(e => !recorded.has(e));
     // 3. Each cleaned file opened in Chrome.
     const chrome = await openPage('about:blank', {cdp: CDP, profile: '/tmp/aphrodite-wall-cleaner-profile'});
     try {
@@ -93,7 +98,7 @@ export async function cleanerMatrix(tmp, {only} = {}) {
     }
     const cleaned = windows.filter(w => w.variant === 'C');
     return {
-      inputs: names.length, refused,
+      inputs: names.length, refused, unrecorded,
       // A name that hides one of the document's or a form's own is taken off the element, so the page received hides nothing either.
       hiding: opened.filter(n => /\s(?:name|id)="(?:documentElement|head|body|querySelectorAll|createElement|nextSibling|firstChild|forms|images)"/.test(out[n + '|C'])),
       reached: cleaned.filter(w => w.reached).map(w => [w.engine, w.name, w.http, w.tcp, w.left, w.navs]),
