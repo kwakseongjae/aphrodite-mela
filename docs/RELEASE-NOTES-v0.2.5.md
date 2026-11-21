@@ -13,11 +13,12 @@ do it for you.
   redo, left the board matching what you had approved, and it read as approved again.
 - Who this affects: anyone who has allowed an agent to edit — Connected mode, or handing the screen
   over in Agent mode — at least once. If you never connected an agent, nothing here changes for you.
-- What changes: while an agent's command is running, the approve buttons do nothing and the agent is
-  told that approving is your decision. When an agent's command ends with the board approved and it
-  was a draft when the command started, the approval is cleared, the board stays a draft, and the
-  agent's reply says so. The agent's edits, undos and redos themselves still go through. Your own
-  button and your own ⌘Z work as before, including stepping back to a board you approved.
+- What changes: an agent's press of Approve direction or Approve now is refused, whichever way it
+  arrives, and the agent is told that approving is your decision. A board that changes after you approve it becomes a draft at that moment, and stays
+  a draft even if the content comes back exactly as it was, whoever brought it back. Approve it
+  again when you are happy with it. Your own ⌘Z still steps back to the board you approved, with
+  its approval. An agent's undo or redo brings the content back but not the approval, and its reply
+  says so.
 - What to check: open the boards you worked on with an agent connected and look at the Approved or
   Draft mark once more. If a board says Approved and you do not remember approving it as it is now,
   review it and approve it again yourself.
@@ -26,9 +27,6 @@ do it for you.
 
 - This update does not go back over approvals made before it. It cannot tell which of them an agent
   made, so they keep the mark they have; that is why the check above is worth the minute.
-- While an agent's command is running your own press of Approve direction is ignored too. That is
-  usually a fraction of a second, but longer when the agent is waiting on a save dialog it opened.
-  Press it again once the agent is done.
 - An Aphrodite older than v0.1.6 has no updater and must be replaced from the disk image once.
 
 ## Download
