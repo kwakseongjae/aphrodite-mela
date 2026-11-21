@@ -471,6 +471,8 @@ const person = {
   'edit.reference': {source: 'editor:change', setup: () => personPresses('reference'), run: () => pressAt('#modal-root [data-action="demo-reference"]'), after: closeDialogs},
   'edit.tokens': {source: 'editor:change', run: async () => pick('#radius-select', await otherOption('#radius-select'))},
   'edit.page-switch': {source: 'editor:change', run: async () => personPresses('page', {id: await evaluate(`[...document.querySelectorAll('.space-frame')].find(f => !f.classList.contains('active')).dataset.pageId`)})},
+  // Edit in the app (0.3-P3): a page the board does not have open, seen on its own, then the person's press opens it on the board.
+  'edit.page-view-edit': {source: 'editor:change', setup: async () => personPresses('page-view', {id: await evaluate(`[...document.querySelectorAll('.space-frame')].find(f => !f.classList.contains('active')).dataset.pageId`)}), run: () => pressAt('.page-view [data-action="page-view-edit"]'), after: async () => assert.equal(await evaluate('document.querySelector("#app").dataset.pageView'), '', 'the page view closed')},
   'edit.page-add': {source: 'editor:change', setup: () => personPresses('add-page'), run: () => submit('#page-form', 'name', 'Contact')},
   'edit.page-sample': {source: 'editor:change', run: () => personPresses('pointer-lab')},
   'edit.page-duplicate': {source: 'editor:change', run: () => personPresses('duplicate-page')},
