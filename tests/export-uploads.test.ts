@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {build} from 'esbuild';
-import {initialProject,makeBlock,fingerprint} from '../src/model';
+import {initialProject,makeBlock,fingerprint,isApproved,dropStaleApproval} from '../src/model';
 import {themeProposal} from '../src/design/theme-proposal';
 import {unzipSync,strFromU8} from 'fflate';
 
@@ -102,4 +102,31 @@ test('a theme draft that restores an approved accent is exported as a draft',asy
   try{files=unzipSync(await exportBundle(themeProposal(p,accent,p.system.font).candidate));}finally{globalThis.fetch=originalFetch;}
   assert.equal(JSON.parse(strFromU8(files['project.aphrodite.json'])).approvedFingerprint,undefined,'the project in the ZIP carries no fingerprint');
   assert.match(strFromU8(files['PROMPT.md']),/DRAFT/,'and its prompt says draft');
+});
+
+/* Codex 2026-11-22 (check 2): the bundle read its documents before it waited on a picture and its
+   pages after, so a board edited in between shipped approved documents around the edited page. */
+test('an export reads the board it started from, even when the board changes while it waits',async()=>{
+  const p=initialProject();const hero=p.pages[0].blocks.find(b=>b.kind==='hero')!;
+  hero.image='/assets/lighting-hero.png';hero.title='Reviewed title';p.approvedFingerprint=fingerprint(p);
+  let reached=()=>{},release=()=>{};
+  const waiting=new Promise<void>(r=>{reached=r;}),held=new Promise<void>(r=>{release=r;});
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=(async(url:string)=>{if(String(url)==='/assets/lighting-hero.png'){reached();await held;}return {ok:true,arrayBuffer:async()=>new Uint8Array([1]).buffer};}) as unknown as typeof fetch;
+  let files:Record<string,Uint8Array>;
+  try{
+    const pending=exportBundle(p);
+    await waiting;
+    hero.title='Edited during export';dropStaleApproval(p);
+    release();
+    files=unzipSync(await pending);
+  }finally{globalThis.fetch=originalFetch;}
+  assert.equal(isApproved(p),false,'the live board is a draft now');
+  const json=JSON.parse(strFromU8(files['project.aphrodite.json']));
+  assert.equal(isApproved(json),true,'the project in the ZIP is the approved one it started from');
+  assert.match(strFromU8(files['PROMPT.md']),/Approved for the exact exported composition/);
+  assert.match(strFromU8(files['DESIGN.md']),/Visually approved/);
+  const html=strFromU8(files['index.html']);
+  assert.match(html,/Reviewed title/,'the page is the same board');
+  assert.doesNotMatch(html,/Edited during export/,'and not the one edited while it waited');
 });

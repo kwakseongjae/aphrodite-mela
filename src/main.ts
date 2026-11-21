@@ -24,7 +24,7 @@ import {collectionRows} from './design/collection';
 import {pointerLabPage} from './editor/pointer-lab';
 import {moaPage} from './moa';
 import './moa.css';
-import { buildPrompt, designMarkdown, exportBundle, fileName, saveFile } from './export';
+import { buildPrompt, designMarkdown, exportBundle, exportSnapshot, fileName, saveFile } from './export';
 import { tokensJson } from './design/tokens';
 import { sceneManifest } from './components';
 import type { DesignSystem } from './model';
@@ -1108,7 +1108,7 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
-    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    case 'download-bundle': { el.setAttribute('disabled', ''); try { const board = exportSnapshot(project); const bytes = await exportBundle(board,resolveLocalBytes);const accepted=await saveFile(fileName(board, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false});if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
     case 'close-modal': closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
@@ -1618,11 +1618,12 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
         if(c.format==='files'){
           if(!nativeDesktop)return {error:'writing the bundle is desktop only; ask for the contract instead'};
           try{
-            const bytes=await exportBundle(project,resolveLocalBytes);
-            const saved=await saveFile(fileName(project,'zip'),bytes,'application/zip');
+            const board=exportSnapshot(project);
+            const bytes=await exportBundle(board,resolveLocalBytes);
+            const saved=await saveFile(fileName(board,'zip'),bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
             recordRun('agent:export',{format:'files'});
-            return {saved:fileName(project,'zip'),approved:isApproved(project)};
+            return {saved:fileName(board,'zip'),approved:isApproved(board)};
           }catch(error){return {error:String(error)};}
         }
         /* The words, not a zip an agent cannot open: the same four documents the bundle carries. */
