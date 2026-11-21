@@ -247,6 +247,58 @@ check('the person approves with their own press, and an agent pressing it again 
   await closeModal();
 });
 
+/** The person's own key on whatever has focus: Enter or Space, as the keyboard sends them. */
+const personKeys = async name => {
+  const key = name === 'Enter' ? {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r'} : {key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '};
+  await send('Input.dispatchKeyEvent', {type: 'keyDown', ...key});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: key.key, code: key.code, windowsVirtualKeyCode: key.windowsVirtualKeyCode});
+};
+const focusApprove = () => evaluate(`(() => { const b = document.querySelector('.review-card [data-action="approve"]'); b.focus(); return document.activeElement === b; })()`);
+
+check('the person approves with Enter on the focused button', async () => {
+  await freshDraft();
+  assert.equal(await focusApprove(), true, 'the button has focus');
+  await personKeys('Enter');
+  await sleep(200);
+  assert.equal(await approval(), 'approved');
+  assert.ok(await stored());
+  await sleep(5_200);
+});
+
+check('Space on the focused button pans the canvas instead, as it did in v0.2.4', async () => {
+  const before = await freshDraft();
+  assert.equal(await focusApprove(), true, 'the button has focus');
+  await personKeys('Space');
+  await sleep(200);
+  assert.equal(await approval(), 'draft', 'Space is the canvas pan key in the editor, so it presses nothing');
+  assert.equal(await stored(), before);
+  await sleep(5_200);
+});
+
+check('the person approves with Approve now in the export window', async () => {
+  await freshDraft();
+  await control('export');
+  await sleep(200);
+  await personPresses('[data-action="approve-export"]');
+  await sleep(200);
+  assert.equal(await approval(), 'approved');
+  assert.ok(await stored());
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-status.approved') !== null`), true, 'the export window says approved');
+  await closeModal();
+  await sleep(5_200);
+});
+
+check('on an approved board the person’s press of Ready to export opens the export window', async () => {
+  const fp = await stored();
+  await personPresses('.review-card [data-action="approve"]');
+  await sleep(200);
+  assert.equal(await modals(), 1, 'the export window opened');
+  assert.equal(await approval(), 'approved');
+  assert.equal(await stored(), fp, 'nothing was rewritten');
+  await closeModal();
+  await sleep(5_200);
+});
+
 /* Codex 2026-11-22, high 1: the guard looked before two awaits, and the write came after them. */
 check('an approve begun on an approved board writes nothing for the board an edit left behind', async () => {
   const [approve, edit] = await evaluate(`Promise.all([
