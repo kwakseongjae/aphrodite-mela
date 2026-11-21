@@ -59,6 +59,7 @@ import {unknownValue} from './agent/errors';
 import {personOnlyRow} from './agent/commands.mjs';
 import {serial} from './serial';
 import {hopLimit} from './page-hops';
+import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -921,7 +922,7 @@ function libraryHtml() {
   return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="${ui('Find a component...','컴포넌트 찾기…')}" value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>${ui('Drag onto the canvas.','캔버스로 드래그하세요.')}<br>${ui('Or click + to add instantly.','또는 +를 눌러 바로 추가하세요.')}</span></div>`;
 }
 let assetCategory:SampleCategory|'all'|'local'='all';
-let localLibrary:LocalLibrary|undefined;let localPending=new Set<string>();let localScope:LocalScope='all';
+let localLibrary:LocalLibrary|undefined;let localScope:LocalScope='all';
 let installedFonts:{family:string;installed_here:boolean}[]|undefined;let fontDir='';let fontBusy='';let fontQuery='';
 async function loadFonts(force=false){
   if(!nativeDesktop)return;
@@ -936,18 +937,13 @@ async function loadLocalLibrary(force=false){
   if(localLibrary&&!force)return;
   try{localLibrary=await invoke<LocalLibrary>('image_library_list',{project:project.id});}catch{localLibrary={dir:'',images:[]};}
 }
-/** Pulls one picture's bytes in, then repaints the images waiting on it. */
-async function resolveLocal(id:string){
-  if(cachedLocal(id)||localPending.has(id))return;
-  localPending.add(id);
-  try{
-    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:project.id});
-    cacheLocal(id,dataUrl(got.mime,got.base64));
-    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});
-  }catch{
-    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.dataset.localMissing='gone';});
-  }finally{localPending.delete(id);}
-}
+/** Pulls one picture's bytes in, then repaints the images waiting on it: looked up per board and picture (src/local-lookups.ts). */
+const lookUpLocal=localLookups((id,scope)=>invoke<{mime:string;base64:string}>('image_library_read',{id,project:scope}),()=>project.id,(id,got)=>{
+  const imgs=document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`);
+  if(got){cacheLocal(id,dataUrl(got.mime,got.base64));imgs.forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});}
+  else imgs.forEach(img=>{img.dataset.localMissing='gone';});
+});
+async function resolveLocal(id:string){if(cachedLocal(id))return;await lookUpLocal(id);}
 let explorerKind:BlockKind='button',explorerVariant='solid';
 let explorerGroup='All';
 let explorerFilter={...emptyCatalogFilter};
