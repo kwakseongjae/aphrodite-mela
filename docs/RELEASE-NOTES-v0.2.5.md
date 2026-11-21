@@ -26,8 +26,9 @@ do it for you.
 
 - This update does not go back over approvals made before it. It cannot tell which of them an agent
   made, so they keep the mark they have; that is why the check above is worth the minute.
-- While an agent's command is running, usually a fraction of a second, your own press of Approve
-  direction is ignored too. Press it again.
+- While an agent's command is running your own press of Approve direction is ignored too. That is
+  usually a fraction of a second, but longer when the agent is waiting on a save dialog it opened.
+  Press it again once the agent is done.
 - An Aphrodite older than v0.1.6 has no updater and must be replaced from the disk image once.
 
 ## Download
