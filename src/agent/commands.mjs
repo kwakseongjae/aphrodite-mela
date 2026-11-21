@@ -1365,7 +1365,7 @@ export const commands = [
     ...plain,
     author: 'person-only',
     surfaces: UI,
-    controls: [action('import-project'), listener('opened')],
+    controls: [action('import-project'), listener('opened'), listener('board-drop')],
   },
   {
     id: 'outside.project-manage',

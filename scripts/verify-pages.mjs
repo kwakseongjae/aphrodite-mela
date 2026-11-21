@@ -1021,7 +1021,10 @@ check('a page sent as a file shows what the board shows: the board\'s doctype, e
   const contract = await agent('contract', {});
   const shot = contract.pages.find(p => dropped.includes(p.page_id) && p.media.mime === 'image/png').media.src;
   const video = contract.pages.find(p => dropped.includes(p.page_id) && p.media.mime.startsWith('video/')).media.src;
-  const page = `<p id="w">The file ${shot} in words.</p><img id="i" src="${shot}"><video id="v" src="${video}"></video><pre id="cr">A&#13;B</pre><script>window.said = '${shot}';</script>`;
+  // 0.3-P3-fix3 #3: the same hash spelt with a character reference for its colon is words on the board, and a hash
+  // followed by a hex digit spelt as a character reference is an address there: the files do as the board does.
+  const hash = shot.slice('media:'.length);
+  const page = `<p id="w">The file ${shot} in words.</p><img id="i" src="${shot}"><video id="v" src="${video}"></video><pre id="cr">A&#13;B</pre><p id="enc">media&#58;${hash}</p><p id="opp">${shot}&#97;</p><script>window.said = '${shot}';</script>`;
   // In a board of its own, so the one the other checks use stays under its page limit; board files are this Mac's, whichever board names them.
   const home = contract.project.project_id;
   await personPresses('new-project'); await sleep(400);
@@ -1040,7 +1043,7 @@ check('a page sent as a file shows what the board shows: the board\'s doctype, e
   const data = /src="(data:image\/png;base64,[^"]+)"/.exec(withScripts)?.[1];
   assert.ok(data, 'the picture went in');
   assert.equal(withScripts, '\ufeff<!doctype html>' + page.replaceAll(shot, data), 'with its scripts: the board\'s doctype, the picture at every place it is said, the video named as it was, and nothing else');
-  assert.equal(cleaned.split(data).length - 1, 2, 'cleaned: the picture in its address and in the words, as on the board');
+  assert.equal(cleaned.split(data).length - 1, 3, 'cleaned: the picture in its address and in the words, as on the board');
   writeFileSync(fileAt('as-the-board.html'), cleaned);
   writeFileSync(fileAt('as-the-board-scripts.html'), withScripts);
   for (const [name, scripts] of [['as-the-board.html', false], ['as-the-board-scripts.html', true]]) {
@@ -1051,6 +1054,8 @@ check('a page sent as a file shows what the board shows: the board\'s doctype, e
       // Cleaned, a carriage return is written as the newline any parser reads it back as; with its scripts the page is as stored, and reads as on the board.
       assert.equal(await opened.evaluate(`document.getElementById('cr').textContent`), scripts ? 'A\rB' : 'A\nB', `${name}: the carriage return, not refused`);
       assert.equal(await opened.evaluate(`document.getElementById('v').getAttribute('src')`), video, `${name}: the video left behind keeps its name`);
+      assert.equal(await opened.evaluate(`document.getElementById('enc').textContent`), `media:${hash}`, `${name}: a hash whose colon is a character reference stays words, as on the board`);
+      assert.equal(await opened.evaluate(`document.getElementById('opp').textContent`), data + 'a', `${name}: a hash with a hex digit after it as a character reference is put in, as on the board`);
       assert.deepEqual(await opened.evaluate(`performance.getEntriesByType('resource').map(e => e.name)`), [], `${name}: and nothing is requested for it`);
       if (scripts) assert.equal(await opened.evaluate('window.said'), data, 'the script string holds the picture, as on the board');
     } finally { opened.close(); }
@@ -1408,7 +1413,12 @@ check('while a board is being left nothing can be typed into it, and what was ty
     ['Home', null, () => personPresses('home')],
     ['a link to a board in another workspace', null, () => evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + far)}), true`)],
     ['a board file', async () => { await send('Page.setInterceptFileChooserDialog', {enabled: true}); await personPresses('import-project'); await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker'); }, async () => { const {root} = (await send('DOM.getDocument', {depth: 0})).result; const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result; await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]}); }],
+    // 0.3-P3-fix3 #10: the ways off a board no check went through.
+    ['a project file (.json)', async () => { await send('Page.setInterceptFileChooserDialog', {enabled: true}); await personPresses('import-project'); await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker'); }, async () => { const {root} = (await send('DOM.getDocument', {depth: 0})).result; const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result; await send('DOM.setFileInputFiles', {nodeId, files: [fileAt('a-project.json')]}); }],
+    ['a new board', async () => { await personPresses('new-project'); await waitFor(() => evaluate('!!document.querySelector("#new-project-form")'), 'the new board form'); }, () => personSubmits('#new-project-form', {name: 'Made while leaving'})],
+    ['the welcome sample', async () => { await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'welcome-sample'; b.id = 'check-welcome-sample'; b.textContent = 'sample'; b.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999'; document.querySelector('#app').append(b); return true; })()`); }, async () => { await personPresses('welcome-sample'); await evaluate(`document.getElementById('check-welcome-sample')?.remove(), true`); }],
   ];
+  writeFileSync(fileAt('a-project.json'), await evaluate(`JSON.stringify(JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(far)}).project)`));
   for (const [n, [way, prepare, go]] of ways.entries()) {
     await sleep(5_200);
     const before = await seq();
@@ -1420,6 +1430,7 @@ check('while a board is being left nothing can be typed into it, and what was ty
     const late = await tryToType(' 늦게 ' + n);
     await evaluate('window.aphroditeHoldWrites(false), true');
     await sleep(1_500);
+    assert.notEqual((await agent('contract', {})).project?.project_id ?? 'home', here, way + ': it did leave the board');
     assert.equal(late, false, way + ': the title takes no focus while the board is left');
     await back();
     const title = await titleOf(typed) ?? '';
@@ -1429,6 +1440,130 @@ check('while a board is being left nothing can be typed into it, and what was ty
     assert.ok(changes.some(c => c.author.kind === 'person' && !c.author.elsewhere && JSON.stringify(c.ops).includes(' 떠나기 전 ' + n)), way + ": as the person's own change");
     assert.equal(await wsOf(here), homeWs, way + ': the board is still in its own workspace');
   }
+  // From Home, opening a board from its card goes through the same leaving: nothing takes input until it is open.
+  await sleep(5_200);
+  await personPresses('home'); await sleep(600);
+  await evaluate('window.aphroditeHoldWrites(true), true');
+  await personPresses('hub-open', {id: here}); await sleep(600);
+  const inertWhile = await evaluate('document.querySelector("#app").inert');
+  await evaluate('window.aphroditeHoldWrites(false), true');
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'the board opened from its card');
+  assert.equal(inertWhile, true, 'opening from a card: nothing takes input while it is under way');
+  assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'and everything does once it is open');
+  await sleep(5_200);
+});
+
+/* 0.3-P3-fix3 #8: the browser build's own host, in a browser: a take-back does not remove a file a drop in the same tab
+   has just claimed, and a put whose transaction is aborted after its request succeeded says it put nothing. */
+check('the browser host takes back only what is still its import\'s, and a put whose transaction is aborted is refused', async () => {
+  const bundle = await build({stdin: {contents: "import {browserFrameHost} from './src/free-page.ts'; window.makeHost = () => browserFrameHost();", resolveDir: process.cwd(), loader: 'ts'}, bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent'});
+  writeFileSync(fileAt('host.html'), '<!doctype html><meta charset=utf-8><script>' + bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script') + '</script>');
+  const page = await openPage(`file://${fileAt('host.html')}`, {cdp: 9394, profile: '/tmp/aphrodite-pages-host-profile'});
+  try {
+    await waitFor(() => page.evaluate('typeof window.makeHost === "function"'), 'the host code');
+    const got = await page.evaluate(`(async () => {
+      const host = window.makeHost();
+      const png = i => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, i, i + 1, i + 2])], {type: 'image/png'});
+      const t = await host.hold();
+      const put = [];
+      for (let i = 0; i < 30; i++) put.push(await host.put(png(i), {holding: t}));
+      const settling = host.settle(t, false);
+      const dropped = await host.put(png(29));
+      await settling;
+      const kept = !!(await host.stat(dropped.sha)), first = !!(await host.stat(put[0].sha));
+      const put0 = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (...args) { const r = put0.apply(this, args); r.addEventListener('success', () => this.transaction.abort()); return r; };
+      let aborted;
+      try { aborted = await host.put(png(99)).then(() => 'resolved', e => 'refused'); } finally { IDBObjectStore.prototype.put = put0; }
+      return {kept, first, aborted};
+    })()`);
+    assert.deepEqual(got, {kept: true, first: false, aborted: 'refused'}, 'the dropped file stays, the import\'s own goes, and an aborted put is refused');
+  } finally { page.close(); }
+});
+
+/* 0.3-P3-fix3 #7: a board file dropped on the board opens as a board, in the line of what comes in, not as a picture. */
+check('a board file dropped on the board opens as a new board, and nothing is added to the board it was dropped on', async () => {
+  const here = (await agent('contract', {})).project.project_id;
+  const count = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`);
+  const before = await count(), since = await seq();
+  await sleep(5_200);
+  const at = await evaluate(`(() => { const r = document.querySelector('#canvas-scroll').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  await dropFiles([`sent.${BOARD_FILE.extension}`], at);
+  await waitFor(async () => (await count()) > before, 'the dropped board to open', 30);
+  const {changes} = await agent('changes', {since, limit: 20});
+  assert.deepEqual(changes.filter(c => c.source === 'media:drop').map(c => c.source), [], 'nothing was added as a picture');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + here)}), true`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the board');
+  const {changes: there} = await agent('changes', {since, limit: 20});
+  assert.deepEqual(there.filter(c => c.source === 'media:drop'), [], 'and nothing on the board it was dropped on');
+  await sleep(5_200);
+});
+
+/* 0.3-P3-fix3 #10 (fix2 #5): a received board's history undoes and redoes, its recorded passages read back as sent. */
+check('on a board received as a file, its words as sent: a step made on them is undone and redone with ⌘Z and ⌘⇧Z, a hash in them and all', async () => {
+  const home = (await agent('contract', {})).project.project_id;
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'History that travels'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== home, 'a board of its own');
+  await sleep(5_200);
+  const hash = 'c'.repeat(64);
+  const id = await makePage('Words with a hash', `<p id="w">The file media:${hash} is named here, before.</p>`);
+  const changed = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_replace', page_id: id, find: 'before', replace: 'after'}]});
+  assert.ok(changed.ok, JSON.stringify(changed).slice(0, 300));
+  await sleep(5_200);
+  const save = await downloads();
+  await personPresses('export'); await sleep(600);
+  const file = await save('download-board-file');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
+  writeFileSync(fileAt(`history.${BOARD_FILE.extension}`), file.bytes);
+  const count = await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`);
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`history.${BOARD_FILE.extension}`)]});
+  await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > count, 'the received board', 30);
+  await sleep(1_500);
+  const html = async () => (await agent('html', {page_id: id})).html;
+  assert.match(await html(), /media:c{64} is named here, after/, 'it came with the change');
+  // The undo stack is this window's (src/ledger/session.ts): what came with the board is history, not steps. A step
+  // made on the received words is undone and redone through the passage's hash, as sent.
+  await sleep(5_200);
+  const again = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_replace', page_id: id, find: 'here, after', replace: 'here, once more'}]});
+  assert.ok(again.ok, JSON.stringify(again).slice(0, 300));
+  await sleep(5_200);
+  await presses('z', 4); await sleep(800);
+  assert.match(await html(), /media:c{64} is named here, after/, '⌘Z takes the step back, its passage read as received');
+  await presses('z', 4 | 8); await sleep(800);
+  assert.match(await html(), /media:c{64} is named here, once more/, '⌘⇧Z puts it again');
+  assert.doesNotMatch(await evaluate(`document.querySelector('#toast').textContent`), /no longer fits|맞지 않아/, 'no step was skipped');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + home)}), true`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board');
+  await sleep(5_200);
+});
+
+/* 0.3-P3-fix3 #10: a link waiting behind a dialog the person opened does not hold up the person: their own leaving,
+   from that dialog, goes at once, and the link is looked at again after it. Nothing is left not taking input. */
+check('a link waiting behind a dialog the person opened does not hold up the person leaving from it, and nothing is left not taking input', async () => {
+  const here = (await agent('contract', {})).project.project_id;
+  const other = (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`)).find(id => id !== here);
+  await sleep(5_200);
+  await personPresses('new-project');
+  await waitFor(() => evaluate('!!document.querySelector("#new-project-form")'), 'the new board form');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + other)}), true`);
+  await sleep(800);
+  assert.equal((await agent('contract', {})).project.project_id, here, 'the link waits behind the dialog');
+  const t0 = Date.now();
+  assert.equal(await personSubmits('#new-project-form', {name: 'Made while a link waits'}), true);
+  await waitFor(() => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.some(e => e.project.name === 'Made while a link waits')`), 'the board the person made', 10).catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(await evaluate(`({leaving: window.aphroditeLeaving(), modal: document.querySelector('#modal-root').innerHTML.slice(0, 160), inert: document.querySelector('#app').inert, screen: document.querySelector('#app').dataset.screen, toast: document.querySelector('#toast').textContent})`))}`); });
+  assert.ok(Date.now() - t0 < 4_000, `the person's own leaving went at once (${Date.now() - t0} ms)`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === other, 'the link, looked at again after');
+  await sleep(600);
+  assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'nothing is left not taking input');
+  assert.equal(await evaluate('document.querySelector("#modal-root").children.length'), 0);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + here)}), true`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the board');
   await sleep(5_200);
 });
 
@@ -1457,10 +1592,22 @@ check('closing the window is a leaving: nothing can be typed while its write is 
 });
 
 /* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
-check('a board file whose library write fails comes out alone, and a change made meanwhile on the open board stays', async () => {
+check('a board file whose library write fails where it is stored comes out alone with the picture it placed new, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;
   const entries = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`);
   const count = (await entries()).length;
+  // 0.3-P3-fix3 #9: the board file carries a picture this browser has never had, so its import places it new, and the
+  // failed write must take it back.
+  const {createHash} = await import('node:crypto');
+  const files = unzipSync(new Uint8Array(readFileSync(fileAt(`sent.${BOARD_FILE.extension}`))));
+  const fresh = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Buffer.from(`never seen ${Date.now()}`)]);
+  const freshSha = createHash('sha256').update(fresh).digest('hex');
+  files[`media/${freshSha}.png`] = fresh;
+  const pageEntry = Object.keys(files).find(n => /^pages\/\d{4}\.html$/.test(n));
+  files[pageEntry] = new TextEncoder().encode(new TextDecoder().decode(files[pageEntry]) + `<img src="media:${freshSha}">`);
+  writeFileSync(fileAt(`fresh-picture.${BOARD_FILE.extension}`), zipSync(files));
+  const inBrowser = sha => evaluate(`new Promise(r => { const o = indexedDB.open('aphrodite-board-media', 1); o.onsuccess = () => { const g = o.result.transaction('files').objectStore('files').get(${JSON.stringify(sha)}); g.onsuccess = () => r(!!g.result); g.onerror = () => r('error'); }; o.onerror = () => r('error'); })`);
+  assert.equal(await inBrowser(freshSha), false, 'the picture is new here');
   await sleep(5_200);
   await send('Page.setInterceptFileChooserDialog', {enabled: true});
   await personPresses('import-project');
@@ -1468,7 +1615,7 @@ check('a board file whose library write fails comes out alone, and a change made
   await evaluate('window.aphroditeHoldWrites(true), window.aphroditeFailImportWrite(), true');
   const {root} = (await send('DOM.getDocument', {depth: 0})).result;
   const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
-  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]});
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`fresh-picture.${BOARD_FILE.extension}`)]});
   await sleep(1_000);
   await evaluate('window.aphroditeHoldWrites(false), true');
   // While the board's library write is out (the check makes it fail after a moment), an agent renames the open board's
@@ -1480,6 +1627,7 @@ check('a board file whose library write fails comes out alone, and a change made
   assert.deepEqual((await entries()).length, count, 'no board was added');
   assert.equal((await agent('contract', {})).project.project_id, here, 'the board open is the one it was');
   assert.equal(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(here)}).project.pages[0].name`), 'Renamed meanwhile', 'the change made meanwhile is still in the library');
+  assert.equal(await inBrowser(freshSha), false, 'and the picture it placed new is taken back');
   result.failedImport = {renamed: !!renamed.ok};
 });
 

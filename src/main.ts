@@ -222,29 +222,39 @@ let linkSeq=0;
 function followOpenLink(link:OpenLink|undefined){const seq=++linkSeq;return opening(()=>followOpenLinkNow(link,seq));}
 async function followOpenLinkNow(link:OpenLink|undefined,seq:number){
   const stale=()=>seq!==linkSeq;
-  await noDialog();if(stale())return;
   const notHere=()=>toast(ui('That link is to a board this Mac does not have.','이 Mac에 없는 보드를 가리키는 링크입니다.'));
-  if(!link||!library.entries.some(e=>e.project.id===link.board)){notHere();return;}
-  await leave(async()=>{
+  // It waits for dialogs outside the line of leavings, never in its turn: a turn that waited there would hold up the
+  // person's own leaving, from that very dialog (0.3-P3-fix3 #10). A dialog that came up meanwhile sends it back to wait.
+  for(;;){
     await noDialog();if(stale())return;
-    const entry=library.entries.find(e=>e.project.id===link.board);
-    if(!entry){notHere();return;}
-    if(screen!=='editor'||project.id!==entry.project.id){
-      // A board in another workspace opens there, after the board left is written, so saving it moves nothing.
-      const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
-      openProject(entry.project);
-    }
-    if(link.page&&project.pages.some(p=>p.id===link.page)){openPageView(link.page);return;}
-    closePageView();
-    if(link.page)toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
-  });
+    if(!link||!library.entries.some(e=>e.project.id===link.board)){notHere();return;}
+    const done=await leave(async()=>{
+      if(linkWaits())return false;
+      if(stale())return true;
+      const entry=library.entries.find(e=>e.project.id===link.board);
+      if(!entry){notHere();return true;}
+      if(screen!=='editor'||project.id!==entry.project.id){
+        // A board in another workspace opens there, after the board left is written, so saving it moves nothing.
+        const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
+        openProject(entry.project);
+      }
+      if(link.page&&project.pages.some(p=>p.id===link.page)){openPageView(link.page);return true;}
+      closePageView();
+      if(link.page)toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
+      return true;
+    });
+    if(done)return;
+  }
 }
 /** What macOS handed the app to open (src-tauri/src/opened.rs), each once, in the line of what comes in: links followed, board files opened as new boards. */
 async function takeOpened(){
   const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take').catch(error=>{toast(String(error));return {links:[],files:[]};});
   for(const link of waiting.links)void followOpenLink(readOpenLink(openLink(link.board,link.page))).catch(error=>toast(String(error)));
-  for(const file of waiting.files)void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}});
+  // A file macOS hands over again while it already waits in the line is not put in twice (0.3-P3-fix3 #7).
+  for(const file of waiting.files){if(filesWaiting.has(file.id))continue;filesWaiting.add(file.id);void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}finally{filesWaiting.delete(file.id);}});}
 }
+const filesWaiting=new Set<number>();
+/* An export's receipt goes into the run of the board Save was pressed on, and into no other board's (0.3-P3-fix3 #9). */
 /** Gives each new picture or video on the board its file: once, since the board keeps it after. */
 function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted]),[data-board-media][data-mounted="missing"]')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{const missing=el.parentElement?.querySelector<HTMLElement>('.board-missing');if(url){el.src=url;missing?.setAttribute('hidden','');if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else{el.dataset.mounted='missing';missing?.removeAttribute('hidden');}});}}
 document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
@@ -304,7 +314,8 @@ let wsAvatarDraft:WorkspaceAvatar|undefined;
 let dockGroupOpen='';let helpOpen=false;
 let inspectorWidth=(()=>{try{const v=Number(localStorage.getItem('aphrodite-inspector-w'));return Number.isFinite(v)&&v>=220&&v<=520?v:264;}catch{return 264;}})();
 let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
-function saveWorkspaces(next:WorkspaceBook){workspaces=next;writeWorkspaces(localStorage,workspaces);}
+/** The workspaces change on screen only once they are stored: a store that throws leaves both as they were (0.3-P3-fix3 #7). */
+function saveWorkspaces(next:WorkspaceBook){writeWorkspaces(localStorage,next);workspaces=next;}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
@@ -408,7 +419,10 @@ function paintToasts(){
 }
 /** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
 function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
+  // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
+  if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
+ const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
 function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
@@ -428,15 +442,22 @@ const leaves=serial();
 /** The browser build's checks hold the store's write here, to see nothing can be typed while a board is left. */
 let heldWrites:Promise<void>|undefined;
 /** And makes the next board file's library write fail, to see only that board comes out again. */
-let failImportWrite=false;
-function leave<T>(go:()=>T|Promise<T>):Promise<T>{
+let failImportWrite:false|'armed'|'now'=false;
+/** Where the keys go back to once a leaving is over: a dialog closed while the editor took no input could not give them back then. */
+let focusAfterLeaving:HTMLElement|null|undefined;
+/** A turn in the line of leavings: the editor takes no input until it is over, and gets the keys back after (0.3-P3-fix3 #9). */
+function turn<T>(go:()=>T|Promise<T>):Promise<T>{
   return leaves(async()=>{
     leaving++;app.inert=true;
-    try{
-      saveTyping();await flushDisk();if(heldWrites)await heldWrites;
-      if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
-      return await go();
-    }finally{leaving--;if(!leaving)app.inert=modalRoot.children.length>0;}
+    try{return await go();}
+    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))focusAfterLeaving.focus();focusAfterLeaving=undefined;}}
+  });
+}
+function leave<T>(go:()=>T|Promise<T>):Promise<T>{
+  return turn(async()=>{
+    saveTyping();await flushDisk();if(heldWrites)await heldWrites;
+    if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
+    return await go();
   });
 }
 /**
@@ -456,32 +477,36 @@ async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
  * again and the board is known to fit. A file that fails anywhere adds no board.
  */
-/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder): the next starts once the one before has kept or taken back its files. */
-function openBoardFile(bytes:Uint8Array){return opening(()=>openBoardFileNow(bytes));}
+/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder, a drop on the board): the next starts once the one before has kept or taken back its files. The picker's file takes its place in the line as it starts to be read. */
 async function openBoardFileNow(bytes:Uint8Array){
   await noDialog();
   const read=await readBoardFile(bytes,frameHost);
   await noDialog();
-  await leave(()=>openReadBoard(read));
+  const notes=await leave(()=>placeReadBoard(read));
+  // Shown once no dialog is up, waiting outside the line of leavings as a link does (0.3-P3-fix3 #10).
+  for(;;){await noDialog();if(await leave(()=>{if(linkWaits())return false;showReadBoard(read,notes);return true;}))return;}
 }
-async function openReadBoard(read:ReadBoard){
+/** Its files placed and the board in the library; what to say about what did not come with it. */
+async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
   // Its files are placed only once it is known to fit; if the library cannot take it, they are taken back and the library is as it was.
   await read.place();
-  try{saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));if(failImportWrite){failImportWrite=false;await new Promise(r=>setTimeout(r,1_500));throw new Error('the library could not be written (a check refused it)');}await flushDisk();}
+  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();}
   // Only this board comes out again: whatever else changed in the library meanwhile stays. Its files are taken back.
   catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}await read.settle(false);throw error;}
   await read.settle(true);
+  // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
   let missing=0;
   if(nativeDesktop){for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});}catch{missing++;}}if(read.pictures.length)forgetLocal();}
   else missing=read.pictures.length;
-  // A dialog that came up while the files were placed or the library written (the request to edit): the board waits for it, and never closes it.
-  await noDialog();
+  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
+}
+/** The board on screen, and what did not come with it said. */
+function showReadBoard(read:ReadBoard,notes:string[]){
   openProject(read.project);
-  const notes=[read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
   toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
 function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
@@ -1021,7 +1046,7 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; if(leaving)focusAfterLeaving=modalReturnFocus;else modalReturnFocus?.focus();   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
 }
@@ -1535,9 +1560,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     // An export reads its board as it was when Save was pressed (0.3-P3-fix2 #11): its page, its name, and its pictures' library.
-    case 'download-page-html': { const page=currentPage(project);if(!page.kind||refusal(d,'outside.export-page'))break;const choice={...exportChoice},name=fileName({...project,name:page.name},'html').slice(0,-'.html'.length);el.setAttribute('disabled','');try{const out=await pageDownload(await exportPage(pageSource(page),choice,frameHost),name,frameHost);const accepted=await saveFile(out.name,out.bytes,out.mime);recordRun('page:exported',{scripts:choice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast(ui(choice.scripts?'Page exported with its scripts':'Page exported without its scripts',choice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
-    case 'download-board-file': { if(refusal(d,'outside.export-page'))break;const board=project,name=fileName(board,BOARD_FILE.extension);el.setAttribute('disabled','');try{const out=await writeBoardFile(board,{...frameHost,local:id=>resolveLocalBytes(id,board.id)});const accepted=await saveFile(name,out.bytes,'application/zip');recordRun('board:exported',{byteLength:out.bytes.length,left:out.left.length},d);if(accepted)toast(out.left.length?ui(`Board saved · ${out.left.length} file(s) this Mac does not have were left out`,`보드를 저장했습니다 · 이 Mac에 없는 파일 ${out.left.length}개는 빠졌습니다`):ui(`Board saved as a .${BOARD_FILE.extension} file`,`보드를 .${BOARD_FILE.extension} 파일로 저장했습니다`));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
-    case 'download-bundle': { const board=project,name=fileName(board,'zip');el.setAttribute('disabled', ''); try { const bytes = await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);const accepted=await saveFile(name, bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    case 'download-page-html': { const board=project,page=currentPage(board);if(!page.kind||refusal(d,'outside.export-page'))break;const choice={...exportChoice},name=fileName({...board,name:page.name},'html').slice(0,-'.html'.length);el.setAttribute('disabled','');try{const out=await pageDownload(await exportPage(pageSource(page),choice,frameHost),name,frameHost);const accepted=await saveFile(out.name,out.bytes,out.mime);if(project.id===board.id)recordRun('page:exported',{scripts:choice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast(ui(choice.scripts?'Page exported with its scripts':'Page exported without its scripts',choice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-board-file': { if(refusal(d,'outside.export-page'))break;const board=project,name=fileName(board,BOARD_FILE.extension);el.setAttribute('disabled','');try{const out=await writeBoardFile(board,{...frameHost,local:id=>resolveLocalBytes(id,board.id)});const accepted=await saveFile(name,out.bytes,'application/zip');if(project.id===board.id)recordRun('board:exported',{byteLength:out.bytes.length,left:out.left.length},d);if(accepted)toast(out.left.length?ui(`Board saved · ${out.left.length} file(s) this Mac does not have were left out`,`보드를 저장했습니다 · 이 Mac에 없는 파일 ${out.left.length}개는 빠졌습니다`):ui(`Board saved as a .${BOARD_FILE.extension} file`,`보드를 .${BOARD_FILE.extension} 파일로 저장했습니다`));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-bundle': { const board=project,name=fileName(board,'zip');el.setAttribute('disabled', ''); try { const bytes = await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);const accepted=await saveFile(name, bytes, 'application/zip');if(project.id===board.id)recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': { recordRun('preview:opened',{device,interactionCapture:false},d); const page = currentPage(project), free = isFreePage(page); showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(page.name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
@@ -1560,7 +1585,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       break;
     }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Project saved','프로젝트를 저장했습니다')); break;
-    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){if(file.size>MAX_BOARD_FILE)throw new Error(ui(`A board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')} bytes.`,`보드 파일은 ${MAX_BOARD_FILE.toLocaleString('en')}바이트까지입니다.`));await openBoardFile(new Uint8Array(await file.arrayBuffer()));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);});toast(ui('Project imported unapproved · 기존 프로젝트는 보존됩니다.','프로젝트를 승인되지 않은 상태로 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
+    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){if(file.size>MAX_BOARD_FILE)throw new Error(ui(`A board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')} bytes.`,`보드 파일은 ${MAX_BOARD_FILE.toLocaleString('en')}바이트까지입니다.`));await opening(async()=>openBoardFileNow(new Uint8Array(await file.arrayBuffer())));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);});toast(ui('Project imported unapproved · 기존 프로젝트는 보존됩니다.','프로젝트를 승인되지 않은 상태로 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('Room for something new.','새로운 것을 위한 자리.'), '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('A new page. The same point of view.','새 페이지. 같은 관점.'), '프로젝트의 디자인 시스템을 그대로 이어받습니다.', `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Make this page your own.','이 페이지를 당신답게.'), '페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.', `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
@@ -2060,7 +2085,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
             const bytes=await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);
             const saved=await saveFile(name,bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
-            recordRun('agent:export',{format:'files'},d);
+            if(project.id===board.id)recordRun('agent:export',{format:'files'},d);
             return {saved:name,approved:isApproved(board)};
           }catch(error){return {error:String(error)};}
         }
@@ -2251,7 +2276,11 @@ function mountSpace(){
   },{capture:true,signal});
   // Files from the Finder, dropped where they should land.
   space.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}},{signal});
-  space.addEventListener('drop',e=>{const files=[...(e.dataTransfer?.files??[])];if(!files.length)return;e.preventDefault();const d=who(e);if(!d)return;void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
+  space.addEventListener('drop',e=>{const all=[...(e.dataTransfer?.files??[])];if(!all.length)return;e.preventDefault();const d=who(e);if(!d)return;
+    // A board file dropped on the board is opened as a board, the person's to do, in the line of what comes in (0.3-P3-fix3 #7).
+    const boards=all.filter(f=>isBoardFileName(f.name)),files=all.filter(f=>!isBoardFileName(f.name));
+    if(boards.length&&!refusal(d,'outside.import'))for(const board of boards)void opening(async()=>openBoardFileNow(new Uint8Array(await board.arrayBuffer()))).catch(error=>toast(`${board.name}: ${error instanceof Error?error.message:String(error)}`));
+    if(files.length)void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
     const d=who(e);if(!d)return;
@@ -2305,6 +2334,10 @@ function attachDiskQueue(revision:number){return new DurableQueue(revision,(data
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
+  // In the line of leavings, so it does not change the board under one: it saves nothing, as it throws away what is unsaved.
+  return turn(()=>reloadFromDiskNow());
+}
+async function reloadFromDiskNow(){
   const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
   storagePath=stored.path;
   if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
@@ -2372,7 +2405,9 @@ async function boot(){
     (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>toast(String(error)));};
     // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
     let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
-    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite=true;};
+    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite='armed';};
+    // And says how many leavings are under way, for a check that waits on one.
+    (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
     // And closes the window the way the desktop does, with a window that only counts that it went.
     (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closeWindow(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
