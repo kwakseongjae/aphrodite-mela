@@ -362,7 +362,8 @@ check('an allowed agent cannot send a page or the board as a file, open the file
     assert.ok(r.error && !r.ok, `${action}: ${JSON.stringify(r)}`);
   }
   // No palette command answers to these at all: one that ran and said only ok would be a side effect the check could not see.
-  for (const query of ['take back', 'board media', 'keep files']) {
+  // In both of the app's languages: the palette is searched in the one the app shows.
+  for (const query of ['take back', 'board media', 'keep files', '파일 걷기', '보드 파일 확정', '미디어 걷기']) {
     const r = await agent('command', {query}, 'claude-code');
     assert.ok(!r.ok && /no palette command matches/.test(r.error ?? ''), `palette "${query}": ${JSON.stringify(r).slice(0, 200)}`);
   }
