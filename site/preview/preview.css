@@ -105,7 +105,7 @@ p,li,small,figcaption{text-wrap:pretty}
 .pv-list li::before{content:"";position:absolute;left:2px;top:17px;width:7px;height:7px;border-radius:50%;background:var(--gold)}
 .pv-not .pv-list li::before{width:9px;height:1px;border-radius:0;top:20px;background:var(--faint)}
 
-.pv-know-grid{margin-top:40px}
+.pv-know-grid{margin-top:40px;scroll-margin-top:24px}
 .pv-know-h{font-size:22px;line-height:1.2;margin-bottom:16px}
 /* know: one ledger, the same three columns on every row (what, what we know, where it stands), and where to tell us */
 .pv-know-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:clamp(28px,5vw,72px);align-items:start}
@@ -156,6 +156,9 @@ p,li,small,figcaption{text-wrap:pretty}
 @media (max-width:640px){
   .pv-hero .hero-art{display:none}
   .nav .lang{min-height:40px;padding:9px 12px}
+  .nav nav .nav-release{display:none}
+  .pv-know-grid{margin-top:24px}
+  .pv-flow-label{margin-top:24px}
   .nav-tag{padding:3px 8px;letter-spacing:.1em}
   .pv-hero h1 span{display:inline}
   .dl-split{display:flex;width:100%}
