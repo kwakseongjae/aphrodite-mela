@@ -101,3 +101,15 @@ export function judge(kind: string, caller: string, a: Authority): Verdict {
   }
   return {allow: false, status: 409, error: `the screen is held by ${held.label}. Wait for it to finish, or ask the person to hand it over.`};
 }
+
+/**
+ * Approving a direction is the person's decision. These are the presses that write the approval; an
+ * agent's command must never get one to run, by `act`, a click on the real button, a key or a form.
+ * On an approved board `approve` only opens the export window, which writes nothing, so it may run.
+ */
+export const approvalActions = ['approve', 'approve-human-only', 'approve-export'] as const;
+export function writesApproval(action: string, approved: boolean): boolean {
+  if (action === 'approve-export') return true;
+  return (approvalActions as readonly string[]).includes(action) && !approved;
+}
+export const APPROVAL_REFUSED = 'approving a direction is the person\'s decision: they press Approve direction on their own screen. Nothing was changed. Ask them to review it instead.';

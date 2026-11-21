@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState,writesApproval,approvalActions,APPROVAL_REFUSED} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -126,3 +126,15 @@ test('the state tells an agent about the door, in a word the editor tab cannot s
   assert.equal(state.connection,'connected');
   assert.equal(state.writes,'on');
 });
+
+/* v0.2.4 let a connected agent press approve through `act`: the gate saw a write like any other. */
+test('every press that would write an approval is named, and only those',()=>{
+  assert.deepEqual([...approvalActions],['approve','approve-human-only','approve-export']);
+  for(const action of approvalActions)assert.equal(writesApproval(action,false),true,`${action} on a draft`);
+  assert.equal(writesApproval('approve-export',true),true,'approve-export always writes the fingerprint');
+  assert.equal(writesApproval('approve',true),false,'on an approved board the same button only opens the export window');
+  assert.equal(writesApproval('approve-human-only',true),false);
+  for(const action of ['export','undo','redo','agent-connect-toggle','assembly-review',''])assert.equal(writesApproval(action,false),false,action);
+  assert.match(APPROVAL_REFUSED,/person/,'the refusal says whose decision it is');
+});
+

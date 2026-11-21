@@ -53,7 +53,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,isRead,isAsk,writesApproval,APPROVAL_REFUSED} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -158,6 +158,8 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
  *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
+/* While an agent's command runs, waits included, no press may write an approval (see runAgentCommand). */
+let agentCommands=0;let approvalRefused=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
@@ -810,6 +812,7 @@ function compareModal() {
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 async function action(el: HTMLElement) {
+  if(agentCommands&&writesApproval(el.dataset.action??'',isApproved(project))){approvalRefused=true;return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
@@ -1460,7 +1463,14 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
   return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
 }
 
+/** Every agent command comes through here. A press that would approve, by any route, is refused for the whole command. */
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
+  if(isRead(String(kind))||isAsk(String(kind)))return agentCommand(kind,payload,caller);
+  agentCommands++;approvalRefused=false;
+  try{const result=await agentCommand(kind,payload,caller);return approvalRefused?{error:APPROVAL_REFUSED,status:403}:result;}
+  finally{agentCommands--;approvalRefused=false;}
+}
+async function agentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;

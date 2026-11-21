@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {agent, personClicks, personTypes, evaluate, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
+const {agent, personClicks, personSubmits, personTypes, presses, evaluate, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 
@@ -118,5 +118,126 @@ check('disconnecting closes the door again', async () => {
   assert.equal(refused.status, 423);
 });
 
+
+/* ---- Approving a direction is the person's alone (0.2.5). v0.2.4 let a connected agent press the
+   approve button through `act` or `click`, and revive an approval by putting the content back. ---- */
+const approval = () => evaluate(`document.querySelector('#app').dataset.approval`);
+const stored = () => evaluate(`(() => { const lib = JSON.parse(localStorage.getItem('aphrodite-project-library-v1') || '{}');
+  return (lib.entries ?? []).find(e => e.project.name === 'Approval')?.project.approvedFingerprint ?? null; })()`);
+const modals = () => evaluate(`document.querySelector('#modal-root').children.length`);
+const closeModal = () => evaluate(`(() => { document.querySelector('#modal-root .modal-backdrop')?.click(); return true; })()`);
+const firstBlock = () => evaluate(`document.querySelector('#design-canvas [data-block-id]')?.dataset.blockId ?? ''`);
+const refusedApproval = (result, what) => {
+  assert.equal(result.status, 403, `${what}: ${JSON.stringify(result)}`);
+  assert.match(result.error, /person/, `${what}: the refusal says whose decision it is`);
+};
+/** The board stays a draft with nothing written and nothing opened. */
+const untouched = async (what, fingerprint) => {
+  assert.equal(await approval(), 'draft', `${what}: the board is still a draft`);
+  assert.equal(await stored(), fingerprint, `${what}: the stored fingerprint did not change`);
+  assert.equal(await modals(), 0, `${what}: nothing opened on the screen`);
+};
+let hero = '';
+let drafts = 0;
+/** Each route starts from its own draft, so one that gets through cannot hide the next. */
+const freshDraft = async () => {
+  await agent('edit', {blockId: hero, field: 'title', text: `Draft ${++drafts}`});
+  await closeModal();
+  await sleep(100);
+  assert.equal(await approval(), 'draft');
+  return stored();
+};
+
+check('the person opens a project and connects an agent', async () => {
+  await personClicks('welcome-blank');
+  await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Approval'}), true, 'the new-project dialog was filled in');
+  await sleep(600);
+  await personClicks('agent-connect-toggle');
+  await sleep(250);
+  await closeModal();
+  await sleep(150);
+  const added = await agent('apply', {ops: [{op: 'add', component_kind: 'hero', content: {title: 'First light'}}]});
+  assert.equal(added.ok, true, JSON.stringify(added));
+  hero = await firstBlock();
+  assert.ok(hero, 'the hero is on the canvas');
+  await untouched('a fresh project', null);
+});
+
+for (const action of ['approve', 'approve-human-only', 'approve-export']) {
+  check(`act ${action} is refused and approves nothing`, async () => {
+    const before = await freshDraft();
+    refusedApproval(await agent('act', {action}), action);
+    await untouched(`act ${action}`, before);
+  });
+}
+
+check('a click on the real approve button is refused', async () => {
+  const before = await freshDraft();
+  assert.equal(await evaluate(`document.querySelector('.review-card [data-action="approve"]') !== null`), true, 'the button is on screen');
+  refusedApproval(await agent('click', {selector: '.review-card [data-action="approve"]'}), 'click approve');
+  await untouched('click approve', before);
+});
+
+check('a click on Approve now in the export window is refused', async () => {
+  const before = await freshDraft();
+  assert.equal((await agent('act', {action: 'export'})).error, undefined, 'the export window opened');
+  await sleep(150);
+  assert.equal(await evaluate(`document.querySelector('[data-action="approve-export"]') !== null`), true, 'Approve now is on screen');
+  refusedApproval(await agent('click', {selector: '[data-action="approve-export"]'}), 'click approve-export');
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), before);
+  await closeModal();
+  await sleep(150);
+});
+
+check('the palette has no approve, by query or by key', async () => {
+  const before = await freshDraft();
+  assert.match((await agent('command', {query: 'approve'})).error ?? '', /no palette command/);
+  await untouched('command approve', before);
+  await agent('key', {key: 'k', meta: true});
+  await sleep(100);
+  await agent('type', {selector: '#command-search', text: 'approve', submit: true});
+  await sleep(150);
+  await agent('key', {key: 'Enter'});
+  await sleep(100);
+  await closeModal();
+  await sleep(100);
+  await untouched('key Enter on an approve query', before);
+});
+
+check('the person approves with the button, and an agent pressing it again only opens the export window', async () => {
+  await agent('edit', {blockId: hero, field: 'title', text: 'First light'});
+  await personClicks('approve');
+  await sleep(150);
+  assert.equal(await approval(), 'approved', 'the person approved');
+  assert.ok(await stored(), 'the fingerprint was written');
+  const again = await agent('act', {action: 'approve'});
+  assert.equal(again.error, undefined, JSON.stringify(again));
+  assert.equal(await modals(), 1, 'the export window opened, as it does for the person');
+  assert.equal(await approval(), 'approved');
+  await closeModal();
+  await sleep(150);
+});
+
+check('in Agent mode the approve presses are refused too', async () => {
+  await personClicks('agent-disconnect');
+  await sleep(150);
+  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'editor-mode'; b.dataset.mode = 'agent';
+    document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await sleep(300);
+  assert.equal(await personSubmits('#agent-mode-form', {operator: 'astra', intent: 'tidy the hero'}), true, 'the hand-over form was filled in');
+  await sleep(400);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.mode`), 'agent', 'Agent mode is on');
+  for (const action of ['approve', 'approve-human-only', 'approve-export']) {
+    await agent('edit', {blockId: hero, field: 'title', text: `Agent mode ${action}`}, 'astra');
+    await closeModal();
+    await sleep(100);
+    const before = await stored();
+    refusedApproval(await agent('act', {action}, 'astra'), `Agent mode act ${action}`);
+    assert.equal(await approval(), 'draft', action);
+    assert.equal(await stored(), before, action);
+  }
+});
 
 await runChecks(checks, close);
