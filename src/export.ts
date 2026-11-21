@@ -1,8 +1,9 @@
 import { strToU8, zipSync } from 'fflate';
 import {localRefsIn,extensionFor,LOCAL_PREFIX} from './design/local-images';
 import {sampleImages} from './design/sample-images';
-import { type Project, isApproved, type DesignSystem } from './model';
-import {exportPage,pageSource} from './page-export';
+import { type Project, type Page, isApproved, type DesignSystem } from './model';
+import {esc} from './html';
+import {exportPage,pageSource,STATIC_PAGE_CSP} from './page-export';
 import type {FrameHost} from './free-page';
 import { pageHtml } from './render';
 import { loadLibraryRuntime } from './library-render';
@@ -111,7 +112,9 @@ export async function exportBundle(p: Project, resolveLocal?: (id: string) => Pr
   }
   const rewriteLocal=(html:string)=>localFiles.reduce((acc,f)=>acc.replaceAll(`src="${f.ref}"`,`src="${f.name}"`),html);
   // An html page or a media item goes out as a page sent alone does by default: without its scripts, its pictures in it, its videos left out.
-  for (const [i, page] of p.pages.entries()) files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(page.kind ? (await exportPage(pageSource(page), {scripts: false, videos: 'out'}, media ?? {stat: async () => undefined, read: async () => undefined})).html : rewriteLocal(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)));
+  // A page the cleaning refuses (it would read differently once cleaned) goes as a page saying so, and the rest still go.
+  const sentAlone=async(page:Page)=>{try{return (await exportPage(pageSource(page), {scripts: false, videos: 'out'}, media ?? {stat: async () => undefined, read: async () => undefined})).html;}catch(error){if(typeof window==='undefined')throw error;return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${STATIC_PAGE_CSP}"><title>${esc(page.name)}</title></head><body><p>${esc(page.name)}: ${esc(error instanceof Error?error.message:String(error))}</p></body></html>`;}};
+  for (const [i, page] of p.pages.entries()) files[i === 0 ? 'index.html' : `page-${i + 1}.html`] = strToU8(page.kind ? await sentAlone(page) : rewriteLocal(rewriteUploads(pageHtml(p, page).replaceAll('src="/assets/', 'src="assets/'), uploads)));
   for(const u of uploads)files[u.name]=u.bytes;
   if(uploads.length)files['UPLOADS.md']=strToU8(uploadsMarkdown(p,uploads));
   for (const sample of sampleImages) {

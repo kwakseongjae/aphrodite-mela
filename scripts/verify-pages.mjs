@@ -24,7 +24,7 @@ import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
 import {unzipSync} from 'fflate';
 import {build} from 'esbuild';
-import {vectors, QUIET} from '../tests/support/clean-vectors.mjs';
+import {vectors, QUIET, ORDINARY, ORDINARY_DOCUMENTS, LOSSES} from '../tests/support/clean-vectors.mjs';
 /** What a board file is called (src-tauri/board-file.json): nothing here spells it out. */
 const BOARD_FILE = JSON.parse(readFileSync(new URL('../src-tauri/board-file.json', import.meta.url), 'utf8'));
 
@@ -868,6 +868,15 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
 });
 
+/** What a cleaned page must not hold, read in the browser that opened it: elements that run, load or send, and attributes that do. */
+const HELD = `(() => { const bad = [], ours = m => m.hasAttribute('charset') || ['Content-Security-Policy', 'x-dns-prefetch-control'].includes(m.getAttribute('http-equiv'));
+  for (const e of document.querySelectorAll('*')) { const n = e.localName.toLowerCase();
+    if (['script', 'link', 'template', 'iframe', 'frame', 'object', 'embed', 'base', 'animate', 'set', 'animatetransform', 'animatemotion', 'foreignobject', 'math', 'noscript'].includes(n) || (n === 'meta' && !ours(e))) bad.push(n);
+    for (const a of e.attributes) { const name = a.name.toLowerCase();
+      if (name.startsWith('on') || ['action', 'formaction', 'srcdoc', 'ping', 'srcset'].includes(name) || /javascript:/i.test(a.value)) bad.push(n + '@' + name);
+      if ((name === 'href' || name === 'xlink:href') && n !== 'a' && !a.value.startsWith('#')) bad.push(n + '@' + name); } }
+  return bad; })()`;
+
 /* 0.3-P3-fix1 #1: the input review's pages and the others, each cleaned by the app's own export code in Chrome and
    opened from disk: cleaned, none reaches the recording servers or leaves for another address; sent with its scripts,
    each that a browser sets off on opening does (QUIET lists those that need a press), so the probe is alive. */
@@ -888,7 +897,7 @@ check('every page built to slip past the cleaner reaches nothing once cleaned, w
     }
   } finally { cleaner.close(); }
   const viewer = await openPage('about:blank', {cdp: 9390, profile: '/tmp/aphrodite-pages-viewer-profile'});
-  const reached = {};
+  const reached = {}, held = {};
   try {
     for (const id of made) {
       const h = hits.length, t = connections.length;
@@ -896,13 +905,63 @@ check('every page built to slip past the cleaner reaches nothing once cleaned, w
       await sleep(1_200);
       const left = !(await viewer.evaluate('location.href')).startsWith('file:');
       reached[id] = hits.length - h + connections.length - t + (left ? 1 : 0);
-      if (left) await viewer.send('Page.navigate', {url: 'about:blank'});
+      if (left) { await viewer.send('Page.navigate', {url: 'about:blank'}); continue; }
+      // A quiet page proves nothing for a probe that needs a press, so what the cleaned page still holds is read too.
+      if (id.endsWith('--C')) held[id] = await viewer.evaluate(HELD);
     }
   } finally { viewer.close(); }
   result.cleaner = {pages: Object.keys(pages).length, cleanedReached: Object.entries(reached).filter(([id, n]) => id.endsWith('--C') && n).map(([id]) => id), controlsAlive: Object.entries(reached).filter(([id, n]) => id.endsWith('--S') && n).length};
   assert.deepEqual(result.cleaner.cleanedReached, [], 'a cleaned page reached out');
+  assert.deepEqual(Object.entries(held).filter(([, bad]) => bad.length), [], 'nothing that runs, loads or sends is left in a cleaned page');
   const dead = Object.keys(pages).filter(name => !QUIET.includes(name) && !reached[`${name}--S`]);
   assert.deepEqual(dead, [], 'each probe reaches out with its scripts, so a quiet cleaned page means something');
+});
+
+/* 0.3-P3-fix1 #1: the handoff zip writes an html page through the same cleaning, in the app (tests/export-uploads.test.ts). */
+check('the handoff zip carries an html page cleaned, and opened from disk it reaches nothing', async () => {
+  // The page sent alone above, still on the board: a script, words that look like one, and its media.
+  const save = await downloads();
+  const zip = await save('download-bundle');
+  const files = unzipSync(new Uint8Array(zip.bytes));
+  const [name, bytes] = Object.entries(files).find(([, b]) => Buffer.from(b).toString('utf8').includes('<h1 id="h">Exported</h1>')) ?? [];
+  result.handoff = Object.entries(files).filter(([n, b]) => n.endsWith('.html') && Buffer.from(b).toString('utf8').includes('reads differently once cleaned')).map(([n]) => n);
+  assert.ok(name, `the page is in the zip: ${Object.keys(files).join(', ')}`);
+  const html = Buffer.from(bytes).toString('utf8');
+  assert.ok(html.startsWith('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"'), html.slice(0, 200));
+  assert.ok(!/<script/i.test(html.replace(/<textarea id="t">&lt;script&gt;/, '')), 'no script is left');
+  writeFileSync(fileAt('handed-off.html'), bytes);
+  const h = hits.length;
+  const opened = await openPage(`file://${fileAt('handed-off.html')}`, {cdp: 9393, profile: '/tmp/aphrodite-pages-handoff-profile'});
+  try { await sleep(1_500); assert.equal(await opened.evaluate('document.getElementById("h").textContent'), 'Exported'); } finally { opened.close(); }
+  assert.deepEqual(hits.slice(h), [], 'nothing was reached');
+});
+
+/* 0.3-P3-fix1 #1: cleaning keeps an ordinary page: the same words as with its scripts, its styles, its drawing's
+   own parts and an id a link goes to. MathML is the one thing it loses, and the export dialog says so. */
+check('an ordinary page goes out cleaned reading the same as with its scripts, and loses only its MathML', async () => {
+  const pages = {...Object.fromEntries(Object.entries(ORDINARY).map(([k, body]) => [k, '<!doctype html><html><head><title>o</title></head><body>' + body + '</body></html>'])), ...ORDINARY_DOCUMENTS, ...Object.fromEntries(Object.entries(LOSSES).map(([k, [body]]) => [k, '<!doctype html><html><head><title>o</title></head><body>' + body + '</body></html>']))};
+  const cleaner = await openPage(`file://${fileAt('cleaner.html')}`, {cdp: 9391, profile: '/tmp/aphrodite-pages-cleaner-profile'});
+  try {
+    await waitFor(() => cleaner.evaluate('typeof window.exportPage === "function"'), 'the export code');
+    for (const [name, page] of Object.entries(pages)) for (const scripts of [false, true]) {
+      const html = await cleaner.evaluate(`exportPage(${JSON.stringify(page)}, ${scripts})`);
+      assert.ok(!html.startsWith('refused: '), `${name}: ${html}`);
+      writeFileSync(fileAt(`ordinary-${name}--${scripts ? 'S' : 'C'}.html`), html);
+    }
+  } finally { cleaner.close(); }
+  const viewer = await openPage('about:blank', {cdp: 9392, profile: '/tmp/aphrodite-pages-viewer-profile'});
+  const read = async (name, scripts) => { await viewer.send('Page.navigate', {url: `file://${fileAt(`ordinary-${name}--${scripts ? 'S' : 'C'}.html`)}`}); await sleep(400); return viewer.evaluate(`({text: document.body.innerText, all: document.body.textContent, lang: document.documentElement.lang, body: document.body.className, title: !!document.getElementById('title'), titleColor: document.getElementById('title') && getComputedStyle(document.getElementById('title')).color, card: document.querySelector('.card') && getComputedStyle(document.querySelector('.card')).padding, use: document.querySelector('use')?.getAttribute('href') ?? null, pre: document.querySelector('pre')?.textContent ?? null})`); };
+  try {
+    for (const name of [...Object.keys(ORDINARY), ...Object.keys(ORDINARY_DOCUMENTS)]) {
+      const [kept, stored] = [await read(name, false), await read(name, true)];
+      assert.deepEqual(kept, stored, `${name} reads the same cleaned`);
+    }
+    for (const [name, [, lost]] of Object.entries(LOSSES)) {
+      const [kept, stored] = [await read(name, false), await read(name, true)];
+      assert.ok(stored.all.replace(/\s/g, '').includes(lost) && !kept.all.replace(/\s/g, '').includes(lost), `${name}: ${lost} is the loss: ${JSON.stringify([kept.all, stored.all])}`);
+      assert.equal(kept.all.replace(/\s/g, ''), stored.all.replace(/\s/g, '').replace(lost, ''), `${name} loses only that`);
+    }
+  } finally { viewer.close(); }
 });
 
 check('a page sent with its video beside it is a zip of the page and the video, and the video plays from the folder under the page\'s policy', async () => {

@@ -56,3 +56,26 @@ Object.assign(V, {
 }
 /** Probes that reach nothing even with scripts, measured in Chrome: no Link header from meta, inert template content, a script that never runs, a cross-origin use, links and forms nobody presses, and pages kept for their words. */
 export const QUIET = ['meta-link-header', 'template-attr', 'script-double-escape', 'svg-use', 'svg-animate-href', 'form-autosubmit-ish', 'fo-textarea-words', 'prose-media', 'xlink-a-js'];
+
+/**
+ * Ordinary pages, which must go out cleaned and read the same as with their scripts: words, tables, a drawing, a
+ * form, a custom element, styles in the head, and a heading a link goes to by an id the app's own document also has.
+ */
+export const ORDINARY = {
+  'table-korean': '<h1>분기 보고</h1><table><thead><tr><th>항목</th><th>값</th></tr></thead><tbody><tr><td>매출</td><td>1,200</td></tr></tbody></table><p>한국어 글 &amp; 기호 &lt;태그&gt;</p>',
+  'svg-chart': '<svg viewBox="0 0 100 50" width="300"><defs><linearGradient id="g"><stop offset="0" stop-color="#4a7"/><stop offset="1" stop-color="#27a"/></linearGradient><rect id="bar" width="10" height="10"/></defs><rect x="5" y="10" width="20" height="40" fill="url(#g)"/><path d="M0 50 L50 0" stroke="#333"/><use href="#bar" x="40"/><text x="5" y="8" font-size="6">Q1 매출</text></svg>',
+  'pre-textarea': '<pre>' + String.fromCharCode(10, 10) + 'two blank lines kept</pre><textarea>' + String.fromCharCode(10) + 'one</textarea><p>after</p>',
+  'form': '<form action="https://x.example/send"><label>Name <input name="n" value="a"></label><button>Send</button></form>',
+  'custom-element': '<my-card data-x="1" title="t"><span>inside the card</span></my-card>',
+  'id-anchor': '<nav><a href="#title">to the title</a> <a href="#links">to the links</a></nav><h1 id="title">Title</h1><h2 id="links">Links</h2><style>#title{color:#a33}</style>',
+  'links': '<a href="https://example.com/x">out</a> <a href="#top">up</a> <a href="mailto:a@b.co">mail</a> <a href="javascript:alert(1)">js</a>',
+  'details': '<details open><summary>More</summary><p>Hidden text</p></details><dialog open>hi</dialog>',
+};
+/** Whole documents: the page as stored, its head, its html and body attributes. */
+export const ORDINARY_DOCUMENTS = {
+  'head-styles': '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>Head</title><style>main .card{color:#222;padding:12px}a[href^="#"]::after{content:" →"}</style></head><body class="paper"><main><div class="card">Card <a href="#c">c</a></div></main></body></html>',
+};
+/** What an ordinary page loses without its scripts: formulas written in MathML (the export dialog says so). */
+export const LOSSES = {
+  'math': ['<p>before</p><math><mi>x</mi><mo>=</mo><mn>2</mn></math><p>after</p>', 'x=2'],
+};

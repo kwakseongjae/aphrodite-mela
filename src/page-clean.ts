@@ -20,6 +20,10 @@ const CONFIG: Config = {
   ADD_FORBID_CONTENTS: ['object', 'embed', 'applet', 'frameset', 'frame', 'listing', 'portal', 'fencedframe'],
   // DOMPurify's own list of addresses, with a board file's media: added: keepsAttribute narrows it further.
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|media):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+  // DOMPurify drops an id or a name the app's own document has (title, body, links…) to keep a script in the page it
+  // is put into from reaching the wrong element. Nothing runs in this page, and it is put into none, so a heading's
+  // id 'title' that a link goes to stays.
+  SANITIZE_DOM: false,
   CUSTOM_ELEMENT_HANDLING: {tagNameCheck: /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/, attributeNameCheck: /^(?!on)[a-z][a-z0-9-]*$/, allowCustomizedBuiltInElements: false},
 };
 let purifier: DOMPurify | undefined;
