@@ -13,6 +13,8 @@ export type GuideStatus = {
   approved: boolean;
   canWrite: boolean;
   askedRecently: boolean;
+  /** False on Home: no board is open, so nothing on the board can be read or changed until one is. */
+  boardOpen?: boolean;
 };
 
 /** The unchanging part: what this is and how to work with it. */
@@ -54,7 +56,11 @@ export function guideFor(status: GuideStatus): string {
     `- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`,
     `- Mode: ${status.mode}${status.holder ? ` · the screen is held by ${status.holder}` : ''}`,
   ];
-  if (status.canWrite) {
+  if (status.boardOpen === false) {
+    lines.push(status.canWrite
+      ? '- No board is open: the person is on Home. Ask them to open a project, or open one yourself (click a project card, `[data-action="hub-open"]`, or act `new-project`), then make your change.'
+      : '- No board is open: the person is on Home. Ask them to open a project.');
+  } else if (status.canWrite) {
     lines.push('- You may change the design. Send a whole change in one call.');
   } else if (status.askedRecently) {
     lines.push('- Editing is closed and a request is already on their screen. Tell the person what you want to do; do not ask again.');
