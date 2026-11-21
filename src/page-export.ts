@@ -26,13 +26,13 @@ export const CLEAN_FORBID_ATTR = ['action', 'formaction', 'ping', 'srcdoc', 'src
 const MEDIA_ADDRESS_VALUE = /^media:[0-9a-f]{64}$/;
 const FRAGMENT = /^#[^\s]*$/;
 const DATA_FILE = /^data:(?:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)|video\/(?:mp4|webm)|audio\/(?:mpeg|mp4|ogg|wav|webm)|font\/(?:woff2?|ttf|otf))[;,]/i;
-const OUT = /^(?:https?:|mailto:)/i;
+const OUT = /^(?:https?:|mailto:|tel:)/i;
 const URL_ATTRS = new Set(['src', 'href', 'xlink:href', 'poster', 'data', 'cite', 'action', 'formaction', 'background', 'icon', 'profile', 'itemtype']);
 /**
  * Whether an attribute may keep its value in a page sent without its scripts. An address is kept only when it
  * stays in the page: a fragment, a file written into it as data (a picture, a video, a sound, a font), or a board
- * file (`media:<sha256>`) the export puts in. A link a person presses (`<a href>` to the web or to mail) is the
- * one address that leads out. Anything else that names an address, `url(…)` in a drawing's paint included, goes.
+ * file (`media:<sha256>`) the export puts in. A link a person presses (`<a href>` to the web, to mail or to a phone)
+ * is the one address that leads out. Anything else that names an address, `url(…)` in a drawing's paint included, goes.
  */
 export function keepsAttribute(tag: string, namespace: 'html' | 'svg', name: string, value: string): boolean {
   const v = value.trim(), lc = name.toLowerCase();

@@ -24,7 +24,7 @@ import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
 import {unzipSync, zipSync} from 'fflate';
 import {build} from 'esbuild';
-import {vectors, QUIET, ORDINARY, ORDINARY_DOCUMENTS, LOSSES} from '../tests/support/clean-vectors.mjs';
+import {vectors, QUIET, ORDINARY, ORDINARY_DOCUMENTS, LOSSES, KEPT_ATTRIBUTES, LOST_ATTRIBUTES} from '../tests/support/clean-vectors.mjs';
 /** What a board file is called (src-tauri/board-file.json): nothing here spells it out. */
 const BOARD_FILE = JSON.parse(readFileSync(new URL('../src-tauri/board-file.json', import.meta.url), 'utf8'));
 
@@ -1107,8 +1107,9 @@ check('the handoff zip carries an html page cleaned, and opened from disk it rea
 
 /* 0.3-P3-fix1 #1: cleaning keeps an ordinary page: the same words as with its scripts, its styles, its drawing's
    own parts and an id a link goes to. MathML is the one thing it loses, and the export dialog says so. */
-check('an ordinary page goes out cleaned reading the same as with its scripts, and loses only its MathML', async () => {
-  const pages = {...Object.fromEntries(Object.entries(ORDINARY).map(([k, body]) => [k, '<!doctype html><html><head><title>o</title></head><body>' + body + '</body></html>'])), ...ORDINARY_DOCUMENTS, ...Object.fromEntries(Object.entries(LOSSES).map(([k, [body]]) => [k, '<!doctype html><html><head><title>o</title></head><body>' + body + '</body></html>']))};
+check('an ordinary page goes out cleaned reading the same as with its scripts, and loses only its MathML and the attributes said to go', async () => {
+  const wrap = body => '<!doctype html><html><head><title>o</title></head><body>' + body + '</body></html>';
+  const pages = {...Object.fromEntries(Object.entries(ORDINARY).map(([k, body]) => [k, wrap(body)])), ...ORDINARY_DOCUMENTS, ...Object.fromEntries(Object.entries(LOSSES).map(([k, [body]]) => [k, wrap(body)])), ...Object.fromEntries(Object.entries({...KEPT_ATTRIBUTES, ...LOST_ATTRIBUTES}).map(([k, [body]]) => [k, wrap(body)]))};
   const cleaner = await openPage(`file://${fileAt('cleaner.html')}`, {cdp: 9391, profile: '/tmp/aphrodite-pages-cleaner-profile'});
   try {
     await waitFor(() => cleaner.evaluate('typeof window.exportPage === "function"'), 'the export code');
@@ -1129,6 +1130,17 @@ check('an ordinary page goes out cleaned reading the same as with its scripts, a
       const [kept, stored] = [await read(name, false), await read(name, true)];
       assert.ok(stored.all.replace(/\s/g, '').includes(lost) && !kept.all.replace(/\s/g, '').includes(lost), `${name}: ${lost} is the loss: ${JSON.stringify([kept.all, stored.all])}`);
       assert.equal(kept.all.replace(/\s/g, ''), stored.all.replace(/\s/g, '').replace(lost, ''), `${name} loses only that`);
+    }
+    // 0.3-P3-fix2 O-3: an attribute kept is kept as written; one said to go is there with the scripts and gone without.
+    const attribute = async (name, scripts, selector, attr) => { await viewer.send('Page.navigate', {url: `file://${fileAt(`ordinary-${name}--${scripts ? 'S' : 'C'}.html`)}`}); await sleep(300); return viewer.evaluate(`document.querySelector(${JSON.stringify(selector)})?.getAttribute(${JSON.stringify(attr)}) ?? null`); };
+    for (const [name, [, selector, attr]] of Object.entries(KEPT_ATTRIBUTES)) {
+      const stored = await attribute(name, true, selector, attr);
+      assert.ok(stored !== null, `${name}: the page has it`);
+      assert.equal(await attribute(name, false, selector, attr), stored, `${name}: kept without the scripts`);
+    }
+    for (const [name, [, selector, attr]] of Object.entries(LOST_ATTRIBUTES)) {
+      assert.ok((await attribute(name, true, selector, attr)) !== null, `${name}: the page has it`);
+      assert.equal(await attribute(name, false, selector, attr), null, `${name}: said to go, and gone`);
     }
   } finally { viewer.close(); }
 });

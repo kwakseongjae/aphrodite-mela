@@ -109,6 +109,8 @@ function cleaner(): DOMPurify {
     const element = node as Element, tag = d.tag(element).toLowerCase();
     const svg = d.ns(element) === 'http://www.w3.org/2000/svg';
     if (hidesAName(tag, data.attrName.toLowerCase(), data.attrValue, d) || !keepsAttribute(tag, svg ? 'svg' : 'html', data.attrName, data.attrValue)) data.keepAttr = false;
+    // A video's poster written into the page as a picture: DOMPurify lets a data: address stand only in a src, so it is kept here (0.3-P3-fix2 O-3).
+    else if (tag === 'video' && data.attrName.toLowerCase() === 'poster') data.forceKeepAttr = true;
   });
   return purifier = p;
 }

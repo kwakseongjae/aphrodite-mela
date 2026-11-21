@@ -14,7 +14,7 @@ import {exportPage, keepsAttribute, withDoctype, mediaPage, pageSource, pageDown
 test('an address stays only where it stays in the page, or is a link a person presses', () => {
   const sha = 'c'.repeat(64);
   for (const [tag, ns, name, value, keeps] of [
-    ['a', 'html', 'href', 'https://example.com/', true], ['a', 'html', 'href', 'mailto:a@b.co', true], ['a', 'html', 'href', '#top', true],
+    ['a', 'html', 'href', 'https://example.com/', true], ['a', 'html', 'href', 'mailto:a@b.co', true], ['a', 'html', 'href', 'tel:+82-2-123-4567', true], ['a', 'html', 'href', 'page:p2', false], ['a', 'html', 'href', 'other.html', false], ['a', 'html', 'href', '#top', true],
     ['a', 'html', 'href', 'javascript:alert(1)', false], ['a', 'html', 'href', 'data:text/html,x', false], ['a', 'svg', 'xlink:href', 'https://x.example', true],
     ['img', 'html', 'src', 'https://x.example/a.png', false], ['img', 'html', 'src', 'media:' + sha, true], ['img', 'html', 'src', 'data:image/png;base64,AA', true],
     ['img', 'html', 'src', 'data:text/html,x', false], ['video', 'html', 'poster', 'data:image/png;base64,AA', true], ['use', 'svg', 'href', '#part', true],

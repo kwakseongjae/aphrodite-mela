@@ -77,6 +77,26 @@ export const ORDINARY = {
 export const ORDINARY_DOCUMENTS = {
   'head-styles': '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>Head</title><style>main .card{color:#222;padding:12px}a[href^="#"]::after{content:" →"}</style></head><body class="paper"><main><div class="card">Card <a href="#c">c</a></div></main></body></html>',
 };
+/** What a page keeps without its scripts that is only an attribute (0.3-P3-fix2 O-3): [body, selector, attribute]. */
+export const KEPT_ATTRIBUTES = {
+  'video-poster': ['<video id="k" poster="data:image/png;base64,iVBORw0KGgo=" controls></video>', '#k', 'poster'],
+  'tel-link': ['<a id="k" href="tel:+82-2-123-4567">call</a>', '#k', 'href'],
+};
+/**
+ * And what it loses that is only an attribute: where a link opens, a link to a file beside it or to another page of the
+ * board, a picture's other sizes, and what only a script or a reader of the page's data would use. The export dialog
+ * names only what would surprise a person: links to other pages.
+ */
+export const LOST_ATTRIBUTES = {
+  'a-target': ['<a id="k" href="https://example.com/" target="_blank">x</a>', '#k', 'target'],
+  'relative-link': ['<a id="k" href="other.html">x</a>', '#k', 'href'],
+  'page-link': ['<a id="k" href="page:p2">x</a>', '#k', 'href'],
+  'picture-srcset': ['<picture><source id="k" srcset="data:image/png;base64,iVBORw0KGgo="><img src="data:image/png;base64,iVBORw0KGgo=" alt=""></picture>', '#k', 'srcset'],
+  'contenteditable': ['<div id="k" contenteditable="true">x</div>', '#k', 'contenteditable'],
+  'accesskey': ['<button id="k" accesskey="s">x</button>', '#k', 'accesskey'],
+  'itemprop': ['<span id="k" itemprop="name">x</span>', '#k', 'itemprop'],
+  'autofocus': ['<input id="k" autofocus>', '#k', 'autofocus'],
+};
 /** What an ordinary page loses without its scripts: formulas written in MathML (the export dialog says so). */
 export const LOSSES = {
   'math': ['<p>before</p><math><mi>x</mi><mo>=</mo><mn>2</mn></math><p>after</p>', 'x=2'],
