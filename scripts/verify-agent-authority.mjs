@@ -598,12 +598,13 @@ check('act cannot rename the action it presses through data', async () => {
    not an agent's command) reaches it past every refusal before it, and must find it shut. */
 check('a press nobody vouches for approves nothing, on either approve button', async () => {
   const before = await freshDraft();
-  await control('approve');
+  // The real buttons, carrying the stamp of the board they show, clicked by in-page code: only the person check stands in the way.
+  await evaluate(`document.querySelector('.review-card [data-action="approve"]').click()`);
   await sleep(200);
   assert.equal(await approval(), 'draft', 'Approve direction');
   await control('export');
   await sleep(200);
-  await control('approve-export');
+  await evaluate(`document.querySelector('#modal-root [data-action="approve-export"]').click()`);
   await sleep(200);
   assert.equal(await approval(), 'draft', 'Approve now');
   assert.equal(await stored(), before);
