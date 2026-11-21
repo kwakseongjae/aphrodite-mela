@@ -15,6 +15,10 @@ test('an export names, reads and saves the board open when Save was pressed, nev
     assert.doesNotMatch(after, /\bproject\b|currentPage\(/, `${name}: after its first wait it names only what it held`);
     assert.doesNotMatch(after, /local:resolveLocalBytes|,resolveLocalBytes,/, `${name}: its pictures come from that board's library`);
   }
+  // An agent's export of the files goes the same way.
+  const agentExport = main.slice(main.indexOf("if(c.format==='files'){"), main.indexOf('approved:isApproved(', main.indexOf("if(c.format==='files'){")) + 40);
+  assert.doesNotMatch(agentExport.slice(agentExport.indexOf('await ')), /\bproject\b/, 'an agent\'s export of the files too');
+  assert.doesNotMatch(main, /exportBundle\(project,resolveLocalBytes/, 'no export reads the library of whatever board is open later');
   assert.match(main, /async function resolveLocalBytes\(id:string,projectId=project\.id\)/);
   assert.match(main, /'image_library_read',\{id,project:projectId\}/);
 });

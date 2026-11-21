@@ -163,7 +163,7 @@ addEventListener('message',e=>{
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
   if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
   if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();fitFrame(m.id);}}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
@@ -437,8 +437,12 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
     }finally{leaving--;if(!leaving)app.inert=modalRoot.children.length>0;}
   });
 }
-/** Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing. */
-async function guardSwitch(){await leave(()=>undefined);}
+/**
+ * Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing.
+ * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
+ * waits behind the leaving that waits for that dialog.
+ */
+async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
@@ -1319,7 +1323,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
-    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);break;}
+    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);});break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
     case 'welcome-show': welcomeModal();break;
@@ -2049,11 +2053,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         if(c.format==='files'){
           if(!nativeDesktop)return {error:'writing the bundle is desktop only; ask for the contract instead'};
           try{
-            const bytes=await exportBundle(project,resolveLocalBytes,frameHost);
-            const saved=await saveFile(fileName(project,'zip'),bytes,'application/zip');
+            const board=project,name=fileName(board,'zip');
+            const bytes=await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);
+            const saved=await saveFile(name,bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
             recordRun('agent:export',{format:'files'},d);
-            return {saved:fileName(project,'zip'),approved:isApproved(project)};
+            return {saved:name,approved:isApproved(board)};
           }catch(error){return {error:String(error)};}
         }
         /* The words, not a zip an agent cannot open: the same four documents the bundle carries. */

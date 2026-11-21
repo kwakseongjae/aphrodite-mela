@@ -918,8 +918,15 @@ check('a page seen on its own shows another only once its frame itself has the k
   const shown = (await boots()) - settled;
   assert.ok(shown >= 15 && shown <= 22, `it stopped after about twenty: ${shown}`);
   assert.match(await evaluate(`document.querySelector('#toast').textContent`), /멈췄습니다|so that stopped/, 'and says so');
-  await sleep(1_000);
+  // It stays stopped past the ten seconds, until the person opens a page anew.
+  await sleep(11_000);
   assert.equal((await boots()) - settled, shown, 'and stays stopped');
+  await personPresses('page-view-close'); await sleep(300);
+  await personPresses('page-view', {id}); await sleep(1_500);
+  const again = await boots();
+  await evaluate(`(() => { document.querySelector('.page-view iframe').focus(); dispatchEvent(new Event('blur')); return true; })()`);
+  await sleep(1_500);
+  assert.ok((await boots()) > again, 'opened anew and pressed into, it shows pages again');
   await personPresses('page-view-close'); await sleep(300);
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
   await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
