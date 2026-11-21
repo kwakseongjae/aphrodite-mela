@@ -194,6 +194,14 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
         return hit && (hit === el || el.contains(hit)) ? {x, y} : {covered: hit ? hit.outerHTML.slice(0, 120) : 'nothing'}; })()`);
       if (!at) throw new Error(`nothing matches ${selector}`);
       if (at.covered) throw new Error(`${selector} is covered by ${at.covered}`);
+      /* A window that has just opened is still settling (icons are swapped in, focus moves), and a press aimed at
+         where the button was a moment ago lands on whatever is there now. Press once it has stopped moving. */
+      for (let i = 0, last = ''; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 60));
+        const now = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return r ? [r.left, r.top, r.width, r.height].join() : ''; })()`);
+        if (now && now === last) { const [left, top, width, height] = now.split(',').map(Number); at.x = left + width / 2; at.y = top + height / 2; break; }
+        last = now;
+      }
       await send('Input.dispatchMouseEvent', {type: 'mouseMoved', x: at.x, y: at.y});
       await send('Input.dispatchMouseEvent', {type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1});
       await send('Input.dispatchMouseEvent', {type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1});

@@ -304,7 +304,7 @@ check('the person approves with Approve now in the export window', async () => {
   await sleep(200);
   await personPresses('[data-action="approve-export"]');
   await sleep(200);
-  assert.equal(await approval(), 'approved');
+  assert.equal(await approval(), 'approved', await evaluate(`JSON.stringify({toast: document.querySelector('#toast').textContent, modal: document.querySelector('#modal-root .export-status')?.outerHTML.slice(0, 160), screen: document.querySelector('#app').dataset.screen})`));
   assert.ok(await stored());
   assert.equal(await evaluate(`document.querySelector('#modal-root .export-status.approved') !== null`), true, 'the export window says approved');
   await closeModal();
