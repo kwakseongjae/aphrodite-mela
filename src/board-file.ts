@@ -17,6 +17,7 @@ import {LEDGER_BUDGET} from './ledger/types';
 import {MAX_EXPORT_FILE} from './page-export';
 import {utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
+import {halfPairIn} from './text';
 import named from '../src-tauri/board-file.json';
 
 /**
@@ -157,8 +158,13 @@ const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), b => b.t
 const json = (bytes: Uint8Array, what: string): unknown => { try { return JSON.parse(strFromU8(bytes)); } catch { return refuse(`${what} is not JSON`); } };
 /** A page's text as it was written, a byte order mark at its front included. */
 const plain = (bytes: Uint8Array) => new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes);
-/** Whether a text holds no half of a surrogate pair without the other: one that does cannot be written as UTF-8 unchanged. */
-const wellFormed = (text: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+/** Where in a project (or what reads as one) half a surrogate pair stands on its own, said by page name: "the page \"Home\", its html". */
+export function halfPairWhere(value: {pages?: unknown}): string | undefined {
+  const at = halfPairIn(value);
+  if (!at) return undefined;
+  const page = /^pages\[(\d+)\]\.?(.*)$/.exec(at), pages = Array.isArray(value.pages) ? value.pages as {name?: unknown}[] : [];
+  return page ? `the page "${String(pages[Number(page[1])]?.name ?? page[1]).slice(0, 80)}", its ${page[2] || 'text'}` : `the board's ${at}`;
+}
 /**
  * The id the image library gives a picture (src-tauri/src/image_library.rs content_id): 64-bit FNV-1a over its
  * bytes, as 16 hex digits. Worked in two 32-bit halves: the prime is 2^40 + 0x1b3.
@@ -237,6 +243,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   // A change made in the other copy is that copy's, whoever it says made it: never this Mac's person or agents.
   // Marked before the history is read, so each change is counted with the mark and the whole kept to its budget.
   if (history && Array.isArray(history.changes)) for (const c of history.changes as {author?: Record<string, unknown>}[]) if (c && typeof c === 'object' && c.author && typeof c.author === 'object') c.author.elsewhere = true;
+  // Half a surrogate pair is looked for in the values themselves: written out as JSON it is an escape, and looks whole.
+  const half = halfPairWhere({...raw, ...(history ? {ledger: history} : {})});
+  if (half) refuse(`${half} holds half of a surrogate pair on its own, which this Mac cannot save`);
   let text = JSON.stringify({...raw, ...(history ? {ledger: history} : {})});
   const left: ReadBoard['left'] = [];
   const carried = new Map(zip.names.flatMap(n => { const m = MEDIA.exec(n); return m ? [[m[1], n] as const] : []; }));
@@ -292,7 +301,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
 export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'stat' | 'read'> & {local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>}): Promise<{bytes: Uint8Array; left: string[]}> {
   const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined})) as Project;
   const texts: Record<string, string> = {};
-  for (const page of board.pages) if (isFreePage(page) && wellFormed(page.html)) { texts[`pages/${page.id}.html`] = page.html; delete (page as {html?: string}).html; }
+  const half = halfPairWhere(project);
+  if (half) refuse(`${half} holds half of a surrogate pair on its own, which no file can carry and no Mac can save. Write the whole character, or leave it out.`);
+  for (const page of board.pages) if (isFreePage(page)) { texts[`pages/${page.id}.html`] = page.html; delete (page as {html?: string}).html; }
   texts['board.json'] = JSON.stringify(board);
   if (project.ledger) texts['ledger/changes.json'] = JSON.stringify(project.ledger);
   const entries = Object.entries(texts).map(([name, text]) => ({name, size: utf8Length(text)}));

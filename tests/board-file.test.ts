@@ -263,12 +263,36 @@ test('what the writer makes, the reader takes: too many entries is refused befor
   assert.throws(() => checkEntries([{name: 'board.json', size: 10}, {name: `media/${PIC}.png`, size: MAX_BOARD_FILE - 10}], MAX_BOARD_FILE, {packed: true}), /comes to more than/, 'the zip around the entries is counted too');
 });
 
-test('a page starting with a byte order mark or holding a lone surrogate comes back exactly as it went', async () => {
+test('a page starting with a byte order mark comes back exactly as it went, read from its own html entry', async () => {
   const p = board();
-  p.pages[1].html = '\ufeff<p>front</p><p>lone \ud800 and \udc00 halves</p>';
-  const got = await readBoardFile(await written(p), store().host);
+  p.pages[1].html = '\ufeff<p>front</p>';
+  const bytes = await written(p);
+  const zip = readZip(bytes, 500 * 1024 * 1024);
+  assert.ok(zip.names.includes('pages/free.html') || zip.names.some(n => /^pages\/.+\.html$/.test(n)), 'the page travels as its own entry');
+  assert.ok(!new TextDecoder().decode(zip.read('board.json')).includes('front'), 'not inside board.json');
+  const got = await readBoardFile(bytes, store().host);
   assert.equal(got.project.pages[1].html, p.pages[1].html);
 });
+
+/* 0.3-P3-fix2 #4: the desktop's save refuses half a surrogate pair on its own (src-tauri/src/workspace.rs, its test), so no file brings one in and none is written with one. */
+test('half a surrogate pair on its own is refused by the writer, saying where, and by the reader, in any value', async () => {
+  const p = board();
+  p.pages[1].html = '<p>lone \ud800 half</p>';
+  await assert.rejects(writeBoardFile(p, store().host), /the page "Free", its html holds half of a surrogate pair/);
+  const q = board();
+  q.ledger!.changes[1].reason = 'because \udc00';
+  await assert.rejects(writeBoardFile(q, store().host), /ledger.*half of a surrogate pair/);
+  const clean = await written();
+  for (const [entry, change] of [['board.json', (j: Record<string, unknown>) => { j.name = 'a \ud800 b'; }], ['ledger/changes.json', (j: {changes: {reason?: string}[]}) => { j.changes[1].reason = 'x \udbff'; }]] as const) {
+    const zip = readZip(clean, 500 * 1024 * 1024), files: Zippable = {};
+    for (const n of zip.names) files[n] = zip.read(n);
+    const json = JSON.parse(new TextDecoder().decode(files[entry] as Uint8Array));
+    (change as (j: never) => void)(json as never);
+    files[entry] = strToU8(JSON.stringify(json));
+    await assert.rejects(readBoardFile(zipSync(files), store().host), /half of a surrogate pair/, entry);
+  }
+});
+
 
 test('a received history is counted again once marked as made elsewhere, within its budget, and reads back the same', async () => {
   const got = await readBoardFile(await written(), store().host);

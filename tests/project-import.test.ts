@@ -19,3 +19,9 @@ test('a project file comes in unapproved, with or without an id this library has
   assert.equal(isApproved(copy), false);
   assert.equal(isApproved(mine.entries[0].project), true, 'the board already here keeps its approval');
 });
+
+test('a project file holding half a surrogate pair on its own is refused: this Mac could not save it', () => {
+  const p = initialProject();
+  p.name = 'a \ud800 b';
+  assert.throws(() => importedProject(JSON.stringify(p), {version: 1, entries: []}), /name holds half of a surrogate pair/);
+});

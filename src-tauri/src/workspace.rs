@@ -133,6 +133,19 @@ mod tests {
         assert!(save_at(dir.path(), s.into(), 0).is_err());
         assert_eq!(read_at(dir.path()).unwrap()["revision"], 1);
     }
+    /// 0.3-P3-fix2 #4: what the app sends is JSON.stringify's text, where half of a surrogate pair on its own is the
+    /// escape \ud800. This save reads the library as serde_json::Value, which takes no such escape: a library holding
+    /// one is not saved at all, and the pair-whole one is. (Test only; the save itself is 0.3-R's.)
+    #[test]
+    fn a_library_holding_half_a_surrogate_pair_is_not_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let lone = r#"{"version":1,"entries":[{"project":{"name":"a \ud800 b"}}]}"#;
+        let whole = r#"{"version":1,"entries":[{"project":{"name":"a \ud83d\ude00 b"}}]}"#;
+        let refused = save_at(dir.path(), lone.into(), 0).unwrap_err();
+        assert!(refused.contains("hex escape") || refused.contains("surrogate"), "{refused}");
+        assert!(read_at(dir.path()).unwrap()["data"].is_null(), "nothing was written");
+        assert_eq!(save_at(dir.path(), whole.into(), 0).unwrap(), 1);
+    }
     #[test]
     fn corrupt_file_preserved() {
         let dir = tempfile::tempdir().unwrap();

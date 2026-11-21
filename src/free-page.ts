@@ -14,6 +14,7 @@
  * The browser build cannot do the second: a browser has no such settings, so a page there can still reach
  * out over WebRTC and preconnect. It is for development and checks, not for people's pages.
  */
+import {halfPair} from './text';
 
 /** An html page's own cap, apart from the 20,000 characters every other string in a project is held to. */
 export const MAX_PAGE_HTML = 2_000_000;
@@ -72,6 +73,8 @@ const CSS_URL = /(?:url\(|@import)\s*["']?\s*(file:|asset:|https?:\/\/asset\.loc
  */
 export function htmlProblem(html: string): string | undefined {
   if (html.length > MAX_PAGE_HTML) return `the html is ${html.length.toLocaleString('en')} characters; a page holds at most ${MAX_PAGE_HTML.toLocaleString('en')}.`;
+  const half = halfPair(html);
+  if (half >= 0) return `the html holds half of a surrogate pair on its own at character ${half.toLocaleString('en')}, which cannot be saved. Write the whole character, or leave it out.`;
   let found: string | undefined;
   for (const m of html.matchAll(URL_ATTRIBUTE)) {
     const hit = (m[1] ?? m[2] ?? m[3] ?? '').match(MACHINE);

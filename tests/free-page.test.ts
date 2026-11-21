@@ -135,3 +135,9 @@ test('a window onto a long page says where it is and whether there is more', () 
   assert.equal(htmlWindow(html, {start: 0}, 30).end, 30, 'a window is bounded');
   assert.equal(htmlWindow(html, {start: 0}, 30).more, true);
 });
+
+test('an html page holding half of a surrogate pair on its own is refused, saying where; a whole pair is fine', () => {
+  assert.match(htmlProblem('<p>ab\ud800c</p>') ?? '', /half of a surrogate pair on its own at character 5/);
+  assert.match(htmlProblem('<p>\udfff</p>') ?? '', /half of a surrogate pair/);
+  assert.equal(htmlProblem('<p>😀 \ud83d\ude00</p>'), undefined);
+});

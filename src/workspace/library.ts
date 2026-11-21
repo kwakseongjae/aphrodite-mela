@@ -1,4 +1,5 @@
 import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
+import {halfPairIn} from '../text';
 import {fitSaved} from '../ledger/ledger';
 import {LEDGER_RESERVE} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
@@ -98,6 +99,10 @@ export function writeLibraryText(storage:LocalStore,raw:string):void{
  * when its id is one this library has, and never approved. No file can make an approval (0.3-P3-fix1).
  */
 export function importedProject(raw:string,library:Library):Project{
+  // Half a surrogate pair on its own is looked for in the values: the desktop cannot save it (src/text.ts).
+  let values:unknown;try{values=JSON.parse(raw);}catch{values=undefined;}
+  const half=values&&typeof values==='object'?halfPairIn(values):undefined;
+  if(half)throw new Error(`${half} holds half of a surrogate pair on its own, which this Mac cannot save.`);
   const loaded=parseProject(raw);
   const project=library.entries.some(e=>e.project.id===loaded.id)?cloneProject(loaded):loaded;
   delete project.approvedFingerprint;
