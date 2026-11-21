@@ -49,7 +49,16 @@ check('the person opens a project', async () => {
   assert.equal(await personSubmits('#new-project-form', {name: 'Start'}), true, 'the new-project dialog was filled in');
   await sleep(600);
   assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor');
+  await control('add', {kind: 'hero'});
+  await sleep(300);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.selectedKind`), 'hero', 'a hero is on the page and selected, so an edit has something to land on');
 });
+/** An edit that went through and was saved, not one that was let past the door and then failed. */
+const landed = async (result, text) => {
+  assert.equal(result.status, undefined, JSON.stringify(result));
+  assert.equal(result.error, undefined, JSON.stringify(result));
+  assert.equal((await saved('Start')).title, text, 'the edit is in the saved project');
+};
 
 check('an agent can ask, and the request reaches the person with its name on it', async () => {
   const asked = await agent('connect', {}, 'claude-code');
@@ -68,8 +77,7 @@ check('the person allows it with one click, and the agent may write', async () =
   await sleep(250);
   assert.equal(await evaluate(`document.querySelector('.ask-banner') !== null`), false, 'the request is answered and gone');
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
-  const allowed = await agent('edit', {field: 'title', text: 'Asked and allowed'});
-  assert.equal(allowed.status, undefined, JSON.stringify(allowed));
+  await landed(await agent('edit', {field: 'title', text: 'Asked and allowed'}), 'Asked and allowed');
   await personClicks('agent-disconnect');
   await sleep(200);
 });
@@ -102,8 +110,7 @@ check('the person turns it on, and the banner says so', async () => {
 });
 
 check('now the agent may write, and the write is not refused by the rule', async () => {
-  const allowed = await agent('edit', {field: 'title', text: 'Hello from the agent'});
-  assert.equal(allowed.status, undefined, `the permission rule let it through: ${JSON.stringify(allowed)}`);
+  await landed(await agent('edit', {field: 'title', text: 'Hello from the agent'}), 'Hello from the agent');
 });
 
 check('the person types, and takes the screen back', async () => {
@@ -116,12 +123,11 @@ check('the person types, and takes the screen back', async () => {
 
 check('a few quiet seconds and the agent may write again', async () => {
   await sleep(5_400);
-  const allowed = await agent('edit', {field: 'title', text: 'back to work'});
-  assert.equal(allowed.status, undefined, `expected the hold to have expired: ${JSON.stringify(allowed)}`);
+  await landed(await agent('edit', {field: 'title', text: 'back to work'}), 'back to work');
 });
 
 check('a second agent is refused by name while the first holds it', async () => {
-  await agent('edit', {field: 'title', text: 'mine'}, 'claude-code');
+  await landed(await agent('edit', {field: 'title', text: 'mine'}, 'claude-code'), 'mine');
   const refused = await agent('edit', {field: 'title', text: 'mine too'}, 'astra');
   assert.equal(refused.status, 409, JSON.stringify(refused));
   assert.match(refused.error, /claude-code/);
@@ -144,7 +150,7 @@ const approval = () => evaluate(`document.querySelector('#app').dataset.approval
 const saved = async (name = NAME) => {
   const entry = await evaluate(`(() => { const lib = JSON.parse(localStorage.getItem('aphrodite-project-library-v1') || '{}');
     const p = (lib.entries ?? []).find(e => e.project.name === ${JSON.stringify(name)})?.project;
-    return p ? {id: p.id, fingerprint: p.approvedFingerprint ?? '', title: p.pages.flatMap(pg => pg.blocks).find(b => b.kind === 'hero')?.title ?? ''} : null; })()`);
+    return p ? {id: p.id, fingerprint: p.approvedFingerprint ?? '', reference: !!p.reference, title: p.pages.flatMap(pg => pg.blocks).find(b => b.kind === 'hero')?.title ?? ''} : null; })()`);
   assert.ok(entry, `${name} is in the library`);
   return entry;
 };
@@ -619,9 +625,13 @@ check("an agent's undo of a step that changed nothing keeps the person's approva
   if (!second) { assert.equal((await agent('apply', {ops: [{op: 'page', name: 'Second'}]})).ok, true); second = (await agent('contract')).pages.find(p => p.name === 'Second'); await agent('act', {action: 'page', data: {id: pages.pages[0].page_id}}); }
   await personApproves();
   const fp = await stored();
+  const active = async () => (await agent('contract')).pages.find(p => p.active)?.page_id;
+  const first = await active();
   assert.equal((await agent('act', {action: 'page', data: {id: second.page_id}})).error, undefined);
+  assert.equal(await active(), second.page_id, 'the page did change');
   assert.equal(await approval(), 'approved', 'moving to another page changes nothing approved');
   const undo = await agent('act', {action: 'undo'});
+  assert.equal(await active(), first, 'and the undo did take it back');
   assert.equal(undo.approval, undefined, JSON.stringify(undo).slice(0, 200));
   assert.equal(await approval(), 'approved');
   assert.equal(await stored(), fp);
@@ -669,6 +679,65 @@ check('the person reaches Approve now with Tab and presses Enter', async () => {
   await sleep(5_200);
 });
 
+/* Codex 2026-11-22 (check 3): Home's delete, sent while a board was open, took its library entry, and every save after
+   that quietly wrote nothing. Home's actions run on Home only. */
+check('a Home delete sent while a board is open is refused, and the next edit is saved', async () => {
+  const id = (await saved()).id;
+  const answer = await agent('act', {action: 'hub-delete-confirm', data: {id}});
+  assert.equal(answer.status, 409, JSON.stringify(answer).slice(0, 200));
+  assert.match(answer.error, /Home action/);
+  assert.equal((await saved()).id, id, 'the board is still in the library');
+  await agentEdits('Saved after the refusal');
+  await agentEdits('First light');
+});
+
+/* Codex 2026-11-22 (check 3): a handler that waits wrote to whichever board was open when it finished. */
+check('a picture fetched for one board lands on no other board', async () => {
+  await closeModal();
+  await agent('act', {action: 'remove-reference'});
+  await closeModal();
+  assert.equal((await saved()).reference, false);
+  assert.equal((await saved('Other')).reference, false);
+  const otherId = (await saved('Other')).id, id = (await saved()).id;
+  await evaluate(`(() => { const real = window.fetch; window.__heldFetch = real;
+    const held = new Promise(r => { window.__release = r; });
+    window.fetch = (url, ...rest) => String(url).includes('demo-reference') ? held.then(() => real(url, ...rest)) : real(url, ...rest); return true; })()`);
+  assert.equal((await agent('act', {action: 'reference'})).error, undefined);
+  await sleep(200);
+  assert.equal((await agent('click', {selector: '#modal-root [data-action="demo-reference"]'})).error, undefined, 'the click replied while the picture was on its way');
+  assert.equal((await agent('act', {action: 'hub-open', data: {id: otherId}})).error, undefined, 'and then the other board was opened');
+  await sleep(300);
+  await evaluate(`(() => { window.__release(); window.fetch = window.__heldFetch; return true; })()`);
+  await sleep(800);
+  assert.equal((await saved('Other')).reference, false, 'the board open now did not get it');
+  assert.equal((await saved()).reference, false, 'nor did the board it was for, which is no longer open');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /Cancelled|취소했습니다/, 'the person is told it was cancelled');
+  await closeModal();
+  await control('hub-open', {id});
+  await sleep(500);
+});
+
+/* Codex 2026-11-22 (check 3): the export window's notice stayed after the board came back, and a page switch or an undone
+   approval, outside the content fingerprint, said nothing. */
+check('the export window says it is stale exactly while what it shows differs from the board', async () => {
+  const stale = () => evaluate(`document.querySelector('#modal-root .export-stale') !== null`);
+  const was = await title();
+  await control('export');
+  await sleep(200);
+  assert.equal(await stale(), false);
+  await agentEdits('Round trip');
+  assert.equal(await stale(), true, 'changed');
+  await agentEdits(was);
+  assert.equal(await stale(), false, 'back as it was, the notice goes');
+  const second = (await agent('contract')).pages.find(p => p.name === 'Second');
+  const first = (await agent('contract')).pages.find(p => p.active);
+  assert.equal((await agent('act', {action: 'page', data: {id: second.page_id}})).error, undefined);
+  assert.equal(await stale(), true, 'another page is open than the one the preview shows');
+  await agent('act', {action: 'page', data: {id: first.page_id}});
+  assert.equal(await stale(), false);
+  await closeModal();
+});
+
 /* Opus review 2026-11-22, H1: Home left the last board in memory, and an agent's write put the old copy back. */
 const toHome = async () => { await control('home'); await sleep(300); assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home'); };
 const refusedNoBoard = (answer, what) => {
@@ -699,6 +768,7 @@ check('a board renamed on Home stays the draft the rename made, whatever an agen
   await control('hub-open', {id});
   await sleep(500);
   assert.equal(await approval(), 'draft', 'and it opens as a draft');
+  await toHome();
   await control('hub-rename', {id});
   await sleep(200);
   await personSubmits('#hub-rename-form', {name: NAME});
@@ -719,6 +789,11 @@ check('a board deleted on Home stays deleted, whatever an agent then sends', asy
   assert.equal(await gone(), false, 'the person deleted it');
   refusedNoBoard(await agent('act', {action: 'page', data: {id: 'x'}}), 'act page');
   refusedNoBoard(await agent('apply', {ops: [{op: 'frame', preset: 'mobile'}]}), 'apply frame');
+  // The editor's own actions read the board in memory, which is the deleted one: none of them runs on Home.
+  for (const action of ['export', 'save-project', 'approve', 'download-bundle', 'copy-prompt']) {
+    refusedNoBoard(await agent('act', {action}), `act ${action}`);
+    assert.equal(await modals(), 0, `act ${action}: no window opened`);
+  }
   await sleep(200);
   assert.equal(await gone(), false, 'and it was not written back');
 });

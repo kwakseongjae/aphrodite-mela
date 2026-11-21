@@ -115,7 +115,7 @@ export function writesApproval(action: string, approved: boolean): boolean {
 export const APPROVAL_REFUSED = 'approving a direction is the person\'s decision: they press Approve direction on their own screen. Nothing was changed. Ask them to review it instead.';
 export const APPROVAL_CLEARED = 'cleared — only the person approves';
 /** One agent command while it runs: what the app refused or cleared on its behalf, so that command's reply can say so. */
-export type AgentTurn = {refused: boolean; cleared: boolean; noBoard: boolean};
+export type AgentTurn = {refused: boolean; cleared: boolean; noBoard: boolean; homeOnly: boolean};
 /** Who pressed: the person's own trusted input, an agent command's turn, or nobody known, which is never the person. */
 export type Origin = 'person' | AgentTurn | undefined;
 /**
@@ -126,4 +126,6 @@ export type Origin = 'person' | AgentTurn | undefined;
 export type Pressed = Event & {by?: AgentTurn};
 export function pressedBy(e: Event): Origin { return e.isTrusted ? 'person' : (e as Pressed).by; }
 /** Off the editor there is no open board: the copy left in memory is not the one the person sees on Home. */
-export const NO_BOARD = 'no board is open: the person is on Home. Reading and changing the board wait until they open a project.';
+export const NO_BOARD = 'no board is open: the person is on Home. Ask them to open a project, or open one yourself: click {selector:\'[data-action="hub-open"]\'} opens the first card, act {action:"new-project"} starts a new one. Then carry on.';
+/** Home's actions change library entries, and one of them may be the board open in the editor, so they run on Home only. */
+export const HOME_ONLY = 'that is a Home action, and a board is open: it runs only on Home. Ask the person, or send act {action:"home"} first.';

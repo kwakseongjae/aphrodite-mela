@@ -143,7 +143,7 @@ test('every press that would write an approval is named, and only those',()=>{
 test('only a trusted event is the person; an untrusted one is the turn it carries, or nobody',()=>{
   const plain=new Event('click');
   assert.equal(pressedBy(plain),undefined,'an event nobody tagged is nobody');
-  const turn:AgentTurn={refused:false,cleared:false,noBoard:false};
+  const turn:AgentTurn={refused:false,cleared:false,noBoard:false,homeOnly:false};
   const tagged=Object.assign(new Event('click'),{by:turn});
   assert.equal(pressedBy(tagged),turn);
 });
