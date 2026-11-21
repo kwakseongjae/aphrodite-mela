@@ -208,7 +208,7 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
     length += grows;
     use.set(sha, address);
   }
-  return head + html.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all);
+  return head + withMedia(html, sha => use.get(sha));
 }
 
 const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -349,6 +349,14 @@ export type FrameHost = {
 };
 
 const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
+/**
+ * Every `media:<sha256>` in a page's text given its address, wherever it stands: in a picture, in words, in a script.
+ * The board's frame (framedDocument) and a page sent as a file (src/page-export.ts) both put addresses in this way,
+ * so the file shows what the board shows. One with no address is left as named.
+ */
+export function withMedia(html: string, address: (sha: string) => string | undefined): string {
+  return html.replace(MEDIA_REFS, (all, sha: string) => address(sha) ?? all);
+}
 /** Each file a page names as `media:<sha256>`, once. */
 export function mediaNamed(html: string): string[] {
   return [...new Set(Array.from(html.matchAll(MEDIA_REFS), m => m[1]))];

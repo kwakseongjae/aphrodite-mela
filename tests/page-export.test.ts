@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {unzipSync, strFromU8} from 'fflate';
-import {exportPage, keepsAttribute, withMediaAddresses, mediaPage, pageSource, pageDownload, STATIC_PAGE_CSP, MAX_EXPORTED_PAGE, MAX_EXPORT_FILE} from '../src/page-export';
+import {framedDocument} from '../src/free-page';
+import {exportPage, keepsAttribute, withDoctype, mediaPage, pageSource, pageDownload, STATIC_PAGE_CSP, MAX_EXPORTED_PAGE, MAX_EXPORT_FILE} from '../src/page-export';
 
 /**
  * 0.3-P3: a page sent as a file opens in someone else's browser, where the app's wall is not. By default it
@@ -28,12 +29,10 @@ test('without a browser a page is not cleaned at all, and nothing weaker stands 
   await assert.rejects(exportPage('<p>hi</p><script>x</script>', {scripts: false, videos: 'out'}, host({}).host), /cleaned in the app's window/);
 });
 
-test('with its scripts a page keeps its words: only an address that loads a board file is given the file', () => {
-  const sha = 'd'.repeat(64);
-  const page = `<p>The file is media:${sha} in words.</p><img src="media:${sha}"><img alt=x src='media:${sha}'><div style="background:url(media:${sha})"></div><code>src=media:${sha}</code>`;
-  const out = withMediaAddresses(page, () => 'X');
-  assert.equal(out, `<p>The file is media:${sha} in words.</p><img src="X"><img alt=x src='X'><div style="background:url(X)"></div><code>src=media:${sha}</code>`);
-  assert.equal(withMediaAddresses(page, () => undefined), page, 'a file the board does not have is left as named');
+test('a page with no doctype, or another, is sent with the one the board draws it with', () => {
+  assert.equal(withDoctype('<p>x</p>'), '<!doctype html><p>x</p>');
+  assert.equal(withDoctype('<!DOCTYPE html><p>x</p>'), '<!DOCTYPE html><p>x</p>');
+  assert.equal(withDoctype('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"><p>x</p>'), '<!doctype html><!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"><p>x</p>');
 });
 
 const sha = (n: number) => n.toString(16).padStart(64, '0');
@@ -45,8 +44,23 @@ const host = (files: Record<string, {mime: string; bytes: number}>) => {
 test('with its scripts the page is the one stored, its pictures put in and nothing else changed', async () => {
   const stored = `<script>class X extends HTMLElement{connectedCallback(){const shadowRoot=this.attachShadow({mode:'open'});shadowRoot.innerHTML='<b>hi</b>';}}customElements.define('x-x',X);</script><link rel=preconnect href=//fonts.example><x-x></x-x><img src="media:${sha(1)}">`;
   const {html, beside} = await exportPage(stored, {scripts: true, videos: 'out'}, host({[sha(1)]: {mime: 'image/png', bytes: 3}}).host);
-  assert.equal(html, stored.replace(`media:${sha(1)}`, 'data:image/png;base64,BwcH'));
+  assert.equal(html, '<!doctype html>' + stored.replace(`media:${sha(1)}`, 'data:image/png;base64,BwcH'), 'the doctype the board draws it with, its picture, and nothing else');
   assert.deepEqual(beside, []);
+});
+
+/* 0.3-P3-fix2 #10: the file shows what the board shows. The board's frame puts an address wherever the page says
+   media:<sha256> (in a picture, in words, in a script), and so does the file, each time counted in its size. */
+test('with its scripts a board file is put in at every place the board puts it, a picture, words and a script alike', async () => {
+  const page = `<p>The file media:${sha(1)} in words.</p><img src="media:${sha(1)}"><script>const s = 'media:${sha(1)}';</script><img src="media:${sha(9)}">`;
+  const {html} = await exportPage(page, {scripts: true, videos: 'out'}, host({[sha(1)]: {mime: 'image/png', bytes: 3}}).host);
+  // The board given the same address for the file: its frame ends with what the file holds after the doctype.
+  const board = framedDocument(page, {media: s => s === sha(1) ? 'data:image/png;base64,BwcH' : undefined, origins: []});
+  assert.ok(html.startsWith('<!doctype html>'));
+  assert.ok(board.endsWith(html.slice('<!doctype html>'.length)), 'the same places as the board');
+  assert.equal(html.split('data:image/png;base64,BwcH').length - 1, 3);
+  assert.ok(html.includes(`media:${sha(9)}`), 'a file this Mac does not have keeps its name');
+  const many = host({[sha(1)]: {mime: 'image/png', bytes: 30_000_000}});
+  await assert.rejects(exportPage(`<p>media:${sha(1)} media:${sha(1)}</p><img src="media:${sha(1)}">`, {scripts: true, videos: 'out'}, many.host), /at most 100,000,000/, 'each time it is said is counted');
 });
 
 test('a picture goes in as data, a video beside it or not at all', async () => {
@@ -58,7 +72,7 @@ test('a picture goes in as data, a video beside it or not at all', async () => {
   assert.ok(besideIt.html.includes(`media:${sha(3)}`), 'a file the board does not have is left as named');
   assert.deepEqual(besideIt.beside, [{path: `media/${sha(2)}.mp4`, sha: sha(2), bytes: 10}]);
   const without = await exportPage(page, {scripts: true, videos: 'out'}, host(files).host);
-  assert.ok(without.html.includes('<video src="" controls>'));
+  assert.ok(without.html.includes(`<video src="media:${sha(2)}" controls>`), 'a video left behind keeps its name, which loads nothing');
   assert.deepEqual(without.beside, []);
 });
 

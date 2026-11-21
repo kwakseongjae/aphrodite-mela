@@ -6,7 +6,7 @@
  * files put in where it names them as addresses. A board that should keep running is sent as a board file.
  */
 import {strToU8, zipSync, type Zippable} from 'fflate';
-import {isFreePage, mediaExtension, mediaNamed, type FrameHost} from './free-page';
+import {isFreePage, mediaExtension, mediaNamed, withMedia, type FrameHost} from './free-page';
 import {utf8Length} from './workspace/library';
 import boardFile from '../src-tauri/board-file.json';
 
@@ -60,18 +60,19 @@ export type ExportedPage = {html: string; beside: {path: string; sha: string; by
 const dataLength = (mime: string, bytes: number) => `data:${mime};base64,`.length + Math.ceil(bytes / 3) * 4;
 
 /**
- * Where a page names a board file as an address, in its stored text: an attribute that loads it, or a style's
- * url(…). The page's own words that happen to say `media:<sha256>` are left as they are.
+ * The doctype the board's frame puts first (framedDocument), so a page with none, or another, opens in a browser in the
+ * same mode it is drawn in on the board.
  */
-const ADDRESSED = /((?:\s(?:src|poster|href|xlink:href|data)\s*=\s*["']?)|url\(\s*["']?)media:([0-9a-f]{64})(?![0-9a-f])/gi;
-export function withMediaAddresses(html: string, address: (sha: string) => string | undefined): string {
-  return html.replace(ADDRESSED, (all, lead: string, sha: string) => { const to = address(sha); return to === undefined ? all : lead + to; });
+export function withDoctype(html: string): string {
+  return /^<!doctype html>/i.test(html) ? html : '<!doctype html>' + html;
 }
 
 /**
  * The file a page goes out as. A picture is put in as a data: address; a video is a file beside it
- * (`media/<sha256>.<extension>`) or is left out. Without its scripts the page is cleaned in the app's window
- * (cleanPage, which throws anywhere else); with them it is the stored page with its board files put in. The size is
+ * (`media/<sha256>.<extension>`) or is left out. Every `media:<sha256>` the page says is put in where the board puts
+ * it (withMedia), each time it is said, and each time is counted in the size. Without its scripts the page is cleaned
+ * in the app's window (cleanPage, which throws anywhere else); with them it is the stored page with the doctype the
+ * board draws it with, and its board files put in, and nothing else changed. The size is
  * added up from what the host says each file holds before any is read, and a page past MAX_EXPORTED_PAGE is refused.
  * The cleaning runs with short placeholders, so the check that the cleaned page reads back the same never carries a
  * picture's bytes; they go in after. With `inline: false` nothing is read and each picture is shown by its size.
@@ -81,8 +82,9 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   for (const sha of mediaNamed(source)) { const file = await host.stat(sha); if (file && mediaExtension(file.mime) !== 'bin') files.set(sha, file); }
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
   const placeholder = (sha: string) => `aphrodite-media-${nonce}-${sha}`;
-  const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : '' : placeholder(sha); };
-  let html = choice.scripts ? withMediaAddresses(source, address) : (await import('./page-clean')).cleanPage(source, address);
+  // A video left behind, and a file this Mac does not have, keep their names: a `media:` address loads nothing anywhere.
+  const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : undefined : placeholder(sha); };
+  let html = choice.scripts ? withDoctype(withMedia(source, address)) : (await import('./page-clean')).cleanPage(source, address);
   const beside: ExportedPage['beside'] = [];
   let length = utf8Length(html);
   const pictures: [string, {bytes: number; mime: string}, number][] = [];

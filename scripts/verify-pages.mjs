@@ -1002,6 +1002,52 @@ const HELD = `(() => { const bad = [], ours = m => m.hasAttribute('charset') || 
 /* 0.3-P3-fix1 #1: the input review's pages and the others, each cleaned by the app's own export code in Chrome and
    opened from disk: cleaned, none reaches the recording servers or leaves for another address; sent with its scripts,
    each that a browser sets off on opening does (QUIET lists those that need a press), so the probe is alive. */
+/* 0.3-P3-fix2 #10: a page sent as a file shows what the board shows. */
+check('a page sent as a file shows what the board shows: the board\'s doctype, each board file where the board puts it, a carriage return kept, and a video left behind loading nothing', async () => {
+  await sleep(5_200);
+  const contract = await agent('contract', {});
+  const shot = contract.pages.find(p => dropped.includes(p.page_id) && p.media.mime === 'image/png').media.src;
+  const video = contract.pages.find(p => dropped.includes(p.page_id) && p.media.mime.startsWith('video/')).media.src;
+  const page = `<p id="w">The file ${shot} in words.</p><img id="i" src="${shot}"><video id="v" src="${video}"></video><pre id="cr">A&#13;B</pre><script>window.said = '${shot}';</script>`;
+  // In a board of its own, so the one the other checks use stays under its page limit; board files are this Mac's, whichever board names them.
+  const home = contract.project.project_id;
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Sent as the board shows it'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== home, 'a board of its own');
+  await sleep(5_200);
+  const id = await makePage('Sent as the board shows it', page);
+  await personPresses('page', {id}); await sleep(300);
+  const save = await downloads();
+  await personPresses('export'); await sleep(800);
+  await evaluate(`(() => { if (document.querySelector('[data-export-scripts]').checked) document.querySelector('[data-export-scripts]').click(); document.querySelector('[name="export-videos"][value="out"]').click(); return true; })()`); await sleep(300);
+  const cleaned = (await save('download-page-html')).bytes.toString('utf8');
+  await evaluate(`document.querySelector('[data-export-scripts]').click(), true`); await sleep(500);
+  const withScripts = (await save('download-page-html')).bytes.toString('utf8');
+  await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
+  const data = /src="(data:image\/png;base64,[^"]+)"/.exec(withScripts)?.[1];
+  assert.ok(data, 'the picture went in');
+  assert.equal(withScripts, '\ufeff<!doctype html>' + page.replaceAll(shot, data), 'with its scripts: the board\'s doctype, the picture at every place it is said, the video named as it was, and nothing else');
+  assert.equal(cleaned.split(data).length - 1, 2, 'cleaned: the picture in its address and in the words, as on the board');
+  writeFileSync(fileAt('as-the-board.html'), cleaned);
+  writeFileSync(fileAt('as-the-board-scripts.html'), withScripts);
+  for (const [name, scripts] of [['as-the-board.html', false], ['as-the-board-scripts.html', true]]) {
+    const opened = await openPage(`file://${fileAt(name)}`, {cdp: 9387, profile: `/tmp/aphrodite-pages-as-board-${scripts ? 'scripts' : 'cleaned'}`});
+    try {
+      await sleep(1_500);
+      assert.equal(await opened.evaluate('document.compatMode'), 'CSS1Compat', `${name}: in standards mode, as on the board`);
+      // Cleaned, a carriage return is written as the newline any parser reads it back as; with its scripts the page is as stored, and reads as on the board.
+      assert.equal(await opened.evaluate(`document.getElementById('cr').textContent`), scripts ? 'A\rB' : 'A\nB', `${name}: the carriage return, not refused`);
+      assert.equal(await opened.evaluate(`document.getElementById('v').getAttribute('src')`), video, `${name}: the video left behind keeps its name`);
+      assert.deepEqual(await opened.evaluate(`performance.getEntriesByType('resource').map(e => e.name)`), [], `${name}: and nothing is requested for it`);
+      if (scripts) assert.equal(await opened.evaluate('window.said'), data, 'the script string holds the picture, as on the board');
+    } finally { opened.close(); }
+    await sleep(1_000);
+  }
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
+  await sleep(5_200);
+});
+
 check('every page built to slip past the cleaner reaches nothing once cleaned, where the same page with its scripts reaches out', async () => {
   const pages = vectors(TRAP, TCP);
   const bundle = await build({stdin: {contents: "import {exportPage} from './src/page-export.ts'; const host = {stat: async () => undefined, read: async () => undefined}; window.exportPage = (src, scripts) => exportPage(src, {scripts, videos: 'out'}, host).then(r => r.html, e => 'refused: ' + e.message);", resolveDir: process.cwd(), loader: 'ts'}, bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent'});

@@ -12,6 +12,7 @@
  * written page must begin with exactly the header we put on it, and read back with our three meta first in its head.
  */
 import createDOMPurify, {type Config, type DOMPurify} from 'dompurify';
+import {withMedia} from './free-page';
 import {CLEAN_FORBID_TAGS, CLEAN_FORBID_ATTR, keepsAttribute, STATIC_PAGE_CSP} from './page-export';
 
 const CONFIG: Config = {
@@ -157,10 +158,12 @@ export function cleanPage(source: string, address: (sha: string) => string | und
   for (let c = d.first(root); c && c !== head; c = d.first(root)) d.remove(root, c);
   const metas = HEADER_META.map(pairs => { const m = d.create(doc, 'meta'); for (const [k, v] of pairs) d.set(m, k, v); return m; });
   for (const m of [...metas].reverse()) d.insert(head, m, d.first(head));
-  const put = (text: string) => text.replace(/media:([0-9a-f]{64})(?![0-9a-f])/g, (all, sha: string) => address(sha) ?? all);
+  // Board files are put in wherever the page says them, as the board's frame does (withMedia): in an address, a style, words.
+  // A carriage return a page wrote as a character reference is written as a newline, the way any parser reads it back.
+  const put = (text: string) => withMedia(text, address).replace(/\r\n?/g, '\n');
   for (const element of d.all(doc, '*')) {
-    for (const a of d.attrs(element)) if (a.value.includes('media:')) d.set(element, a.name, put(a.value));
-    if (d.tag(element) === 'style' && d.text(element).includes('media:')) d.setText(element, put(d.text(element)));
+    for (const a of d.attrs(element)) if (a.value.includes('media:') || a.value.includes('\r')) d.set(element, a.name, put(a.value));
+    for (let c = d.first(element); c; c = d.next(c)) if (d.type(c) === 3 && (d.data(c).includes('media:') || d.data(c).includes('\r'))) d.setData(c, put(d.data(c)));
   }
   // What cleaning took out between two pieces of text leaves them side by side, which a parser never makes: they are
   // joined, as a second reading would join them, so only a real difference refuses the page.
