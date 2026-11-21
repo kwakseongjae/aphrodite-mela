@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState,writesApproval,approvalActions,APPROVAL_REFUSED,revivedApproval,APPROVAL_CLEARED} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState,writesApproval,approvalActions,APPROVAL_REFUSED} from '../src/agent/authority';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -138,13 +138,3 @@ test('every press that would write an approval is named, and only those',()=>{
   assert.match(APPROVAL_REFUSED,/person/,'the refusal says whose decision it is');
 });
 
-/* v0.2.4: after a change made the board a draft, an agent putting the content back (an edit, a batch,
-   an undo or redo) matched the old fingerprint and the approval was back without the person. */
-test('an approval that appears during an agent command is one the agent revived',()=>{
-  assert.equal(revivedApproval({projectId:'a',approved:false},{projectId:'a',approved:true}),true);
-  assert.equal(revivedApproval({projectId:'a',approved:true},{projectId:'a',approved:true}),false,'already approved: nothing was revived');
-  assert.equal(revivedApproval({projectId:'a',approved:true},{projectId:'a',approved:false}),false,'taking an approval away is not reviving one');
-  assert.equal(revivedApproval({projectId:'a',approved:false},{projectId:'a',approved:false}),false);
-  assert.equal(revivedApproval({projectId:'a',approved:false},{projectId:'b',approved:true}),false,'another project that was approved already is another board');
-  assert.match(APPROVAL_CLEARED,/only the person approves/);
-});

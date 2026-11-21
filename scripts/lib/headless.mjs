@@ -183,6 +183,21 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
       await send('Input.dispatchKeyEvent', {type: 'keyDown', key, code: `Key${key.toUpperCase()}`, text: key});
       await send('Input.dispatchKeyEvent', {type: 'keyUp', key, code: `Key${key.toUpperCase()}`});
     };
+    /**
+     * The person's own mouse on one element: a trusted press at its middle, which is the only kind of
+     * click the app counts as the person's. It refuses rather than pressing whatever covers the element.
+     */
+    const personPresses = async selector => {
+      const at = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null;
+        el.scrollIntoView({block: 'center', inline: 'center'}); const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
+        return hit && (hit === el || el.contains(hit)) ? {x, y} : {covered: hit ? hit.outerHTML.slice(0, 120) : 'nothing'}; })()`);
+      if (!at) throw new Error(`nothing matches ${selector}`);
+      if (at.covered) throw new Error(`${selector} is covered by ${at.covered}`);
+      await send('Input.dispatchMouseEvent', {type: 'mouseMoved', x: at.x, y: at.y});
+      await send('Input.dispatchMouseEvent', {type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1});
+      await send('Input.dispatchMouseEvent', {type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1});
+    };
     /** A real key press. `modifiers` is CDP's bitmask: Alt 1, Ctrl 2, Meta 4, Shift 8. */
     const presses = async (key, modifiers = 0) => {
       const code = key.length === 1 ? `Key${key.toUpperCase()}` : key;
@@ -190,7 +205,7 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
       await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key, code, modifiers, windowsVirtualKeyCode: vk});
       await send('Input.dispatchKeyEvent', {type: 'keyUp', key, code, modifiers});
     };
-    return {evaluate, send, agent, personClicks, personSubmits, personTypes, presses, close};
+    return {evaluate, send, agent, personClicks, personPresses, personSubmits, personTypes, presses, close};
   } catch (error) {
     close();
     throw error;

@@ -53,7 +53,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,isRead,isAsk,writesApproval,APPROVAL_REFUSED,revivedApproval,APPROVAL_CLEARED} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,writesApproval,APPROVAL_REFUSED,APPROVAL_CLEARED,type AgentTurn,type Origin} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -158,8 +158,14 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
  *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
-/* While an agent's command runs, waits included, no press may write an approval (see runAgentCommand). */
-let agentCommands=0;let approvalRefused=false;
+/** Who caused an event. The person's own input is trusted; an agent's synthetic event carries its turn; anything else is neither. */
+type Pressed=Event&{by?:Origin};
+function pressedBy(e:Event):Origin{return e.isTrusted?'person':(e as Pressed).by;}
+/** Clicks `el` for `origin`. click() dispatches synchronously, so the tag lands on that one event and on no other. Only the
+ *  app sets it: an agent reaches the page through commands, and every command that clicks passes its own turn. */
+function clickAs(el:HTMLElement,origin:Origin){const tag=(ev:Event)=>{(ev as Pressed).by=origin;};window.addEventListener('click',tag,{capture:true,once:true});try{el.click();}finally{window.removeEventListener('click',tag,{capture:true});}}
+/** Asked where an approval is written, after any wait. Only the person's own input says yes; an agent's turn learns it was refused. */
+function personPressed(origin:Origin){if(origin==='person')return true;if(origin)origin.refused=true;return false;}
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now()};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
@@ -222,11 +228,14 @@ function commit(change: () => void, updateUI = true,source='editor:change') {
   if (JSON.stringify(project) !== before) { undoStack.push(before); if (undoStack.length > 35) undoStack.shift(); redoStack = []; persist();recordRun(source,{...changeReceipt(JSON.parse(before),project),projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'}); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
-function history(direction: 'undo' | 'redo') {
+function history(direction: 'undo' | 'redo', origin?: Origin) {
   const from = direction === 'undo' ? undoStack : redoStack, to = direction === 'undo' ? redoStack : undoStack;
   const snapshot = from.pop(); if (!snapshot) return;
   dropStaleApproval(project);
-  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before); persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  const before=project;to.push(JSON.stringify(project)); project = preserveShelf(parseProject(snapshot),before);
+  /* An undo by anyone but the person brings the content back and never the approval: going back to a board they approved is their own ⌘Z. */
+  const cleared=origin!=='person'&&project.approvedFingerprint!==undefined;if(cleared){delete project.approvedFingerprint;if(origin)origin.cleared=true;}
+  persist();recordRun(direction,{...changeReceipt(before,project),projectSaved:lastSaved});if(cleared)recordRun('agent:approval-cleared');if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 function recordRun(kind:string,details:Record<string,unknown>={}){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,commandCaller?{...details,by:commandCaller}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
@@ -815,8 +824,7 @@ function compareModal() {
   comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
-async function action(el: HTMLElement) {
-  if(agentCommands&&writesApproval(el.dataset.action??'',isApproved(project))){approvalRefused=true;return;}
+async function action(el: HTMLElement, origin?: Origin) {
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
@@ -891,8 +899,8 @@ async function action(el: HTMLElement) {
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
     case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;});toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
     case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;});toast('Pointer lab · 기존 페이지는 보존됩니다');break;
-    case 'undo': history('undo'); break;
-    case 'redo': history('redo'); break;
+    case 'undo': history('undo',origin); break;
+    case 'redo': history('redo',origin); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; });if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selected = el.dataset.id!; render(); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
@@ -1094,8 +1102,8 @@ async function action(el: HTMLElement) {
     case 'design-md': showModal(ui('Your design, in writing.','글로 적은 디자인.'), '현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.', `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
     case 'approve': if(editorMode==='agent'){toast(ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'));break;}
-    case 'approve-human-only': if (isApproved(project)) exportModal(); else { commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
-    case 'approve-export': commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
+    case 'approve-human-only': if (isApproved(project)) exportModal(); else { if(!personPressed(origin))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.')); } break;
+    case 'approve-export': if(!personPressed(origin))break; commit(() => { project.approvedFingerprint = fingerprint(project); }); exportModal(); break;
     case 'export': exportModal(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
@@ -1150,7 +1158,7 @@ document.addEventListener('click', e => {
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control,pressedBy(e)).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
@@ -1308,7 +1316,7 @@ document.addEventListener('submit', async e => {
 let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();items[current].click();}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();items[0].click();}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
+function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();clickAs(items[current],pressedBy(e));}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();clickAs(items[0],pressedBy(e));}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite.','Aphrodite에 오신 것을 환영합니다.'),ui('Shape before you build.','만들기 전에, 방향부터.'),welcomeHtml(uiLanguage),true);}
@@ -1355,7 +1363,7 @@ async function inlineAssets(html:string):Promise<string>{
 }
 function agentState(){return {ok:true,state:{...app.dataset,...connectionState(agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
-async function actViaButton(actionName:string,data:Record<string,string>){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn);}finally{btn.remove();}}
+async function actViaButton(actionName:string,data:Record<string,string>,origin:Origin){const btn=document.createElement('button');btn.dataset.action=actionName;for(const [k,v] of Object.entries(data))btn.dataset[k]=v;app.append(btn);try{await action(btn,origin);}finally{btn.remove();}}
 /**
  * One operation against a page. Returns an error string rather than throwing, so the batch can be
  * abandoned cleanly and nothing is left half-applied.
@@ -1467,22 +1475,15 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
   return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
 }
 
-/** Every agent command comes through here. A press that would approve, by any route, is refused for the whole command,
- *  and an approval the command brought back (content put back, an undo or redo) is cleared when it ends. */
+/** Every agent command comes through here with a turn of its own. An approve it reached is refused in its reply, and an undo
+ *  or redo that put content back without its fingerprint says so in its reply; nothing is shared with any other command. */
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
-  if(isRead(String(kind))||isAsk(String(kind)))return agentCommand(kind,payload,caller);
-  const before={projectId:project.id,approved:isApproved(project)};
-  agentCommands++;approvalRefused=false;
-  let result:Record<string,unknown>;
-  try{result=await agentCommand(kind,payload,caller);if(approvalRefused)result={error:APPROVAL_REFUSED,status:403};}
-  finally{agentCommands--;approvalRefused=false;}
-  if(revivedApproval(before,{projectId:project.id,approved:isApproved(project)})){
-    delete project.approvedFingerprint;persist();recordRun('agent:approval-cleared',{by:normalizeCaller(caller)});rerenderPreservingScroll(app,render);
-    const fresh=agentState();result={...result,...(result.receipt?{state:fresh}:'state' in result?fresh:{}),approval:APPROVAL_CLEARED};
-  }
-  return result;
+  const turn:AgentTurn={refused:false,cleared:false};
+  const result=await agentCommand(kind,payload,caller,turn);
+  if(turn.refused)return {error:APPROVAL_REFUSED,status:403};
+  return turn.cleared?{...result,approval:APPROVAL_CLEARED}:result;
 }
-async function agentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
+async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined,turn:AgentTurn):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;
@@ -1520,11 +1521,11 @@ async function agentCommand(kind:unknown,payload:unknown,caller?:string):Promise
   commandCaller=who;
   try{
     switch(c.kind){
-      case 'act':await actViaButton(c.action,c.data);recordRun('agent:act',{action:c.action,data:c.data});break;
-      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};el.click();recordRun('agent:click',{selector:c.selector});break;}
+      case 'act':if(writesApproval(c.action,isApproved(project)))return {error:APPROVAL_REFUSED,status:403};await actViaButton(c.action,c.data,turn);recordRun('agent:act',{action:c.action,data:c.data});break;
+      case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};const control=el.closest<HTMLElement>('[data-action]');if(control&&writesApproval(control.dataset.action??'',isApproved(project)))return {error:APPROVAL_REFUSED,status:403};clickAs(el,turn);recordRun('agent:click',{selector:c.selector});break;}
       case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
-      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};document.body.dispatchEvent(new KeyboardEvent('keydown',init));document.body.dispatchEvent(new KeyboardEvent('keyup',init));recordRun('agent:key',{key:c.key});break;}
-      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};await actViaButton(hit.action,hit.data??{});recordRun('agent:command',{query:c.query,command:hit.id});break;}
+      case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};for(const type of ['keydown','keyup']){const ev=new KeyboardEvent(type,init) as Pressed;ev.by=turn;document.body.dispatchEvent(ev);}recordRun('agent:key',{key:c.key});break;}
+      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};if(writesApproval(hit.action,isApproved(project)))return {error:APPROVAL_REFUSED,status:403};await actViaButton(hit.action,hit.data??{},turn);recordRun('agent:command',{query:c.query,command:hit.id});break;}
       case 'references':{
         if(!nativeDesktop)return {error:'the reference archive is desktop only'};
         await archive.load(true);
@@ -1827,9 +1828,9 @@ document.addEventListener('keydown', e => {
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }
-  if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn);}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn);}return;}}
+  if(screen==='editor'&&!modalRoot.children.length&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.key.length===1){const hit=dockShortcut(e.key);if(hit){e.preventDefault();if(hit.mode){const btn=document.querySelector<HTMLElement>(`[data-action="editor-mode"][data-mode="${hit.mode}"]`);if(btn)void action(btn,pressedBy(e));}else if(hit.tool){const btn=document.querySelector<HTMLElement>(`.dock [data-tool="${hit.tool.id}"]`);if(btn)void action(btn,pressedBy(e));}return;}}
   if(screen==='home'){if(e.key==='/'){e.preventDefault();document.querySelector<HTMLInputElement>('#project-search')?.focus();}return;}
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo'); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); history(e.shiftKey ? 'redo' : 'undo', pressedBy(e)); }
   else if (e.key === '/') { e.preventDefault(); commandsModal(); }
   else if ((e.metaKey||e.ctrlKey)&&(e.code==='Backslash'||e.key==='\\')) { e.preventDefault(); const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open'; panels={left:next,right:next}; savePanels(); render(); }
   else if (e.key === 'Enter' && (e.target as HTMLElement).dataset.blockId) { selected = (e.target as HTMLElement).dataset.blockId!; render(); document.querySelector<HTMLTextAreaElement>('[data-field="title"]')?.focus(); }
