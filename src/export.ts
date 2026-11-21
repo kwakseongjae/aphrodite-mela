@@ -76,7 +76,7 @@ function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[
  * documents before a wait and its pages after could ship "approved" around a page edited meanwhile.
  */
 export function exportSnapshot(p: Project): Project { return dropStaleApproval(structuredClone(p)); }
-export async function exportBundle(live: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
+export async function exportBundle(live: Project, resolveLocal?: (id: string, projectId: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
   const p = exportSnapshot(live);
   // The exported HTML has to stand alone on someone else's machine, so the vendor runtime must be
   // here before a single page is rendered — a lazy chunk that has not arrived would ship a
@@ -106,7 +106,7 @@ export async function exportBundle(live: Project, resolveLocal?: (id: string) =>
   // Pictures from the local library are referenced by hash; the handoff carries the bytes instead.
   const localFiles: {ref: string; name: string}[] = [];
   for(const id of localRefsIn(p)){
-    const got=await resolveLocal?.(id);
+    const got=await resolveLocal?.(id,p.id);
     if(!got)continue;
     const name=`assets/uploads/local-${id}.${extensionFor(got.mime)}`;
     files[name]=got.bytes;

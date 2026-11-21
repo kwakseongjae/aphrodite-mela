@@ -130,3 +130,14 @@ test('an export reads the board it started from, even when the board changes whi
   assert.match(html,/Reviewed title/,'the page is the same board');
   assert.doesNotMatch(html,/Edited during export/,'and not the one edited while it waited');
 });
+
+/* Codex 2026-11-22 (check 3): pictures were looked up under whichever board was open when the lookup ran. */
+test('an export looks its pictures up under the board it started from',async()=>{
+  const p=initialProject();p.pages[0].blocks=[makeBlock('hero')];p.pages[0].blocks[0].image='local:0123456789abcdef';
+  const asked:string[]=[];
+  const pending=exportBundle(p,async(_id:string,projectId:string)=>{asked.push(projectId);return {bytes:new Uint8Array([1]),mime:'image/png'};});
+  const started=p.id;p.id='another-board';
+  await pending;
+  assert.ok(asked.length>0,'a picture was looked up');
+  assert.deepEqual([...new Set(asked)],[started]);
+});
