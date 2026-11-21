@@ -448,11 +448,14 @@ async function openReadBoard(read:ReadBoard){
   // Only this board comes out again: whatever else changed in the library meanwhile stays. Its files are taken back.
   catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}await read.settle(false);throw error;}
   await read.settle(true);
+  // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
+  // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
+  let missing=0;
+  if(nativeDesktop){for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  else missing=read.pictures.length;
   openProject(read.project);
-  // The image library's pictures it carried go into this board's own library, now that it is in; one that cannot is missing on it.
-  let pictures=0;if(nativeDesktop)for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});pictures++;}catch{/* shown as missing */}}
-  if(pictures)forgetLocal();
-  toast(read.left.length?ui(`Board opened as a new board · ${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`새 보드로 열었습니다 · 파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
+  const notes=[read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
+  toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
 function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /**

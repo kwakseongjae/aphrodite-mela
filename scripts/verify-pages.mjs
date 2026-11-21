@@ -22,7 +22,7 @@ import {requestProbe} from './wall/probes.mjs';
 import {mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync, truncateSync, readdirSync, readFileSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, extname} from 'node:path';
-import {unzipSync} from 'fflate';
+import {unzipSync, zipSync} from 'fflate';
 import {build} from 'esbuild';
 import {vectors, QUIET, ORDINARY, ORDINARY_DOCUMENTS, LOSSES} from '../tests/support/clean-vectors.mjs';
 /** What a board file is called (src-tauri/board-file.json): nothing here spells it out. */
@@ -1229,6 +1229,34 @@ check('a board file whose library write fails comes out alone, and a change made
   assert.equal((await agent('contract', {})).project.project_id, here, 'the board open is the one it was');
   assert.equal(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(here)}).project.pages[0].name`), 'Renamed meanwhile', 'the change made meanwhile is still in the library');
   result.failedImport = {renamed: !!renamed.ok};
+});
+
+/* 0.3-P3-fix2 #7: a board file carrying a picture from its image library. The browser build has no image library, so it
+   says the picture could not be put in, rather than dropping it without a word (the desktop puts it in before the
+   board is drawn). */
+check('a board file carrying a picture from its image library says so when this build cannot put it in', async () => {
+  const sent = readFileSync(fileAt(`sent.${BOARD_FILE.extension}`));
+  const files = unzipSync(new Uint8Array(sent));
+  const pic = new Uint8Array(readFileSync(join(process.cwd(), 'public/brand/apple-mark.png')));
+  let h = 0xcbf29ce484222325n; for (const b of pic) { h ^= BigInt(b); h = (h * 0x100000001b3n) & 0xffffffffffffffffn; }
+  const id = h.toString(16).padStart(16, '0');
+  const board = JSON.parse(new TextDecoder().decode(files['board.json']));
+  const section = board.pages.findIndex(p => !p.kind && p.blocks.length);
+  board.pages[section].blocks[0].image = `local:${id}`;
+  files['board.json'] = new TextEncoder().encode(JSON.stringify(board));
+  files[`local/${id}.png`] = pic;
+  writeFileSync(fileAt(`with-a-picture.${BOARD_FILE.extension}`), zipSync(files));
+  const count = (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`));
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`with-a-picture.${BOARD_FILE.extension}`)]});
+  await waitFor(async () => (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`)) > count, 'the board to open', 30);
+  await waitFor(() => evaluate(`document.querySelector('#toast').textContent.includes('1')`), 'the toast');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /이미지 라이브러리 그림 1개|1 picture\(s\) from its image library/, 'it says the picture could not be put in');
+  await sleep(5_200);
 });
 
 check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
