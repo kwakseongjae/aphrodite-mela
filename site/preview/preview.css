@@ -1,66 +1,112 @@
-/* The internal preview download page. Values come from tokens.css (a copy of src/ui/tokens.css); nothing here is a raw colour or size. */
-*, *::before, *::after { box-sizing: border-box; }
-body {
-  margin: 0;
-  background: var(--ui-bg-app);
-  color: var(--ui-text-1);
-  font-family: var(--ui-font-sans);
-  font-size: var(--ui-text-15);
-  line-height: var(--ui-lh-15);
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-.wrap { max-width: 640px; margin: 0 auto; padding: var(--ui-space-7) var(--ui-space-5); }
-.head { display: flex; align-items: center; gap: var(--ui-space-4); margin-bottom: var(--ui-space-6); }
-.icon { border-radius: var(--ui-radius-3); flex: none; }
-.eyebrow { margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); font-weight: var(--ui-w-medium); }
-h1 { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); }
-h2 { margin: 0 0 var(--ui-space-3); font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); font-weight: var(--ui-w-semibold); }
-section { margin-bottom: var(--ui-space-7); }
-section h2 + ul + h2 { margin-top: var(--ui-space-5); }
-.meta { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
-p { margin: 0 0 var(--ui-space-3); }
-ul { margin: 0; padding-left: var(--ui-space-5); }
-li { margin-bottom: var(--ui-space-2); }
-a { color: var(--ui-accent-text); text-underline-offset: 2px; }
-a:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); border-radius: var(--ui-radius-1); }
-code { font-family: var(--ui-font-mono); font-size: var(--ui-text-13); background: var(--ui-bg-sunken); border-radius: var(--ui-radius-1); padding: 0 var(--ui-space-1); }
+/* The internal preview download page. It loads the landing's styles.css first and adds only what this page needs,
+   with the landing's own variables, type and spacing: nothing here is a new colour family or a new face. */
 
-.status { font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
-.buttons { display: flex; gap: var(--ui-space-3); }
-.btn {
-  flex: 1;
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: var(--ui-control-lg);
-  padding: var(--ui-space-2) var(--ui-space-4);
-  border: var(--ui-hairline) solid transparent;
-  border-radius: var(--ui-radius-2);
-  font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold);
-  text-align: center; text-decoration: none; cursor: pointer;
-  transition: background var(--ui-dur-fast) var(--ui-ease);
-}
-.btn-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
-.btn-primary:hover { background: var(--ui-accent-hover); }
-.btn-secondary { background: var(--ui-bg-panel); color: var(--ui-text-1); border-color: var(--ui-line-strong); }
-.btn-secondary:hover { background: var(--ui-bg-hover); }
-.btn:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); }
-/* Not pressable: no address, a plain surface, dashed edge. The reason is text below, not only a dimmed colour. */
-.btn[aria-disabled="true"] {
-  background: var(--ui-bg-sunken); color: var(--ui-text-2);
-  border: var(--ui-hairline) dashed var(--ui-line-strong);
-  cursor: not-allowed;
-}
-.reason, .fallback, .hint { font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
-.reason { margin-top: var(--ui-space-3); }
-.reason:empty { display: none; }
-.hint { margin-top: var(--ui-space-3); }
+/* nav: the landing's lockup, with one quiet mark that this is the internal preview */
+.nav-brand{display:flex;align-items:center;gap:14px;min-width:0}
+.nav-tag{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-ink);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
 
-.todo { background: var(--ui-warn-soft); color: var(--ui-text-1); border-left: var(--ui-space-1) solid var(--ui-warn-600); border-radius: var(--ui-radius-2); padding: var(--ui-space-3) var(--ui-space-4); }
-.todo strong { color: var(--ui-warn-text); }
-.todo-inline { background: var(--ui-warn-soft); color: var(--ui-warn-text); border-radius: var(--ui-radius-1); padding: 0 var(--ui-space-1); font-weight: var(--ui-w-semibold); white-space: nowrap; }
+/* hero: the landing's grammar, a little tighter so the version line and the top of the window sit inside 900px */
+.pv-hero{grid-template-columns:1.45fr .55fr;padding-top:clamp(20px,4vw,52px);padding-bottom:clamp(28px,3.4vw,44px)}
+.pv-hero h1{font-size:clamp(42px,5vw,72px);margin:16px 0 20px}
+.pv-hero h1 em{font-size:.48em;margin-top:18px;max-width:22em}
+.pv-hero .lede{max-width:600px}
+.pv-hero .cta-row{margin-top:28px}
+.pv-hero .hero-art img{max-width:320px}
 
-@media (max-width: 520px) {
-  .wrap { padding: var(--ui-space-6) var(--ui-space-4); }
-  .buttons { flex-direction: column; }
+/* one download button: Apple Silicon on its face, Intel behind the chevron */
+.dl-split{position:relative;display:inline-flex;align-items:stretch}
+.dl-split>.btn-primary{border-radius:7px 0 0 7px;padding-right:22px}
+.dl-more summary{list-style:none;display:flex;align-items:center;justify-content:center;width:48px;height:100%;background:var(--ink);color:var(--paper);border-left:1px solid rgba(247,245,239,.18);border-radius:0 7px 7px 0;cursor:pointer;transition:background .15s}
+.dl-more summary::-webkit-details-marker{display:none}
+.dl-more summary:hover{background:#484334}
+.chev{width:16px;height:16px;transition:transform .15s}
+.dl-more[open] .chev{transform:rotate(180deg)}
+.dl-menu{position:absolute;left:0;top:calc(100% + 8px);min-width:100%;padding:6px;background:var(--paper);border:1px solid var(--line);border-radius:9px;box-shadow:0 18px 50px -30px rgba(41,40,32,.45);z-index:5}
+.dl-menu a{display:block;padding:11px 14px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:14px;line-height:1.3}
+.dl-menu a:hover{background:var(--paper-2)}
+.dl-menu strong{display:block;font-weight:500}
+.dl-menu small{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+@media (prefers-color-scheme:dark){
+  .dl-more summary{background:var(--gold);color:#24241f;border-left-color:rgba(36,36,31,.22)}
+  .dl-more summary:hover{background:#e8d28f}
 }
-@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+
+/* a button with no release behind it: dimmed, dashed, and the reason is the line under it, not the colour alone */
+[data-release] .btn[aria-disabled="true"],[data-release] .dl-menu a[aria-disabled="true"]{cursor:not-allowed}
+[data-release] .btn-primary[aria-disabled="true"]{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--line);transform:none}
+[data-release] .btn-ghost[aria-disabled="true"]{color:var(--faint);border-style:dashed;background:transparent}
+[data-release] .dl-menu a[aria-disabled="true"],[data-release] .dl-menu a[aria-disabled="true"] small{color:var(--faint);background:transparent}
+[data-release="absent"] .dl-more summary{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--line);border-left-color:var(--line)}
+
+.pv-meta{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--faint);margin:18px 0 0}
+.pv-meta span{white-space:nowrap}
+.pv-reason{min-height:1.6em;font-size:13px;line-height:1.6;color:var(--muted);margin:6px 0 0}
+.pv-reason a{color:var(--ink)}
+
+/* the window: the landing's .shot, a little closer to the hero */
+.pv-screens .screen-grid{grid-template-columns:repeat(2,1fr)}
+.pv-screens .screen-grid p code,.steps p code,.pv-list code{font-family:var(--mono);font-size:.88em;color:var(--gold-ink);background:var(--paper-2);padding:2px 6px;border-radius:5px;white-space:nowrap}
+
+/* get: the heading on one side, one row per Mac on the other */
+.pv-get{max-width:var(--max);margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,4vw,40px);border-top:1px solid var(--line);display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(24px,5vw,72px);align-items:start}
+.pv-side h2{font-size:clamp(30px,3.8vw,50px);line-height:1.1;margin-top:14px;font-variation-settings:"opsz" 96}
+.pv-side p{font-size:15px;line-height:1.75;color:var(--muted);margin:18px 0 0;max-width:420px}
+.pv-rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.pv-rows li{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 0;border-bottom:1px solid var(--line)}
+.pv-row-name{font-size:17px;color:var(--ink)}
+.pv-row-name small{display:block;font-size:13px;color:var(--muted);margin-top:3px}
+.pv-row-btn{flex:none;padding:11px 20px;min-height:44px}
+
+/* connect: the steps, then the three lines in the landing's window frame */
+.pv-note{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--faint);margin:14px 0 0}
+.pv-term{margin-top:clamp(28px,4vw,44px)}
+.pv-term .window-bar span{margin-left:10px}
+.cmd{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:18px;align-items:center;padding:14px 18px;border-top:1px solid var(--line);background:var(--paper)}
+.window-bar+.cmd{border-top:0}
+.cmd-label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--faint);white-space:nowrap}
+.cmd code{font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--ink);overflow-wrap:anywhere}
+.copy{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:5px;padding:7px 12px;min-height:36px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.copy:hover{background:var(--paper-2)}
+.pv-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* scope: the landing's two panels */
+.pv-list{list-style:none;margin:0;padding:0}
+.pv-list li{position:relative;padding:9px 0 9px 22px;font-size:14.5px;line-height:1.7;color:var(--muted)}
+.pv-list li+li{border-top:1px solid var(--line)}
+.pv-list li::before{content:"";position:absolute;left:2px;top:19px;width:7px;height:7px;border-radius:50%;background:var(--gold)}
+.pv-not .pv-list li::before{width:9px;height:1px;border-radius:0;top:22px;background:var(--faint)}
+
+/* limits: a short ledger, and where to tell us */
+.pv-limits-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:clamp(28px,5vw,72px);align-items:start}
+.pv-ledger{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.pv-ledger li{display:grid;grid-template-columns:140px minmax(0,1fr) auto;gap:clamp(14px,2.4vw,28px);align-items:baseline;padding:18px 0;border-bottom:1px solid var(--line)}
+.pv-ledger-when{font-size:15px;color:var(--ink)}
+.pv-ledger-why{font-size:14px;line-height:1.7;color:var(--muted)}
+.pv-checking{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--gold-ink);background:var(--paper-2);padding:3px 9px;border-radius:999px;white-space:nowrap}
+.pv-report{border:1px solid var(--line);border-radius:12px;padding:28px 28px 30px}
+.pv-report img{width:132px;margin:0 0 6px -8px}
+.pv-report h3{font-size:22px;line-height:1.2;margin-bottom:10px}
+.pv-report p{font-size:14.5px;line-height:1.75;color:var(--muted);margin:0 0 20px}
+.arrow{width:14px;height:14px}
+
+@media (max-width:960px){
+  .pv-hero{grid-template-columns:1fr}
+  .pv-hero .hero-art{order:0}
+  .pv-hero .hero-art img{max-width:180px}
+  .pv-screens .screen-grid,.pv-get,.pv-limits-grid{grid-template-columns:1fr}
+  .cmd{grid-template-columns:minmax(0,1fr) auto;gap:6px 14px}
+  .cmd-label{grid-column:1/-1}
+}
+@media (max-width:640px){
+  .nav-tag{padding:3px 8px;letter-spacing:.12em}
+  .pv-hero h1 span{display:inline}
+  .dl-split{display:flex;width:100%}
+  .dl-split>.btn-primary{flex:1;width:auto}
+  .dl-menu{right:0}
+  .pv-rows li{align-items:center}
+  .pv-ledger li{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}
+  .pv-ledger-why{grid-column:1/-1;grid-row:2}
+  .copy{min-height:44px;padding:9px 14px}
+  .pv-report{padding:22px}
+}
+@media (prefers-reduced-motion:reduce){.chev,.dl-more summary{transition:none}}

@@ -1,74 +1,204 @@
 <!doctype html>
-<html lang="ko" data-theme="light">
+<html lang="ko">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>Aphrodite 미리보기판 내려받기</title>
-<link rel="icon" href="../assets/brand/app-icon.png">
-<link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="preview.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Aphrodite 미리보기판 내려받기</title>
+  <meta name="theme-color" content="#f7f5ef">
+  <link rel="icon" href="../assets/brand/app-icon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&amp;family=Geist:wght@300..600&amp;family=Geist+Mono:wght@400&amp;family=Reenie+Beanie&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="preview.css">
 </head>
 <body>
-<main class="wrap">
-  <header class="head">
-    <img class="icon" src="../assets/brand/app-icon.png" alt="" width="48" height="48">
-    <div>
-      <p class="eyebrow">내부 미리보기판</p>
-      <h1>Aphrodite 미리보기판</h1>
-      <p class="meta" data-meta hidden></p>
-    </div>
+  <a class="skip" href="#main">본문으로 건너뛰기</a>
+
+  <header class="nav">
+    <span class="nav-brand">
+      <a class="lockup" href="./" aria-label="Aphrodite 미리보기판">
+        <svg viewBox="0 0 220 48" fill="none" aria-hidden="true"><path fill="#B48A32" fill-rule="evenodd" d="M23 13C9 5 1 18 6 31c3 8 8 13 14 10 2-1 4-1 6 0 6 3 12-3 14-11 4-14-5-24-17-17Zm-1 4L12 35h5l2-4h9l2 4h5L25 17h-3Zm1.5 6-2.5 5h5l-2.5-5Z"/><path fill="#B48A32" d="M24 10c0-6 5-9 12-8-1 6-5 9-12 8Z"/><g stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M69 21v13m0-7c0-10-14-10-14 0s14 10 14 0M78 21v21m0-15c0-10 14-10 14 0s-14 10-14 0M101 11v23m0-8c0-8 13-8 13 0v8M122 34V21m0 6c0-5 3-7 7-7M149 27c0-10-14-10-14 0s14 10 14 0M170 11v23m0-7c0-10-14-10-14 0s14 10 14 0M179 22v12M190 15v14q0 7 7 4m-11-12h11M205 27h12c0-10-13-10-13 0 0 7 8 9 12 4"/><path d="M179 14h.01" stroke-width="3.5"/></g></svg>
+      </a>
+      <span class="nav-tag">내부 미리보기</span>
+    </span>
+    <nav aria-label="사이트">
+      <a href="../">정식판</a>
+      <a href="https://github.com/kwakseongjae/aphrodite-mela" data-repo-link rel="noopener">GitHub</a>
+    </nav>
   </header>
 
-  <section aria-labelledby="dl-h">
-    <h2 id="dl-h">내려받기</h2>
-    <p class="status" data-status role="status">릴리스를 확인하는 중입니다.</p>
-    <div class="buttons">
-      <a class="btn btn-primary" data-dl="arm" aria-disabled="true" aria-describedby="dl-reason">Apple Silicon용 내려받기</a>
-      <a class="btn btn-secondary" data-dl="intel" aria-disabled="true" aria-describedby="dl-reason">Intel Mac용 내려받기</a>
-    </div>
-    <p id="dl-reason" class="reason" data-reason></p>
-    <p class="fallback" data-fallback hidden>받아지지 않으면 <a data-releases href="https://github.com/kwakseongjae/aphrodite-mela/releases">릴리스 페이지</a>에서 받으세요.</p>
-    <noscript><p class="reason">이 페이지는 스크립트가 있어야 내려받기 주소를 만듭니다. <a href="https://github.com/kwakseongjae/aphrodite-mela/releases">릴리스 페이지</a>에서 받으세요.</p></noscript>
-    <p class="hint">내 Mac이 어느 쪽인지 모르겠다면: 화면 왼쪽 위 Apple 메뉴 &gt; 이 Mac에 관하여 &gt; 칩. &ldquo;Apple M…&rdquo;이면 Apple Silicon, &ldquo;Intel&rdquo;이면 Intel Mac입니다.</p>
-  </section>
+  <main id="main">
+    <section class="hero pv-hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Aphrodite 미리보기판</span>
+        <h1>
+          <span>에이전트의 페이지를,</span>
+          <span>한 보드에.</span>
+          <em>터미널의 Claude Code와 Codex가 보드에 HTML 페이지를 올리고 고칩니다.</em>
+        </h1>
+        <p class="lede">스크린샷과 영상도 같은 보드에 놓고, 다 된 보드는 파일 하나로 건넵니다. 모든 변경에는 누가, 왜 바꿨는지가 남습니다.</p>
+        <div class="cta-row">
+          <div class="dl-split" data-split>
+            <a class="btn btn-primary" data-dl="arm" aria-disabled="true">
+              <svg class="apple" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.3 1.2 9.7.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.6-1-2.6-3.8ZM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.9-1 2.9 1.1.1 2.2-.6 2.8-1.4Z"/></svg>
+              <span><strong>Mac용 내려받기</strong><small>Apple Silicon · M1 이후</small></span>
+            </a>
+            <details class="dl-more" data-more>
+              <summary aria-label="다른 칩: Intel Mac"><svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="dl-menu">
+                <a data-dl="intel" aria-disabled="true"><strong>Intel Mac용 내려받기</strong><small>2020년까지 나온 Intel Mac</small></a>
+              </div>
+            </details>
+          </div>
+        </div>
+        <p class="pv-meta" data-meta>macOS 13 이상</p>
+        <p class="pv-reason" id="dl-reason" data-reason role="status">릴리스를 확인하는 중입니다.</p>
+        <noscript><p class="pv-reason">이 페이지는 스크립트로 내려받기 주소를 만듭니다. <a href="https://github.com/kwakseongjae/aphrodite-mela/releases">릴리스 페이지</a>에서 받으세요.</p></noscript>
+      </div>
+      <figure class="hero-art">
+        <img src="../assets/brand/paper-dove.webp" width="900" height="900" alt="" fetchpriority="high">
+        <figcaption>건네는 데까지, 한 보드에서.</figcaption>
+      </figure>
+    </section>
 
-  <section aria-labelledby="can-h">
-    <h2 id="can-h">이 판으로 되는 것</h2>
-    <ul>
-      <li>터미널의 Claude Code와 Codex를 MCP로 연결해 보드에 HTML 페이지를 올리고 고칩니다.</li>
-      <li>스크린샷과 영상을 보드에 놓습니다.</li>
-      <li><code>.aph</code> 파일과 HTML 파일로 건넵니다.</li>
-      <li>모든 변경에 누가, 왜 바꿨는지가 남습니다.</li>
-    </ul>
-    <h2 id="cannot-h">아직 안 되는 것</h2>
-    <ul>
-      <li>페이지 안을 손으로 고치기(0.4)</li>
-      <li>앱 안 대화(0.3-4, 0.3-C)</li>
-      <li>링크 공유(0.3-S)</li>
-      <li>새 디자인(F3~F5)</li>
-    </ul>
-  </section>
+    <section class="shot" aria-label="화면">
+      <div class="window">
+        <div class="window-bar"><i></i><i></i><i></i><span>Aphrodite — 빛공방 · 샘플</span></div>
+        <img src="assets/board.webp" width="1440" height="900" alt="Aphrodite 보드: 섹션으로 만든 Home과 모바일 페이지 옆에, 에이전트가 올린 HTML 페이지 Spring launch가 놓여 있다. 위쪽 띠는 에이전트가 연결되어 있고 편집이 허용되어 있음을 알린다.">
+      </div>
+      <p class="shot-caption">보드. 에이전트가 올린 HTML 페이지가 다른 페이지 옆에 프레임으로 놓입니다.</p>
+    </section>
 
-  <section aria-labelledby="connect-h">
-    <h2 id="connect-h">에이전트 연결 방법</h2>
-    <p class="todo" data-todo="connect"><strong>[연결 방법: 확인 후 채움]</strong> 실제로 따라 해 본 뒤에 적습니다. Claude Code와 Codex 각각 무엇을 설치하고 어떤 명령 한 줄을 넣는지, 처음 연결할 때 뜨는 허용 창이 들어갑니다.</p>
-  </section>
+    <section class="screens pv-screens" aria-labelledby="screens-h2">
+      <div class="section-head">
+        <span class="eyebrow">이 판의 화면</span>
+        <h2 id="screens-h2">올리고, 보고, 건넵니다.</h2>
+      </div>
+      <ul class="screen-grid">
+        <li>
+          <div class="window small"><div class="window-bar"><i></i><i></i><i></i></div><img src="assets/page.webp" width="1440" height="900" alt="HTML 페이지 하나를 창 가득 연 모습. 페이지가 스스로 쓴 한 줄이 보인다." loading="lazy"></div>
+          <h3>페이지 하나를 크게</h3>
+          <p>보드의 페이지를 열면 창 가득, 실제로 그려지는 그대로 봅니다.</p>
+        </li>
+        <li>
+          <div class="window small"><div class="window-bar"><i></i><i></i><i></i></div><img src="assets/export.webp" width="1440" height="900" alt="내보내기 창: 페이지 하나를 HTML 파일로 내려받는 칸과, 보드를 .aph로 저장하는 단추." loading="lazy"></div>
+          <h3>파일 하나로 건네기</h3>
+          <p>보드는 <code>.aph</code> 파일 하나로, 페이지는 HTML 파일 하나로 내보냅니다. 받는 사람은 Aphrodite로, 또는 브라우저로 엽니다.</p>
+        </li>
+      </ul>
+    </section>
 
-  <section aria-labelledby="limits-h">
-    <h2 id="limits-h">알려진 한계</h2>
-    <ul>
-      <li>macOS 13~14에서는 HTML 페이지가 그려지지 않을 수 있습니다. 페이지 벽을 확인한 것은 macOS 15와 27입니다.</li>
-      <li>자동 업데이트가 없습니다. 새 판은 이 페이지에서 다시 받습니다. <span class="todo-inline" data-todo="update">[정해지면 고침]</span></li>
-      <li>정식판(0.2.x)과 따로 설치되는지는 <span class="todo-inline" data-todo="coexist">[확인 후 채움]</span></li>
-    </ul>
-  </section>
+    <section class="pv-get" id="get" aria-labelledby="get-h2">
+      <div class="pv-side">
+        <span class="eyebrow">내려받기</span>
+        <h2 id="get-h2">내 Mac에 맞는 쪽으로.</h2>
+        <p>어느 쪽인지 모르겠다면 화면 왼쪽 위 Apple 메뉴 &gt; 이 Mac에 관하여에서 칩을 봅니다. Apple M으로 시작하면 Apple Silicon입니다.</p>
+      </div>
+      <ul class="pv-rows">
+        <li>
+          <span class="pv-row-name">Mac · Apple Silicon<small>M1 이후 Mac</small></span>
+          <a class="btn btn-ghost pv-row-btn" data-dl="arm" aria-disabled="true">내려받기</a>
+        </li>
+        <li>
+          <span class="pv-row-name">Mac · Intel<small>2020년까지 나온 Intel Mac</small></span>
+          <a class="btn btn-ghost pv-row-btn" data-dl="intel" aria-disabled="true">내려받기</a>
+        </li>
+      </ul>
+    </section>
 
-  <section aria-labelledby="report-h">
-    <h2 id="report-h">문제를 알리는 곳</h2>
-    <p><a href="https://github.com/kwakseongjae/aphrodite-mela/issues">GitHub 이슈</a>에 남겨 주세요. 판 번호와 macOS 버전, 어느 칩인지를 함께 적어 주세요.</p>
-  </section>
-</main>
-<script src="preview.js"></script>
+    <section class="how pv-install" aria-labelledby="install-h2">
+      <div class="section-head">
+        <span class="eyebrow">설치</span>
+        <h2 id="install-h2">Mac에 설치하기.</h2>
+      </div>
+      <ol class="steps">
+        <li><span class="num">01</span><h3>파일 열기</h3><p>내려받은 <code>.dmg</code> 파일을 두 번 눌러 엽니다.</p></li>
+        <li><span class="num">02</span><h3>Applications로 끌기</h3><p>Aphrodite 아이콘을 Applications 폴더에 놓습니다.</p></li>
+        <li><span class="num">03</span><h3>열기</h3><p>Applications에서 Aphrodite를 엽니다. 연결하기 전에 앱이 열려 있어야 합니다.</p></li>
+      </ol>
+    </section>
+
+    <section class="how pv-connect" id="connect" aria-labelledby="connect-h2">
+      <div class="section-head">
+        <span class="eyebrow">에이전트 연결</span>
+        <h2 id="connect-h2">터미널의 에이전트를 보드에.</h2>
+        <p class="pv-note">0.2 기준. 미리보기판에서 다시 확인함</p>
+      </div>
+      <ol class="steps">
+        <li><span class="num">01</span><h3>저장소 받기</h3><p>연결해 주는 MCP 서버는 저장소 안에 있습니다. 따로 설치할 것은 없습니다.</p></li>
+        <li><span class="num">02</span><h3>한 줄 넣기</h3><p>쓰는 에이전트에 맞는 줄 하나. <code>/path/to/aphrodite-mela</code>는 1에서 받은 폴더로 바꿉니다.</p></li>
+        <li><span class="num">03</span><h3>고치는 것은 허용 뒤에</h3><p>읽기는 늘 되고, 고치는 것은 사람이 켜 줘야 합니다. 에이전트가 요청하면 앱에서 한 번 눌러 허용합니다.</p></li>
+      </ol>
+      <div class="window pv-term">
+        <div class="window-bar"><i></i><i></i><i></i><span>터미널</span></div>
+        <div class="cmd"><span class="cmd-label">01 · 저장소</span><code data-cmd>git clone https://github.com/kwakseongjae/aphrodite-mela.git</code><button class="copy" type="button" data-copy aria-label="저장소 받기 명령 복사">복사</button></div>
+        <div class="cmd"><span class="cmd-label">02 · Claude Code</span><code data-cmd>claude mcp add --transport stdio aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs</code><button class="copy" type="button" data-copy aria-label="Claude Code 연결 명령 복사">복사</button></div>
+        <div class="cmd"><span class="cmd-label">02 · Codex</span><code data-cmd>codex mcp add aphrodite -- node /path/to/aphrodite-mela/mcp/aphrodite-mcp/index.mjs</code><button class="copy" type="button" data-copy aria-label="Codex 연결 명령 복사">복사</button></div>
+        <span class="pv-sr" data-copied role="status"></span>
+      </div>
+    </section>
+
+    <section class="keeps pv-scope" aria-labelledby="scope-h2">
+      <div class="section-head">
+        <span class="eyebrow">이 판의 범위</span>
+        <h2 id="scope-h2">되는 것과, 아직 안 되는 것.</h2>
+      </div>
+      <div class="keeps-grid">
+        <article>
+          <h3>이 판으로 되는 것</h3>
+          <ul class="pv-list">
+            <li>터미널의 Claude Code와 Codex를 연결해, 보드에 HTML 페이지를 올리고 고칩니다.</li>
+            <li>스크린샷과 영상을 보드에 놓습니다.</li>
+            <li>보드는 <code>.aph</code> 파일로, 페이지는 HTML 파일로 건넵니다.</li>
+            <li>모든 변경에 누가, 왜 바꿨는지가 남습니다.</li>
+          </ul>
+        </article>
+        <article class="pv-not">
+          <h3>아직 안 되는 것</h3>
+          <ul class="pv-list">
+            <li>페이지 안의 글과 모양을 손으로 고치기. 지금은 에이전트에게 말해 고칩니다.</li>
+            <li>앱 안에서 AI와 대화하기. 지금은 터미널의 에이전트로 합니다.</li>
+            <li>링크로 보드 공유하기. 지금은 파일로 건넵니다.</li>
+            <li>앱 화면의 새 디자인. 첫 실행과 작업공간은 지금 모양 그대로입니다.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="leaves pv-limits" aria-labelledby="limits-h2">
+      <div class="pv-limits-grid">
+        <div>
+          <div class="section-head">
+            <span class="eyebrow">알려진 한계</span>
+            <h2 id="limits-h2">미리 알아 둘 것.</h2>
+          </div>
+          <ul class="pv-ledger">
+            <li><span class="pv-ledger-when">macOS 13·14</span><span class="pv-ledger-why">HTML 페이지가 그려지지 않을 수 있습니다. 페이지 벽을 확인한 것은 macOS 15와 27입니다.</span></li>
+            <li><span class="pv-ledger-when">자동 업데이트</span><span class="pv-ledger-why">이 판이 새 판을 스스로 받는지. 새 판은 이 페이지에서 받을 수 있습니다.</span><span class="pv-checking">확인 중</span></li>
+            <li><span class="pv-ledger-when">정식판과 함께</span><span class="pv-ledger-why">정식판(0.2)과 한 Mac에 함께 둘 수 있는지.</span><span class="pv-checking">확인 중</span></li>
+          </ul>
+        </div>
+        <aside class="pv-report" aria-labelledby="report-h3">
+          <img src="../assets/brand/review.webp" width="900" height="900" alt="" loading="lazy">
+          <h3 id="report-h3">문제를 알리는 곳</h3>
+          <p>GitHub 이슈에 남겨 주세요. 판 번호, macOS 버전, 어느 칩인지를 함께 적어 주세요.</p>
+          <a class="btn btn-ghost" href="https://github.com/kwakseongjae/aphrodite-mela/issues" rel="noopener">이슈 남기기 <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11l6-6M6 5h5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="foot-mark">만들기 전에, 방향부터.</span>
+    <span class="foot-links">
+      <a href="https://github.com/kwakseongjae/aphrodite-mela" rel="noopener">GitHub</a>
+      <a href="https://github.com/kwakseongjae/aphrodite-mela/blob/main/THIRD_PARTY_NOTICES.md">서드파티 고지</a>
+    </span>
+    <span class="foot-credit">© <span data-year>2026</span> Kwak Seongjae · 의도 있게. 약간의 직감도 함께.</span>
+  </footer>
+
+  <script src="preview.js" defer></script>
 </body>
 </html>
