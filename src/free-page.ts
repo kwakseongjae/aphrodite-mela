@@ -328,8 +328,8 @@ export type FrameHost = {
   put(file: Blob, options?: {holding?: string}): Promise<StoredMedia>;
   /** A ticket for one board file's import, made by the host, never by the page. */
   hold(): Promise<string>;
-  /** An import's end: `keep` keeps what it placed; otherwise the host takes back only the files that import alone put here new (src-tauri/src/board.rs take_back). */
-  settle(ticket: string, keep: boolean): Promise<void>;
+  /** An import's end: `keep` keeps what it placed; otherwise the host takes back only the files that import alone put here new (src-tauri/src/board.rs take_back). Whether the import has ended: false while a file is still held, to be taken back again (0.3-P3-fix3 #9). */
+  settle(ticket: string, keep: boolean): Promise<boolean>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
   importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
@@ -424,22 +424,33 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
       const holding = options?.holding;
       if (holding !== undefined && !tickets.has(holding)) throw new Error('that import has ended');
-      // Whether it is here and putting it if not, in one transaction: no other write in this tab comes between.
-      const store = (await open()).transaction('files', 'readwrite').objectStore('files');
-      const fresh = await new Promise<boolean>((resolve, reject) => { const got = store.get(sha); got.onerror = () => reject(got.error); got.onsuccess = () => { if (got.result) { resolve(false); return; } const put = store.put(new Blob([file], {type: mime}), sha); put.onerror = () => reject(put.error); put.onsuccess = () => resolve(true); }; });
+      const db = await open();
+      // Another import's hold on this file ends the moment this put begins, before any wait: a take-back that looks
+      // after this sees it is not that import's alone any more (0.3-P3-fix3 #8).
+      if (held.has(sha) && held.get(sha) !== holding) held.delete(sha);
+      // Whether it is here and putting it if not, in one transaction: no other write in this tab comes between. What
+      // it did counts once the transaction has completed; one that is aborted puts nothing, and says so.
+      const tx = db.transaction('files', 'readwrite'), store = tx.objectStore('files');
+      let fresh = false;
+      const got = store.get(sha);
+      got.onsuccess = () => { if (!got.result) { fresh = true; store.put(new Blob([file], {type: mime}), sha); } };
+      await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('the file was not kept')); tx.onerror = () => reject(tx.error ?? new Error('the file was not kept')); });
       if (fresh && holding !== undefined) held.set(sha, holding);
-      else if (held.get(sha) !== holding) held.delete(sha);
       return {sha, mime, bytes: file.size};
     },
     hold: async () => { const ticket = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join(''); tickets.add(ticket); return ticket; },
     settle: async (ticket, keep) => {
-      if (!tickets.has(ticket)) return;
-      for (const [sha, owner] of [...held]) {
-        if (owner !== ticket) continue;
-        if (!keep) { try { await request((await open()).transaction('files', 'readwrite').objectStore('files').delete(sha)); } catch { continue; } const url = urls.get(sha); if (url) { URL.revokeObjectURL(url); urls.delete(sha); } }
-        held.delete(sha);
+      if (!tickets.has(ticket)) return true;
+      const db = await open();
+      for (const sha of [...held.keys()]) {
+        // Looked at again right before each file, and the delete begun with no wait in between: a put that came since
+        // has let go of it, and a put that comes after is ordered after the delete (0.3-P3-fix3 #8).
+        if (held.get(sha) !== ticket) continue;
+        if (!keep) { const tx = db.transaction('files', 'readwrite'); tx.objectStore('files').delete(sha); try { await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = tx.onerror = () => reject(tx.error); }); } catch { continue; } const url = urls.get(sha); if (url) { URL.revokeObjectURL(url); urls.delete(sha); } }
+        if (held.get(sha) === ticket) held.delete(sha);
       }
       if (![...held.values()].includes(ticket)) tickets.delete(ticket);
+      return !tickets.has(ticket);
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
@@ -497,10 +508,11 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       return native.invoke<StoredMedia>('board_media_finish', {id, holding: options?.holding ?? null});
     },
     hold: () => native.invoke<string>('board_media_hold_begin'),
-    settle: async (ticket, keep) => { if (keep) await native.invoke('board_media_keep', {ticket}); else await native.invoke('board_media_take_back', {ticket}); },
+    settle: async (ticket, keep) => { if (keep) { await native.invoke('board_media_keep', {ticket}); return true; } return (await native.invoke<{removed: string[]; left: number}>('board_media_take_back', {ticket})).left === 0; },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
-    stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha}).catch(() => null)) ?? undefined,
+    // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
+    stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,
     read: async sha => { try { return new Uint8Array(await native.invoke<ArrayBuffer>('board_media_read', {sha})); } catch { return undefined; } },
     frameCost: async sha => (await where(sha))?.length,
     frameMedia: where,

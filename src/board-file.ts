@@ -302,17 +302,35 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {
+      await settleAgain();
       ticket = await host.hold();
       try {
         for (const [sha, name, mime] of verified) {
           const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}), {holding: ticket});
           if (stored.sha !== sha) refuse(`${name} was kept under another name`);
         }
-      } catch (error) { await host.settle(ticket, false); ticket = undefined; throw error; }
+      } catch (error) { await settleOrKeepFor(host, ticket, false); ticket = undefined; throw error; }
     },
-    settle: async keep => { if (ticket) await host.settle(ticket, keep); ticket = undefined; },
+    settle: async keep => { if (ticket) await settleOrKeepFor(host, ticket, keep); ticket = undefined; },
   };
 }
+
+/**
+ * Imports whose end did not go through (0.3-P3-fix3 #9): a file Rust could not remove, or a keep or take-back that
+ * failed. They are not let go of; the next import tries them again before it begins, while the app is open.
+ */
+const unsettled = new Map<string, {host: Pick<FrameHost, 'settle'>; keep: boolean}>();
+async function settleOrKeepFor(host: Pick<FrameHost, 'settle'>, ticket: string, keep: boolean): Promise<void> {
+  let done = false;
+  try { done = await host.settle(ticket, keep); } catch { done = false; }
+  if (done) unsettled.delete(ticket); else unsettled.set(ticket, {host, keep});
+}
+/** Tries again the ends of imports that did not go through. */
+export async function settleAgain(): Promise<void> {
+  for (const [ticket, {host, keep}] of [...unsettled]) await settleOrKeepFor(host, ticket, keep);
+}
+/** How many imports have an end still to go through (for checks). */
+export const unsettledImports = () => unsettled.size;
 
 /**
  * Writes a board as a board file. Its entries are counted and measured first by the reader's own rule
@@ -335,8 +353,10 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
   const characters = Object.values(texts).reduce((n, t) => n + t.length, 0);
   if (characters > MAX_TEXTS) refuse(`its words come to ${characters.toLocaleString('en')} characters, more than one board holds`);
   const entries = Object.entries(texts).map(([name, text]) => ({name, size: utf8Length(text)}));
+  // What it names is read off the board as it was when the writing began, before any wait (0.3-P3-fix3 #9).
+  const locals = localRefsIn(project), named = filesNamed(project);
   const left: string[] = [], local: Zippable = {};
-  for (const id of localRefsIn(project)) {
+  for (const id of locals) {
     const got = await host.local?.(id), mime = got && sniffMedia(got.bytes.subarray(0, 16));
     if (!got || !mime || !['image/png', 'image/jpeg', 'image/webp'].includes(mime) || contentId(got.bytes) !== id) { left.push(`local:${id}`); continue; }
     const name = `local/${id}.${mediaExtension(mime)}`;
@@ -345,7 +365,7 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
     local[name] = [got.bytes, {level: 0}];
   }
   const sizes = new Map<string, {bytes: number; mime: string}>();
-  for (const sha of filesNamed(project)) { const file = await host.stat(sha); if (!file) left.push(sha); else { sizes.set(sha, file); entries.push({name: `media/${sha}.${mediaExtension(file.mime)}`, size: file.bytes}); } }
+  for (const sha of named) { const file = await host.stat(sha); if (!file) left.push(sha); else { sizes.set(sha, file); entries.push({name: `media/${sha}.${mediaExtension(file.mime)}`, size: file.bytes}); } }
   try { checkEntries(entries, MAX_BOARD_FILE, {packed: true}); }
   catch (error) { if (error instanceof BoardFileError) refuse(`${error.message}. Take a video or two off the board, or send them apart.`); throw error; }
   const files: Zippable = {...local};

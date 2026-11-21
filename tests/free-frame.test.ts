@@ -127,7 +127,7 @@ const fakeHost = (sizes: Record<string, number | undefined>) => {
   const read: string[] = [];
   let doc = '';
   const host: FrameHost = {
-    origins: [], maxBytes: 1, put: async () => { throw new Error('no'); }, hold: async () => 'x', settle: async () => {}, importFile: async () => { throw new Error('no'); }, mediaUrl: async () => undefined, stat: async () => undefined, read: async () => undefined,
+    origins: [], maxBytes: 1, put: async () => { throw new Error('no'); }, hold: async () => 'x', settle: async () => true, importFile: async () => { throw new Error('no'); }, mediaUrl: async () => undefined, stat: async () => undefined, read: async () => undefined,
     frameCost: async sha => sizes[sha] === undefined ? undefined : 'data:image/png;base64,'.length + Math.ceil(sizes[sha]! / 3) * 4,
     frameMedia: async sha => { read.push(sha); return 'data:image/png;base64,' + 'A'.repeat(Math.ceil(sizes[sha]! / 3) * 4); },
     load: async (_frame, _page, _key, d) => { doc = d; },

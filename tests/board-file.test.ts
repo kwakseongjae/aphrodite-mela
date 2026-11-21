@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
-import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
+import {settleAgain, unsettledImports, readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
 import {sizeOf} from '../src/ledger/types';
 import {ensureSpace} from '../src/editor/space';
 import {readdirSync, statSync} from 'node:fs';
@@ -22,7 +22,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const PIC = sha(PNG);
 /** A host as src/free-page.ts and src-tauri/src/board.rs make them: each import places under its own ticket, and only what that import alone put here new can be taken back. `failAtNew` makes the nth new file fail to be put. */
-const store = ({failAtNew}: {failAtNew?: number} = {}) => {
+const store = ({failAtNew, stuck = 0, keepFails = 0}: {failAtNew?: number; stuck?: number; keepFails?: number} = {}) => {
   const kept = new Map<string, Uint8Array>(), held = new Map<string, string>(), tickets = new Set<string>(), settled: [string, boolean][] = [];
   let fresh = 0, n = 0;
   return {kept, held, settled, host: {maxBytes: 500 * 1024 * 1024,
@@ -34,7 +34,15 @@ const store = ({failAtNew}: {failAtNew?: number} = {}) => {
       else if (held.get(s) !== holding) held.delete(s);
       return {sha: s, mime: blob.type, bytes: bytes.length};
     },
-    settle: async (ticket: string, keep: boolean) => { settled.push([ticket, keep]); if (!tickets.has(ticket)) return; for (const [s, owner] of [...held]) if (owner === ticket) { held.delete(s); if (!keep) kept.delete(s); } tickets.delete(ticket); },
+    settle: async (ticket: string, keep: boolean) => {
+      settled.push([ticket, keep]);
+      if (!tickets.has(ticket)) return true;
+      if (keep && keepFails > 0) { keepFails--; throw new Error('the keep did not go through'); }
+      if (!keep && stuck > 0) { stuck--; return false; }
+      for (const [s, owner] of [...held]) if (owner === ticket) { held.delete(s); if (!keep) kept.delete(s); }
+      tickets.delete(ticket);
+      return true;
+    },
     stat: async (s: string) => kept.has(s) ? {mime: 'image/png', bytes: kept.get(s)!.length} : undefined, read: async (s: string) => kept.get(s)}};
 };
 function board(): Project {
@@ -414,6 +422,37 @@ test('the history is counted with the pages as it is unpacked: one that takes th
   for (let i = 0; i < 10; i++) entries[`pages/${String(i + 1).padStart(4, '0')}.html`] = [new Uint8Array(1_950_000).fill(0x61), {level: 1}];
   entries['ledger/changes.json'] = [strToU8(JSON.stringify({seq: 1, changes: [], pad: 'x'.repeat(600_000)})), {level: 1}];
   await refused(zipSync(entries), /by ledger\/changes\.json/);
+});
+
+/* 0.3-P3-fix3 #9: the writer reads what the board names before its first wait: a page taken off the board meanwhile still goes. */
+test('a board file carries the files its board named when the writing began, whatever happens to the board meanwhile', async () => {
+  const p = twoFiles();
+  const s = store();
+  await s.host.put(new Blob([PNG], {type: 'image/png'}));
+  await s.host.put(new Blob([new Uint8Array([...PNG, 7, 7])], {type: 'image/png'}));
+  let first = true;
+  const host = {...s.host, local: async () => { if (first) { first = false; p.pages.splice(1); } return undefined; }};
+  p.pages[0].blocks.push({...p.pages[0].blocks[0], id: 'pic', image: 'local:0123456789abcdef'} as never);
+  const {bytes} = await writeBoardFile(p, host);
+  const names = readZip(bytes, 500 * 1024 * 1024).names;
+  assert.ok(names.includes(`media/${PIC2}.png`), `the file of the page taken off meanwhile goes: ${names.join(', ')}`);
+});
+
+/* 0.3-P3-fix3 #9: an import's end that does not go through is not let go of: it is tried again before the next import. */
+test('a take-back or a keep that did not go through is tried again before the next import, and a failed keep does not stop the board', async () => {
+  await settleAgain();
+  const s = store({failAtNew: 2, stuck: 1, keepFails: 1});
+  const first = await readBoardFile(await files(twoFiles(), [new Uint8Array([...PNG, 7, 7])]), s.host);
+  await assert.rejects(first.place(), /the disk is full/);
+  assert.equal(unsettledImports(), 1, 'the take-back that could not remove its file is kept');
+  const second = await readBoardFile(await files(board()), s.host);
+  await second.place();
+  assert.deepEqual(s.settled.slice(0, 2), [['t1', false], ['t1', false]], 'and tried again before the next import began');
+  assert.equal(unsettledImports(), 0);
+  await second.settle(true);
+  assert.equal(unsettledImports(), 1, 'a keep that failed did not throw, and is kept to try again');
+  await settleAgain();
+  assert.equal(unsettledImports(), 0, 'and goes through the next time');
 });
 
 test('a history that does not hold together is dropped, the board kept', async () => {

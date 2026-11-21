@@ -359,10 +359,24 @@ pub fn board_media_hold_begin(held: State<'_, Held>) -> Result<String, String> {
     hold_begin(&held)
 }
 
-/// An import that failed after placing files takes back the ones it put here new (take_back).
+/// What a take-back did: the files it removed, and how many its ticket still holds because they could not be removed
+/// (or the library could not be read) and are to be taken back again (0.3-P3-fix3 #9).
+#[derive(serde::Serialize)]
+pub struct TakenBack {
+    removed: Vec<String>,
+    left: usize,
+}
+
+/// How many files a ticket still holds.
+pub(crate) fn still_held(held: &Held, ticket: &str) -> usize {
+    held.0.lock().map(|s| s.by_sha.values().filter(|t| t.as_str() == ticket).count()).unwrap_or(0)
+}
+
+/// An import that failed after placing files takes back the ones it put here new (take_back), and says what is left.
 #[tauri::command]
-pub fn board_media_take_back(app: AppHandle, held: State<'_, Held>, ticket: String) -> Result<Vec<String>, String> {
-    take_back(&base(&app)?, &held, &ticket)
+pub fn board_media_take_back(app: AppHandle, held: State<'_, Held>, ticket: String) -> Result<TakenBack, String> {
+    let removed = take_back(&base(&app)?, &held, &ticket)?;
+    Ok(TakenBack { removed, left: still_held(&held, &ticket) })
 }
 
 /// An import that went through keeps its files (keep).
@@ -612,6 +626,7 @@ mod tests {
         let first = take_back(dir.path(), &held, &a).unwrap();
         fs::set_permissions(&media, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(first.is_empty(), "the folder would not let it go");
+        assert_eq!(still_held(&held, &a), 1, "and the ticket says one is left");
         assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![new], "so it is taken back the next time");
     }
 
