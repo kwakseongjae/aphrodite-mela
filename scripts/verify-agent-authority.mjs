@@ -220,6 +220,91 @@ check('the person approves with the button, and an agent pressing it again only 
   await sleep(150);
 });
 
+let approvedFingerprint = null;
+check('an agent that puts the content back with edit does not revive the approval', async () => {
+  approvedFingerprint = await stored();
+  assert.equal((await agent('edit', {blockId: hero, field: 'title', text: 'Second light'})).error, undefined);
+  assert.equal(await approval(), 'draft', 'the change made it a draft');
+  const back = await agent('edit', {blockId: hero, field: 'title', text: 'First light'});
+  assert.equal(back.error, undefined, 'the edit itself went through');
+  assert.match(back.approval ?? '', /only the person approves/, JSON.stringify(back));
+  assert.equal(await approval(), 'draft', 'the board stayed a draft');
+  assert.equal(await stored(), null, 'the fingerprint is gone');
+});
+
+check("the person's own undo may bring their approval back", async () => {
+  await presses('z', 4);
+  await sleep(200);
+  assert.equal(await approval(), 'draft', 'one undo is the agent\'s Second light, still a draft');
+  await presses('z', 4);
+  await sleep(200);
+  assert.equal(await approval(), 'approved', 'the second undo is the person\'s own approved board');
+  assert.equal(await stored(), approvedFingerprint);
+  await sleep(5_200); // the person's hold on the screen expires
+});
+
+check('an agent that puts the content back with apply does not revive the approval', async () => {
+  assert.equal((await agent('apply', {ops: [{op: 'update', block_id: hero, fields: {title: 'Third light'}}]})).ok, true);
+  assert.equal(await approval(), 'draft');
+  const back = await agent('apply', {ops: [{op: 'update', block_id: hero, fields: {title: 'First light'}}]});
+  assert.equal(back.ok, true, 'the batch itself went through');
+  assert.match(back.approval ?? '', /only the person approves/, JSON.stringify(back));
+  assert.equal(back.state?.state?.approval, 'draft', 'the state in the reply says draft too');
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), null);
+});
+
+check('an agent undo that lands on an approved board does not revive it', async () => {
+  await personClicks('approve');
+  await sleep(150);
+  assert.equal(await approval(), 'approved');
+  await agent('edit', {blockId: hero, field: 'title', text: 'Fourth light'});
+  assert.equal(await approval(), 'draft');
+  const undo = await agent('act', {action: 'undo'});
+  assert.match(undo.approval ?? '', /only the person approves/, JSON.stringify(undo));
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), null);
+});
+
+check("after an agent's undo is cleared, the person's ⌘⇧Z and ⌘Z step through drafts", async () => {
+  await presses('z', 4 | 8); // ⌘⇧Z: back to the agent's Fourth light
+  await sleep(200);
+  assert.equal(await approval(), 'draft');
+  await presses('z', 4); // ⌘Z: the board as the clearing left it
+  await sleep(200);
+  assert.equal(await approval(), 'draft', 'the clearing is not an undo step, so no press lands on the revived approval');
+  assert.equal(await stored(), null);
+  await sleep(5_200);
+});
+
+check('an agent redo that lands on an approved board does not revive it', async () => {
+  await personClicks('approve');
+  await sleep(150);
+  assert.equal(await approval(), 'approved');
+  await agent('act', {action: 'undo'}); // takes the approval back off: that is not a revival
+  assert.equal(await approval(), 'draft');
+  const redo = await agent('act', {action: 'redo'});
+  assert.match(redo.approval ?? '', /only the person approves/, JSON.stringify(redo));
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), null);
+});
+
+check('⌘Z and ⌘⇧Z sent as agent keys do not revive it either', async () => {
+  await personClicks('approve');
+  await sleep(150);
+  await agent('edit', {blockId: hero, field: 'title', text: 'Fifth light'});
+  const undo = await agent('key', {key: 'z', meta: true});
+  assert.match(undo.approval ?? '', /only the person approves/, JSON.stringify(undo));
+  assert.equal(await approval(), 'draft');
+  await personClicks('approve');
+  await sleep(150);
+  await agent('key', {key: 'z', meta: true}); // the approval itself, undone
+  const redo = await agent('key', {key: 'z', meta: true, shift: true});
+  assert.match(redo.approval ?? '', /only the person approves/, JSON.stringify(redo));
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), null);
+});
+
 check('in Agent mode the approve presses are refused too', async () => {
   await personClicks('agent-disconnect');
   await sleep(150);
@@ -238,6 +323,26 @@ check('in Agent mode the approve presses are refused too', async () => {
     assert.equal(await approval(), 'draft', action);
     assert.equal(await stored(), before, action);
   }
+});
+
+check('in Agent mode an undo onto an approved board does not revive it', async () => {
+  await agent('end', {}, 'astra');
+  await sleep(200);
+  await personClicks('approve');
+  await sleep(150);
+  assert.equal(await approval(), 'approved');
+  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'editor-mode'; b.dataset.mode = 'agent';
+    document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await sleep(300);
+  await personSubmits('#agent-mode-form', {operator: 'astra', intent: 'tidy the hero'});
+  await sleep(400);
+  await agent('edit', {blockId: hero, field: 'title', text: 'Sixth light'}, 'astra');
+  assert.equal(await approval(), 'draft');
+  const undo = await agent('act', {action: 'undo'}, 'astra');
+  assert.match(undo.approval ?? '', /only the person approves/, JSON.stringify(undo));
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), null);
+  await agent('end', {}, 'astra');
 });
 
 await runChecks(checks, close);

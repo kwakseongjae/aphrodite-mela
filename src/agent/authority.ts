@@ -113,3 +113,13 @@ export function writesApproval(action: string, approved: boolean): boolean {
   return (approvalActions as readonly string[]).includes(action) && !approved;
 }
 export const APPROVAL_REFUSED = 'approving a direction is the person\'s decision: they press Approve direction on their own screen. Nothing was changed. Ask them to review it instead.';
+
+/**
+ * An agent may put content back — its own edit undone, a batch reverted — and that can land on a board
+ * the person approved earlier, whose fingerprint then matches again. The approval did not come from
+ * the person, so it is cleared. A different project being opened is a different board, not a revival.
+ */
+export function revivedApproval(before: {projectId: string; approved: boolean}, after: {projectId: string; approved: boolean}): boolean {
+  return before.projectId === after.projectId && !before.approved && after.approved;
+}
+export const APPROVAL_CLEARED = 'cleared — only the person approves';

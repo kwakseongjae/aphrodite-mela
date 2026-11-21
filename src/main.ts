@@ -53,7 +53,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,isRead,isAsk,writesApproval,APPROVAL_REFUSED} from './agent/authority';
+import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,isRead,isAsk,writesApproval,APPROVAL_REFUSED,revivedApproval,APPROVAL_CLEARED} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary} from './agent/contract';
@@ -1463,12 +1463,20 @@ function applyOps(ops:Op[],pageId?:string):Record<string,unknown>{
   return {ok:true,applied:ops.length,receipt:changeReceipt(before,project),state:agentState()};
 }
 
-/** Every agent command comes through here. A press that would approve, by any route, is refused for the whole command. */
+/** Every agent command comes through here. A press that would approve, by any route, is refused for the whole command,
+ *  and an approval the command brought back (content put back, an undo or redo) is cleared when it ends. */
 async function runAgentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   if(isRead(String(kind))||isAsk(String(kind)))return agentCommand(kind,payload,caller);
+  const before={projectId:project.id,approved:isApproved(project)};
   agentCommands++;approvalRefused=false;
-  try{const result=await agentCommand(kind,payload,caller);return approvalRefused?{error:APPROVAL_REFUSED,status:403}:result;}
+  let result:Record<string,unknown>;
+  try{result=await agentCommand(kind,payload,caller);if(approvalRefused)result={error:APPROVAL_REFUSED,status:403};}
   finally{agentCommands--;approvalRefused=false;}
+  if(revivedApproval(before,{projectId:project.id,approved:isApproved(project)})){
+    delete project.approvedFingerprint;persist();recordRun('agent:approval-cleared',{by:normalizeCaller(caller)});rerenderPreservingScroll(app,render);
+    const fresh=agentState();result={...result,...(result.receipt?{state:fresh}:'state' in result?fresh:{}),approval:APPROVAL_CLEARED};
+  }
+  return result;
 }
 async function agentCommand(kind:unknown,payload:unknown,caller?:string):Promise<Record<string,unknown>>{
   const parsed=parseAgentCommand(kind,payload);
