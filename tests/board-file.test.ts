@@ -365,7 +365,7 @@ test('the words are counted as they are unpacked, and the reading stops at the p
   const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: Array.from({length: 11}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
   const a = new Uint8Array(1_950_000).fill(0x61);
   for (let i = 0; i < 11; i++) entries[`pages/${String(i + 1).padStart(4, '0')}.html`] = [a, {level: 1}];
-  await refused(zipSync(entries), /more than 20,000,000 characters by pages\/0011\.html/);
+  await refused(zipSync(entries), /more than 20,000,024 characters by pages\/0011\.html/);
 });
 
 test('a file holding an entry the board does not name, a newer format, or a file bigger than this host takes is refused whole', async () => {
@@ -381,6 +381,39 @@ test('a file holding an entry the board does not name, a newer format, or a file
   const name = `media/${PIC}.png`, at = Buffer.from(big).lastIndexOf(Buffer.from(name)) - 46;
   new DataView(big.buffer).setUint32(at + 24, 101 * 1024 * 1024, true);
   await assert.rejects(readBoardFile(big, small), /may be at most 104,857,600/);
+});
+
+/* 0.3-P3-fix3 #6: the file's envelope is not counted against what a board holds; a folder entry holds nothing; and the
+   history is counted with the rest as it is unpacked. */
+test('a board one character under what a board holds, all of it sections, goes out and comes back', async () => {
+  // Sections only: board.json is the whole board, and the file's own format is all it adds.
+  const p = initialProject();
+  delete p.ledger;
+  const tmpl = p.pages[0].blocks[0];
+  p.pages = Array.from({length: 30}, (_, i) => ({...p.pages[0], id: 'pg' + i, name: 'P' + i, blocks: Array.from({length: 40}, (_, j) => ({...tmpl, id: `b${i}-${j}`, text: 'x'.repeat(15_000)}))}));
+  p.activePageId = 'pg0';
+  // What is left up to one character under the cap, spread over the blocks from the last, each within what a text holds.
+  let left = 20_000_000 - 1 - JSON.stringify(parseProject(JSON.stringify(p))).length;
+  for (const block of p.pages.flatMap(g => g.blocks).reverse()) { if (!left) break; const more = Math.min(left, 4_000); block.text += 'y'.repeat(more); left -= more; }
+  const saved = parseProject(JSON.stringify(p));
+  assert.equal(JSON.stringify(saved).length, 19_999_999);
+  const got = await readBoardFile(await written(saved), store().host);
+  assert.equal(got.project.pages[29].blocks[39].text, p.pages[29].blocks[39].text);
+});
+
+test('a folder entry with something in it refuses the file', async () => {
+  const zip = readZip(await written(), 500 * 1024 * 1024), files: Zippable = {};
+  for (const n of zip.names) files[n] = zip.read(n);
+  await refused(zipSync({...files, 'pages/': strToU8('abc')}), /pages\/ is a folder with something in it/);
+  assert.ok(await readBoardFile(zipSync({...files, 'pages/': new Uint8Array(0)}), store().host), 'an empty one is a folder');
+});
+
+test('the history is counted with the pages as it is unpacked: one that takes the words past what a board holds refuses at it', async () => {
+  const p = board();
+  const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, aphroditeBoardFile: 1, ledger: undefined, pages: Array.from({length: 10}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
+  for (let i = 0; i < 10; i++) entries[`pages/${String(i + 1).padStart(4, '0')}.html`] = [new Uint8Array(1_950_000).fill(0x61), {level: 1}];
+  entries['ledger/changes.json'] = [strToU8(JSON.stringify({seq: 1, changes: [], pad: 'x'.repeat(600_000)})), {level: 1}];
+  await refused(zipSync(entries), /by ledger\/changes\.json/);
 });
 
 test('a history that does not hold together is dropped, the board kept', async () => {

@@ -44,6 +44,12 @@ const pageEntry = (index: number) => `pages/${String(index + 1).padStart(4, '0')
 /** board.json says which board file format it is; a reader refuses a newer one by name (0.3-P3-fix2 #6). */
 const FORMAT_KEY = 'aphroditeBoardFile';
 export const BOARD_FILE_FORMAT = 1;
+/**
+ * What a board file's texts may come to, in characters, read as they are unpacked and counted the same by the writer
+ * (0.3-P3-fix3 #6): what a project holds, and the file's own envelope (its format) on top. The texts are the project's
+ * words less what JSON adds around them, so a project a save holds always fits.
+ */
+const MAX_TEXTS = MAX_PROJECT + JSON.stringify({[FORMAT_KEY]: BOARD_FILE_FORMAT}).length;
 const MEDIA = /^media\/([0-9a-f]{64})\.(png|jpg|gif|webp|mp4|webm)$/;
 /** A picture from the image library a section page shows (`local:<id>`), carried by its id: what src-tauri/src/image_library.rs keeps, at most 12 MB. */
 const LOCAL = /^local\/([0-9a-f]{16})\.(png|jpg|webp)$/;
@@ -119,7 +125,8 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
     if (seen.has(name.toLowerCase())) refuse(`it has ${name} twice`);
     seen.add(name.toLowerCase());
     if (madeBy === 3 && (mode & 0o170000) === 0o120000) refuse(`${name} is a link`);
-    if (FOLDERS.includes(name)) continue;
+    // A folder's own entry holds nothing; one that does is not a folder.
+    if (FOLDERS.includes(name)) { if (size !== 0 || packed > 2) refuse(`${name} is a folder with something in it`); continue; }
     const cap = entryCap(name, mediaBytes);
     if (cap === undefined) refuse(`${name.slice(0, 80)} is not something a board file holds`);
     if (flags & 1) refuse(`${name} is encrypted`);
@@ -224,7 +231,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   const take = (name: string) => { read.add(name); return zip.read(name); };
   // Characters are counted as each text is unpacked, and the file is refused the moment they pass what a board holds.
   let characters = 0;
-  const count = (text: string, what: string) => { characters += text.length; if (characters > MAX_PROJECT) refuse(`its words come to more than ${MAX_PROJECT.toLocaleString('en')} characters by ${what}, more than one board holds`); return text; };
+  const count = (text: string, what: string) => { characters += text.length; if (characters > MAX_TEXTS) refuse(`its words come to more than ${MAX_TEXTS.toLocaleString('en')} characters by ${what}, more than one board holds`); return text; };
   const raw = json(count(strFromU8(take('board.json')), 'board.json'), 'board.json') as {pages?: unknown; [key: string]: unknown};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Array.isArray(raw.pages)) refuse('board.json is not a board');
   const format = raw[FORMAT_KEY];
@@ -248,7 +255,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     if (problem) refuse(`${name}: ${problem}`);
     page.html = html!;
   }
-  const history = zip.names.includes('ledger/changes.json') ? json(strFromU8(take('ledger/changes.json')), 'ledger/changes.json') as {changes?: unknown} : undefined;
+  const history = zip.names.includes('ledger/changes.json') ? json(count(strFromU8(take('ledger/changes.json')), 'ledger/changes.json'), 'ledger/changes.json') as {changes?: unknown} : undefined;
   // A change made in the other copy is that copy's, whoever it says made it: never this Mac's person or agents.
   // Marked before the history is read, so each change is counted with the mark.
   if (history && Array.isArray(history.changes)) for (const c of history.changes as {author?: Record<string, unknown>}[]) if (c && typeof c === 'object' && c.author && typeof c.author === 'object') c.author.elsewhere = true;
@@ -324,6 +331,9 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
   for (const [i, page] of board.pages.entries()) if (isFreePage(page)) { texts[pageEntry(i)] = page.html; delete (page as {html?: string}).html; }
   texts['board.json'] = JSON.stringify(board);
   if (project.ledger) texts['ledger/changes.json'] = JSON.stringify(project.ledger);
+  // The writer counts what the reader counts, and refuses what the reader would.
+  const characters = Object.values(texts).reduce((n, t) => n + t.length, 0);
+  if (characters > MAX_TEXTS) refuse(`its words come to ${characters.toLocaleString('en')} characters, more than one board holds`);
   const entries = Object.entries(texts).map(([name, text]) => ({name, size: utf8Length(text)}));
   const left: string[] = [], local: Zippable = {};
   for (const id of localRefsIn(project)) {
