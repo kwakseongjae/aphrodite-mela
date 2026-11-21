@@ -345,7 +345,7 @@ test('pages whose ids differ only in case both travel: each page is an entry by 
 test('a board just under what a board holds comes back: its history, marked as made elsewhere, gives way the way a save makes it', async () => {
   const p = board();
   for (let i = 0; i < 9; i++) p.pages.push({id: 'big' + i, name: 'Big ' + i, blocks: [], kind: 'html', html: '<p>' + 'a'.repeat(1_999_000) + '</p>'} as never);
-  p.ledger!.changes.push(...Array.from({length: 200}, (_, i) => ({id: 'x' + i, parent: i ? 'x' + (i - 1) : 'c2', seq: 3 + i, at: '2026-11-20T00:00:02.000Z', author: {kind: 'person', name: 'you'}, source: 'editor:change', ops: [{op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(4_000)} as never], anchors: {pages: [], nodes: []}, baseRevision: 'r' + i, revision: 'r' + (i + 1), view: false, size: 0})));
+  p.ledger!.changes.push(...Array.from({length: 200}, (_, i) => ({id: 'x' + i, parent: i ? 'x' + (i - 1) : 'c2', seq: 3 + i, at: '2026-11-20T00:00:02.000Z', author: {kind: 'person' as const, name: 'you'}, source: 'editor:change', ops: [{op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(4_000)} as never], anchors: {pages: [], nodes: []}, baseRevision: 'r' + i, revision: 'r' + (i + 1), view: false, size: 0})));
   p.ledger!.seq = 202;
   // A last page filled until the saved board is 500 characters under what a board holds; the marks add more than that.
   p.pages.push({id: 'fill', name: 'Fill', blocks: [], kind: 'html', html: ''} as never);
