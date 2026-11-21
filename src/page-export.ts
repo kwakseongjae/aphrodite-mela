@@ -102,7 +102,8 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   }
   return {html, beside};
 }
-function base64(bytes: Uint8Array): string {
+/** Bytes as base64, in pieces small enough for String.fromCharCode. */
+export function base64(bytes: Uint8Array): string {
   let text = '';
   for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(text);

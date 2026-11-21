@@ -46,6 +46,8 @@ const INTERNAL_COMMANDS=[
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
   'board_media_begin','board_media_chunk','board_media_finish',
+  // A board file's import keeps or takes back what it placed (0.3-P3-fix1): only files it put in board-media/ new, which Rust itself noted.
+  'board_media_keep','board_media_take_back',
 ];
 /**
  * Tauri commands that read a file outside the app's own folders, at a path an agent names (0.3-P2-fix1):
@@ -223,4 +225,17 @@ test('reading a file an agent names is declared by the row that does it, for thi
     assert.deepEqual(where,['free-page.ts'],`${name} is invoked from the one module that reads and writes board files`);
   }
   assert.ok(row.mcp?.description.includes('path')&&JSON.stringify(row.input).includes('library_id'));
+});
+
+/* 0.3-P3-fix1 #5: taking back an import's files is reached from one place, the board file's own reading, and from no
+   row, tool or op an agent could name. Rust takes back only what the import itself put there new (src-tauri/src/board.rs). */
+test('taking back a board file\'s files is only the import\'s, never a row, a tool or an op', () => {
+  const src = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const files = ['main.ts', 'free-page.ts', 'board-file.ts', 'agent/commands.mjs', 'agent/ops.ts', 'agent/bridge.ts'].map(p => [p, src(p)] as const);
+  const invokes = files.filter(([, t]) => /board_media_(take_back|keep)/.test(t)).map(([p]) => p);
+  assert.deepEqual(invokes, ['free-page.ts'], 'only the hosts invoke it');
+  const settles = files.filter(([, t]) => /host\.settle\(/.test(t)).map(([p]) => p);
+  assert.deepEqual(settles, ['board-file.ts'], 'and only the board file\'s reading settles what it placed');
+  assert.equal([...src('main.ts').matchAll(/read\.settle\(/g)].length, 2, 'which openBoardFile keeps or takes back, once each way');
+  assert.ok(!JSON.stringify(commands).includes('take_back') && !JSON.stringify(commands).includes('board_media_keep'), 'no row names it');
 });

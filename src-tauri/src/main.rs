@@ -32,6 +32,7 @@ fn main() {
         })
         .manage(agent::AgentBridge::default())
         .manage(opened::OpenedState(Default::default()))
+        .manage(board::Held::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -77,6 +78,8 @@ fn main() {
             board::board_media_begin,
             board::board_media_chunk,
             board::board_media_finish,
+            board::board_media_take_back,
+            board::board_media_keep,
             board::board_media_stat,
             board::board_media_read,
             board::board_media_import,

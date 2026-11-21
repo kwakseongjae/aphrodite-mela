@@ -318,8 +318,10 @@ export type FrameHost = {
   origins: readonly string[];
   /** How big one file this host keeps may be. */
   maxBytes: number;
-  /** Keeps a file the person put on the board, under the hash of its bytes. */
-  put(file: Blob): Promise<StoredMedia>;
+  /** Keeps a file the person put on the board, under the hash of its bytes. `holding`: a board file's import placing it, which it keeps or takes back with settle. */
+  put(file: Blob, options?: {holding?: true}): Promise<StoredMedia>;
+  /** An import's end: `keep` keeps what it placed; otherwise the host takes back only the files the import put here new (src-tauri/src/board.rs take_back). */
+  settle(shas: string[], keep: boolean): Promise<void>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
   importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
@@ -393,16 +395,26 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
   const open = () => db ??= new Promise((resolve, reject) => { const r = indexedDB.open('aphrodite-board-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
   const read = async (sha: string) => (await request((await open()).transaction('files').objectStore('files').get(sha))) as Blob | undefined;
   const urls = new Map<string, string>();
+  /* What an import put here new, as the desktop keeps it (src-tauri/src/board.rs Held). */
+  const held = new Set<string>();
   return {
     origins: [],
     maxBytes: MAX_BROWSER_MEDIA_BYTES,
-    put: async file => {
+    put: async (file, options) => {
       if (file.size > MAX_BROWSER_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_BROWSER_MEDIA_BYTES)} MB in the browser.`);
       const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
       if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
-      if (!(await read(sha))) await request((await open()).transaction('files', 'readwrite').objectStore('files').put(new Blob([file], {type: mime}), sha));
+      if (!(await read(sha))) { await request((await open()).transaction('files', 'readwrite').objectStore('files').put(new Blob([file], {type: mime}), sha)); if (options?.holding) held.add(sha); else held.delete(sha); }
+      else if (!options?.holding) held.delete(sha);
       return {sha, mime, bytes: file.size};
+    },
+    settle: async (shas, keep) => {
+      for (const sha of shas) {
+        if (!held.delete(sha) || keep) continue;
+        await request((await open()).transaction('files', 'readwrite').objectStore('files').delete(sha));
+        const url = urls.get(sha); if (url) { URL.revokeObjectURL(url); urls.delete(sha); }
+      }
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
@@ -453,12 +465,13 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
   const host: FrameHost = {
     origins: ['asset:', 'http://asset.localhost'],
     maxBytes: MAX_MEDIA_BYTES,
-    put: async file => {
+    put: async (file, options) => {
       if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
       const id = await native.invoke<string>('board_media_begin');
       for (let at = 0; at < file.size; at += PIECE) await native.invoke('board_media_chunk', new Uint8Array(await file.slice(at, at + PIECE).arrayBuffer()), {headers: {'upload-id': id}});
-      return native.invoke<StoredMedia>('board_media_finish', {id});
+      return native.invoke<StoredMedia>('board_media_finish', {id, holding: options?.holding === true});
     },
+    settle: async (shas, keep) => { if (!shas.length) return; if (keep) await native.invoke('board_media_keep', {shas}); else await native.invoke('board_media_take_back', {shas}); },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha}).catch(() => null)) ?? undefined,

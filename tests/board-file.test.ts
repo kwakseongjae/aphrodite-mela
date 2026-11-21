@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
-import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
+import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
+import {sizeOf} from '../src/ledger/types';
 import {readdirSync, statSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,9 +20,13 @@ import {MAX_EXPORT_FILE} from '../src/page-export';
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const PIC = sha(PNG);
-const store = () => {
-  const kept = new Map<string, Uint8Array>();
-  return {kept, host: {maxBytes: 500 * 1024 * 1024, put: async (blob: Blob) => { const bytes = new Uint8Array(await blob.arrayBuffer()); const s = sha(bytes); kept.set(s, bytes); return {sha: s, mime: blob.type, bytes: bytes.length}; },
+/** A host as src/free-page.ts makes them: an import's files are held until it keeps them, and only those it put here new can be taken back. */
+const store = ({failAt}: {failAt?: number} = {}) => {
+  const kept = new Map<string, Uint8Array>(), held = new Set<string>(), settled: [string[], boolean][] = [];
+  let puts = 0;
+  return {kept, held, settled, host: {maxBytes: 500 * 1024 * 1024,
+    put: async (blob: Blob, options?: {holding?: true}) => { if (++puts === failAt) throw new Error('the disk is full'); const bytes = new Uint8Array(await blob.arrayBuffer()); const s = sha(bytes); if (!kept.has(s)) { kept.set(s, bytes); if (options?.holding) held.add(s); } else if (!options?.holding) held.delete(s); return {sha: s, mime: blob.type, bytes: bytes.length}; },
+    settle: async (shas: string[], keep: boolean) => { settled.push([shas, keep]); for (const s of shas) if (held.delete(s) && !keep) kept.delete(s); },
     stat: async (s: string) => kept.has(s) ? {mime: 'image/png', bytes: kept.get(s)!.length} : undefined, read: async (s: string) => kept.get(s)}};
 };
 function board(): Project {
@@ -49,7 +54,11 @@ test('a board goes out and comes back as a new board: its pages, its files and i
   assert.equal(got.project.pages[1].html, p.pages[1].html, 'the page is the one sent, scripts and all');
   assert.equal(got.project.approvedFingerprint, undefined);
   assert.equal(isApproved(got.project), false, 'no file gives an approval');
-  assert.deepEqual([...s.kept.keys()], [PIC], 'its file is on this board before the board is given back');
+  assert.equal(s.kept.size, 0, 'nothing is placed while the file is read');
+  await got.place();
+  assert.deepEqual([...s.kept.keys()], [PIC], 'placing puts its file on this board');
+  await got.settle(true);
+  assert.deepEqual(s.settled, [[[PIC], true]]);
   assert.deepEqual([got.files, got.left], [1, []]);
   assert.deepEqual(got.project.ledger!.changes.map(c => c.author), [{kind: 'person', name: 'you', elsewhere: true}, {kind: 'agent', name: 'claude-code', elsewhere: true}], 'names kept, never taken for this Mac\'s person or agent');
   const saved = parseProject(JSON.stringify(got.project));
@@ -154,6 +163,112 @@ test('a file whose bytes are not its name, or not a picture or a video, is left 
   assert.equal(s.kept.size, 0);
   const text = await readBoardFile(zipSync({'board.json': json, 'pages/free.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: strToU8('hello')}), store().host);
   assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture or video its name says'}]);
+});
+
+/* ---- 0.3-P3-fix1 #5 ---- */
+const PIC2 = sha(new Uint8Array([...PNG, 7, 7]));
+const twoFiles = (p = board()) => {
+  p.pages[1].html += `<img src="media:${PIC2}">`;
+  return p;
+};
+const files = async (p: Project, extra: Uint8Array[] = []) => { const s = store(); await s.host.put(new Blob([PNG], {type: 'image/png'})); for (const e of extra) await s.host.put(new Blob([e as Uint8Array<ArrayBuffer>], {type: 'image/png'})); return (await writeBoardFile(p, s.host)).bytes; };
+
+test('a file that does not hold together refuses before anything is placed, however far in its fault is', async () => {
+  const bytes = await files(twoFiles(), [new Uint8Array([...PNG, 7, 7])]);
+  const zip = readZip(bytes, 500 * 1024 * 1024);
+  const last = zip.names.filter(n => n.startsWith('media/')).sort().at(-1)!;
+  // Break the last file's CRC in the central directory: the fault is found only when that file is read.
+  const broken = bytes.slice();
+  const at = Buffer.from(broken).lastIndexOf(Buffer.from(last));
+  const header = at - 46;
+  broken[header + 16] ^= 0xff;
+  const s = store();
+  await assert.rejects(readBoardFile(broken, s.host), /is not what its directory says/);
+  assert.equal(s.kept.size, 0, 'no file was put anywhere');
+});
+
+test('placing that fails part way takes back only what it put here new, and a file this Mac had stays', async () => {
+  const bytes = await files(twoFiles(), [new Uint8Array([...PNG, 7, 7])]);
+  const s = store({failAt: 3});
+  await s.host.put(new Blob([PNG], {type: 'image/png'}));
+  const got = await readBoardFile(bytes, s.host);
+  await assert.rejects(got.place(), /the disk is full/);
+  assert.deepEqual([...s.kept.keys()], [PIC], 'the file this Mac had before stays; the one the import placed is gone');
+  assert.equal(s.settled.length, 1);
+  assert.equal(s.settled[0][1], false);
+});
+
+test('a received board sees only the files it carried: one it names but did not carry is missing here, even when this Mac has it', async () => {
+  const p = twoFiles();
+  const sent = await files(p);
+  const s = store();
+  await s.host.put(new Blob([new Uint8Array([...PNG, 7, 7])], {type: 'image/png'}));
+  const got = await readBoardFile(sent, s.host);
+  assert.deepEqual(got.left.map(l => l.file), [PIC2]);
+  assert.ok(!JSON.stringify(got.project).includes(PIC2), 'nothing on the received board names the file it did not carry');
+  await got.place();
+  const again = readZip((await writeBoardFile(got.project, s.host)).bytes, 500 * 1024 * 1024).names;
+  assert.ok(!again.some(n => n.includes(PIC2)), 'and sending it on does not carry this Mac\'s copy');
+});
+
+test('a file whose texts could unpack past what a board holds is refused before any is unpacked', () => {
+  const a = new Uint8Array(5_900_000).fill(0x61);
+  const p = board();
+  const entries: Zippable = {'board.json': strToU8(JSON.stringify({...p, pages: Array.from({length: 11}, (_, i) => ({id: 'p' + i, name: 'P', blocks: [], kind: 'html'}))}))};
+  for (let i = 0; i < 11; i++) entries[`pages/p${i}.html`] = [a, {level: 1}];
+  const bytes = zipSync(entries);
+  assert.ok(bytes.length < 2_000_000, `the file itself is small: ${bytes.length}`);
+  assert.throws(() => readZip(bytes, 500 * 1024 * 1024), /its words come to more than/);
+});
+
+test('what the writer makes, the reader takes: too many entries is refused before a file is read', async () => {
+  const p = board();
+  const named = Array.from({length: 2_100}, (_, i) => createHash('sha256').update(String(i)).digest('hex'));
+  p.pages[1].html = named.map(s => `<img src="media:${s}">`).join('');
+  let reads = 0;
+  const host = {stat: async () => ({mime: 'image/png', bytes: 12}), read: async () => { reads++; return PNG; }};
+  await assert.rejects(writeBoardFile(p, host), /entries; a board file has at most 2,000/);
+  assert.equal(reads, 0, 'refused before any file was read');
+  assert.throws(() => checkEntries([{name: 'board.json', size: 10}, {name: `media/${PIC}.png`, size: MAX_BOARD_FILE - 10}], MAX_BOARD_FILE, {packed: true}), /comes to more than/, 'the zip around the entries is counted too');
+});
+
+test('a page starting with a byte order mark or holding a lone surrogate comes back exactly as it went', async () => {
+  const p = board();
+  p.pages[1].html = '\ufeff<p>front</p><p>lone \ud800 and \udc00 halves</p>';
+  const got = await readBoardFile(await written(p), store().host);
+  assert.equal(got.project.pages[1].html, p.pages[1].html);
+});
+
+test('a received history is counted again once marked as made elsewhere, within its budget, and reads back the same', async () => {
+  const got = await readBoardFile(await written(), store().host);
+  for (const c of got.project.ledger!.changes) assert.equal(c.size, sizeOf(c), `${c.id}: its size is what it is saved as`);
+  const saved = parseProject(JSON.stringify(got.project));
+  assert.deepEqual(saved.ledger!.changes.map(c => [c.id, c.parent, c.size]), got.project.ledger!.changes.map(c => [c.id, c.parent, c.size]));
+});
+
+test('a picture is named by the same id the image library gives it (64-bit FNV-1a, as src-tauri/src/image_library.rs)', () => {
+  const reference = (bytes: Uint8Array) => { let h = 0xcbf29ce484222325n; for (const b of bytes) { h ^= BigInt(b); h = (h * 0x100000001b3n) & 0xffffffffffffffffn; } return h.toString(16).padStart(16, '0'); };
+  for (const bytes of [new Uint8Array(), strToU8('one'), PNG, Uint8Array.from({length: 5000}, (_, i) => (i * 7919) & 255)]) assert.equal(contentId(bytes), reference(bytes));
+  const rust = readFileSync(new URL('../src-tauri/src/image_library.rs', import.meta.url), 'utf8');
+  assert.match(rust, /let mut hash: u64 = 0xcbf2_9ce4_8422_2325;[\s\S]*?hash \^= \*b as u64;\s*hash = hash\.wrapping_mul\(0x1000_0000_01b3\);/, 'and the library still names pictures that way');
+});
+
+test('a picture from the image library goes with the board, and one it could not carry is missing where it lands', async () => {
+  const p = board();
+  const pic = new Uint8Array([...PNG, 5, 5, 5]);
+  const id = contentId(pic), gone = 'f'.repeat(16);
+  p.pages[0].blocks = initialProject().pages[0].blocks;
+  p.pages[0].blocks[0].image = `local:${id}`;
+  p.pages[0].blocks[1].image = `local:${gone}`;
+  const s = store();
+  await s.host.put(new Blob([PNG], {type: 'image/png'}));
+  const out = await writeBoardFile(p, {...s.host, local: async (want: string) => want === id ? {bytes: pic, mime: 'image/png'} : undefined});
+  assert.deepEqual(out.left, [`local:${gone}`], 'the one this Mac does not have is said to be left out');
+  assert.ok(readZip(out.bytes, 500 * 1024 * 1024).names.includes(`local/${id}.png`));
+  const got = await readBoardFile(out.bytes, store().host);
+  assert.deepEqual(got.pictures.map(x => [x.id, x.mime, x.read().length]), [[id, 'image/png', pic.length]]);
+  assert.ok(JSON.stringify(got.project).includes(`local:${id}`));
+  assert.ok(!JSON.stringify(got.project).includes(`local:${gone}`), 'the one not carried is not looked for in this Mac\'s library');
 });
 
 test('a history that does not hold together is dropped, the board kept', async () => {

@@ -13,9 +13,10 @@
 import {Inflate, strFromU8, strToU8, zipSync, type Zippable} from 'fflate';
 import {MAX_PROJECT, parseProject, uid, type Project} from './model';
 import {htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
-import {LEDGER_BUDGET, type Ledger} from './ledger/types';
+import {LEDGER_BUDGET} from './ledger/types';
 import {MAX_EXPORT_FILE} from './page-export';
 import {utf8Length} from './workspace/library';
+import {localRefsIn} from './design/local-images';
 import named from '../src-tauri/board-file.json';
 
 /**
@@ -34,16 +35,45 @@ const PIECE = 4096;
 export class BoardFileError extends Error {}
 const refuse = (why: string): never => { throw new BoardFileError(why); };
 
-const FOLDERS = ['pages/', 'media/', 'ledger/'];
+const FOLDERS = ['pages/', 'media/', 'ledger/', 'local/'];
 const PAGE = /^pages\/([a-zA-Z0-9_-]{1,200})\.html$/;
 const MEDIA = /^media\/([0-9a-f]{64})\.(png|jpg|gif|webp|mp4|webm)$/;
+/** A picture from the image library a section page shows (`local:<id>`), carried by its id: what src-tauri/src/image_library.rs keeps, at most 12 MB. */
+const LOCAL = /^local\/([0-9a-f]{16})\.(png|jpg|webp)$/;
+const MAX_LOCAL_BYTES = 12 * 1024 * 1024;
+/** All of a board's words together, board.json and its pages, in bytes: a project's most characters at three bytes each. */
+export const MAX_BOARD_WORDS = 3 * MAX_PROJECT;
+const isWords = (name: string) => name === 'board.json' || PAGE.test(name);
 /** The most bytes an entry may unpack to, by its name; undefined for a name a board file does not have. A text's cap is its cap in characters at three bytes each, the most UTF-8 spends on one. */
 function entryCap(name: string, mediaBytes: number): number | undefined {
   if (name === 'board.json') return 3 * MAX_PROJECT;
   if (name === 'ledger/changes.json') return 3 * LEDGER_BUDGET;
   if (PAGE.test(name)) return 3 * MAX_PAGE_HTML;
   if (MEDIA.test(name)) return mediaBytes;
+  if (LOCAL.test(name)) return MAX_LOCAL_BYTES;
   return undefined;
+}
+
+/**
+ * What a board file may hold, one rule for the writer and the reader alike (0.3-P3-fix1): how many entries, each
+ * within the cap its name has, all of them together and the words among them within theirs. With `packed`, the zip
+ * around them is counted too, its headers and the most deflating a text can add, so a file the writer makes is one
+ * the reader takes.
+ */
+export function checkEntries(entries: {name: string; size: number}[], mediaBytes: number, {packed = false}: {packed?: boolean} = {}): void {
+  if (entries.length > MAX_ENTRIES) refuse(`it has ${entries.length} entries; a board file has at most ${MAX_ENTRIES.toLocaleString('en')}`);
+  let total = 0, words = 0, file = 22;
+  for (const {name, size} of entries) {
+    const cap = entryCap(name, mediaBytes);
+    if (cap === undefined) refuse(`${name.slice(0, 80)} is not something a board file holds`);
+    if (size > cap!) refuse(`${name} unpacks to ${size.toLocaleString('en')} bytes; it may be at most ${cap!.toLocaleString('en')}`);
+    total += size;
+    if (isWords(name)) words += size;
+    file += 30 + 46 + 2 * name.length + size + (MEDIA.test(name) || LOCAL.test(name) ? 0 : Math.ceil(size / 16_000) * 5 + 16);
+  }
+  if (total > MAX_BOARD_FILE) refuse(`it unpacks to more than ${MAX_BOARD_FILE.toLocaleString('en')} bytes; a board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')}`);
+  if (words > MAX_BOARD_WORDS) refuse(`its words come to more than ${MAX_BOARD_WORDS.toLocaleString('en')} bytes, more than one board holds`);
+  if (packed && file > MAX_BOARD_FILE) refuse(`the board comes to more than ${MAX_BOARD_FILE.toLocaleString('en')} bytes as one file; a board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')}`);
 }
 
 const CRC = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
@@ -66,7 +96,7 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
   const count = u16(end + 10), dirSize = u32(end + 12), dirAt = u32(end + 16);
   if (u16(end + 4) || u16(end + 6) || u16(end + 8) !== count) refuse('a zip in several parts is not a board file');
   if (count === 0xffff || dirAt === 0xffffffff || dirSize === 0xffffffff) refuse('a zip64 file is not a board file');
-  if (count > MAX_ENTRIES) refuse(`it has ${count} entries; a board file has at most ${MAX_ENTRIES}`);
+  if (count > MAX_ENTRIES) refuse(`it has ${count} entries; a board file has at most ${MAX_ENTRIES.toLocaleString('en')}`);
   if (dirAt + dirSize > end) refuse('its directory runs past where it ends');
   const entries = new Map<string, Entry>(), seen = new Set<string>();
   let total = 0, at = dirAt;
@@ -95,6 +125,8 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
     if (local + 30 > dirAt) refuse(`${name} starts past its data`);
     entries.set(name, {name, method, crc, packed, size, at: local});
   }
+  // The words are counted before any is unpacked: a small file can declare a great deal of text.
+  checkEntries([...entries.values()], mediaBytes);
   const read = (name: string, progress?: (unpacked: number) => void): Uint8Array => {
     const e = entries.get(name) ?? refuse(`it has no ${name}`);
     if (u32(e.at) !== 0x04034b50 || u16(e.at + 26) !== e.name.length || String.fromCharCode(...bytes.subarray(e.at + 30, e.at + 30 + e.name.length)) !== e.name) refuse(`${name} does not match its directory`);
@@ -123,7 +155,25 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
 
 const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
 const json = (bytes: Uint8Array, what: string): unknown => { try { return JSON.parse(strFromU8(bytes)); } catch { return refuse(`${what} is not JSON`); } };
-const plain = (bytes: Uint8Array) => new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+/** A page's text as it was written, a byte order mark at its front included. */
+const plain = (bytes: Uint8Array) => new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes);
+/** Whether a text holds no half of a surrogate pair without the other: one that does cannot be written as UTF-8 unchanged. */
+const wellFormed = (text: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+/**
+ * The id the image library gives a picture (src-tauri/src/image_library.rs content_id): 64-bit FNV-1a over its
+ * bytes, as 16 hex digits. Worked in two 32-bit halves: the prime is 2^40 + 0x1b3.
+ */
+export function contentId(bytes: Uint8Array): string {
+  let lo = 0x84222325, hi = 0xcbf29ce4;
+  for (let i = 0; i < bytes.length; i++) {
+    lo = (lo ^ bytes[i]) >>> 0;
+    const low = lo * 0x1b3;
+    hi = (Math.imul(hi, 0x1b3) + ((lo << 8) >>> 0) + Math.floor(low / 0x1_0000_0000)) >>> 0;
+    lo = low >>> 0;
+  }
+  return hi.toString(16).padStart(8, '0') + lo.toString(16).padStart(8, '0');
+}
+const MEDIA_NAMED = /media:([0-9a-f]{64})(?![0-9a-f])/g, LOCAL_NAMED = /local:([0-9a-f]{16})(?![0-9a-f])/g;
 
 /** The files a project names: its media items' and every `media:<sha256>` in its pages' html. */
 export function filesNamed(project: Project): string[] {
@@ -135,16 +185,33 @@ export function filesNamed(project: Project): string[] {
   return [...named];
 }
 
-/** What a board file was read into: the project, never yet saved anywhere, and the files that were left out and why. */
-export type ReadBoard = {project: Project; files: number; left: {file: string; why: string}[]};
+/** What a board file was read into: the project, never yet saved anywhere, the files it carried and those left out and why. */
+export type ReadBoard = {
+  project: Project; files: number; left: {file: string; why: string}[];
+  /** The image library's pictures it carried, for the caller to put in this board's library once the board is in. */
+  pictures: {id: string; mime: string; name: string; read: () => Uint8Array}[];
+  /** Puts the files it carried on this Mac, held: if one cannot be put, those it put here new are taken back, and it throws. */
+  place: () => Promise<void>;
+  /** Once the board is in the library (keep) or could not be (not), what place put is kept or taken back. */
+  settle: (keep: boolean) => Promise<void>;
+};
+const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
+/**
+ * What a board names but did not carry is named, on the board that receives it, by a name no file has: it shows as
+ * missing, and this Mac's own copy of the same file, if it has one, is neither shown on it nor sent on with it.
+ */
+const goneMedia = async (sha: string) => digest(strToU8(`aphrodite-missing:${sha}`));
+const goneLocal = (id: string) => contentId(strToU8(`aphrodite-missing:${id}`));
 
 /**
- * Reads a board file someone else made. Every file it names is checked and put on this board (`host.put`)
- * before the project is given back, so the board the caller then adds finds its files there. A file whose
- * bytes are not a picture or a video, or whose hash is not its name, is left out and said so; anything
- * else that does not hold together refuses the whole file, and nothing is placed.
+ * Reads a board file someone else made. Everything in it is read and checked before anything is put anywhere: its
+ * pages, its history, and each file by its first bytes and the hash of its bytes, which must be its name. A file
+ * that does not hold together refuses the whole board, and nothing has been placed. A carried file that is not what
+ * its name says is left out and said so, and named as missing on the board, as is one it names and did not carry.
+ * The caller checks the board fits the library, then places its files (place), adds it, and keeps or takes them
+ * back (settle).
  */
-export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes'>): Promise<ReadBoard> {
+export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes' | 'settle'>): Promise<ReadBoard> {
   const zip = readZip(bytes, host.maxBytes);
   if (!zip.names.includes('board.json')) refuse('it has no board.json');
   const raw = json(zip.read('board.json'), 'board.json') as {pages?: unknown; [key: string]: unknown};
@@ -155,64 +222,98 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   raw.id = uid();
   for (const page of raw.pages as {id?: unknown; kind?: unknown; html?: unknown}[]) {
     if (!page || typeof page !== 'object') continue;
-    delete page.html;
-    if (page.kind !== 'html') continue;
+    if (page.kind !== 'html') { delete page.html; continue; }
     const name = `pages/${String(page.id)}.html`;
-    if (!PAGE.test(name) || !zip.names.includes(name)) refuse(`the page ${String(page.id).slice(0, 80)} has no html in the file`);
+    // A page that cannot be written as UTF-8 unchanged (a lone surrogate) travels inside board.json instead.
+    if (!PAGE.test(name) || (!zip.names.includes(name) && typeof page.html !== 'string')) refuse(`the page ${String(page.id).slice(0, 80)} has no html in the file`);
     let html: string;
-    try { html = plain(zip.read(name)); } catch (error) { if (error instanceof BoardFileError) throw error; refuse(`${name} is not UTF-8 text`); }
+    if (zip.names.includes(name)) { try { html = plain(zip.read(name)); } catch (error) { if (error instanceof BoardFileError) throw error; refuse(`${name} is not UTF-8 text`); } }
+    else html = page.html as string;
     const problem = htmlProblem(html!);
     if (problem) refuse(`${name}: ${problem}`);
     page.html = html!;
   }
-  if (zip.names.includes('ledger/changes.json')) raw.ledger = json(zip.read('ledger/changes.json'), 'ledger/changes.json');
-  let project: Project;
-  try { project = parseProject(JSON.stringify(raw)); } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
-  delete project!.approvedFingerprint;
+  const history = zip.names.includes('ledger/changes.json') ? json(zip.read('ledger/changes.json'), 'ledger/changes.json') as {changes?: unknown} : undefined;
   // A change made in the other copy is that copy's, whoever it says made it: never this Mac's person or agents.
-  if (project!.ledger) project!.ledger = elsewhere(project!.ledger);
+  // Marked before the history is read, so each change is counted with the mark and the whole kept to its budget.
+  if (history && Array.isArray(history.changes)) for (const c of history.changes as {author?: Record<string, unknown>}[]) if (c && typeof c === 'object' && c.author && typeof c.author === 'object') c.author.elsewhere = true;
+  let text = JSON.stringify({...raw, ...(history ? {ledger: history} : {})});
   const left: ReadBoard['left'] = [];
-  let files = 0;
   const carried = new Map(zip.names.flatMap(n => { const m = MEDIA.exec(n); return m ? [[m[1], n] as const] : []; }));
-  for (const sha of filesNamed(project!)) {
+  const verified: [string, string, string][] = [];
+  for (const sha of new Set([...text.matchAll(MEDIA_NAMED)].map(m => m[1]))) {
     const name = carried.get(sha);
     if (!name) { left.push({file: sha, why: 'the file does not carry it'}); continue; }
     const data = zip.read(name), mime = sniffMedia(data.subarray(0, 16));
     if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture or video its name says'}); continue; }
-    if (hex(await crypto.subtle.digest('SHA-256', data as Uint8Array<ArrayBuffer>)) !== sha) { left.push({file: sha, why: 'its bytes are not the ones its name was made from'}); continue; }
-    const stored = await host.put(new Blob([data as Uint8Array<ArrayBuffer>], {type: mime}));
-    if (stored.sha !== sha) { left.push({file: sha, why: 'it was kept under another name'}); continue; }
-    files++;
+    if (await digest(data) !== sha) { left.push({file: sha, why: 'its bytes are not the ones its name was made from'}); continue; }
+    verified.push([sha, name, mime]);
   }
-  return {project: project!, files, left};
+  const pictures: ReadBoard['pictures'] = [];
+  const carriedLocal = new Map(zip.names.flatMap(n => { const m = LOCAL.exec(n); return m ? [[m[1], n] as const] : []; }));
+  for (const id of new Set([...text.matchAll(LOCAL_NAMED)].map(m => m[1]))) {
+    const name = carriedLocal.get(id);
+    if (!name) { left.push({file: `local:${id}`, why: 'the file does not carry it'}); continue; }
+    const data = zip.read(name), mime = sniffMedia(data.subarray(0, 16));
+    if (!mime || !['image/png', 'image/jpeg', 'image/webp'].includes(mime) || mediaExtension(mime) !== LOCAL.exec(name)![2]) { left.push({file: `local:${id}`, why: 'it is not the picture its name says'}); continue; }
+    if (contentId(data) !== id) { left.push({file: `local:${id}`, why: 'its bytes are not the ones its name was made from'}); continue; }
+    pictures.push({id, mime, name, read: () => zip.read(name)});
+  }
+  const kept = new Set(verified.map(v => v[0])), keptLocal = new Set(pictures.map(p => p.id));
+  const gone = new Map<string, string>();
+  for (const {file} of left) if (!file.startsWith('local:')) gone.set(file, await goneMedia(file));
+  text = text.replace(MEDIA_NAMED, (all, sha: string) => kept.has(sha) ? all : `media:${gone.get(sha) ?? all.slice(6)}`).replace(LOCAL_NAMED, (all, id: string) => keptLocal.has(id) ? all : `local:${goneLocal(id)}`);
+  let project: Project;
+  try { project = parseProject(text); } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
+  delete project!.approvedFingerprint;
+  const placed: string[] = [];
+  return {
+    project: project!, files: verified.length, left, pictures,
+    place: async () => {
+      try {
+        for (const [sha, name, mime] of verified) {
+          const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}), {holding: true});
+          placed.push(stored.sha);
+          if (stored.sha !== sha) refuse(`${name} was kept under another name`);
+        }
+      } catch (error) { await host.settle(placed.splice(0), false); throw error; }
+    },
+    settle: keep => host.settle(placed.splice(0), keep),
+  };
 }
-
-/** A ledger read from a file, each change marked as made elsewhere: its author's name is kept, and it is never taken for someone on this Mac. */
-function elsewhere(ledger: Ledger): Ledger {
-  return {...ledger, changes: ledger.changes.map(c => ({...c, author: {...c.author, elsewhere: true as const}}))};
-}
-
 
 /**
- * Writes a board as a board file. Its size is added up first, each file's from what the host says it holds,
- * and a board past MAX_BOARD_FILE is refused before any file is read. A file the board names but does not
- * have is left out and said so. Approval does not travel: the person who opens it has not approved anything.
+ * Writes a board as a board file. Its entries are counted and measured first by the reader's own rule
+ * (checkEntries), each file by what the host says it holds, and a board the reader would refuse is refused before
+ * any file is read; the image library's pictures, small, are read first to be measured. A page that cannot be written
+ * as UTF-8 unchanged stays in board.json. A file the board names but does not have is left out and said so.
+ * Approval does not travel: the person who opens it has not approved anything.
  */
-export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'stat' | 'read'>): Promise<{bytes: Uint8Array; left: string[]}> {
+export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'stat' | 'read'> & {local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>}): Promise<{bytes: Uint8Array; left: string[]}> {
   const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined})) as Project;
   const texts: Record<string, string> = {};
-  for (const page of board.pages) if (isFreePage(page)) { texts[`pages/${page.id}.html`] = page.html; delete (page as {html?: string}).html; }
+  for (const page of board.pages) if (isFreePage(page) && wellFormed(page.html)) { texts[`pages/${page.id}.html`] = page.html; delete (page as {html?: string}).html; }
   texts['board.json'] = JSON.stringify(board);
   if (project.ledger) texts['ledger/changes.json'] = JSON.stringify(project.ledger);
-  const sizes = new Map<string, number>(), left: string[] = [];
-  let total = Object.values(texts).reduce((sum, text) => sum + utf8Length(text), 0);
-  for (const sha of filesNamed(project)) { const file = await host.stat(sha); if (!file) left.push(sha); else { sizes.set(sha, file.bytes); total += file.bytes; } }
-  if (total > MAX_BOARD_FILE) refuse(`the board comes to ${total.toLocaleString('en')} bytes; a board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')}. Take a video or two off the board, or send them apart.`);
-  const files: Zippable = {};
+  const entries = Object.entries(texts).map(([name, text]) => ({name, size: utf8Length(text)}));
+  const left: string[] = [], local: Zippable = {};
+  for (const id of localRefsIn(project)) {
+    const got = await host.local?.(id), mime = got && sniffMedia(got.bytes.subarray(0, 16));
+    if (!got || !mime || !['image/png', 'image/jpeg', 'image/webp'].includes(mime) || contentId(got.bytes) !== id) { left.push(`local:${id}`); continue; }
+    const name = `local/${id}.${mediaExtension(mime)}`;
+    entries.push({name, size: got.bytes.length});
+    checkEntries(entries, MAX_BOARD_FILE, {packed: true});
+    local[name] = [got.bytes, {level: 0}];
+  }
+  const sizes = new Map<string, {bytes: number; mime: string}>();
+  for (const sha of filesNamed(project)) { const file = await host.stat(sha); if (!file) left.push(sha); else { sizes.set(sha, file); entries.push({name: `media/${sha}.${mediaExtension(file.mime)}`, size: file.bytes}); } }
+  try { checkEntries(entries, MAX_BOARD_FILE, {packed: true}); }
+  catch (error) { if (error instanceof BoardFileError) refuse(`${error.message}. Take a video or two off the board, or send them apart.`); throw error; }
+  const files: Zippable = {...local};
   for (const [name, text] of Object.entries(texts)) files[name] = strToU8(text);
-  for (const sha of sizes.keys()) {
+  for (const [sha, file] of sizes) {
     const data = await host.read(sha), mime = data && sniffMedia(data.subarray(0, 16));
-    if (!data || !mime) { left.push(sha); continue; }
+    if (!data || !mime || data.length !== file.bytes) { left.push(sha); continue; }
     files[`media/${sha}.${mediaExtension(mime)}`] = [data, {level: 0}];
   }
   return {bytes: zipSync(files, {level: 6}), left};
