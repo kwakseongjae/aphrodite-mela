@@ -82,6 +82,8 @@ export function isApproved(p: Project) { return p.approvedFingerprint === finger
  * screen — and the board would read as approved without the person. With it gone, content that comes
  * back is a draft, whoever brought it back. An approval that still holds is never touched.
  */
+/** A system as parseProject keeps it. Put on a board as a file had it, the fingerprint on screen and the one saved would differ. */
+export function canonicalSystem(p: Project, system: DesignSystem): DesignSystem { return parseProject(JSON.stringify({ ...p, system })).system; }
 export function dropStaleApproval(p: Project): Project { if (p.approvedFingerprint !== undefined && p.approvedFingerprint !== fingerprint(p)) delete p.approvedFingerprint; return p; }
 export function assemble(brief: string): BlockKind[] {
   if (/shop|store|furniture|commerce|가구|쇼핑|스토어|상품/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'features', 'footer'];
