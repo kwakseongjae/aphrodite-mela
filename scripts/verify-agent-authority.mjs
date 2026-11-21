@@ -348,6 +348,22 @@ check('⌘Z and ⌘⇧Z sent as agent keys bring content back as drafts too', as
   assert.equal(await stored(), '');
 });
 
+check("an agent's Undo from the palette brings content back as a draft", async () => {
+  await personApproves();
+  await agentEdits('Palette light');
+  assert.equal((await agent('key', {key: 'k', meta: true})).error, undefined);
+  await sleep(100);
+  assert.equal(await evaluate(`document.querySelector('#command-search') !== null`), true, 'the palette opened');
+  assert.equal((await agent('type', {selector: '#command-search', text: 'undo'})).error, undefined);
+  await sleep(250);
+  assert.equal(await evaluate(`document.querySelector('#command-list [data-palette]')?.dataset.action`), 'undo', 'Undo is the first answer');
+  const enter = await agent('key', {key: 'Enter'});
+  cleared(enter, 'Enter on the palette Undo, sent as agent keys');
+  assert.equal(await title(), 'First light');
+  assert.equal(await approval(), 'draft');
+  assert.equal(await stored(), '');
+});
+
 /* Codex 2026-11-22, high 4: the old clearing came 60 ms late, and anything read in between saw approved. */
 check('nothing read beside an agent undo sees an approval', async () => {
   await personApproves();

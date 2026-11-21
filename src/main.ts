@@ -158,12 +158,13 @@ function rememberConnect(on:boolean){try{if(on)localStorage.setItem(CONNECT_KEY,
  *  the day goes on; empty when nothing was remembered, and the switch then says only that it is on. */
 function connectLeftText(){if(!connectMode)return '';try{return connectLeftLabel(Number(localStorage.getItem(CONNECT_KEY))-Date.now(),uiLanguage==='ko');}catch{return '';}}
 let lease:Holder|null=null;let connectWrites=0;let commandCaller='';let askState:AskState=null;
-/** Who caused an event. The person's own input is trusted; an agent's synthetic event carries its turn; anything else is neither. */
-type Pressed=Event&{by?:Origin};
+/** Who caused an event. Only the person's own input is trusted; an agent's synthetic event carries its turn; anything else is neither. */
+type Pressed=Event&{by?:AgentTurn};
 function pressedBy(e:Event):Origin{return e.isTrusted?'person':(e as Pressed).by;}
-/** Clicks `el` for `origin`. click() dispatches synchronously, so the tag lands on that one event and on no other. Only the
- *  app sets it: an agent reaches the page through commands, and every command that clicks passes its own turn. */
-function clickAs(el:HTMLElement,origin:Origin){const tag=(ev:Event)=>{(ev as Pressed).by=origin;};window.addEventListener('click',tag,{capture:true,once:true});try{el.click();}finally{window.removeEventListener('click',tag,{capture:true});}}
+/** An agent's click, tagged with its turn. click() dispatches synchronously, so the tag lands on that one event and on no other. */
+function clickAs(el:HTMLElement,turn:AgentTurn){const tag=(ev:Event)=>{(ev as Pressed).by=turn;};window.addEventListener('click',tag,{capture:true,once:true});try{el.click();}finally{window.removeEventListener('click',tag,{capture:true});}}
+/** A control pressed by `origin`: a click on it, or Enter on a palette row, which is the key's press and not a click's. */
+function pressControl(control:HTMLElement,origin:Origin){if(control.hasAttribute('data-palette'))closeModal();void action(control,origin).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');});}
 /** Asked where an approval is written, after any wait. Only the person's own input says yes; an agent's turn learns it was refused. */
 function personPressed(origin:Origin){if(origin==='person')return true;if(origin)origin.refused=true;return false;}
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
@@ -1157,8 +1158,7 @@ document.addEventListener('click', e => {
   const chip=target.closest<HTMLElement>('[data-toast]');
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
-  if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control,pressedBy(e)).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); pressControl(control,pressedBy(e)); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selected = block.dataset.blockId!; const scroll = document.querySelector('#canvas-scroll')!.scrollTop; render(); document.querySelector('#canvas-scroll')!.scrollTop = scroll; }
@@ -1316,7 +1316,7 @@ document.addEventListener('submit', async e => {
 let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();clickAs(items[current],pressedBy(e));}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();clickAs(items[0],pressedBy(e));}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
+function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){if(current>=0){e.preventDefault();pressControl(items[current],pressedBy(e));}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();pressControl(items[0],pressedBy(e));}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite.','Aphrodite에 오신 것을 환영합니다.'),ui('Shape before you build.','만들기 전에, 방향부터.'),welcomeHtml(uiLanguage),true);}
