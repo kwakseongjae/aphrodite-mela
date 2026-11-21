@@ -1046,7 +1046,8 @@ check('a page sent with its video beside it is a zip of the page and the video, 
   await personPresses('page', {id}); await sleep(300);
   const save = await downloads();
   await personPresses('export'); await sleep(600);
-  await waitFor(() => evaluate(`!document.querySelector('[data-export-videos]')?.hidden`), 'the videos choice, for a page with a video');
+  // The choice must be there and shown: an element that is missing is not a choice shown.
+  await waitFor(() => evaluate(`document.querySelector('[data-export-videos]')?.hidden === false && document.querySelectorAll('[data-export-videos] [name="export-videos"]').length === 2`), 'the videos choice, for a page with a video');
   const zip = await save('download-page-html');
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`);
   assert.equal(zip.name, 'sent-with-its-video.zip');

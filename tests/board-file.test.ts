@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
 import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
 import {sizeOf} from '../src/ledger/types';
+import {ensureSpace} from '../src/editor/space';
 import {readdirSync, statSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -38,6 +39,9 @@ function board(): Project {
     {id: 'c1', seq: 1, at: '2026-11-20T00:00:00.000Z', author: {kind: 'person', name: 'you'}, source: 'editor:change', ops: [{op: 'set', on: 'project', field: 'approvedFingerprint', value: 'x'} as never], anchors: {pages: [], nodes: []}, baseRevision: 'a', revision: 'b', view: false, size: 0},
     {id: 'c2', parent: 'c1', seq: 2, at: '2026-11-20T00:00:01.000Z', author: {kind: 'agent', name: 'claude-code'}, source: 'agent:apply', reason: 'Because.', ops: [], anchors: {pages: ['free'], nodes: []}, baseRevision: 'b', revision: 'c', view: false, size: 0},
   ]};
+  // Laid out on the board, as every board the app saves is: where each frame stands goes with the board.
+  ensureSpace(p);
+  p.space!.frames.free = {...p.space!.frames.free, x: 777, y: 333};
   p.approvedFingerprint = fingerprint(p);
   return p;
 }
@@ -52,6 +56,7 @@ test('a board goes out and comes back as a new board: its pages, its files and i
   assert.notEqual(got.project.id, p.id, 'a received board is a new board');
   assert.deepEqual(got.project.pages.map(x => [x.id, x.name, x.kind]), p.pages.map(x => [x.id, x.name, x.kind]));
   assert.equal(got.project.pages[1].html, p.pages[1].html, 'the page is the one sent, scripts and all');
+  assert.deepEqual(got.project.space, p.space, 'each frame stands where it stood');
   assert.equal(got.project.approvedFingerprint, undefined);
   assert.equal(isApproved(got.project), false, 'no file gives an approval');
   assert.equal(s.kept.size, 0, 'nothing is placed while the file is read');
