@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initialProject,makeBlock,uid,fingerprint,isApproved,parseProject,type Project} from '../src/model';
-import {readLibrary,writeLibrary,withoutStaleApprovals,upsertProject,moveEntry,cloneProject,LIBRARY_KEY,type Library} from '../src/workspace/library';
+import {readLibrary,readDroppedApprovals,writeLibrary,withoutStaleApprovals,upsertProject,moveEntry,cloneProject,LIBRARY_KEY,type Library} from '../src/workspace/library';
 import {sampleProject} from '../src/workspace/onboarding';
 
 /* 0.2.5 drops a fingerprint the content does not match, when it reads and when it writes. That is only
@@ -51,10 +51,34 @@ test('the two imports that were drafts in v0.2.4 are drafts still',()=>{
   assert.equal(isApproved(parseProject(JSON.stringify(sortKeys(p)))),false,'a board brought back from the Vault opens as a draft');
 });
 
+const STALE='Approved, then edited';
 test('a library written by v0.2.4 keeps its approvals when 0.2.5 reads and saves it',()=>{
   const text=readFileSync(new URL('./fixtures/library-v0.2.4-approved.json',import.meta.url),'utf8');
   const read=fromText(text);
-  assert.equal(read.entries.length,4);
-  for(const entry of read.entries)assert.equal(isApproved(parseProject(JSON.stringify(entry.project))),true,entry.project.name);
-  for(const entry of trip(read).read.entries)assert.equal(isApproved(parseProject(JSON.stringify(entry.project))),true,`${entry.project.name}, saved again`);
+  assert.equal(read.entries.length,5);
+  for(const entry of read.entries)if(entry.project.name!==STALE)assert.equal(isApproved(parseProject(JSON.stringify(entry.project))),true,entry.project.name);
+  for(const entry of trip(read).read.entries)if(entry.project.name!==STALE)assert.equal(isApproved(parseProject(JSON.stringify(entry.project))),true,`${entry.project.name}, saved again`);
+});
+
+/* Codex 2026-11-22 (check 3): reading drops a stale fingerprint in memory while the store keeps it, and Files compares
+   the two and refuses ("Project changed"). The app now writes the library once when reading dropped one. */
+test('a v0.2.4 board edited after approval reads as a draft, and the library is written so Files sees the same board',()=>{
+  const text=readFileSync(new URL('./fixtures/library-v0.2.4-approved.json',import.meta.url),'utf8');
+  const read=fromText(text);
+  const stale=read.entries.find(e=>e.project.name===STALE)!.project;
+  assert.equal(stale.approvedFingerprint,undefined,'the stale fingerprint is gone in memory');
+  const onDisk=(JSON.parse(text).entries as {project:Project}[]).find(e=>e.project.name===STALE)!.project;
+  assert.notEqual(onDisk.approvedFingerprint,undefined,'and still in the stored text, which is what Files compared against');
+  assert.equal(readDroppedApprovals(text,read),true,'so the read says the store needs writing');
+  const store=memory();writeLibrary(store,withoutStaleApprovals(read));
+  const written=(JSON.parse(store.values.get(LIBRARY_KEY)!).entries as {project:Project}[]).find(e=>e.project.name===STALE)!.project;
+  assert.deepEqual(written,JSON.parse(JSON.stringify(stale)),'what is written is the board Files is sent');
+  assert.equal(readDroppedApprovals(store.values.get(LIBRARY_KEY)!,fromText(store.values.get(LIBRARY_KEY)!)),false,'and once written there is nothing left to drop');
+});
+
+test('the last step before storage drops a stale fingerprint on its own',()=>{
+  const p=approved(rich);p.pages[0].blocks[0].title='Changed after approval';
+  const library:Library={version:1,entries:[{project:p,createdAt:'2026-11-22T00:00:00.000Z',updatedAt:'2026-11-22T00:00:00.000Z',pinned:false,archived:false}]};
+  withoutStaleApprovals(library);
+  assert.equal(library.entries[0].project.approvedFingerprint,undefined);
 });
