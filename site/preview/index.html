@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Aphrodite 미리보기판 내려받기</title>
+<link rel="icon" href="../assets/brand/app-icon.png">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="preview.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <img class="icon" src="../assets/brand/app-icon.png" alt="" width="48" height="48">
+    <div>
+      <p class="eyebrow">내부 미리보기판</p>
+      <h1>Aphrodite 미리보기판</h1>
+      <p class="meta" data-meta hidden></p>
+    </div>
+  </header>
+
+  <section aria-labelledby="dl-h">
+    <h2 id="dl-h">내려받기</h2>
+    <p class="status" data-status role="status">릴리스를 확인하는 중입니다.</p>
+    <div class="buttons">
+      <a class="btn btn-primary" data-dl="arm" aria-disabled="true" aria-describedby="dl-reason">Apple Silicon용 내려받기</a>
+      <a class="btn btn-secondary" data-dl="intel" aria-disabled="true" aria-describedby="dl-reason">Intel Mac용 내려받기</a>
+    </div>
+    <p id="dl-reason" class="reason" data-reason></p>
+    <p class="fallback" data-fallback hidden>받아지지 않으면 <a data-releases href="https://github.com/kwakseongjae/aphrodite-mela/releases">릴리스 페이지</a>에서 받으세요.</p>
+    <noscript><p class="reason">이 페이지는 스크립트가 있어야 내려받기 주소를 만듭니다. <a href="https://github.com/kwakseongjae/aphrodite-mela/releases">릴리스 페이지</a>에서 받으세요.</p></noscript>
+    <p class="hint">내 Mac이 어느 쪽인지 모르겠다면: 화면 왼쪽 위 Apple 메뉴 &gt; 이 Mac에 관하여 &gt; 칩. &ldquo;Apple M…&rdquo;이면 Apple Silicon, &ldquo;Intel&rdquo;이면 Intel Mac입니다.</p>
+  </section>
+
+  <section aria-labelledby="can-h">
+    <h2 id="can-h">이 판으로 되는 것</h2>
+    <ul>
+      <li>터미널의 Claude Code와 Codex를 MCP로 연결해 보드에 HTML 페이지를 올리고 고칩니다.</li>
+      <li>스크린샷과 영상을 보드에 놓습니다.</li>
+      <li><code>.aph</code> 파일과 HTML 파일로 건넵니다.</li>
+      <li>모든 변경에 누가, 왜 바꿨는지가 남습니다.</li>
+    </ul>
+    <h2 id="cannot-h">아직 안 되는 것</h2>
+    <ul>
+      <li>페이지 안을 손으로 고치기(0.4)</li>
+      <li>앱 안 대화(0.3-4, 0.3-C)</li>
+      <li>링크 공유(0.3-S)</li>
+      <li>새 디자인(F3~F5)</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="connect-h">
+    <h2 id="connect-h">에이전트 연결 방법</h2>
+    <p class="todo" data-todo="connect"><strong>[연결 방법: 확인 후 채움]</strong> 실제로 따라 해 본 뒤에 적습니다. Claude Code와 Codex 각각 무엇을 설치하고 어떤 명령 한 줄을 넣는지, 처음 연결할 때 뜨는 허용 창이 들어갑니다.</p>
+  </section>
+
+  <section aria-labelledby="limits-h">
+    <h2 id="limits-h">알려진 한계</h2>
+    <ul>
+      <li>macOS 13~14에서는 HTML 페이지가 그려지지 않을 수 있습니다. 페이지 벽을 확인한 것은 macOS 15와 27입니다.</li>
+      <li>자동 업데이트가 없습니다. 새 판은 이 페이지에서 다시 받습니다. <span class="todo-inline" data-todo="update">[정해지면 고침]</span></li>
+      <li>정식판(0.2.x)과 따로 설치되는지는 <span class="todo-inline" data-todo="coexist">[확인 후 채움]</span></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="report-h">
+    <h2 id="report-h">문제를 알리는 곳</h2>
+    <p><a href="https://github.com/kwakseongjae/aphrodite-mela/issues">GitHub 이슈</a>에 남겨 주세요. 판 번호와 macOS 버전, 어느 칩인지를 함께 적어 주세요.</p>
+  </section>
+</main>
+<script src="preview.js"></script>
+</body>
+</html>

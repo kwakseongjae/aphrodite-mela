@@ -1,0 +1,66 @@
+/* The internal preview download page. Values come from tokens.css (a copy of src/ui/tokens.css); nothing here is a raw colour or size. */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ui-bg-app);
+  color: var(--ui-text-1);
+  font-family: var(--ui-font-sans);
+  font-size: var(--ui-text-15);
+  line-height: var(--ui-lh-15);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wrap { max-width: 640px; margin: 0 auto; padding: var(--ui-space-7) var(--ui-space-5); }
+.head { display: flex; align-items: center; gap: var(--ui-space-4); margin-bottom: var(--ui-space-6); }
+.icon { border-radius: var(--ui-radius-3); flex: none; }
+.eyebrow { margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); font-weight: var(--ui-w-medium); }
+h1 { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); }
+h2 { margin: 0 0 var(--ui-space-3); font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); font-weight: var(--ui-w-semibold); }
+section { margin-bottom: var(--ui-space-7); }
+section h2 + ul + h2 { margin-top: var(--ui-space-5); }
+.meta { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
+p { margin: 0 0 var(--ui-space-3); }
+ul { margin: 0; padding-left: var(--ui-space-5); }
+li { margin-bottom: var(--ui-space-2); }
+a { color: var(--ui-accent-text); text-underline-offset: 2px; }
+a:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); border-radius: var(--ui-radius-1); }
+code { font-family: var(--ui-font-mono); font-size: var(--ui-text-13); background: var(--ui-bg-sunken); border-radius: var(--ui-radius-1); padding: 0 var(--ui-space-1); }
+
+.status { font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
+.buttons { display: flex; gap: var(--ui-space-3); }
+.btn {
+  flex: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--ui-control-lg);
+  padding: var(--ui-space-2) var(--ui-space-4);
+  border: var(--ui-hairline) solid transparent;
+  border-radius: var(--ui-radius-2);
+  font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold);
+  text-align: center; text-decoration: none; cursor: pointer;
+  transition: background var(--ui-dur-fast) var(--ui-ease);
+}
+.btn-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
+.btn-primary:hover { background: var(--ui-accent-hover); }
+.btn-secondary { background: var(--ui-bg-panel); color: var(--ui-text-1); border-color: var(--ui-line-strong); }
+.btn-secondary:hover { background: var(--ui-bg-hover); }
+.btn:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); }
+/* Not pressable: no address, a plain surface, dashed edge. The reason is text below, not only a dimmed colour. */
+.btn[aria-disabled="true"] {
+  background: var(--ui-bg-sunken); color: var(--ui-text-2);
+  border: var(--ui-hairline) dashed var(--ui-line-strong);
+  cursor: not-allowed;
+}
+.reason, .fallback, .hint { font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); }
+.reason { margin-top: var(--ui-space-3); }
+.reason:empty { display: none; }
+.hint { margin-top: var(--ui-space-3); }
+
+.todo { background: var(--ui-warn-soft); color: var(--ui-text-1); border-left: var(--ui-space-1) solid var(--ui-warn-600); border-radius: var(--ui-radius-2); padding: var(--ui-space-3) var(--ui-space-4); }
+.todo strong { color: var(--ui-warn-text); }
+.todo-inline { background: var(--ui-warn-soft); color: var(--ui-warn-text); border-radius: var(--ui-radius-1); padding: 0 var(--ui-space-1); font-weight: var(--ui-w-semibold); white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .wrap { padding: var(--ui-space-6) var(--ui-space-4); }
+  .buttons { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
