@@ -5,7 +5,7 @@
 //! or writes outside the app's data folder except `store`, which copies a file the agent names in.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -27,11 +27,17 @@ pub struct Stored {
     pub bytes: u64,
 }
 
-/// The files a board file's import put in `board-media/` that were not there before (0.3-P3-fix1), kept here,
-/// in this process, until the import is kept or taken back. Only these can be taken back: the list the page
-/// sends is never trusted, and a file this Mac had before, or that a drop or an agent has put since, stays.
+/// The files each board file's import put in `board-media/` that were not there before (0.3-P3-fix1, fix2), kept
+/// here, in this process, by the import's own ticket until the import is kept or taken back. Rust makes each ticket
+/// (hold_begin); an import names only its ticket, never a list of files. A file this Mac had before, or that a drop,
+/// an agent or another import has put since, stays: once two rely on a file, no one holds it.
 #[derive(Default)]
-pub struct Held(Mutex<HashSet<String>>);
+pub struct Held(Mutex<HeldState>);
+#[derive(Default)]
+pub struct HeldState {
+    by_sha: HashMap<String, String>,
+    tickets: HashSet<String>,
+}
 
 fn base(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
@@ -121,62 +127,86 @@ fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, 
 }
 
 /// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is.
-/// Puts a hashed file in place, once. An import holding what it places has a file that was not here before
-/// noted in `held`; anyone else putting the same file here now relies on it, so it is no longer held.
-fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, held: &Held, holding: bool) -> Result<Stored, String> {
+/// Puts a hashed file in place, once. An import placing it (`holding`, its ticket) holds a file that was not here
+/// before; anyone else putting the same file here now relies on it too, so no one holds it any more.
+fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, held: &Held, holding: Option<&str>) -> Result<Stored, String> {
     let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
-    let mut set = held.0.lock().map_err(|e| e.to_string())?;
+    let mut state = held.0.lock().map_err(|e| e.to_string())?;
+    if let Some(ticket) = holding {
+        if !state.tickets.contains(ticket) {
+            let _ = fs::remove_file(incoming);
+            return Err("that import has ended".into());
+        }
+    }
     if dest.exists() {
         let _ = fs::remove_file(incoming);
-        if !holding {
-            set.remove(&sha);
+        if state.by_sha.get(&sha).map(String::as_str) != holding {
+            state.by_sha.remove(&sha);
         }
     } else {
         fs::rename(incoming, &dest).map_err(|e| e.to_string())?;
-        if holding {
-            set.insert(sha.clone());
-        } else {
-            set.remove(&sha);
+        match holding {
+            Some(ticket) => { state.by_sha.insert(sha.clone(), ticket.to_string()); }
+            None => { state.by_sha.remove(&sha); }
         }
     }
     Ok(Stored { sha, mime: mime.to_string(), bytes })
 }
 
-fn hashes(shas: &[String]) -> Result<(), String> {
-    if shas.len() > 10_000 || !shas.iter().all(|s| is_sha(s)) {
-        return Err("each file is named by the 64 hex digits of its SHA-256, and nothing else".into());
-    }
-    Ok(())
+fn is_ticket(text: &str) -> bool {
+    text.len() == 48 && text.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-/// Takes back what an import placed and did not keep: only files `held` says it put here new, from
-/// `board-media/` alone, named again from the hash. A link standing in the file's place is not followed
-/// or removed. A list with anything but whole hashes in it is refused whole.
-pub(crate) fn take_back(base: &Path, held: &Held, shas: &[String]) -> Result<Vec<String>, String> {
-    hashes(shas)?;
-    let mut set = held.0.lock().map_err(|e| e.to_string())?;
+/// A ticket for one import, which it places its files under and then keeps or takes back.
+pub(crate) fn hold_begin(held: &Held) -> Result<String, String> {
+    let ticket = crate::agent::random_token();
+    held.0.lock().map_err(|e| e.to_string())?.tickets.insert(ticket.clone());
+    Ok(ticket)
+}
+
+/// Takes back what an import placed and did not keep: only files its ticket still holds, from `board-media/`
+/// alone, named again from the hash. A link standing in the file's place is not followed or removed. A file that
+/// cannot be removed stays held, to be taken back again. Anything but a ticket's shape is refused; a ticket this
+/// process does not know, or one that has ended, takes nothing back.
+pub(crate) fn take_back(base: &Path, held: &Held, ticket: &str) -> Result<Vec<String>, String> {
+    if !is_ticket(ticket) {
+        return Err("an import is named by its ticket, and nothing else".into());
+    }
+    let mut state = held.0.lock().map_err(|e| e.to_string())?;
+    if !state.tickets.contains(ticket) {
+        return Ok(Vec::new());
+    }
+    let mine: Vec<String> = state.by_sha.iter().filter(|(_, t)| t.as_str() == ticket).map(|(s, _)| s.clone()).collect();
     let mut removed = Vec::new();
-    for sha in shas {
-        if !set.remove(sha) {
-            continue;
-        }
+    for sha in mine {
+        let mut gone = true;
         for ext in EXTENSIONS {
             let path = base.join(MEDIA).join(format!("{sha}.{ext}"));
-            if fs::symlink_metadata(&path).map(|m| m.file_type().is_file()).unwrap_or(false) && fs::remove_file(&path).is_ok() {
-                removed.push(sha.clone());
+            match fs::symlink_metadata(&path) {
+                Ok(m) if m.file_type().is_file() => {
+                    if fs::remove_file(&path).is_ok() { removed.push(sha.clone()); } else { gone = false; }
+                }
+                _ => {}
             }
         }
+        if gone {
+            state.by_sha.remove(&sha);
+        }
+    }
+    if !state.by_sha.values().any(|t| t == ticket) {
+        state.tickets.remove(ticket);
     }
     Ok(removed)
 }
 
 /// An import that went through keeps what it placed: none of it can be taken back after this.
-pub(crate) fn keep(held: &Held, shas: &[String]) -> Result<(), String> {
-    hashes(shas)?;
-    let mut set = held.0.lock().map_err(|e| e.to_string())?;
-    for sha in shas {
-        set.remove(sha);
+pub(crate) fn keep(held: &Held, ticket: &str) -> Result<(), String> {
+    if !is_ticket(ticket) {
+        return Err("an import is named by its ticket, and nothing else".into());
     }
+    let mut state = held.0.lock().map_err(|e| e.to_string())?;
+    state.by_sha.retain(|_, t| t != ticket);
+    state.tickets.remove(ticket);
     Ok(())
 }
 
@@ -197,7 +227,7 @@ pub(crate) fn store(base: &Path, from: &Path, held: &Held) -> Result<Stored, Str
     let incoming = folder(base, UPLOADS)?.join(format!("{}.part", crate::agent::random_token()));
     let file = fs::File::open(from).map_err(|e| e.to_string())?;
     let (sha, mime, bytes) = copy_hashed(file, &incoming)?;
-    settle(base, &incoming, sha, mime, bytes, held, false)
+    settle(base, &incoming, sha, mime, bytes, held, None)
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {
@@ -227,7 +257,7 @@ pub(crate) fn append(base: &Path, id: &str, piece: &[u8]) -> Result<u64, String>
     Ok(total)
 }
 
-pub(crate) fn finish(base: &Path, id: &str, held: &Held, holding: bool) -> Result<Stored, String> {
+pub(crate) fn finish(base: &Path, id: &str, held: &Held, holding: Option<&str>) -> Result<Stored, String> {
     let path = upload_path(base, id)?;
     let file = fs::File::open(&path).map_err(|_| "no such upload".to_string())?;
     let hashed = folder(base, UPLOADS)?.join(format!("{id}.hashed"));
@@ -303,22 +333,31 @@ pub fn board_media_chunk(app: AppHandle, request: tauri::ipc::Request<'_>) -> Re
     append(&base(&app)?, &id, piece)
 }
 
-/// `holding`: a board file's import placing its files, which it keeps or takes back once it knows (board_media_keep, board_media_take_back).
+/// `holding`: the ticket of a board file's import placing its files, which it keeps or takes back once it knows.
 #[tauri::command]
-pub async fn board_media_finish(app: AppHandle, held: State<'_, Held>, id: String, holding: Option<bool>) -> Result<Stored, String> {
-    finish(&base(&app)?, &id, &held, holding == Some(true))
+pub async fn board_media_finish(app: AppHandle, held: State<'_, Held>, id: String, holding: Option<String>) -> Result<Stored, String> {
+    if holding.as_deref().is_some_and(|t| !is_ticket(t)) {
+        return Err("an import is named by its ticket, and nothing else".into());
+    }
+    finish(&base(&app)?, &id, &held, holding.as_deref())
+}
+
+/// A board file's import begins: the ticket it places its files under.
+#[tauri::command]
+pub fn board_media_hold_begin(held: State<'_, Held>) -> Result<String, String> {
+    hold_begin(&held)
 }
 
 /// An import that failed after placing files takes back the ones it put here new (take_back).
 #[tauri::command]
-pub fn board_media_take_back(app: AppHandle, held: State<'_, Held>, shas: Vec<String>) -> Result<Vec<String>, String> {
-    take_back(&base(&app)?, &held, &shas)
+pub fn board_media_take_back(app: AppHandle, held: State<'_, Held>, ticket: String) -> Result<Vec<String>, String> {
+    take_back(&base(&app)?, &held, &ticket)
 }
 
 /// An import that went through keeps its files (keep).
 #[tauri::command]
-pub fn board_media_keep(held: State<'_, Held>, shas: Vec<String>) -> Result<(), String> {
-    keep(&held, &shas)
+pub fn board_media_keep(held: State<'_, Held>, ticket: String) -> Result<(), String> {
+    keep(&held, &ticket)
 }
 
 /// An agent's media_add: a file on this Mac by its path, or a picture in the image library by its id.
@@ -429,7 +468,7 @@ mod tests {
         let id = begin(dir.path()).unwrap();
         append(dir.path(), &id, &PNG).unwrap();
         append(dir.path(), &id, b"more").unwrap();
-        let stored = finish(dir.path(), &id, &Held::default(), false).unwrap();
+        let stored = finish(dir.path(), &id, &Held::default(), None).unwrap();
         assert_eq!(stored.bytes, 12);
         assert!(media_file(dir.path(), &stored.sha).is_some());
         let big = begin(dir.path()).unwrap();
@@ -438,7 +477,7 @@ mod tests {
         assert!(append(dir.path(), &big, b"abc").unwrap_err().contains("at most 500 MB"));
         assert!(!path.exists(), "the refused upload is gone");
         assert_eq!(append(dir.path(), "../../etc/passwd", b"x").unwrap_err(), "no such upload");
-        assert!(finish(dir.path(), &"0".repeat(48), &Held::default(), false).is_err());
+        assert!(finish(dir.path(), &"0".repeat(48), &Held::default(), None).is_err());
     }
 
     #[test]
@@ -454,8 +493,8 @@ mod tests {
         assert_eq!(media_stat(dir.path(), "../a"), None);
     }
 
-    /// A file put in pieces under `holding` (an import) or not (a drop).
-    fn put(base: &Path, held: &Held, bytes: &[u8], holding: bool) -> String {
+    /// A file put in pieces, by an import (its ticket) or not (a drop).
+    fn put(base: &Path, held: &Held, bytes: &[u8], holding: Option<&str>) -> String {
         let id = begin(base).unwrap();
         append(base, &id, bytes).unwrap();
         finish(base, &id, held, holding).unwrap().sha
@@ -465,39 +504,71 @@ mod tests {
     fn an_import_takes_back_only_the_files_it_put_here_new() {
         let dir = tempfile::tempdir().unwrap();
         let held = Held::default();
-        let had = put(dir.path(), &held, &[&PNG[..], b"here before"].concat(), false);
-        let again = put(dir.path(), &held, &[&PNG[..], b"here before"].concat(), true);
-        let new = put(dir.path(), &held, &[&PNG[..], b"brought in"].concat(), true);
+        let a = hold_begin(&held).unwrap();
+        let had = put(dir.path(), &held, &[&PNG[..], b"here before"].concat(), None);
+        let again = put(dir.path(), &held, &[&PNG[..], b"here before"].concat(), Some(&a));
+        let new = put(dir.path(), &held, &[&PNG[..], b"brought in"].concat(), Some(&a));
         assert_eq!(again, had);
-        assert_eq!(take_back(dir.path(), &held, &[had.clone(), new.clone()]).unwrap(), vec![new.clone()]);
+        assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![new.clone()]);
         assert!(media_file(dir.path(), &had).is_some(), "the file this Mac had stays");
         assert!(media_file(dir.path(), &new).is_none(), "the one the import brought is gone");
-        assert!(take_back(dir.path(), &held, &[had.clone()]).unwrap().is_empty(), "and nothing more is taken back");
+        assert!(take_back(dir.path(), &held, &a).unwrap().is_empty(), "and an ended import takes nothing more back");
+    }
+
+    #[test]
+    fn a_file_two_imports_rely_on_is_taken_back_by_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = Held::default();
+        let (a, b) = (hold_begin(&held).unwrap(), hold_begin(&held).unwrap());
+        let x = put(dir.path(), &held, &[&PNG[..], b"shared"].concat(), Some(&a));
+        assert_eq!(put(dir.path(), &held, &[&PNG[..], b"shared"].concat(), Some(&b)), x);
+        assert!(take_back(dir.path(), &held, &a).unwrap().is_empty(), "A's failure leaves the file B relies on");
+        assert!(media_file(dir.path(), &x).is_some());
+        assert!(take_back(dir.path(), &held, &b).unwrap().is_empty(), "and B's leaves it too: a file with no owner, never one lost");
+        assert!(media_file(dir.path(), &x).is_some());
+    }
+
+    #[test]
+    fn the_same_import_placing_a_file_twice_still_holds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = Held::default();
+        let a = hold_begin(&held).unwrap();
+        let same = put(dir.path(), &held, &[&PNG[..], b"twice by one"].concat(), Some(&a));
+        assert_eq!(put(dir.path(), &held, &[&PNG[..], b"twice by one"].concat(), Some(&a)), same);
+        assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![same]);
     }
 
     #[test]
     fn a_kept_import_and_a_file_someone_else_put_since_are_not_taken_back() {
         let dir = tempfile::tempdir().unwrap();
         let held = Held::default();
-        let kept = put(dir.path(), &held, &[&PNG[..], b"kept"].concat(), true);
-        keep(&held, &[kept.clone()]).unwrap();
-        let dropped = put(dir.path(), &held, &[&PNG[..], b"dropped meanwhile"].concat(), true);
-        assert_eq!(put(dir.path(), &held, &[&PNG[..], b"dropped meanwhile"].concat(), false), dropped);
-        assert!(take_back(dir.path(), &held, &[kept.clone(), dropped.clone()]).unwrap().is_empty());
+        let a = hold_begin(&held).unwrap();
+        let kept = put(dir.path(), &held, &[&PNG[..], b"kept"].concat(), Some(&a));
+        keep(&held, &a).unwrap();
+        assert!(take_back(dir.path(), &held, &a).unwrap().is_empty());
+        let b = hold_begin(&held).unwrap();
+        let dropped = put(dir.path(), &held, &[&PNG[..], b"dropped meanwhile"].concat(), Some(&b));
+        assert_eq!(put(dir.path(), &held, &[&PNG[..], b"dropped meanwhile"].concat(), None), dropped);
+        assert!(take_back(dir.path(), &held, &b).unwrap().is_empty());
         assert!(media_file(dir.path(), &kept).is_some() && media_file(dir.path(), &dropped).is_some());
     }
 
     #[test]
-    fn take_back_takes_whole_hashes_only_and_refuses_a_list_with_anything_else() {
+    fn a_ticket_is_the_only_thing_take_back_and_keep_take() {
         let dir = tempfile::tempdir().unwrap();
         let held = Held::default();
-        let new = put(dir.path(), &held, &[&PNG[..], b"x"].concat(), true);
-        for bad in ["../board-media", "", "a.png", &"A".repeat(64), &format!("{}/", "a".repeat(63))] {
-            assert!(take_back(dir.path(), &held, &[new.clone(), bad.to_string()]).is_err(), "{bad}");
-            assert!(keep(&held, &[bad.to_string()]).is_err(), "{bad}");
+        let a = hold_begin(&held).unwrap();
+        let new = put(dir.path(), &held, &[&PNG[..], b"x"].concat(), Some(&a));
+        for bad in [new.as_str(), "../board-media", "", "a.png", &"A".repeat(48), &"a".repeat(47)] {
+            assert!(take_back(dir.path(), &held, bad).is_err(), "{bad}");
+            assert!(keep(&held, bad).is_err(), "{bad}");
         }
-        assert!(media_file(dir.path(), &new).is_some(), "a refused list takes nothing back");
-        assert_eq!(take_back(dir.path(), &held, &[new.clone()]).unwrap(), vec![new]);
+        assert!(media_file(dir.path(), &new).is_some(), "a refused call takes nothing back");
+        assert!(take_back(dir.path(), &held, &"0".repeat(48)).unwrap().is_empty(), "a ticket nobody was given takes nothing back");
+        let late = begin(dir.path()).unwrap();
+        append(dir.path(), &late, &[&PNG[..], b"late"].concat()).unwrap();
+        assert!(finish(dir.path(), &late, &held, Some(&"0".repeat(48))).is_err(), "nothing is placed under an unknown ticket");
+        assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![new]);
     }
 
     #[cfg(unix)]
@@ -505,15 +576,32 @@ mod tests {
     fn take_back_does_not_follow_a_link_in_a_files_place() {
         let dir = tempfile::tempdir().unwrap();
         let held = Held::default();
+        let a = hold_begin(&held).unwrap();
         let sha = "b".repeat(64);
         let outside = dir.path().join("outside.png");
         fs::write(&outside, b"not the app's").unwrap();
         fs::create_dir_all(dir.path().join(MEDIA)).unwrap();
         std::os::unix::fs::symlink(&outside, dir.path().join(MEDIA).join(format!("{sha}.png"))).unwrap();
-        held.0.lock().unwrap().insert(sha.clone());
-        assert!(take_back(dir.path(), &held, &[sha.clone()]).unwrap().is_empty());
+        held.0.lock().unwrap().by_sha.insert(sha.clone(), a.clone());
+        assert!(take_back(dir.path(), &held, &a).unwrap().is_empty());
         assert!(outside.exists(), "the file the link names is untouched");
         assert!(fs::symlink_metadata(dir.path().join(MEDIA).join(format!("{sha}.png"))).is_ok(), "and the link is left where it was");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_be_removed_stays_held_to_be_taken_back_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let held = Held::default();
+        let a = hold_begin(&held).unwrap();
+        let new = put(dir.path(), &held, &[&PNG[..], b"stuck"].concat(), Some(&a));
+        let media = dir.path().join(MEDIA);
+        fs::set_permissions(&media, fs::Permissions::from_mode(0o555)).unwrap();
+        let first = take_back(dir.path(), &held, &a).unwrap();
+        fs::set_permissions(&media, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(first.is_empty(), "the folder would not let it go");
+        assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![new], "so it is taken back the next time");
     }
 
     #[test]

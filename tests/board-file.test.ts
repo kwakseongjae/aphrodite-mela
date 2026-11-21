@@ -21,13 +21,20 @@ import {MAX_EXPORT_FILE} from '../src/page-export';
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const PIC = sha(PNG);
-/** A host as src/free-page.ts makes them: an import's files are held until it keeps them, and only those it put here new can be taken back. */
-const store = ({failAt}: {failAt?: number} = {}) => {
-  const kept = new Map<string, Uint8Array>(), held = new Set<string>(), settled: [string[], boolean][] = [];
-  let puts = 0;
+/** A host as src/free-page.ts and src-tauri/src/board.rs make them: each import places under its own ticket, and only what that import alone put here new can be taken back. `failAtNew` makes the nth new file fail to be put. */
+const store = ({failAtNew}: {failAtNew?: number} = {}) => {
+  const kept = new Map<string, Uint8Array>(), held = new Map<string, string>(), tickets = new Set<string>(), settled: [string, boolean][] = [];
+  let fresh = 0, n = 0;
   return {kept, held, settled, host: {maxBytes: 500 * 1024 * 1024,
-    put: async (blob: Blob, options?: {holding?: true}) => { if (++puts === failAt) throw new Error('the disk is full'); const bytes = new Uint8Array(await blob.arrayBuffer()); const s = sha(bytes); if (!kept.has(s)) { kept.set(s, bytes); if (options?.holding) held.add(s); } else if (!options?.holding) held.delete(s); return {sha: s, mime: blob.type, bytes: bytes.length}; },
-    settle: async (shas: string[], keep: boolean) => { settled.push([shas, keep]); for (const s of shas) if (held.delete(s) && !keep) kept.delete(s); },
+    hold: async () => { const t = 't' + ++n; tickets.add(t); return t; },
+    put: async (blob: Blob, options?: {holding?: string}) => {
+      const bytes = new Uint8Array(await blob.arrayBuffer()), s = sha(bytes), holding = options?.holding;
+      if (holding !== undefined && !tickets.has(holding)) throw new Error('that import has ended');
+      if (!kept.has(s)) { if (++fresh === failAtNew) throw new Error('the disk is full'); kept.set(s, bytes); if (holding !== undefined) held.set(s, holding); }
+      else if (held.get(s) !== holding) held.delete(s);
+      return {sha: s, mime: blob.type, bytes: bytes.length};
+    },
+    settle: async (ticket: string, keep: boolean) => { settled.push([ticket, keep]); if (!tickets.has(ticket)) return; for (const [s, owner] of [...held]) if (owner === ticket) { held.delete(s); if (!keep) kept.delete(s); } tickets.delete(ticket); },
     stat: async (s: string) => kept.has(s) ? {mime: 'image/png', bytes: kept.get(s)!.length} : undefined, read: async (s: string) => kept.get(s)}};
 };
 function board(): Project {
@@ -63,7 +70,7 @@ test('a board goes out and comes back as a new board: its pages, its files and i
   await got.place();
   assert.deepEqual([...s.kept.keys()], [PIC], 'placing puts its file on this board');
   await got.settle(true);
-  assert.deepEqual(s.settled, [[[PIC], true]]);
+  assert.deepEqual(s.settled, [['t1', true]]);
   assert.deepEqual([got.files, got.left], [1, []]);
   assert.deepEqual(got.project.ledger!.changes.map(c => c.author), [{kind: 'person', name: 'you', elsewhere: true}, {kind: 'agent', name: 'claude-code', elsewhere: true}], 'names kept, never taken for this Mac\'s person or agent');
   const saved = parseProject(JSON.stringify(got.project));
@@ -193,14 +200,33 @@ test('a file that does not hold together refuses before anything is placed, howe
 });
 
 test('placing that fails part way takes back only what it put here new, and a file this Mac had stays', async () => {
-  const bytes = await files(twoFiles(), [new Uint8Array([...PNG, 7, 7])]);
-  const s = store({failAt: 3});
+  const third = new Uint8Array([...PNG, 3, 3, 3]);
+  const p = twoFiles();
+  p.pages[1].html += `<img src="media:${sha(third)}">`;
+  const bytes = await files(p, [new Uint8Array([...PNG, 7, 7]), third]);
+  // PIC is here already; of the two the file brings new, the first is put and the second fails.
+  const s = store({failAtNew: 3});
   await s.host.put(new Blob([PNG], {type: 'image/png'}));
   const got = await readBoardFile(bytes, s.host);
   await assert.rejects(got.place(), /the disk is full/);
-  assert.deepEqual([...s.kept.keys()], [PIC], 'the file this Mac had before stays; the one the import placed is gone');
-  assert.equal(s.settled.length, 1);
-  assert.equal(s.settled[0][1], false);
+  assert.deepEqual([...s.kept.keys()], [PIC], 'the file this Mac had stays; the one the import put before it failed is gone');
+  assert.deepEqual(s.settled.map(x => x[1]), [false]);
+});
+
+test('a file two imports rely on is taken back by neither: one with no owner is left, never one another board names', async () => {
+  const p = board();
+  const bytes = await files(p);
+  const s = store();
+  const a = await readBoardFile(bytes, s.host), b = await readBoardFile(bytes, s.host);
+  await a.place();
+  await b.place();
+  await a.settle(false);
+  assert.ok(s.kept.has(PIC), 'A failing leaves the file B is about to keep');
+  await b.settle(false);
+  assert.ok(s.kept.has(PIC), 'and B failing too leaves it: a file with no owner, not a file lost');
+  const c = await readBoardFile(bytes, s.host);
+  await c.settle(false);
+  assert.ok(s.kept.has(PIC), 'an import that placed nothing takes nothing back');
 });
 
 test('a received board sees only the files it carried: one it names but did not carry is missing here, even when this Mac has it', async () => {

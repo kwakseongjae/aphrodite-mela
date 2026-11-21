@@ -78,6 +78,7 @@ fn main() {
             board::board_media_begin,
             board::board_media_chunk,
             board::board_media_finish,
+            board::board_media_hold_begin,
             board::board_media_take_back,
             board::board_media_keep,
             board::board_media_stat,

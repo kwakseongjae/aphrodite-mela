@@ -57,6 +57,7 @@ import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {personOnlyRow} from './agent/commands.mjs';
+import {serial} from './serial';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -404,7 +405,10 @@ async function guardSwitch(){saveTyping();await flushDisk();if(screen==='editor'
 /** Board files that came while the person was answering who may edit: they wait for the answer, as a link does (0.3-P3-fix1). */
 const heldBoards:Uint8Array[]=[];
 async function openHeldBoards(){if(askOpen())return;for(const board of heldBoards.splice(0))await openBoardFile(board).catch(error=>toast(error instanceof Error?error.message:String(error)));}
-async function openBoardFile(bytes:Uint8Array){
+/** Board files open one at a time, by every way in (the picker, Finder, one that waited): the next starts once the one before has kept or taken back its files. */
+const importing=serial();
+function openBoardFile(bytes:Uint8Array){return importing(()=>openBoardFileNow(bytes));}
+async function openBoardFileNow(bytes:Uint8Array){
   if(askOpen()){heldBoards.push(bytes);return;}
   await guardSwitch();
   const read=await readBoardFile(bytes,frameHost);

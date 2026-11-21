@@ -318,10 +318,12 @@ export type FrameHost = {
   origins: readonly string[];
   /** How big one file this host keeps may be. */
   maxBytes: number;
-  /** Keeps a file the person put on the board, under the hash of its bytes. `holding`: a board file's import placing it, which it keeps or takes back with settle. */
-  put(file: Blob, options?: {holding?: true}): Promise<StoredMedia>;
-  /** An import's end: `keep` keeps what it placed; otherwise the host takes back only the files the import put here new (src-tauri/src/board.rs take_back). */
-  settle(shas: string[], keep: boolean): Promise<void>;
+  /** Keeps a file the person put on the board, under the hash of its bytes. `holding`: the ticket of a board file's import placing it (hold), which it keeps or takes back with settle. */
+  put(file: Blob, options?: {holding?: string}): Promise<StoredMedia>;
+  /** A ticket for one board file's import, made by the host, never by the page. */
+  hold(): Promise<string>;
+  /** An import's end: `keep` keeps what it placed; otherwise the host takes back only the files that import alone put here new (src-tauri/src/board.rs take_back). */
+  settle(ticket: string, keep: boolean): Promise<void>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
   importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
@@ -395,8 +397,9 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
   const open = () => db ??= new Promise((resolve, reject) => { const r = indexedDB.open('aphrodite-board-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
   const read = async (sha: string) => (await request((await open()).transaction('files').objectStore('files').get(sha))) as Blob | undefined;
   const urls = new Map<string, string>();
-  /* What an import put here new, as the desktop keeps it (src-tauri/src/board.rs Held). */
-  const held = new Set<string>();
+  /* What each import put here new, by its ticket, as the desktop keeps it (src-tauri/src/board.rs Held). One tab only:
+     another tab's drop cannot tell this one it now relies on a held file. The browser build is for checks, not shipped. */
+  const held = new Map<string, string>(), tickets = new Set<string>();
   return {
     origins: [],
     maxBytes: MAX_BROWSER_MEDIA_BYTES,
@@ -405,16 +408,24 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
       const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
       if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
-      if (!(await read(sha))) { await request((await open()).transaction('files', 'readwrite').objectStore('files').put(new Blob([file], {type: mime}), sha)); if (options?.holding) held.add(sha); else held.delete(sha); }
-      else if (!options?.holding) held.delete(sha);
+      const holding = options?.holding;
+      if (holding !== undefined && !tickets.has(holding)) throw new Error('that import has ended');
+      // Whether it is here and putting it if not, in one transaction: no other write in this tab comes between.
+      const store = (await open()).transaction('files', 'readwrite').objectStore('files');
+      const fresh = await new Promise<boolean>((resolve, reject) => { const got = store.get(sha); got.onerror = () => reject(got.error); got.onsuccess = () => { if (got.result) { resolve(false); return; } const put = store.put(new Blob([file], {type: mime}), sha); put.onerror = () => reject(put.error); put.onsuccess = () => resolve(true); }; });
+      if (fresh && holding !== undefined) held.set(sha, holding);
+      else if (held.get(sha) !== holding) held.delete(sha);
       return {sha, mime, bytes: file.size};
     },
-    settle: async (shas, keep) => {
-      for (const sha of shas) {
-        if (!held.delete(sha) || keep) continue;
-        await request((await open()).transaction('files', 'readwrite').objectStore('files').delete(sha));
-        const url = urls.get(sha); if (url) { URL.revokeObjectURL(url); urls.delete(sha); }
+    hold: async () => { const ticket = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join(''); tickets.add(ticket); return ticket; },
+    settle: async (ticket, keep) => {
+      if (!tickets.has(ticket)) return;
+      for (const [sha, owner] of [...held]) {
+        if (owner !== ticket) continue;
+        if (!keep) { try { await request((await open()).transaction('files', 'readwrite').objectStore('files').delete(sha)); } catch { continue; } const url = urls.get(sha); if (url) { URL.revokeObjectURL(url); urls.delete(sha); } }
+        held.delete(sha);
       }
+      if (![...held.values()].includes(ticket)) tickets.delete(ticket);
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
@@ -469,9 +480,10 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       if (file.size > MAX_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_MEDIA_BYTES)} MB.`);
       const id = await native.invoke<string>('board_media_begin');
       for (let at = 0; at < file.size; at += PIECE) await native.invoke('board_media_chunk', new Uint8Array(await file.slice(at, at + PIECE).arrayBuffer()), {headers: {'upload-id': id}});
-      return native.invoke<StoredMedia>('board_media_finish', {id, holding: options?.holding === true});
+      return native.invoke<StoredMedia>('board_media_finish', {id, holding: options?.holding ?? null});
     },
-    settle: async (shas, keep) => { if (!shas.length) return; if (keep) await native.invoke('board_media_keep', {shas}); else await native.invoke('board_media_take_back', {shas}); },
+    hold: () => native.invoke<string>('board_media_hold_begin'),
+    settle: async (ticket, keep) => { if (keep) await native.invoke('board_media_keep', {ticket}); else await native.invoke('board_media_take_back', {ticket}); },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha}).catch(() => null)) ?? undefined,

@@ -357,7 +357,7 @@ check('an allowed agent cannot send a page or the board as a file, open the file
     assert.match(r.error, /the person's to do/);
   }
   // Taking back a board file's media (0.3-P3-fix1) is no action, command, tool or op an agent can name: only an import that failed does it.
-  for (const action of ['board_media_take_back', 'board-media-take-back', 'board_media_keep', 'media-take-back']) {
+  for (const action of ['board_media_take_back', 'board-media-take-back', 'board_media_keep', 'media-take-back', 'board_media_hold_begin', 'hold-begin']) {
     const r = await agent('act', {action, data: {shas: ['0'.repeat(64)]}}, 'claude-code');
     assert.ok(r.error && !r.ok, `${action}: ${JSON.stringify(r)}`);
   }

@@ -211,7 +211,7 @@ const goneLocal = (id: string) => contentId(strToU8(`aphrodite-missing:${id}`));
  * The caller checks the board fits the library, then places its files (place), adds it, and keeps or takes them
  * back (settle).
  */
-export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes' | 'settle'>): Promise<ReadBoard> {
+export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes' | 'hold' | 'settle'>): Promise<ReadBoard> {
   const zip = readZip(bytes, host.maxBytes);
   if (!zip.names.includes('board.json')) refuse('it has no board.json');
   const raw = json(zip.read('board.json'), 'board.json') as {pages?: unknown; [key: string]: unknown};
@@ -266,19 +266,19 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   let project: Project;
   try { project = parseProject(text); } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
-  const placed: string[] = [];
+  let ticket: string | undefined;
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {
+      ticket = await host.hold();
       try {
         for (const [sha, name, mime] of verified) {
-          const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}), {holding: true});
-          placed.push(stored.sha);
+          const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}), {holding: ticket});
           if (stored.sha !== sha) refuse(`${name} was kept under another name`);
         }
-      } catch (error) { await host.settle(placed.splice(0), false); throw error; }
+      } catch (error) { await host.settle(ticket, false); ticket = undefined; throw error; }
     },
-    settle: keep => host.settle(placed.splice(0), keep),
+    settle: async keep => { if (ticket) await host.settle(ticket, keep); ticket = undefined; },
   };
 }
 
