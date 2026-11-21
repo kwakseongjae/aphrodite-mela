@@ -10,7 +10,8 @@ import WebKit
 
 struct Wall: Codable { var peerConnection: Pair; var mediaDevices: Pair; var features: [String]; var featureList: String; var featureKey: String; var featureSetter: String; var featureGetter: String }
 struct Pair: Codable { var setter: String; var getter: String }
-struct Step: Codable { var js: String?; var wait: Double?; var read: String? }
+/// `until`: an expression asked again every 0.2 s after `wait` until it is true, for at most `cap` seconds; then `read`.
+struct Step: Codable { var js: String?; var wait: Double?; var until: String?; var cap: Double?; var read: String? }
 struct Run: Codable { var url: String; var wall: String?; var when: String?; var schemes: [String: String]?; var steps: [Step]; var delegate: String? }
 let run = try! JSONDecoder().decode(Run.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
 func out(_ d: [String: Any]) { let j = try! JSONSerialization.data(withJSONObject: d); print(String(data: j, encoding: .utf8)!); fflush(stdout) }
@@ -96,10 +97,21 @@ class Nav: NSObject, WKNavigationDelegate {
   func step(_ w: WKWebView, _ i: Int) {
     if i >= run.steps.count { out(["done": true]); exit(0) }
     let s = run.steps[i]
+    let read = {
+      if let r = s.read { w.evaluateJavaScript(r) { v, e in out(["step": i, "read": v.map { "\($0)" } ?? "ERR \(String(describing: e))"]); self.step(w, i + 1) } }
+      else { self.step(w, i + 1) }
+    }
+    // Waits for every answer rather than for a time: under load a probe answers late, and reading early would take it for silent.
+    func ask(_ until: String, by deadline: Date) {
+      w.evaluateJavaScript(until) { v, _ in
+        if (v as? Bool) == true { read(); return }
+        if Date() >= deadline { out(["step": i, "untilTimeout": true]); read(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { ask(until, by: deadline) }
+      }
+    }
     let next = {
       DispatchQueue.main.asyncAfter(deadline: .now() + (s.wait ?? 0)) {
-        if let r = s.read { w.evaluateJavaScript(r) { v, e in out(["step": i, "read": v.map { "\($0)" } ?? "ERR \(String(describing: e))"]); self.step(w, i + 1) } }
-        else { self.step(w, i + 1) }
+        if let until = s.until { ask(until, by: Date().addingTimeInterval(s.cap ?? 30)) } else { read() }
       }
     }
     if let js = s.js { w.evaluateJavaScript(js) { _, e in if let e = e { out(["step": i, "jsError": "\(e)"]) }; next() } } else { next() }

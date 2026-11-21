@@ -128,14 +128,20 @@ const wallFile = existsSync(WALL) ? WALL : undefined;
 const work = join(tmpdir(), `aphrodite-wall-runs-${process.pid}`);
 mkdirSync(work, {recursive: true});
 const READ = `JSON.stringify((window.__m||[]).filter(m=>m&&(m.atk||m.rtc||m.probe)).map(m=>(m.n||m.name)+'='+(m.v||m.value)))`;
+/** True once each of `names` has answered. */
+const UNTIL = names => `(()=>{const said=new Set((window.__m||[]).filter(m=>m&&(m.atk||m.rtc||m.probe)).map(m=>m.n||m.name));return ${JSON.stringify(names)}.every(n=>said.has(n))})()`;
 async function measure(binary, run) {
   const insert = `(()=>{const f=document.createElement('iframe');f.setAttribute('sandbox','${run.scriptless ? '' : 'allow-scripts'}');f.setAttribute('allow',${JSON.stringify(FRAME_ALLOW).replace(/'/g, "\\'")});f.src='asset://localhost/${run.tag}';document.body.append(f);return 1})()`;
   // Walled runs are answered as wry answers the app's window: every request for the camera or the microphone is
   // granted. Unwalled ones are only counted and refused, so a control run never reaches a real device.
   const delegate = run.walled ? 'grant' : 'deny';
+  // Read once every item the probe has has answered (each answers by itself within its own time, "timeout" included):
+  // the page that does nothing wrong names four, every other probe says it ran. A run with no scripts says nothing and is read after the wait.
+  const until = run.scriptless ? undefined : UNTIL(run.name === 'legit' ? ['ran', ...LEGIT] : ['ran']);
+  const wait = {wait: 6, ...(until ? {until, cap: 40} : {}), read: READ};
   const spec = run.shape === 'board'
-    ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, wait: 6, read: READ}]}
-    : {url: `http://127.0.0.1:${PAGES}/shell/${run.tag}`, when: 'afterCreate', steps: [{wait: 6, read: READ}]};
+    ? {url: `app://localhost/board/${run.tag}`, when: 'afterLoad', steps: [{js: insert, ...wait}]}
+    : {url: `http://127.0.0.1:${PAGES}/shell/${run.tag}`, when: 'afterCreate', steps: [wait]};
   const file = join(work, run.tag + '.json');
   writeFileSync(file, JSON.stringify({...spec, delegate, wall: run.walled ? wallFile : undefined, schemes: {app: `http://127.0.0.1:${PAGES}`, asset: `http://127.0.0.1:${FRAMES}`}}));
   let lines;
@@ -146,7 +152,8 @@ async function measure(binary, run) {
   run.asked = lines.filter(l => l.delegate).map(l => l.delegate);
   run.before = lines.find(l => l.before)?.before;
   run.said = JSON.parse(lines.find(l => l.read)?.read ?? '[]');
-  run.failed = lines.find(l => l.failed || l.timeout);
+  // Not every item answered within the cap: the measurer heard nothing, which is not the wall's doing.
+  run.failed = lines.find(l => l.failed || l.timeout) ?? (lines.some(l => l.untilTimeout) ? {failed: 'the measurer got no answer from every item of this probe in 40 s'} : undefined);
 }
 
 let binary;
