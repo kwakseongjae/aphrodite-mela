@@ -407,6 +407,8 @@ let leaving=0;
 const leaves=serial();
 /** The browser build's checks hold the store's write here, to see nothing can be typed while a board is left. */
 let heldWrites:Promise<void>|undefined;
+/** And makes the next board file's library write fail, to see only that board comes out again. */
+let failImportWrite=false;
 function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   return leaves(async()=>{
     leaving++;app.inert=true;
@@ -442,9 +444,9 @@ async function openReadBoard(read:ReadBoard){
   if(refused)throw new Error(refused);
   // Its files are placed only once it is known to fit; if the library cannot take it, they are taken back and the library is as it was.
   await read.place();
-  const before=library;
-  try{saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();}
-  catch(error){try{saveLibrary(before);await flushDisk();}catch{/* the library on disk is still the one before */}await read.settle(false);throw error;}
+  try{saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));if(failImportWrite){failImportWrite=false;await new Promise(r=>setTimeout(r,1_500));throw new Error('the library could not be written (a check refused it)');}await flushDisk();}
+  // Only this board comes out again: whatever else changed in the library meanwhile stays. Its files are taken back.
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}await read.settle(false);throw error;}
   await read.settle(true);
   openProject(read.project);
   // The image library's pictures it carried go into this board's own library, now that it is in; one that cannot is missing on it.
@@ -2343,7 +2345,8 @@ async function boot(){
   // The browser build has no macOS to hand it links; a check follows one through the same door.
   else{(window as unknown as {aphroditeOpenLink?:(href:string)=>Promise<void>}).aphroditeOpenLink=href=>followOpenLink(readOpenLink(href));
     // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
-    let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};}
+    let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
+    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite=true;};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

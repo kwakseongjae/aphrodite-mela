@@ -1204,6 +1204,33 @@ check('while a board is being left nothing can be typed into it, and what was ty
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
+check('a board file whose library write fails comes out alone, and a change made meanwhile on the open board stays', async () => {
+  const here = (await agent('contract', {})).project.project_id;
+  const entries = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`);
+  const count = (await entries()).length;
+  await sleep(5_200);
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  await evaluate('window.aphroditeHoldWrites(true), window.aphroditeFailImportWrite(), true');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]});
+  await sleep(1_000);
+  await evaluate('window.aphroditeHoldWrites(false), true');
+  // While the board's library write is out (the check makes it fail after a moment), an agent renames the open board's
+  // first page: a change to the library the import's failure must not undo.
+  await sleep(300);
+  const renamed = await agent('apply', {reason: 'verify-pages: a change while a board file comes in.', base_revision: await revision(), ops: [{op: 'page', name: 'Renamed meanwhile', page_id: (await agent('contract', {})).pages[0].page_id}]});
+  assert.ok(renamed.ok, JSON.stringify(renamed).slice(0, 300));
+  await sleep(2_500);
+  assert.deepEqual((await entries()).length, count, 'no board was added');
+  assert.equal((await agent('contract', {})).project.project_id, here, 'the board open is the one it was');
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(here)}).project.pages[0].name`), 'Renamed meanwhile', 'the change made meanwhile is still in the library');
+  result.failedImport = {renamed: !!renamed.ok};
+});
+
 check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
   const SENTENCE = 'A sentence only this page holds, which agents still read.';
   const wordsId = await makePage('Words page', `<h1>Never framed here</h1><p>${SENTENCE}</p>`);
