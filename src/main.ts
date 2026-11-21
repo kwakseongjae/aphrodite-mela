@@ -385,10 +385,16 @@ async function guardSwitch(){saveTyping();await flushDisk();if(screen==='editor'
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
  * again and the board is known to fit. A file that fails anywhere adds no board.
  */
+/** Board files that came while the person was answering who may edit: they wait for the answer, as a link does (0.3-P3-fix1). */
+const heldBoards:Uint8Array[]=[];
+async function openHeldBoards(){if(askOpen())return;for(const board of heldBoards.splice(0))await openBoardFile(board).catch(error=>toast(error instanceof Error?error.message:String(error)));}
 async function openBoardFile(bytes:Uint8Array){
+  if(askOpen()){heldBoards.push(bytes);return;}
   await guardSwitch();
   const read=await readBoardFile(bytes,frameHost);
   await guardSwitch();
+  // A request that came up while the file was read: nothing is placed yet, and the file waits for the answer.
+  if(askOpen()){heldBoards.push(bytes);return;}
   const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
   // Its files are placed only once it is known to fit; if the library cannot take it, they are taken back and the library is as it was.
@@ -951,7 +957,7 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldLink&&!askOpen()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldBoards.length&&!askOpen())dispatchEvent(new Event('aphrodite-answered'));if(heldLink&&!askOpen()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -2285,7 +2291,8 @@ async function boot(){
   }
   render();if(startupError)toast(startupError);
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
-  if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
+  // What macOS opened, and board files that waited for the person's answer to who may edit (closeAsk), are opened here.
+  addEventListener('aphrodite-answered',()=>void openHeldBoards());if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
   // The browser build has no macOS to hand it links; a check follows one through the same door.
   else (window as unknown as {aphroditeOpenLink?:(href:string)=>Promise<void>}).aphroditeOpenLink=href=>followOpenLink(readOpenLink(href));
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();

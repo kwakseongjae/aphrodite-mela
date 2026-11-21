@@ -1023,6 +1023,28 @@ check('a board saved as a board file opens again as a new board, its pages runni
 });
 
 /* 0.3-P3-fix1 #3: leaving a board by a link or by opening a board file saves what the person was typing first. */
+/* 0.3-P3-fix1 #5 (Opus L5): a board file that comes while the person is asked who may edit waits for their answer, as a link does. */
+check('a board file that comes while the person is asked who may edit waits for their answer, and the request stays', async () => {
+  const count = async () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`);
+  const before = await count();
+  await personPresses('agent-disconnect'); await sleep(300);
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  await waitFor(() => evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), 'the request on screen');
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]});
+  await sleep(2_000);
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), true, 'the request is still there');
+  assert.equal(await count(), before, 'and the board waits');
+  await personPresses('ask-decline');
+  await waitFor(async () => (await count()) > before, 'the board to open once the person has answered', 30);
+  await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
+});
+
 check('what the person was typing is kept when a link or a board file takes them to another board', async () => {
   const here = (await agent('contract', {})).project.project_id;
   const link = id => `aphrodite://open?board=${id}`;
