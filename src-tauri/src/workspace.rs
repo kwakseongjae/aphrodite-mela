@@ -69,6 +69,24 @@ fn save_at(root: &Path, data: String, expected: u64) -> Result<u64, String> {
     )?;
     Ok(revision)
 }
+/// The folder the library lives in, under the app's data folder (the commands below name it as well).
+pub(crate) const FOLDER: &str = "workspace-v1";
+/// What the saved library says, read under the lock save_at writes under and held while `f` runs (0.3-P3-fix3 #2):
+/// another copy of the app cannot save between the reading and what is done with it. `None` when nothing is saved.
+/// A library that cannot be read is an error, and `f` does not run.
+pub(crate) fn with_saved_library<T>(root: &Path, f: impl FnOnce(Option<&str>) -> T) -> Result<T, String> {
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(root.join("workspace.lock"))
+        .map_err(|e| e.to_string())?;
+    lock.lock_exclusive().map_err(|e| e.to_string())?;
+    let current = read_at(root)?;
+    Ok(f(current["data"].as_str()))
+}
 #[tauri::command]
 pub fn workspace_read(app: tauri::AppHandle) -> Result<Value, String> {
     let root = app

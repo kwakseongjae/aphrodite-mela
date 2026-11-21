@@ -177,22 +177,33 @@ pub(crate) fn take_back(base: &Path, held: &Held, ticket: &str) -> Result<Vec<St
         return Ok(Vec::new());
     }
     let mine: Vec<String> = state.by_sha.iter().filter(|(_, t)| t.as_str() == ticket).map(|(s, _)| s.clone()).collect();
-    let mut removed = Vec::new();
-    for sha in mine {
-        let mut gone = true;
-        for ext in EXTENSIONS {
-            let path = base.join(MEDIA).join(format!("{sha}.{ext}"));
-            match fs::symlink_metadata(&path) {
-                Ok(m) if m.file_type().is_file() => {
-                    if fs::remove_file(&path).is_ok() { removed.push(sha.clone()); } else { gone = false; }
+    // The saved library is read, under its lock, before anything goes: a file it names is a saved board's, whichever
+    // copy of the app placed it, and stays (0.3-P3-fix3 #2). One that cannot be read takes nothing back.
+    let root = base.join(crate::workspace::FOLDER);
+    let saved = crate::workspace::with_saved_library(&root, |data| {
+        let mut removed = Vec::new();
+        for sha in &mine {
+            if data.is_some_and(|d| d.contains(sha.as_str())) {
+                state.by_sha.remove(sha);
+                continue;
+            }
+            let mut gone = true;
+            for ext in EXTENSIONS {
+                let path = base.join(MEDIA).join(format!("{sha}.{ext}"));
+                match fs::symlink_metadata(&path) {
+                    Ok(m) if m.file_type().is_file() => {
+                        if fs::remove_file(&path).is_ok() { removed.push(sha.clone()); } else { gone = false; }
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+            if gone {
+                state.by_sha.remove(sha);
             }
         }
-        if gone {
-            state.by_sha.remove(&sha);
-        }
-    }
+        removed
+    });
+    let Ok(removed) = saved else { return Ok(Vec::new()) };
     if !state.by_sha.values().any(|t| t == ticket) {
         state.tickets.remove(ticket);
     }
@@ -602,6 +613,36 @@ mod tests {
         fs::set_permissions(&media, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(first.is_empty(), "the folder would not let it go");
         assert_eq!(take_back(dir.path(), &held, &a).unwrap(), vec![new], "so it is taken back the next time");
+    }
+
+    /// 0.3-P3-fix3 #2: two copies of the app on the same folder hold their imports apart, but share the media and the
+    /// library. A file the saved library names is a saved board's, whoever placed it: taking back leaves it. A library
+    /// that cannot be read takes nothing back, and the file stays held for the next try.
+    #[test]
+    fn taking_back_leaves_a_file_the_saved_library_names_and_takes_nothing_when_the_library_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("workspace-v1");
+        let save = |data: &str| {
+            fs::create_dir_all(&ws).unwrap();
+            fs::write(ws.join("library.json"), serde_json::to_vec(&serde_json::json!({"revision": 1, "data": data})).unwrap()).unwrap();
+        };
+        let held = Held::default();
+        let a = hold_begin(&held).unwrap();
+        let x = put(dir.path(), &held, &[&PNG[..], b"named by a board saved elsewhere"].concat(), Some(&a));
+        save(&format!(r#"{{"version":1,"entries":[{{"project":{{"pages":[{{"html":"<img src=\"media:{x}\">"}}]}}}}]}}"#));
+        assert!(take_back(dir.path(), &held, &a).unwrap().is_empty(), "the saved board's file is not taken back");
+        assert!(media_file(dir.path(), &x).is_some(), "and it is there");
+        let b = hold_begin(&held).unwrap();
+        let y = put(dir.path(), &held, &[&PNG[..], b"named by nothing saved"].concat(), Some(&b));
+        assert_eq!(take_back(dir.path(), &held, &b).unwrap(), vec![y.clone()]);
+        assert!(media_file(dir.path(), &y).is_none(), "one nothing saved names is taken back");
+        let c = hold_begin(&held).unwrap();
+        let z = put(dir.path(), &held, &[&PNG[..], b"library unreadable"].concat(), Some(&c));
+        fs::write(ws.join("library.json"), b"broken").unwrap();
+        assert!(take_back(dir.path(), &held, &c).unwrap().is_empty(), "a library that cannot be read takes nothing back");
+        assert!(media_file(dir.path(), &z).is_some());
+        save(r#"{"version":1,"entries":[]}"#);
+        assert_eq!(take_back(dir.path(), &held, &c).unwrap(), vec![z], "and the file is taken back once it can be read");
     }
 
     #[test]
