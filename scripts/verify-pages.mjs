@@ -1432,6 +1432,30 @@ check('while a board is being left nothing can be typed into it, and what was ty
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix3 #1: closing the window is a leaving too. The browser build closes through the desktop's own steps with a
+   window that only counts that it went; the store's write is held, and a word typed then must not go in. */
+check('closing the window is a leaving: nothing can be typed while its write is held, and what was typed before is kept', async () => {
+  await sleep(5_200);
+  const before = await seq();
+  const typed = await typeIntoTitle(' 닫기 전');
+  await evaluate('window.aphroditeHoldWrites(true), true');
+  await evaluate('window.aphroditeCloseWindow(), true');
+  await sleep(600);
+  const late = await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); if (!t) return false; t.focus(); return document.activeElement === t; })()`);
+  await send('Input.insertText', {text: ' 닫는 중'});
+  assert.equal(await evaluate('window.__closed ?? 0'), 0, 'the window waits for the write');
+  await evaluate('window.aphroditeHoldWrites(false), true');
+  await waitFor(() => evaluate('(window.__closed ?? 0) === 1'), 'the window to go once the write lands');
+  assert.equal(late, false, 'the title takes no focus while the window is closing');
+  const title = await titleOf(typed) ?? '';
+  assert.ok(title.endsWith(' 닫기 전'), `what was typed before closing is kept (${title})`);
+  assert.ok(!title.includes('닫는 중'), 'nothing typed while closing went in');
+  const {changes} = await agent('changes', {since: before, limit: 20});
+  assert.ok(changes.some(c => c.author.kind === 'person' && JSON.stringify(c.ops).includes(' 닫기 전')), "as the person's own change");
+  assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'and the editor takes input again, the window being still here');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
 check('a board file whose library write fails comes out alone, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;

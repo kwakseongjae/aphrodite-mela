@@ -443,6 +443,12 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
  * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
  * waits behind the leaving that waits for that dialog.
  */
+/**
+ * Closing the window is a leaving too (0.3-P3-fix3 #1): the editor stops taking input, what is typed is saved, the store
+ * is written, and only then does the window go. If the write did not land or the window cannot go, the editor takes
+ * input again and the error comes back to the one closing.
+ */
+function closeWindow(destroy:()=>Promise<void>){return leave(async()=>{if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
 async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
@@ -2347,15 +2353,13 @@ async function boot(){
          failure says so and lets the second press through instead of holding on. */
       let closing=false;
       await getCurrentWindow().onCloseRequested(async event=>{
+        if(closing)return;
         // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
         saveTyping();
-        if(lastSaved||closing)return;
+        if(lastSaved&&!leaving)return;
         event.preventDefault();
         try{
-          await flushDisk();
-          if(!lastSaved)throw new Error('the last write did not land');
-          closing=true;
-          await getCurrentWindow().destroy();
+          await closeWindow(async()=>{closing=true;await getCurrentWindow().destroy();});
         }catch(error){
           closing=true;   // the next ⌘W leaves, saved or not: being stuck is worse than losing the last edit
           toast(ui(`Could not save before closing — ${String(error)}. Press again to leave anyway, or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
@@ -2372,7 +2376,9 @@ async function boot(){
     (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>toast(String(error)));};
     // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
     let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
-    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite=true;};}
+    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite=true;};
+    // And closes the window the way the desktop does, with a window that only counts that it went.
+    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closeWindow(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();
