@@ -196,35 +196,48 @@ function closePageView(){if(!pageView)return;pageView=undefined;pageViewRoot.inn
 /** The page view sits under the banners, which say who may edit and stay in sight. */
 function placePageView(){pageViewRoot.style.setProperty('--page-view-top',`${Math.max(0,Math.round(document.querySelector('#banners')?.getBoundingClientRect().bottom??0))}px`);}
 /**
- * Following an aphrodite:// link (src/board-file.ts reads it, here and from macOS): the board it names is
- * opened and the page it names shown on its own. It opens and never edits: the board's open page, its
- * history and the library stay as they are, and a board or a page this Mac does not have opens Home.
+ * What comes in from outside, links and board files, one at a time (0.3-P3-fix2 #8). Each waits for every dialog to
+ * close (the request to edit or any other) and never closes one; it waits again after each wait of its own, and looks
+ * up what it opens only then. A newer link makes an older one, waiting or on its way, open nothing.
  */
-/** A link that arrived while the person was answering who may edit: it waits for their answer, and the request is never closed by a link. */
-let heldLink:OpenLink|undefined;
-/** A dialog is open, the request to edit or any other: a link waits for it to close rather than close it (0.3-P3-fix1). */
+const opening=serial();
+/** A dialog is open, the request to edit or any other. */
 const linkWaits=()=>askOpen()||modalRoot.children.length>0;
-async function followOpenLink(link:OpenLink|undefined){
-  // Of links that wait, the last one is the one opened.
-  if(linkWaits()){heldLink=link;return;}
-  const entry=link&&library.entries.find(e=>e.project.id===link.board);
-  if(!link||!entry){if(screen==='editor')await leave(()=>{if(linkWaits()){heldLink=link;return;}closePageView();screen='home';render();});return;}
-  if(screen!=='editor'||project.id!==entry.project.id){
-    const went=await leave(()=>{
-      if(linkWaits()){heldLink=link;return false;}
+/** Resolves once no dialog is open. */
+const noDialog=()=>new Promise<void>(resolve=>{if(!linkWaits()){resolve();return;}const o=new MutationObserver(()=>{if(!linkWaits()){o.disconnect();resolve();}});o.observe(modalRoot,{childList:true,subtree:true});});
+let linkSeq=0;
+/**
+ * Following an aphrodite:// link (src/board-file.ts reads it, here and from macOS): the board it names is opened and
+ * the page it names shown on its own. It opens and never edits. A link to a board this Mac does not have changes
+ * nothing on screen and says so (any app or page can send one); a link to a page the board no longer has, or to no
+ * page, shows the board.
+ */
+function followOpenLink(link:OpenLink|undefined){const seq=++linkSeq;return opening(()=>followOpenLinkNow(link,seq));}
+async function followOpenLinkNow(link:OpenLink|undefined,seq:number){
+  const stale=()=>seq!==linkSeq;
+  await noDialog();if(stale())return;
+  const notHere=()=>toast(ui('That link is to a board this Mac does not have.','이 Mac에 없는 보드를 가리키는 링크입니다.'));
+  if(!link||!library.entries.some(e=>e.project.id===link.board)){notHere();return;}
+  await leave(async()=>{
+    await noDialog();if(stale())return;
+    const entry=library.entries.find(e=>e.project.id===link.board);
+    if(!entry){notHere();return;}
+    if(screen!=='editor'||project.id!==entry.project.id){
       // A board in another workspace opens there, after the board left is written, so saving it moves nothing.
       const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
-      openProject(entry.project);return true;
-    });
-    if(!went)return;
-  }
-  if(!link.page)return;
-  // A page the board no longer has: the board is open, and nothing is shown on its own.
-  if(project.pages.some(p=>p.id===link.page))openPageView(link.page);else toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
+      openProject(entry.project);
+    }
+    if(link.page&&project.pages.some(p=>p.id===link.page)){openPageView(link.page);return;}
+    closePageView();
+    if(link.page)toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
+  });
 }
-let opening=Promise.resolve();
-/** What macOS handed the app to open (src-tauri/src/opened.rs), each once and in turn: links followed, board files opened as new boards. */
-function takeOpened(){return opening=opening.then(async()=>{const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take');for(const link of waiting.links)await followOpenLink(readOpenLink(openLink(link.board,link.page)));for(const file of waiting.files){try{await openBoardFile(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}}}).catch(error=>toast(String(error)));}
+/** What macOS handed the app to open (src-tauri/src/opened.rs), each once, in the line of what comes in: links followed, board files opened as new boards. */
+async function takeOpened(){
+  const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take').catch(error=>{toast(String(error));return {links:[],files:[]};});
+  for(const link of waiting.links)void followOpenLink(readOpenLink(openLink(link.board,link.page))).catch(error=>toast(String(error)));
+  for(const file of waiting.files)void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}});
+}
 /** Gives each new picture or video on the board its file: once, since the board keeps it after. */
 function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted]),[data-board-media][data-mounted="missing"]')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{const missing=el.parentElement?.querySelector<HTMLElement>('.board-missing');if(url){el.src=url;missing?.setAttribute('hidden','');if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else{el.dataset.mounted='missing';missing?.removeAttribute('hidden');}});}}
 document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
@@ -426,17 +439,12 @@ async function guardSwitch(){await leave(()=>undefined);}
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
  * again and the board is known to fit. A file that fails anywhere adds no board.
  */
-/** Board files that came while the person was answering who may edit: they wait for the answer, as a link does (0.3-P3-fix1). */
-const heldBoards:Uint8Array[]=[];
-async function openHeldBoards(){if(askOpen())return;for(const board of heldBoards.splice(0))await openBoardFile(board).catch(error=>toast(error instanceof Error?error.message:String(error)));}
-/** Board files open one at a time, by every way in (the picker, Finder, one that waited): the next starts once the one before has kept or taken back its files. */
-const importing=serial();
-function openBoardFile(bytes:Uint8Array){return importing(()=>openBoardFileNow(bytes));}
+/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder): the next starts once the one before has kept or taken back its files. */
+function openBoardFile(bytes:Uint8Array){return opening(()=>openBoardFileNow(bytes));}
 async function openBoardFileNow(bytes:Uint8Array){
-  if(askOpen()){heldBoards.push(bytes);return;}
+  await noDialog();
   const read=await readBoardFile(bytes,frameHost);
-  // A request that came up while the file was read: nothing is placed yet, and the file waits for the answer.
-  if(askOpen()){heldBoards.push(bytes);return;}
+  await noDialog();
   await leave(()=>openReadBoard(read));
 }
 async function openReadBoard(read:ReadBoard){
@@ -453,6 +461,8 @@ async function openReadBoard(read:ReadBoard){
   let missing=0;
   if(nativeDesktop){for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});}catch{missing++;}}if(read.pictures.length)forgetLocal();}
   else missing=read.pictures.length;
+  // A dialog that came up while the files were placed or the library written (the request to edit): the board waits for it, and never closes it.
+  await noDialog();
   openProject(read.project);
   const notes=[read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
   toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
@@ -999,15 +1009,13 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; modalReturnFocus?.focus();   syncStateAttributes(); releaseLink();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; modalReturnFocus?.focus();   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldBoards.length&&!askOpen())dispatchEvent(new Event('aphrodite-answered'));releaseLink();}
-/** A link that waited opens once no dialog is left open. */
-function releaseLink(){if(heldLink&&!linkWaits()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -2343,10 +2351,11 @@ async function boot(){
   }
   render();if(startupError)toast(startupError);
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
-  // What macOS opened, and board files that waited for the person's answer to who may edit (closeAsk), are opened here.
-  addEventListener('aphrodite-answered',()=>void openHeldBoards());if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
+  // What macOS opened is opened in the line of what comes in.
+  if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
   // The browser build has no macOS to hand it links; a check follows one through the same door.
-  else{(window as unknown as {aphroditeOpenLink?:(href:string)=>Promise<void>}).aphroditeOpenLink=href=>followOpenLink(readOpenLink(href));
+  else{// It hands the link to the line of what comes in and returns at once, as macOS does: the check waits on the screen.
+    (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>toast(String(error)));};
     // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
     let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
     (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite=true;};}

@@ -766,7 +766,7 @@ check('Edit in the app opens the page on the board, as the person\'s own step', 
   assert.deepEqual(changes.map(c => [c.author.kind, c.view]), [['person', true]]);
 });
 
-check('an agent\'s reply carries a link that opens its page on its own; following one edits nothing, and one for a board this Mac lacks opens Home', async () => {
+check('an agent\'s reply carries a link that opens its page on its own; following one edits nothing, and one for a board this Mac lacks changes nothing on screen', async () => {
   await sleep(5_200); // the person's last press holds the screen for a moment
   const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Linked', html: '<p>linked</p><script>parent.postMessage({boot: "linked"}, "*")</script>'}]});
   assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
@@ -777,9 +777,12 @@ check('an agent\'s reply carries a link that opens its page on its own; followin
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link)})`);
   await waitFor(async () => (await pageView()) === page, 'the link to show its page');
   await waitFor(async () => (await messages('boot')).includes('linked'), 'the page to start');
+  // 0.3-P3-fix2 O-4: any app or page can send a link; one to a board this Mac lacks leaves the screen as it is and says so.
   await evaluate(`window.aphroditeOpenLink('aphrodite://open?board=not-a-board-here')`); await sleep(500);
-  assert.equal(await evaluate('document.querySelector("#app").dataset.screen'), 'home', 'a board this Mac lacks opens Home');
-  assert.equal(await pageView(), '');
+  assert.equal(await evaluate('document.querySelector("#app").dataset.screen'), 'editor', 'a board this Mac lacks changes nothing on screen');
+  assert.equal(await pageView(), page, 'not even the page seen on its own');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /이 Mac에 없는 보드|board this Mac does not have/, 'and it says so');
+  await personPresses('home'); await sleep(500);
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link + '&file=/etc/passwd')})`); await sleep(300);
   assert.equal(await evaluate('document.querySelector("#app").dataset.screen'), 'home', 'a link naming anything more opens nothing');
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link)})`);
@@ -1119,6 +1122,61 @@ check('a board file that comes while the person is asked who may edit waits for 
   await personPresses('ask-decline');
   await waitFor(async () => (await count()) > before, 'the board to open once the person has answered', 30);
   await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
+});
+
+/* 0.3-P3-fix2 #8: what comes in waits for dialogs that come up while it is on its way, a newer link wins over an older one
+   still on its way, and a link to a page the open board no longer has shows the board. */
+check('a board file waits for the request to edit that comes up while it is on its way, and never closes or answers it', async () => {
+  const board = (await agent('contract', {})).project.project_id;
+  const count = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`);
+  await personPresses('agent-disconnect'); await sleep(300);
+  // A board file whose leaving is held (the editor takes no input then); an agent asks to edit meanwhile.
+  await sleep(5_200);
+  await send('Page.setInterceptFileChooserDialog', {enabled: true});
+  await personPresses('import-project');
+  await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker');
+  await evaluate('window.aphroditeHoldWrites(true), true');
+  const {root} = (await send('DOM.getDocument', {depth: 0})).result;
+  const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result;
+  const before = await count();
+  await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]});
+  await sleep(800);
+  const asked = await agent('connect', {}, 'claude-code');
+  assert.equal(asked.status, 'asked', JSON.stringify(asked));
+  await waitFor(() => evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), 'the request on screen');
+  await evaluate('window.aphroditeHoldWrites(false), true');
+  await sleep(2_000);
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), true, 'the request is still there');
+  assert.equal((await agent('contract', {})).project.project_id, board, 'and the board waits behind it');
+  await personPresses('ask-decline');
+  await waitFor(async () => (await count()) > before && (await agent('contract', {})).project.project_id !== board, 'the board to open once the person has answered', 30);
+  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'the answer was the person\'s: declined');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + board)})`);
+  await waitFor(async () => (await agent('contract', {})).project.project_id === board, 'back on the board');
+  await sleep(5_200);
+  await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
+});
+
+check('of two links on their way, only the newer opens, and a link to a missing page on the open board shows the board', async () => {
+  const board = (await agent('contract', {})).project.project_id;
+  // An older link held on its way, then a newer one: only the newer opens.
+  const pages = (await agent('contract', {})).pages.map(p => p.page_id);
+  await sleep(5_200);
+  // Every page shown on its own while the two links go is noted, so an older one that opened for a moment is seen.
+  await evaluate(`(() => { window.__views = []; new MutationObserver(() => window.__views.push(document.querySelector('#app').dataset.pageView)).observe(document.querySelector('#app'), {attributes: true, attributeFilter: ['data-page-view']}); return true; })()`);
+  await evaluate('window.aphroditeHoldWrites(true), true');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(`aphrodite://open?board=${board}&page=${pages[1]}`)})`); await sleep(400);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(`aphrodite://open?board=${board}&page=${pages[2]}`)})`); await sleep(400);
+  await evaluate('window.aphroditeHoldWrites(false), true');
+  await waitFor(async () => (await pageView()) === pages[2], 'the newer link to show its page');
+  await sleep(1_000);
+  assert.equal(await pageView(), pages[2]);
+  assert.ok(!(await evaluate('window.__views')).includes(pages[1]), 'the older one opened nothing, not even for a moment');
+  // A link to a page the open board does not have: the page seen on its own closes and the board shows.
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(`aphrodite://open?board=${board}&page=gone`)})`);
+  await waitFor(async () => (await pageView()) === '', 'the board to show');
+  assert.equal((await agent('contract', {})).project.project_id, board);
+  await sleep(5_200);
 });
 
 check('what the person was typing is kept when a link or a board file takes them to another board', async () => {
