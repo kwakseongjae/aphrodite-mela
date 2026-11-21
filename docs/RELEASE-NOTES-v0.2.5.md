@@ -14,19 +14,32 @@ do it for you.
 - Who this affects: anyone who has allowed an agent to edit, in Connected mode or by handing the
   screen over in Agent mode. One change below, a changed board staying a draft, applies to everyone.
 - What changes: a press of Approve direction or Approve now that comes through the app's agent
-  connection is refused, and the agent is told that approving is your decision. A board that changes
-  after you approve it becomes a draft at that moment, and stays a draft even if the content comes
-  back exactly as it was, whoever brought it back. Approve it again when you are happy with it.
-- Your own ⌘Z steps back to a board you approved, with its approval, unless an agent's undo or redo
-  has passed over that step since; then it comes back as a draft. An agent's undo or redo brings the
-  content back but not the approval, and its reply says so.
-- Approve now approves the board the export window showed you. If the board changed while the window
-  was open, the window says so, and Approve now shows you the board as it is instead of approving.
-- While you are on Home no board is open, and an agent's changes to the last one you had open are
-  refused rather than written over what you did there.
-- What to check: open the boards you worked on with an agent connected and look at the Approved or
-  Draft mark once more. If a board says Approved and you do not remember approving it as it is now,
-  review it and approve it again yourself.
+  connection is refused, and the agent is told that approving is your decision.
+- A change to what an approval covers (the project's name and brief, its pages with their components
+  and words, the design system, the reference and the content language) turns an approved board into
+  a draft at that moment. It stays a draft even if the content comes back exactly as it was, whoever
+  brought it back. Approve it again when you are happy with it.
+- Undo and redo: a step that leaves the board as you approved it keeps the approval. If an agent's
+  undo or redo would bring back an approval the board did not have, the content comes back as a
+  draft, and only then does its reply say so. Your own ⌘Z can step back to a board you approved,
+  unless an agent's undo or redo has passed over that step since. Undo history starts empty each
+  time a board is opened.
+- Approve now approves the board the export window showed you. If the board, the page it shows or
+  its approval changed while the window was open, the window says so, and Approve now shows you the
+  board as it is instead of approving.
+
+**If you work with an agent**
+- On Home no board is open, so an agent's reading and changing of a board is refused with "no board
+  is open", and the actions of the editor do not run there. Open the project first, then ask the
+  agent; it can also open one itself from Home. Home's own actions, such as deleting or renaming a
+  project, run only on Home.
+- A picture or design system that is still arriving when you switch boards is not put on the board
+  you switched to. It is cancelled, and the app says so.
+
+**What to check**
+- Open the boards you worked on with an agent connected and look at the Approved or Draft mark once
+  more. If a board says Approved and you do not remember approving it as it is now, review it and
+  approve it again yourself.
 
 ## Known limits
 
