@@ -21,7 +21,7 @@ test('an address stays only where it stays in the page, or is a link a person pr
     ['use', 'svg', 'href', 'https://x.example/a.svg#i', false], ['image', 'svg', 'href', 'https://x.example/a.png', false], ['blockquote', 'html', 'cite', 'https://x.example', false],
     ['div', 'html', 'style', 'color:red;background:url(https://x.example/a)', false], ['div', 'html', 'style', 'background:url(#g)', true], ['div', 'html', 'style', 'background:url("data:image/png;base64,AA")', true],
     ['rect', 'svg', 'fill', 'url(https://x.example/a#g)', false], ['rect', 'svg', 'fill', 'url(#g)', true], ['rect', 'svg', 'filter', 'url(//x.example/f)', false],
-    ['p', 'html', 'onclick', 'go()', false], ['a', 'html', 'ping', 'https://x.example', false], ['iframe', 'html', 'srcdoc', '<p>x</p>', false], ['p', 'html', 'title', 'javascript: a word', true],
+    ['p', 'html', 'onclick', 'go()', false], ['img', 'html', 'src', `aphrodite-media-${'1'.repeat(16)}-${sha}`, true], ['video', 'html', 'src', `media/${sha}.mp4`, true], ['a', 'html', 'href', `aphrodite-media-${'1'.repeat(16)}-${sha}`, false], ['a', 'html', 'ping', 'https://x.example', false], ['iframe', 'html', 'srcdoc', '<p>x</p>', false], ['p', 'html', 'title', 'javascript: a word', true],
   ] as const) assert.equal(keepsAttribute(tag, ns, name, value), keeps, `<${tag} ${name}="${value}">`);
 });
 

@@ -13,17 +13,26 @@ test('outside the one block that takes the prototypes\' own getters, the cleaner
   assert.ok(begin > 0 && end > begin, 'the block is marked');
   // Comments say what the page could do; what is checked is the code. The captured helpers are called as d.<name>.
   const outside = (source.slice(0, begin) + source.slice(end)).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  const direct = /(?<!\bd)\.(?:documentElement|head|body|querySelectorAll|querySelector|createElement|importNode|firstChild|lastChild|nextSibling|previousSibling|childNodes|children|nodeType|parentNode|parentElement|attributes|localName|namespaceURI|outerHTML|innerHTML|textContent|replaceChild|insertBefore|appendChild|removeChild|normalize|setAttribute|getAttribute|removeAttribute|hasAttribute|closest|prepend|append|cloneNode|parseFromString|content|implementation)\b/g;
+  const read = 'documentElement|head|body|querySelectorAll|querySelector|createElement|importNode|firstChild|lastChild|nextSibling|previousSibling|childNodes|children|nodeType|parentNode|parentElement|attributes|localName|namespaceURI|outerHTML|innerHTML|textContent|data|nodeValue|replaceChild|insertBefore|appendChild|removeChild|normalize|setAttribute|getAttribute|removeAttribute|hasAttribute|closest|prepend|append|cloneNode|parseFromString|content|implementation';
+  // A read as .name, or in brackets as ['name'] (0.3-P3-fix3 #9): a.value, data.attrName and the like are DOMPurify's own records, not nodes.
+  const direct = new RegExp(`(?<!\\b(?:d|data|a))\\.(?:${read})\\b|\\[\\s*['"\`](?:${read})['"\`]\\s*\\]`, 'g');
   assert.deepEqual([...outside.matchAll(direct)].map(m => m[0]), [], 'every read goes through dom()');
+  for (const slip of ['node.data', 'el["firstChild"]', "doc['head']"]) assert.ok(new RegExp(direct.source).test(slip), `the scan sees ${slip}`);
 });
 
 test('a name the document or a form has of its own is taken off the element that would hide it, and only that', () => {
   const names = {documentNames: new Set(['head', 'documentElement', 'title', 'forms', 'querySelectorAll']), formNames: new Set(['action', 'elements', 'nextSibling', 'submit'])};
   for (const [tag, attribute, value, hides] of [
-    ['form', 'name', 'head', true], ['form', 'name', 'documentElement', true], ['img', 'name', 'forms', true], ['form', 'id', 'title', true], ['embed', 'name', 'querySelectorAll', true],
+    ['form', 'name', 'head', true], ['form', 'name', 'documentElement', true], ['img', 'name', 'forms', true], ['embed', 'name', 'querySelectorAll', true], ['object', 'id', 'title', true],
     ['input', 'name', 'nextSibling', true], ['button', 'id', 'submit', true], ['select', 'name', 'action', true],
     ['h1', 'id', 'title', false], ['div', 'name', 'head', false], ['input', 'name', 'email', false], ['form', 'name', 'contact', false], ['img', 'alt', 'head', false],
+    // 0.3-P3-fix3 #9: an id the document does not show by stays, so a link to it still goes there.
+    ['form', 'id', 'title', false],
   ] as const) assert.equal(hidesAName(tag, attribute, value, names), hides, `<${tag} ${attribute}="${value}">`);
+  assert.equal(hidesAName('img', 'id', 'title', names, {owned: false, named: false}), false, 'an img with no name keeps its id');
+  assert.equal(hidesAName('img', 'id', 'title', names, {owned: false, named: true}), true, 'one with a name too does not');
+  assert.equal(hidesAName('input', 'id', 'submit', names, {owned: false, named: false}), false, 'a control no form owns keeps its id');
+  assert.equal(hidesAName('input', 'name', 'submit', names, {owned: true, named: true}), true, 'one a form owns does not');
 });
 
 test('a cleaned page must begin with exactly the header it was given', () => {

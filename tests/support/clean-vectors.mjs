@@ -84,6 +84,9 @@ export const ORDINARY_DOCUMENTS = {
 export const KEPT_ATTRIBUTES = {
   'video-poster': ['<video id="k" poster="data:image/png;base64,iVBORw0KGgo=" controls></video>', '#k', 'poster'],
   'tel-link': ['<a id="k" href="tel:+82-2-123-4567">call</a>', '#k', 'href'],
+  // 0.3-P3-fix3 #9: ids nothing shows by stay, so a link to them still goes there.
+  'control-id-no-form': ['<input id="submit"><a href="#submit">to it</a>', '#submit', 'id'],
+  'img-id-no-name': ['<img id="title" alt="" src="data:image/png;base64,iVBORw0KGgo="><a href="#title">to it</a>', 'img', 'id'],
 };
 /**
  * And what it loses that is only an attribute: where a link opens, a link to a file beside it or to another page of the
@@ -99,6 +102,8 @@ export const LOST_ATTRIBUTES = {
   'accesskey': ['<button id="k" accesskey="s">x</button>', '#k', 'accesskey'],
   'itemprop': ['<span id="k" itemprop="name">x</span>', '#k', 'itemprop'],
   'autofocus': ['<input id="k" autofocus>', '#k', 'autofocus'],
+  // A control its form owns gives up a name the form has of its own (form.action would be it).
+  'owned-control-name': ['<form><input id="k" name="action"></form>', '#k', 'name'],
 };
 /** What an ordinary page loses without its scripts: formulas written in MathML (the export dialog says so). */
 export const LOSSES = {

@@ -12,7 +12,6 @@
  * written page must begin with exactly the header we put on it, and read back with our three meta first in its head.
  */
 import createDOMPurify, {type Config, type DOMPurify} from 'dompurify';
-import {withMedia} from './free-page';
 import {CLEAN_FORBID_TAGS, CLEAN_FORBID_ATTR, keepsAttribute, STATIC_PAGE_CSP} from './page-export';
 
 const CONFIG: Config = {
@@ -90,14 +89,20 @@ let captured: Dom | undefined;
 const dom = () => captured ??= capture();
 /* captured: end */
 
-/** Elements a document exposes by name (and, for some, by id): <form name="head"> is document.head then. */
+/** Elements a document exposes by their name: <form name="head"> is document.head then (HTML's named elements). */
 const BY_NAME = new Set(['form', 'img', 'embed', 'object', 'iframe']);
-/** Elements a form exposes by name or id: <input name="action"> is form.action then. */
+/** Elements a form exposes by name or id, when that form owns them: <input name="action"> in a form is form.action then. */
 const IN_FORM = new Set(['button', 'fieldset', 'input', 'object', 'output', 'select', 'textarea', 'img']);
-/** Whether an element's name or id would take the place of one the document or a form has of its own. */
-export function hidesAName(tag: string, attribute: string, value: string, names: {documentNames: Set<string>; formNames: Set<string>}): boolean {
+/**
+ * Whether an element's name or id would take the place of one the document or a form has of its own (0.3-P3-fix3 #9,
+ * as HTML has it): the document shows a form, img, embed, iframe or object by its name, and by its id only an object,
+ * or an img that also has a name; a form shows the controls it owns by name and id. An id nothing shows stays, so a
+ * link to it still goes there.
+ */
+export function hidesAName(tag: string, attribute: string, value: string, names: {documentNames: Set<string>; formNames: Set<string>}, element: {owned: boolean; named: boolean} = {owned: true, named: true}): boolean {
   if (attribute !== 'name' && attribute !== 'id') return false;
-  return (BY_NAME.has(tag) && names.documentNames.has(value)) || (IN_FORM.has(tag) && names.formNames.has(value));
+  const shown = attribute === 'name' ? BY_NAME.has(tag) : tag === 'object' || (tag === 'img' && element.named);
+  return (shown && names.documentNames.has(value)) || (IN_FORM.has(tag) && element.owned && names.formNames.has(value));
 }
 
 let purifier: DOMPurify | undefined;
@@ -108,7 +113,10 @@ function cleaner(): DOMPurify {
   p.addHook('uponSanitizeAttribute', (node, data) => {
     const element = node as Element, tag = d.tag(element).toLowerCase();
     const svg = d.ns(element) === 'http://www.w3.org/2000/svg';
-    if (hidesAName(tag, data.attrName.toLowerCase(), data.attrValue, d) || !keepsAttribute(tag, svg ? 'svg' : 'html', data.attrName, data.attrValue)) data.keepAttr = false;
+    // Owned by a form: inside one, or naming one with its form attribute.
+    let owned = d.get(element, 'form') !== null;
+    for (let up = d.parent(element); up && !owned; up = d.parent(up)) if (d.type(up) === 1 && d.tag(up as Element).toLowerCase() === 'form') owned = true;
+    if (hidesAName(tag, data.attrName.toLowerCase(), data.attrValue, d, {owned, named: d.get(element, 'name') !== null}) || !keepsAttribute(tag, svg ? 'svg' : 'html', data.attrName, data.attrValue)) data.keepAttr = false;
     // A video's poster written into the page as a picture: DOMPurify lets a data: address stand only in a src, so it is kept here (0.3-P3-fix2 O-3).
     else if (tag === 'video' && data.attrName.toLowerCase() === 'poster') data.forceKeepAttr = true;
   });
@@ -146,7 +154,7 @@ export function startsWithHeader(written: string, htmlOpen: string, headOpen: st
  * policy it runs under. `address` gives what a `media:<sha256>` the page names becomes (a placeholder the export
  * fills, a file beside it, or nothing); it is put in attribute values and style sheets only, never in the page's words.
  */
-export function cleanPage(source: string, address: (sha: string) => string | undefined): string {
+export function cleanPage(source: string): string {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') throw new Error('a page is cleaned in the app\'s window, where a browser reads it; there is none here');
   const d = dom();
   const cleaned = cleaner().sanitize(source, CONFIG) as unknown as Element;
@@ -160,12 +168,13 @@ export function cleanPage(source: string, address: (sha: string) => string | und
   for (let c = d.first(root); c && c !== head; c = d.first(root)) d.remove(root, c);
   const metas = HEADER_META.map(pairs => { const m = d.create(doc, 'meta'); for (const [k, v] of pairs) d.set(m, k, v); return m; });
   for (const m of [...metas].reverse()) d.insert(head, m, d.first(head));
-  // Board files are put in wherever the page says them, as the board's frame does (withMedia): in an address, a style, words.
-  // A carriage return a page wrote as a character reference is written as a newline, the way any parser reads it back.
-  const put = (text: string) => withMedia(text, address).replace(/\r\n?/g, '\n');
+  // Board files were put in the stored text before cleaning, where the board's frame puts them (src/page-export.ts); what
+  // a character reference spells as media: after parsing is words, as on the board (0.3-P3-fix3 #3). A carriage return
+  // a page wrote as a character reference is written as a newline, the way any parser reads it back.
+  const put = (text: string) => text.replace(/\r\n?/g, '\n');
   for (const element of d.all(doc, '*')) {
-    for (const a of d.attrs(element)) if (a.value.includes('media:') || a.value.includes('\r')) d.set(element, a.name, put(a.value));
-    for (let c = d.first(element); c; c = d.next(c)) if (d.type(c) === 3 && (d.data(c).includes('media:') || d.data(c).includes('\r'))) d.setData(c, put(d.data(c)));
+    for (const a of d.attrs(element)) if (a.value.includes('\r')) d.set(element, a.name, put(a.value));
+    for (let c = d.first(element); c; c = d.next(c)) if (d.type(c) === 3 && d.data(c).includes('\r')) d.setData(c, put(d.data(c)));
   }
   // What cleaning took out between two pieces of text leaves them side by side, which a parser never makes: they are
   // joined, as a second reading would join them, so only a real difference refuses the page.
