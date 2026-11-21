@@ -1151,6 +1151,59 @@ check('what the person was typing is kept when a link or a board file takes them
   assert.ok(changes.some(c => c.author.kind === 'person' && !c.author.elsewhere && JSON.stringify(c.ops).includes(' 파일 전')), `as the person's own change: ${JSON.stringify(changes.map(c => [c.author, c.source, JSON.stringify(c.ops).slice(0, 120)]))}`);
 });
 
+/* 0.3-P3-fix2 #2: while a board is being left, the editor takes no input: the store's write is held here (the browser
+   build's check handle), each way off the board started, and a word typed into the title then. Once the write lands,
+   the board left has what was typed before leaving, as the person's own change, nothing typed after, and the
+   workspace it was in. */
+check('while a board is being left nothing can be typed into it, and what was typed before is kept, in its own workspace', async () => {
+  const lib = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => ({id: e.project.id, ws: e.workspaceId ?? null}))`);
+  const here = (await agent('contract', {})).project.project_id;
+  const wsOf = async id => (await lib()).find(e => e.id === id)?.ws;
+  const homeWs = await wsOf(here);
+  const back = async () => { await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + here)})`); await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the board'); await sleep(800); };
+  // A board in another workspace to go to.
+  await personPresses('home'); await sleep(500);
+  await personClicks('ws-new'); await sleep(400);
+  assert.equal(await personSubmits('#workspace-form', {name: 'Far'}), true); await sleep(600);
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Far board'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== here, 'the far board');
+  const far = (await agent('contract', {})).project.project_id;
+  await back();
+  const tryToType = async word => {
+    const focused = await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); if (!t) return false; t.focus(); return document.activeElement === t; })()`);
+    await send('Input.insertText', {text: word});
+    return focused;
+  };
+  // Each way: what it does before the board is left (the picker opens, saving what is typed so far), then what leaves.
+  const ways = [
+    ['Home', null, () => personPresses('home')],
+    ['a link to a board in another workspace', null, () => evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + far)}), true`)],
+    ['a board file', async () => { await send('Page.setInterceptFileChooserDialog', {enabled: true}); await personPresses('import-project'); await waitFor(() => evaluate('!!document.querySelector("input[data-upload]")'), 'the file picker'); }, async () => { const {root} = (await send('DOM.getDocument', {depth: 0})).result; const {nodeId} = (await send('DOM.querySelector', {nodeId: root.nodeId, selector: 'input[data-upload]'})).result; await send('DOM.setFileInputFiles', {nodeId, files: [fileAt(`sent.${BOARD_FILE.extension}`)]}); }],
+  ];
+  for (const [n, [way, prepare, go]] of ways.entries()) {
+    await sleep(5_200);
+    const before = await seq();
+    const typed = await typeIntoTitle(' 떠나기 전 ' + n);
+    if (prepare) { await prepare(); await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); return true; })()`); }
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await go();
+    await sleep(600);
+    const late = await tryToType(' 늦게 ' + n);
+    await evaluate('window.aphroditeHoldWrites(false), true');
+    await sleep(1_500);
+    assert.equal(late, false, way + ': the title takes no focus while the board is left');
+    await back();
+    const title = await titleOf(typed) ?? '';
+    assert.ok(title.endsWith(' 떠나기 전 ' + n), way + ': what was typed before leaving is kept (' + title + ')');
+    assert.ok(!title.includes('늦게'), way + ': nothing typed while leaving went in');
+    const {changes} = await agent('changes', {since: before, limit: 20});
+    assert.ok(changes.some(c => c.author.kind === 'person' && !c.author.elsewhere && JSON.stringify(c.ops).includes(' 떠나기 전 ' + n)), way + ": as the person's own change");
+    assert.equal(await wsOf(here), homeWs, way + ': the board is still in its own workspace');
+  }
+  await sleep(5_200);
+});
+
 check('without the page wall no free page is in any frame, on the board or in Preview: a placeholder stands there, and an agent still reads its words', async () => {
   const SENTENCE = 'A sentence only this page holds, which agents still read.';
   const wordsId = await makePage('Words page', `<h1>Never framed here</h1><p>${SENTENCE}</p>`);
