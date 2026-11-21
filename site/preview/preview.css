@@ -36,7 +36,7 @@
 [data-release] .btn-primary[aria-disabled="true"]{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--line);transform:none}
 [data-release] .btn-ghost[aria-disabled="true"]{color:var(--faint);border-style:dashed;background:transparent}
 [data-release] .dl-menu a[aria-disabled="true"],[data-release] .dl-menu a[aria-disabled="true"] small{color:var(--faint);background:transparent}
-[data-release="absent"] .dl-more summary{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--line);border-left-color:var(--line)}
+[data-release] .dl-split:has(>.btn-primary[aria-disabled="true"]):has(.dl-menu a[aria-disabled="true"]) .dl-more summary{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--line);border-left-color:var(--line)}
 
 .pv-meta{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--faint);margin:18px 0 0}
 .pv-meta span{white-space:nowrap}
