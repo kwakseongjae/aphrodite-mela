@@ -1,4 +1,4 @@
-import {parseProject,uid,type Project} from '../model';
+import {parseProject,uid,dropStaleApproval,type Project} from '../model';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -39,6 +39,8 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
+/** What is written, to disk or browser storage: no entry keeps a fingerprint its content no longer matches. */
+export function withoutStaleApprovals(library:Library):Library{for(const e of library.entries)dropStaleApproval(e.project);return library;}
 export function writeLibrary(storage:LocalStore,library:Library):void{
   // One atomic localStorage write: quota errors cannot leave a half-written index.
   const raw=JSON.stringify(library);
