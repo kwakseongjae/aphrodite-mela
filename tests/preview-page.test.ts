@@ -62,3 +62,21 @@ test('every command on the page is one the README already publishes, letter for 
   assert.ok(cmds.length >= 3);
   for (const c of cmds) assert.ok(published.includes(c), c);
 });
+
+test('the page leads to its own parts, hides the release notes until a release answers, and says 확인 중 rather than claiming a check', () => {
+  for (const id of ['get', 'connect', 'know']) {
+    assert.match(html, new RegExp(`<a [^>]*href="#${id}"`), `the nav leads to #${id}`);
+    assert.match(html, new RegExp(` id="${id}"`), `#${id} is on the page`);
+  }
+  const notes = html.match(/<a [^>]*data-notes[^>]*>/);
+  assert.ok(notes && / hidden/.test(notes[0]) && !/ href=/.test(notes[0]), 'the release notes link ships hidden, with no address');
+  assert.ok(!html.includes('확인함'));
+  assert.ok([...html.matchAll(/data-dl="arm"/g)].length >= 3, 'the hero, the row and the closing button');
+});
+
+test('every tool the page names is one the MCP server has', () => {
+  const tools = read('../mcp/aphrodite-mcp/README.md');
+  const named = [...new Set([...html.matchAll(/aphrodite_[a-z_]+/g)].map(m => m[0]))];
+  assert.ok(named.length >= 1);
+  for (const n of named) assert.ok(tools.includes('`' + n + '`'), n);
+});

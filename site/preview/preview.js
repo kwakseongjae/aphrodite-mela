@@ -10,21 +10,19 @@
     arm: DL + 'Aphrodite_' + VERSION + '_aarch64.dmg',
     intel: DL + 'Aphrodite_' + VERSION + '_x64.dmg'
   };
-  var NAME = { arm: 'Apple Silicon용', intel: 'Intel Mac용' };
 
   var $ = function (s) { return document.querySelector(s); };
-  var root = document.documentElement, reason = $('[data-reason]'), meta = $('[data-meta]'), more = $('[data-more]');
-  var OS = meta.textContent;
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var root = document.documentElement, reason = $('[data-reason]'), notes = $('[data-notes]'), more = $('[data-more]'), copied = $('[data-copied]');
+  var OS = $('[data-meta]').textContent;
 
-  // Every button for one chip (the hero, the menu, the row) takes the same address, or none: this is the only place that decides.
+  // Every button for one chip (the hero, the menu, the row, the close) takes the same address, or none: this is the only place that decides.
   function point(k, href) {
-    var els = document.querySelectorAll('[data-dl="' + k + '"]');
-    for (var i = 0; i < els.length; i++) {
-      var b = els[i];
+    $$('[data-dl="' + k + '"]').forEach(function (b) {
       if (href) { b.setAttribute('href', href); b.removeAttribute('aria-disabled'); b.removeAttribute('tabindex'); b.removeAttribute('role'); b.removeAttribute('aria-describedby'); }
       // Reachable by keyboard so the reason is read, though it does nothing.
       else { b.removeAttribute('href'); b.setAttribute('aria-disabled', 'true'); b.setAttribute('tabindex', '0'); b.setAttribute('role', 'link'); b.setAttribute('aria-describedby', 'dl-reason'); }
-    }
+    });
   }
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-dl]');
@@ -36,8 +34,10 @@
   });
 
   function line(parts) {
-    meta.textContent = '';
-    [OS].concat(parts).forEach(function (p, i) { var s = document.createElement('span'); s.textContent = p; if (i) meta.appendChild(document.createTextNode(' · ')); meta.appendChild(s); });
+    $$('[data-meta]').forEach(function (meta) {
+      meta.textContent = '';
+      [OS].concat(parts).forEach(function (p, i) { var s = document.createElement('span'); s.textContent = p; if (i) meta.appendChild(document.createTextNode(' · ')); meta.appendChild(s); });
+    });
   }
   function say(text, link) {
     reason.textContent = text;
@@ -52,12 +52,14 @@
       if (/aarch64|arm64/i.test(n)) got.arm = assets[i];
       else if (/x64|x86_64|intel/i.test(n)) got.intel = assets[i];
     }
-    var missing = [];
+    var missing = [], NAME = { arm: 'Apple Silicon용', intel: 'Intel Mac용' };
     ['arm', 'intel'].forEach(function (k) { point(k, got[k] && got[k].browser_download_url); if (!got[k]) missing.push(NAME[k]); });
     var parts = [(rel.tag_name || 'v' + VERSION).replace(/^v/, '')], when = new Date(rel.published_at || rel.created_at || '');
     if (!isNaN(when)) parts.push(when.getFullYear() + '년 ' + (when.getMonth() + 1) + '월 ' + when.getDate() + '일');
     line(parts);
     say(missing.length ? '이 판에는 ' + missing.join(', ') + ' 파일이 아직 없습니다.' : '');
+    // The release's own page is where what changed is written; shown only once GitHub has answered with it.
+    if (/^https:\/\/github\.com\//.test(rel.html_url || '')) { notes.href = rel.html_url; notes.hidden = false; }
     root.setAttribute('data-release', 'found');
   }
 
@@ -76,13 +78,12 @@
     root.setAttribute('data-release', 'blocked');
   }
 
-  var copied = $('[data-copied]');
-  Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (btn) {
-    var code = btn.parentNode.querySelector('code');
+  $$('[data-copy]').forEach(function (btn) {
+    var text = btn.parentNode.querySelector('code, .pv-prompt'), label = btn.textContent;
     btn.addEventListener('click', function () {
-      function done(text) { btn.textContent = text; copied.textContent = text === '복사됨' ? '복사했습니다.' : '골라 두었습니다. ⌘C로 복사하세요.'; setTimeout(function () { btn.textContent = '복사'; }, 1600); }
-      function pick() { var r = document.createRange(); r.selectNodeContents(code); var s = getSelection(); s.removeAllRanges(); s.addRange(r); done('⌘C'); }
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code.textContent).then(function () { done('복사됨'); }, pick);
+      function done(t) { btn.textContent = t; copied.textContent = t === '복사됨' ? '복사했습니다.' : '골라 두었습니다. ⌘C로 복사하세요.'; setTimeout(function () { btn.textContent = label; }, 1600); }
+      function pick() { var r = document.createRange(); r.selectNodeContents(text); var s = getSelection(); s.removeAllRanges(); s.addRange(r); done('⌘C'); }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.textContent).then(function () { done('복사됨'); }, pick);
       else pick();
     });
   });
