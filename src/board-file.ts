@@ -202,18 +202,12 @@ export type ReadBoard = {
   settle: (keep: boolean) => Promise<void>;
 };
 const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
-/**
- * What a board names but did not carry is named, on the board that receives it, by a name no file has: it shows as
- * missing, and this Mac's own copy of the same file, if it has one, is neither shown on it nor sent on with it.
- */
-const goneMedia = async (sha: string) => digest(strToU8(`aphrodite-missing:${sha}`));
-const goneLocal = (id: string) => contentId(strToU8(`aphrodite-missing:${id}`));
 
 /**
  * Reads a board file someone else made. Everything in it is read and checked before anything is put anywhere: its
  * pages, its history, and each file by its first bytes and the hash of its bytes, which must be its name. A file
  * that does not hold together refuses the whole board, and nothing has been placed. A carried file that is not what
- * its name says is left out and said so, and named as missing on the board, as is one it names and did not carry.
+ * its name says is left out and said so, as is one it names and did not carry; nothing the board says is rewritten.
  * The caller checks the board fits the library, then places its files (place), adds it, and keeps or takes them
  * back (settle).
  */
@@ -246,7 +240,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   // Half a surrogate pair is looked for in the values themselves: written out as JSON it is an escape, and looks whole.
   const half = halfPairWhere({...raw, ...(history ? {ledger: history} : {})});
   if (half) refuse(`${half} holds half of a surrogate pair on its own, which this Mac cannot save`);
-  let text = JSON.stringify({...raw, ...(history ? {ledger: history} : {})});
+  // What it received is kept word for word (0.3-P3-fix2 #5): a file it names but did not carry is said in `left`,
+  // and shows wherever this Mac has the same file, as media are found by what they hold.
+  const text = JSON.stringify({...raw, ...(history ? {ledger: history} : {})});
   const left: ReadBoard['left'] = [];
   const carried = new Map(zip.names.flatMap(n => { const m = MEDIA.exec(n); return m ? [[m[1], n] as const] : []; }));
   const verified: [string, string, string][] = [];
@@ -268,10 +264,6 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     if (contentId(data) !== id) { left.push({file: `local:${id}`, why: 'its bytes are not the ones its name was made from'}); continue; }
     pictures.push({id, mime, name, read: () => zip.read(name)});
   }
-  const kept = new Set(verified.map(v => v[0])), keptLocal = new Set(pictures.map(p => p.id));
-  const gone = new Map<string, string>();
-  for (const {file} of left) if (!file.startsWith('local:')) gone.set(file, await goneMedia(file));
-  text = text.replace(MEDIA_NAMED, (all, sha: string) => kept.has(sha) ? all : `media:${gone.get(sha) ?? all.slice(6)}`).replace(LOCAL_NAMED, (all, id: string) => keptLocal.has(id) ? all : `local:${goneLocal(id)}`);
   let project: Project;
   try { project = parseProject(text); } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;

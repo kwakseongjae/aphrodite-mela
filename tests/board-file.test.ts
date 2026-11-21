@@ -229,17 +229,22 @@ test('a file two imports rely on is taken back by neither: one with no owner is 
   assert.ok(s.kept.has(PIC), 'an import that placed nothing takes nothing back');
 });
 
-test('a received board sees only the files it carried: one it names but did not carry is missing here, even when this Mac has it', async () => {
+/* 0.3-P3-fix2 #5: a board received is kept word for word. A file it names and did not carry is listed as left out,
+   and shows where this Mac has the same file: media are found by what they hold, so a board sent back and forth
+   without a large video still shows it on the Mac that has it. */
+test('a received board is kept word for word: a file it names and did not carry shows where this Mac has it, in a picture, a paragraph and a reason alike', async () => {
   const p = twoFiles();
+  p.pages[1].html += `<p>The file media:${PIC2} is named here as words.</p>`;
+  p.ledger!.changes[1].reason = `Put media:${PIC2} on the page.`;
   const sent = await files(p);
   const s = store();
   await s.host.put(new Blob([new Uint8Array([...PNG, 7, 7])], {type: 'image/png'}));
   const got = await readBoardFile(sent, s.host);
-  assert.deepEqual(got.left.map(l => l.file), [PIC2]);
-  assert.ok(!JSON.stringify(got.project).includes(PIC2), 'nothing on the received board names the file it did not carry');
-  await got.place();
-  const again = readZip((await writeBoardFile(got.project, s.host)).bytes, 500 * 1024 * 1024).names;
-  assert.ok(!again.some(n => n.includes(PIC2)), 'and sending it on does not carry this Mac\'s copy');
+  assert.deepEqual(got.left.map(l => l.file), [PIC2], 'the one it did not carry is said');
+  assert.equal(got.project.pages[1].html, p.pages[1].html, 'the page, picture address and words, is the one sent');
+  assert.equal(got.project.ledger!.changes[1].reason, p.ledger!.changes[1].reason, 'and the reason');
+  assert.deepEqual(got.project.ledger!.changes.map(c => c.ops), p.ledger!.changes.map(c => c.ops), 'and every change as it was recorded, so it undoes as it did');
+  assert.ok(s.kept.has(PIC2), 'this Mac has that file, so the page shows it');
 });
 
 test('a file whose texts could unpack past what a board holds is refused before any is unpacked', () => {
@@ -308,7 +313,7 @@ test('a picture is named by the same id the image library gives it (64-bit FNV-1
   assert.match(rust, /let mut hash: u64 = 0xcbf2_9ce4_8422_2325;[\s\S]*?hash \^= \*b as u64;\s*hash = hash\.wrapping_mul\(0x1000_0000_01b3\);/, 'and the library still names pictures that way');
 });
 
-test('a picture from the image library goes with the board, and one it could not carry is missing where it lands', async () => {
+test('a picture from the image library goes with the board, and one it could not carry is said to be left out, its name kept', async () => {
   const p = board();
   const pic = new Uint8Array([...PNG, 5, 5, 5]);
   const id = contentId(pic), gone = 'f'.repeat(16);
@@ -323,7 +328,8 @@ test('a picture from the image library goes with the board, and one it could not
   const got = await readBoardFile(out.bytes, store().host);
   assert.deepEqual(got.pictures.map(x => [x.id, x.mime, x.read().length]), [[id, 'image/png', pic.length]]);
   assert.ok(JSON.stringify(got.project).includes(`local:${id}`));
-  assert.ok(!JSON.stringify(got.project).includes(`local:${gone}`), 'the one not carried is not looked for in this Mac\'s library');
+  assert.ok(JSON.stringify(got.project).includes(`local:${gone}`), 'the one not carried keeps its name: it shows if this board\'s library has it');
+  assert.deepEqual(got.left.map(l => l.file), [`local:${gone}`]);
 });
 
 test('a history that does not hold together is dropped, the board kept', async () => {
