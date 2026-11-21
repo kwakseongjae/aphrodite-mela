@@ -457,6 +457,8 @@ const toDirections = async () => {
   await waitFor(() => evaluate(`!!document.querySelector('#modal-root [data-action="choose-direction"]')`), 'three directions', 30);
 };
 
+/** The page seen on its own before Edit in the app, so the row can say it is the one that opened. */
+let viewed = '';
 /** One control per row; `setup` is not measured, `run` must make exactly one change. */
 const person = {
   'edit.add': {source: 'catalog:add', run: () => personPresses('add', {kind: 'cta'})},
@@ -472,7 +474,7 @@ const person = {
   'edit.tokens': {source: 'editor:change', run: async () => pick('#radius-select', await otherOption('#radius-select'))},
   'edit.page-switch': {source: 'editor:change', run: async () => personPresses('page', {id: await evaluate(`[...document.querySelectorAll('.space-frame')].find(f => !f.classList.contains('active')).dataset.pageId`)})},
   // Edit in the app (0.3-P3): a page the board does not have open, seen on its own, then the person's press opens it on the board.
-  'edit.page-view-edit': {source: 'editor:change', setup: async () => personPresses('page-view', {id: await evaluate(`[...document.querySelectorAll('.space-frame')].find(f => !f.classList.contains('active')).dataset.pageId`)}), run: () => pressAt('.page-view [data-action="page-view-edit"]'), after: async () => assert.equal(await evaluate('document.querySelector("#app").dataset.pageView'), '', 'the page view closed')},
+  'edit.page-view-edit': {source: 'editor:change', setup: async () => { viewed = await evaluate(`[...document.querySelectorAll('.space-frame')].find(f => !f.classList.contains('active')).dataset.pageId`); await personPresses('page-view', {id: viewed}); }, run: () => pressAt('.page-view [data-action="page-view-edit"]'), after: async () => { assert.equal(await evaluate('document.querySelector("#app").dataset.pageView'), '', 'the page view closed'); assert.equal(await evaluate(`document.querySelector('.space-frame.active')?.dataset.pageId`), viewed, 'and the page seen on its own is the one open on the board'); }},
   'edit.page-add': {source: 'editor:change', setup: () => personPresses('add-page'), run: () => submit('#page-form', 'name', 'Contact')},
   'edit.page-sample': {source: 'editor:change', run: () => personPresses('pointer-lab')},
   'edit.page-duplicate': {source: 'editor:change', run: () => personPresses('duplicate-page')},

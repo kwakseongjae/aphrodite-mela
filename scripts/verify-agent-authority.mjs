@@ -361,9 +361,10 @@ check('an allowed agent cannot send a page or the board as a file, open the file
     const r = await agent('act', {action, data: {shas: ['0'.repeat(64)]}}, 'claude-code');
     assert.ok(r.error && !r.ok, `${action}: ${JSON.stringify(r)}`);
   }
+  // No palette command answers to these at all: one that ran and said only ok would be a side effect the check could not see.
   for (const query of ['take back', 'board media', 'keep files']) {
     const r = await agent('command', {query}, 'claude-code');
-    assert.ok(!r.ok || !/take.?back|board_media/i.test(JSON.stringify(r)), `palette "${query}": ${JSON.stringify(r).slice(0, 200)}`);
+    assert.ok(!r.ok && /no palette command matches/.test(r.error ?? ''), `palette "${query}": ${JSON.stringify(r).slice(0, 200)}`);
   }
   const op = await agent('apply', {reason: WHY, base_revision: (await agent('changes', {limit: 1}, 'claude-code')).revision, ops: [{op: 'media_take_back', shas: ['0'.repeat(64)]}]}, 'claude-code');
   assert.ok(op.error, `an op named for it is no op: ${JSON.stringify(op)}`);

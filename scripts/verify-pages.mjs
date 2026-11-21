@@ -936,6 +936,13 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   await sleep(5_200); // the person's last press holds the screen for a moment
   const id = await makePage('Sent alone', hostile);
   await personPresses('page', {id}); await sleep(300);
+  // 0.3-P3-fix2 #12: a run is recording, so each save leaves its receipt, which the check reads.
+  if (!(await evaluate(`(() => { try { const r = JSON.parse(localStorage.getItem('aphrodite-assembly-latest')); return !!r && r.status !== 'ended'; } catch { return false; } })()`))) {
+    await personPresses('agent'); await sleep(400);
+    assert.equal(await personSubmits('#assembly-run-form', {intent: 'verify-pages: what a save records', model: 'verify-pages'}), true);
+    await sleep(400);
+  }
+  const receipts = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-assembly-latest')).events.filter(e => e.kind === 'page:exported').map(e => e.details)`);
   const save = await downloads();
   await personPresses('export'); await sleep(600);
   assert.equal(await evaluate(`!!document.querySelector('[data-export-page] [data-export-scripts]') && !document.querySelector('[data-export-page] [data-export-scripts]').checked`), true, 'scripts are left out unless chosen');
@@ -974,15 +981,20 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   await waitFor(() => evaluate(`document.querySelector('#toast').textContent.includes('페이지를 내보냈습니다')`), 'the toast');
   assert.match(await evaluate(`document.querySelector('#toast').textContent`), /스크립트를 포함해 페이지를 내보냈습니다/, 'the toast says what was saved');
   assert.equal(Buffer.from(await evaluate('window.__downloads.at(-1).b64'), 'base64').toString('utf8'), '\ufeff' + hostile, 'the file is the one chosen when Save was pressed');
+  const receipt = (await receipts()).at(-1);
+  assert.equal(receipt?.scripts, true, `and its receipt says what was saved: ${JSON.stringify(receipt)}`);
+  assert.equal(receipt?.byteLength, Buffer.from('\ufeff' + hostile).length, 'and how big');
   await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
   // Every way into the dialog starts with the scripts left out: Export, and Ready to export on an approved board.
-  for (const opening of ['export', 'approve', 'approve']) {
+  // Export opens it; the first press of approve approves (the person's, no dialog); the second is Ready to export, which opens it.
+  for (const [opening, opens] of [['export', true], ['approve', false], ['approve', true]]) {
     await personPresses('export'); await sleep(500);
     if (!(await evaluate(`document.querySelector('[data-export-scripts]')?.checked`))) await evaluate(`document.querySelector('[data-export-scripts]').click(), true`);
     await sleep(300);
     await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
     await personPresses(opening); await sleep(600);
-    if (!(await evaluate(`!!document.querySelector('[data-export-page]')`))) continue; // approving the first time opens no dialog
+    assert.equal(await evaluate(`!!document.querySelector('[data-export-page]')`), opens, `${opening} ${opens ? 'opens the dialog' : 'opens no dialog'}`);
+    if (!opens) continue;
     assert.equal(await evaluate(`document.querySelector('[data-export-scripts]').checked`), false, `opened by ${opening}, the dialog leaves the scripts out`);
     await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
   }
