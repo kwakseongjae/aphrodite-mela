@@ -853,7 +853,7 @@ check('a link to a board in another workspace opens it in its own workspace, so 
 });
 
 /* 0.3-P3-fix1 #6 (Opus L8): a page seen on its own shows another page only after the person has pressed into it. */
-check('a page seen on its own cannot show other pages by itself, and two pages calling each other stop after the one the person pressed', async () => {
+check('a page seen on its own cannot show other pages by itself until the person presses into it, and two pages calling each other then stop after twenty in ten seconds', async () => {
   // Each calls the other as soon as it loads and again and again after; A also calls B a moment after a press in it
   // (after the press is over: a frame taken away under a press it is still answering stalls the test browser's input).
   const calls = (to, onPress) => `<!doctype html><body style="margin:0;height:100vh"><script>const go = () => parent.postMessage({aphrodite: 'frame', kind: 'page', id: ${JSON.stringify(to)}}, '*'); go(); ${onPress ? "document.addEventListener('click', () => setTimeout(go, 400));" : 'setInterval(go, 150);'}</script></body>`;
@@ -872,14 +872,59 @@ check('a page seen on its own cannot show other pages by itself, and two pages c
   await sleep(1_500);
   assert.equal(await pageView(), a, 'its own calls show nothing else');
   const at = await evaluate(`(() => { const r = document.querySelector('#page-view-root iframe').getBoundingClientRect(); return {x: r.left + 100, y: r.top + 100}; })()`);
+  // 0.3-P3-fix2 #9: the press shows B, and from there the two call each other, and stop after twenty in ten seconds, saying so.
+  await evaluate(`(() => { window.__views = []; new MutationObserver(() => window.__views.push(document.querySelector('#app').dataset.pageView)).observe(document.querySelector('#app'), {attributes: true, attributeFilter: ['data-page-view']}); return true; })()`);
   await click(at);
-  await waitFor(async () => (await pageView()) === b, 'the press inside to show the page it calls');
+  await waitFor(() => evaluate(`/멈췄습니다|so that stopped/.test(document.querySelector('#toast').textContent)`), 'the calls to stop');
+  const views = (await evaluate('window.__views')).filter((x, i, all) => x !== all[i - 1]);
+  assert.equal(views[0], b, 'the press showed the page it calls');
+  assert.ok(views.length >= 18 && views.length <= 22, `about twenty pages shown: ${views.length}`);
+  const stoppedOn = await pageView();
   await sleep(1_500);
-  assert.equal(await pageView(), b, 'and the page it shows, not pressed into, shows nothing else');
+  assert.equal(await pageView(), stoppedOn, 'and they stay stopped');
   await personPresses('page-view-close'); await sleep(300);
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
   await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
   await sleep(5_200);
+});
+
+/* 0.3-P3-fix2 #9: a page seen on its own shows another page only once the person is in its frame itself, and a page
+   that keeps showing pages by itself (here, itself: each showing loads it again) stops after twenty in ten seconds. */
+check('a page seen on its own shows another only once its frame itself has the keys, and one that keeps doing it stops, saying so', async () => {
+  // In a board of its own, so the one the other checks use stays under its page limit.
+  const home = (await agent('contract', {})).project.project_id;
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'A page that calls itself'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== home, 'a board of its own');
+  await sleep(5_200);
+  const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Loop', html: '<p>loop</p>'}]});
+  assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
+  const id = made.created_pages[0].page_id;
+  const set = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_set', page_id: id, html: `<p>loop</p><script>parent.postMessage({boot: "loop"}, "*"); setInterval(() => parent.postMessage({aphrodite: "frame", kind: "page", id: ${JSON.stringify(id)}}, "*"), 100);</script>`}]});
+  assert.ok(set.ok, JSON.stringify(set).slice(0, 300));
+  const boots = async () => (await messages('boot')).filter(b => b === 'loop').length;
+  const start = await boots();
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(made.link)})`);
+  await waitFor(async () => (await boots()) > start, 'the page to start');
+  await sleep(1_500);
+  const settled = await boots();
+  // The bar's button has the keys when the window loses them: the person is not in the page.
+  await evaluate(`(() => { document.querySelector('.page-view [data-action="page-view-close"]').focus(); dispatchEvent(new Event('blur')); return true; })()`);
+  await sleep(1_500);
+  assert.equal(await boots(), settled, 'with the bar holding the keys the page shows nothing');
+  // The frame has the keys: the page shows itself again and again, and stops.
+  await evaluate(`(() => { document.querySelector('.page-view iframe').focus(); dispatchEvent(new Event('blur')); return true; })()`);
+  await sleep(4_000);
+  const shown = (await boots()) - settled;
+  assert.ok(shown >= 15 && shown <= 22, `it stopped after about twenty: ${shown}`);
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /멈췄습니다|so that stopped/, 'and says so');
+  await sleep(1_000);
+  assert.equal((await boots()) - settled, shown, 'and stays stopped');
+  await personPresses('page-view-close'); await sleep(300);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
+  await sleep(5_200);
+  result.hops = {shown};
 });
 
 check('a page sent as one file runs nothing and reaches nothing where it is opened, and keeps words that only look like scripts', async () => {

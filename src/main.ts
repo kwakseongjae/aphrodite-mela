@@ -58,6 +58,7 @@ import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode
 import {unknownValue} from './agent/errors';
 import {personOnlyRow} from './agent/commands.mjs';
 import {serial} from './serial';
+import {hopLimit} from './page-hops';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -162,7 +163,7 @@ addEventListener('message',e=>{
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
   if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
   if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewHops>=MAX_PAGE_VIEW_HOPS)return;pageViewHops++;openPageView(m.id);}else{leavePage();fitFrame(m.id);}}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
@@ -174,16 +175,20 @@ function offerLink(href:string){if(modalRoot.children.length)return;const link=l
  * the board's open page stays what it was. Only Edit in the app opens the page on the board, as the person's own step.
  */
 let pageView:{project:string;page:string;key:string}|undefined;
-/** Whether the person has pressed into the page seen on its own, and how many pages its links have shown since their last own input outside it. */
-let pageViewEntered=false,pageViewHops=0;
-const MAX_PAGE_VIEW_HOPS=20;
-addEventListener('blur',()=>{if(pageView&&pageViewRoot.contains(document.activeElement))pageViewEntered=true;});
-for(const type of ['pointerdown','keydown'] as const)document.addEventListener(type,e=>{if(e.isTrusted)pageViewHops=0;},true);
+/**
+ * Whether the person has pressed into the page seen on its own: the window lost the keys to its frame itself, not to
+ * a button of the bar (0.3-P3-fix2 #9). And how often its links have shown another page lately: a press inside the
+ * frame never reaches the app, so the count goes by time (src/page-hops.ts), and opening a page anew starts it again.
+ */
+let pageViewEntered=false,pageViewStopped=false;
+const pageViewHops=hopLimit();
+// Read once the blur is over: a press into the frame moves the keys to it after the window has lost them.
+addEventListener('blur',()=>setTimeout(()=>{const on=document.activeElement;if(pageView&&on instanceof HTMLIFrameElement&&pageViewRoot.contains(on))pageViewEntered=true;},0));
 const pageViewRoot=document.createElement('div');pageViewRoot.id='page-view-root';document.body.append(pageViewRoot);
 const pageViewKey=(p:Page)=>frameKey(p.id,p.html??JSON.stringify(p.media??p.blocks));
-function openPageView(id:string){
+function openPageView(id:string,hop=false){
   const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
-  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;
+  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};if(!hop){pageViewEntered=false;pageViewStopped=false;pageViewHops.reset();}
   const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
   pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar"><button type="button" class="page-view-back" data-action="page-view-close" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left')}<span>${esc(project.name)}</span></button><strong class="page-view-title">${esc(page.name)}</strong><span class="page-view-kind">${kind}</span><button type="button" class="primary-button page-view-edit" data-action="page-view-edit">${icon('mouse-pointer-2')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
   hydrateIconsIn(pageViewRoot);syncStateAttributes();
