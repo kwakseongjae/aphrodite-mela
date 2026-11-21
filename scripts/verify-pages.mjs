@@ -54,7 +54,7 @@ const udp = dgram.createSocket('udp4');
 udp.on('message', message => packets.push(message.length));
 await new Promise(resolve => udp.bind(UDP, '127.0.0.1', resolve));
 
-const {evaluate, send, agent, personClicks, personPresses, presses, close} = await openApp({port: PORT, cdp: 9383, profile: '/tmp/aphrodite-pages-profile'});
+const {evaluate, send, agent, personClicks, personPresses, personSubmits, presses, close} = await openApp({port: PORT, cdp: 9383, profile: '/tmp/aphrodite-pages-profile'});
 /** Preconnect opens a TCP connection and sends nothing: a listener that counts them. */
 const TCP = TRAP + 6;
 const connections = [];
@@ -803,6 +803,80 @@ check('a link that arrives while the person is asked who may edit waits for thei
   assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'the answer was the person\'s: declined');
   await personPresses('page-view-close'); await sleep(300);
   await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
+});
+
+/* 0.3-P3-fix1 #6: what a link does when what it names is gone, when two wait, when a dialog is open, and when its board is in another workspace. */
+check('a link to a page the board no longer has opens the board; of two links that wait the last opens; a link waits behind any dialog', async () => {
+  const board = (await agent('contract', {})).project.project_id;
+  const to = page => `aphrodite://open?board=${board}&page=${page}`;
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(to('no-such-page'))})`); await sleep(600);
+  assert.equal((await agent('contract', {})).project.project_id, board, 'the board is open');
+  assert.equal(await pageView(), '', 'and nothing is shown on its own');
+  await personPresses('agent-disconnect'); await sleep(300);
+  assert.equal((await agent('connect', {}, 'claude-code')).status, 'asked');
+  await waitFor(() => evaluate(`!!document.querySelector('#modal-root .ask-dialog')`), 'the request on screen');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(to(viewId))})`);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(to(sampleId))})`); await sleep(400);
+  assert.equal(await pageView(), '', 'both wait');
+  await personPresses('ask-decline');
+  await waitFor(async () => (await pageView()) === sampleId, 'the last link to open');
+  await personPresses('page-view-close'); await sleep(300);
+  await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(400);
+  await personPresses('export'); await sleep(500);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(to(viewId))})`); await sleep(600);
+  assert.equal(await evaluate(`!!document.querySelector('#modal-root [data-export-page], #modal-root .export-tabs, #modal-root .modal-backdrop')`), true, 'the dialog stays open');
+  assert.equal(await pageView(), '', 'and the link waits for it');
+  await personPresses('close-modal');
+  await waitFor(async () => (await pageView()) === viewId, 'the link to open once the dialog is closed');
+  await personPresses('page-view-close'); await sleep(300);
+  await sleep(5_200);
+});
+
+check('a link to a board in another workspace opens it in its own workspace, so saving it does not move it', async () => {
+  const board = (await agent('contract', {})).project.project_id;
+  const where = () => evaluate(`(() => { const lib = JSON.parse(localStorage.getItem('aphrodite-project-library-v1')); const ws = JSON.parse(localStorage.getItem('aphrodite-workspaces-v1') ?? '{}'); return {active: ws.activeId, of: lib.entries.find(e => e.project.id === ${JSON.stringify(board)})?.workspaceId ?? null}; })()`);
+  const before = await where();
+  await personPresses('home'); await sleep(500);
+  await personClicks('ws-new'); await sleep(400);
+  assert.equal(await personSubmits('#workspace-form', {name: 'Elsewhere'}), true);
+  await sleep(600);
+  assert.notEqual((await where()).active, before.active, 'another workspace is open');
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify(`aphrodite://open?board=${board}`)})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === board, 'the board to open');
+  const after = await where();
+  assert.equal(after.active, before.of ?? 'personal', 'its own workspace is the one open');
+  assert.equal(after.of, before.of, 'and the board is where it was');
+  await sleep(5_200);
+});
+
+/* 0.3-P3-fix1 #6 (Opus L8): a page seen on its own shows another page only after the person has pressed into it. */
+check('a page seen on its own cannot show other pages by itself, and two pages calling each other stop after the one the person pressed', async () => {
+  // Each calls the other as soon as it loads and again and again after; A also calls B a moment after a press in it
+  // (after the press is over: a frame taken away under a press it is still answering stalls the test browser's input).
+  const calls = (to, onPress) => `<!doctype html><body style="margin:0;height:100vh"><script>const go = () => parent.postMessage({aphrodite: 'frame', kind: 'page', id: ${JSON.stringify(to)}}, '*'); go(); ${onPress ? "document.addEventListener('click', () => setTimeout(go, 400));" : 'setInterval(go, 150);'}</script></body>`;
+  // In a board of its own, so the one the other checks use keeps its pages.
+  const home = (await agent('contract', {})).project.project_id;
+  await personPresses('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Pages that call'}), true);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id !== home, 'a board of its own');
+  await sleep(5_200);
+  const a = await makePage('Calls B', '<p>placeholder</p>'), b = await makePage('Calls A', calls(a, false));
+  const rev = (await agent('changes', {limit: 1})).revision;
+  const set = await agent('apply', {reason: 'verify-pages: a page that calls another.', base_revision: rev, ops: [{op: 'html_set', page_id: a, html: calls(b, true)}]});
+  assert.ok(set.ok, JSON.stringify(set).slice(0, 300));
+  await sleep(5_200);
+  await personPresses('page-view', {id: a});
+  await sleep(1_500);
+  assert.equal(await pageView(), a, 'its own calls show nothing else');
+  const at = await evaluate(`(() => { const r = document.querySelector('#page-view-root iframe').getBoundingClientRect(); return {x: r.left + 100, y: r.top + 100}; })()`);
+  await click(at);
+  await waitFor(async () => (await pageView()) === b, 'the press inside to show the page it calls');
+  await sleep(1_500);
+  assert.equal(await pageView(), b, 'and the page it shows, not pressed into, shows nothing else');
+  await personPresses('page-view-close'); await sleep(300);
+  await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=')} + ${JSON.stringify(home)})`);
+  await waitFor(async () => (await agent('contract', {})).project?.project_id === home, 'back on the board the other checks use');
+  await sleep(5_200);
 });
 
 check('a page sent as one file runs nothing and reaches nothing where it is opened, and keeps words that only look like scripts', async () => {

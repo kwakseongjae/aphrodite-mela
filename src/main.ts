@@ -161,28 +161,33 @@ addEventListener('message',e=>{
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
   if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
   if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view'))openPageView(m.id);else{leavePage();fitFrame(m.id);}}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewHops>=MAX_PAGE_VIEW_HOPS)return;pageViewHops++;openPageView(m.id);}else{leavePage();fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
 function offerLink(href:string){if(modalRoot.children.length)return;const link=linkOut(href);if('refused' in link){toast(ui('This link was not opened: ','이 링크는 열지 않았습니다: ')+link.refused);return;}leavePage();showModal(ui('This page links outside the app.','이 페이지가 앱 밖으로 연결합니다.'),ui('Nothing opens until you press Open.','열기를 누르기 전에는 아무것도 열리지 않습니다.'),`<p class="link-host ui-text-20" dir="ltr"><strong>${esc(link.host)}</strong></p><p class="link-address"><code dir="ltr" title="${esc(link.href)}">${esc(link.shown)}</code></p><button class="primary-button" data-action="open-link" data-href="${esc(link.href)}">${ui('Open in the browser','브라우저에서 열기')}</button>`);}
 /**
  * One page on its own, filling the window (0.3-P3): back to the board, its name, and Edit in the app. A free
- * page's frame is made by freePageFrame, as everywhere, or the placeholder stands in; the person is in the
- * page from the start. Opening it, following a page link in it and leaving it change nothing in the design:
+ * page's frame is made by freePageFrame, as everywhere, or the placeholder stands in; the page takes the keys once
+ * the person presses into it, and only then can a link in it show another page (0.3-P3-fix1). Opening it, following a page link in it and leaving it change nothing in the design:
  * the board's open page stays what it was. Only Edit in the app opens the page on the board, as the person's own step.
  */
 let pageView:{project:string;page:string;key:string}|undefined;
+/** Whether the person has pressed into the page seen on its own, and how many pages its links have shown since their last own input outside it. */
+let pageViewEntered=false,pageViewHops=0;
+const MAX_PAGE_VIEW_HOPS=20;
+addEventListener('blur',()=>{if(pageView&&pageViewRoot.contains(document.activeElement))pageViewEntered=true;});
+for(const type of ['pointerdown','keydown'] as const)document.addEventListener(type,e=>{if(e.isTrusted)pageViewHops=0;},true);
 const pageViewRoot=document.createElement('div');pageViewRoot.id='page-view-root';document.body.append(pageViewRoot);
 const pageViewKey=(p:Page)=>frameKey(p.id,p.html??JSON.stringify(p.media??p.blocks));
 function openPageView(id:string){
   const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
-  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};
+  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;
   const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
   pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar"><button type="button" class="page-view-back" data-action="page-view-close" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left')}<span>${esc(project.name)}</span></button><strong class="page-view-title">${esc(page.name)}</strong><span class="page-view-kind">${kind}</span><button type="button" class="primary-button page-view-edit" data-action="page-view-edit">${icon('mouse-pointer-2')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
   hydrateIconsIn(pageViewRoot);syncStateAttributes();
   const body=pageViewRoot.querySelector<HTMLElement>('[data-page-view-body]')!;
-  if(isFreePage(page))void freePageFrame(page,'page-view-frame',made=>{body.append(made);}).then(frame=>{if(!frame){if(body.isConnected)body.innerHTML=unframedHtml(page);return;}if(!frame.isConnected)return;frame.focus();return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);}).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));
+  if(isFreePage(page))void freePageFrame(page,'page-view-frame',made=>{body.append(made);}).then(frame=>{if(!frame){if(body.isConnected)body.innerHTML=unframedHtml(page);return;}if(!frame.isConnected)return;return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);}).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));
   else if(page.media){const video=page.media.mime.startsWith('video/'),el=document.createElement(video?'video':'img');el.className='page-view-media';if(el instanceof HTMLVideoElement){el.controls=true;el.playsInline=true;}else el.alt=page.name;body.append(el);void frameHost.mediaUrl(page.media.src.slice('media:'.length)).then(url=>{if(url)el.src=url;else if(body.isConnected)body.innerHTML=`<p class="board-missing">${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</p>`;});}
   else mountPagePreview(body.querySelector<HTMLIFrameElement>('iframe')!,project,page);
 }
@@ -196,12 +201,23 @@ function placePageView(){pageViewRoot.style.setProperty('--page-view-top',`${Mat
  */
 /** A link that arrived while the person was answering who may edit: it waits for their answer, and the request is never closed by a link. */
 let heldLink:OpenLink|undefined;
+/** A dialog is open, the request to edit or any other: a link waits for it to close rather than close it (0.3-P3-fix1). */
+const linkWaits=()=>askOpen()||modalRoot.children.length>0;
 async function followOpenLink(link:OpenLink|undefined){
-  if(askOpen()){heldLink=link;return;}
+  // Of links that wait, the last one is the one opened.
+  if(linkWaits()){heldLink=link;return;}
   const entry=link&&library.entries.find(e=>e.project.id===link.board);
-  if(!link||!entry){if(screen==='editor'){await guardSwitch();closePageView();screen='home';closeModal();render();}return;}
-  if(screen!=='editor'||project.id!==entry.project.id){await guardSwitch();openProject(entry.project);}
-  if(link.page&&project.pages.some(p=>p.id===link.page))openPageView(link.page);
+  if(!link||!entry){if(screen==='editor'){await guardSwitch();if(linkWaits()){heldLink=link;return;}closePageView();screen='home';render();}return;}
+  if(screen!=='editor'||project.id!==entry.project.id){
+    await guardSwitch();
+    if(linkWaits()){heldLink=link;return;}
+    // A board in another workspace opens there, so saving it does not move it into this one.
+    const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
+    openProject(entry.project);
+  }
+  if(!link.page)return;
+  // A page the board no longer has: the board is open, and nothing is shown on its own.
+  if(project.pages.some(p=>p.id===link.page))openPageView(link.page);else toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
 }
 let opening=Promise.resolve();
 /** What macOS handed the app to open (src-tauri/src/opened.rs), each once and in turn: links followed, board files opened as new boards. */
@@ -951,13 +967,15 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes(); releaseLink();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldBoards.length&&!askOpen())dispatchEvent(new Event('aphrodite-answered'));if(heldLink&&!askOpen()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}if(heldBoards.length&&!askOpen())dispatchEvent(new Event('aphrodite-answered'));releaseLink();}
+/** A link that waited opens once no dialog is left open. */
+function releaseLink(){if(heldLink&&!linkWaits()){const link=heldLink;heldLink=undefined;void followOpenLink(link).catch(error=>toast(String(error)));}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
