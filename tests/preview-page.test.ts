@@ -37,6 +37,15 @@ test('the preview page is kept out of search, in Korean, and wears the landing s
   assert.ok(!existsSync(new URL('../site/preview/tokens.css', import.meta.url)));
 });
 
+test('every type size, line height and letter spacing on the page is one the landing already uses', () => {
+  const css = read('../site/preview/preview.css'), landing = read('../site/styles.css');
+  for (const prop of ['font-size', 'line-height', 'letter-spacing']) {
+    const values = (s: string) => new Set([...s.matchAll(new RegExp(`(?<![-\\w])${prop}:([^;}]+)`, 'g'))].map(m => m[1].trim()));
+    const theirs = values(landing);
+    for (const v of values(css)) assert.ok(theirs.has(v), `${prop}:${v} is not in the landing's scale`);
+  }
+});
+
 test('every picture the page names is there', () => {
   const srcs = [...html.matchAll(/<img[^>]* src="([^"]+)"/g)].map(m => m[1]);
   assert.ok(srcs.length >= 4);

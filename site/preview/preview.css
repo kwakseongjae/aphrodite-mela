@@ -1,14 +1,29 @@
 /* The internal preview download page. It loads the landing's styles.css first and adds only what this page needs,
    with the landing's own variables, type and spacing: nothing here is a new colour family or a new face. */
 
+/* The landing's three families, with their stand-ins sized to match while the web fonts are on their way (or never come),
+   so a title keeps its line count. Hangul is named outright: Myungjo under the serif, Gothic under the sans and the mono. */
+@font-face{font-family:"Fraunces Fallback";src:local("Georgia");size-adjust:83%}
+@font-face{font-family:"Fraunces Fallback";font-style:italic;src:local("Georgia Italic");size-adjust:72%}
+@font-face{font-family:"Geist Fallback";src:local("Helvetica Neue");size-adjust:101%}
+:root{
+  --serif:"Fraunces","Fraunces Fallback","Iowan Old Style",Georgia,"AppleMyungjo","Nanum Myeongjo",serif;
+  --sans:"Geist","Geist Fallback",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,"Apple SD Gothic Neo","Pretendard",monospace;
+}
+h1 span,h1 em,h2,h3{text-wrap:balance}
+p,li,small,figcaption{text-wrap:pretty}
+.pv-meta,.num,.cmd code,.pv-status,.pv-ledger-head{font-variant-numeric:tabular-nums}
+/* Hangul is not spaced out like small capitals; the mono labels keep the landing's tracking in English only. */
+:lang(ko) .eyebrow,:lang(ko) .nav-tag,:lang(ko) .hero-art figcaption{letter-spacing:.06em}
+
 /* nav: the landing's lockup, with one quiet mark that this is the internal preview */
 .nav-brand{display:flex;align-items:center;gap:14px;min-width:0}
-.nav-tag{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-ink);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.nav-tag{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-ink);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
 
 /* hero: the landing's grammar, a little tighter so the version line and the top of the window sit inside 900px */
 .pv-hero{grid-template-columns:1.45fr .55fr;padding-top:clamp(20px,4vw,52px);padding-bottom:clamp(28px,3.4vw,44px)}
-.pv-hero h1{font-size:clamp(42px,5vw,72px);margin:16px 0 20px}
-.pv-hero h1 em{font-size:.48em;margin-top:18px;max-width:22em}
+.pv-hero h1 em{max-width:22em}
 .pv-hero .lede{max-width:600px}
 .pv-hero .cta-row{margin-top:28px}
 .pv-hero .hero-art img{max-width:320px}
@@ -45,7 +60,7 @@
 
 /* the window: the landing's .shot, a little closer to the hero */
 .pv-screens .screen-grid{grid-template-columns:repeat(3,1fr)}
-.pv-screens .screen-grid p code,.steps p code,.pv-list code{font-family:var(--mono);font-size:.88em;color:var(--gold-ink);background:var(--paper-2);padding:2px 6px;border-radius:5px;white-space:nowrap}
+.pv-screens .screen-grid p code,.steps p code,.pv-list code{font-family:var(--mono);font-size:13px;color:var(--gold-ink);background:var(--paper-2);padding:2px 6px;border-radius:5px;white-space:nowrap}
 
 /* get and connect: the heading on one side, and on the other one flow that reads top to bottom */
 .pv-split{max-width:var(--max);margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,4vw,40px);border-top:1px solid var(--line);display:grid;grid-template-columns:.8fr 1.2fr;gap:clamp(24px,5vw,72px);align-items:start}
@@ -57,10 +72,10 @@
 .pv-row-name{font-size:17px;color:var(--ink)}
 .pv-row-name small{display:block;font-size:13px;color:var(--muted);margin-top:3px}
 .pv-row-btn{flex:none;padding:11px 20px;min-height:44px}
-.pv-flow-label{margin:40px 0 4px}
+.pv-flow-label{margin:32px 0 4px}
 .pv-steps{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .pv-flow-label+.pv-steps{border-top:0}
-.pv-steps>li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;padding:22px 0;border-bottom:1px solid var(--line)}
+.pv-steps>li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;padding:18px 0;border-bottom:1px solid var(--line)}
 .pv-get .pv-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0 24px;border-top:0}
 .pv-get .pv-steps>li{grid-template-columns:1fr;gap:10px;border-top:1px solid var(--line);border-bottom:0;padding:18px 0 0}
 .pv-steps .num{padding-top:4px}
@@ -90,21 +105,23 @@
 .pv-list li::before{content:"";position:absolute;left:2px;top:17px;width:7px;height:7px;border-radius:50%;background:var(--gold)}
 .pv-not .pv-list li::before{width:9px;height:1px;border-radius:0;top:20px;background:var(--faint)}
 
-.pv-know-grid{margin-top:clamp(40px,5vw,64px)}
+.pv-know-grid{margin-top:40px}
 .pv-know-h{font-size:22px;line-height:1.2;margin-bottom:16px}
 /* know: one ledger, the same three columns on every row (what, what we know, where it stands), and where to tell us */
 .pv-know-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:clamp(28px,5vw,72px);align-items:start}
-.pv-ledger{display:grid;grid-template-columns:140px minmax(0,1fr) auto;border-top:1px solid var(--line)}
+.pv-ledger{display:grid;grid-template-columns:auto minmax(0,1fr) auto;border-top:1px solid var(--line)}
 .pv-ledger>div{display:grid;grid-column:1/-1;grid-template-columns:subgrid;gap:clamp(14px,2.4vw,28px);align-items:baseline;padding:18px 0;border-bottom:1px solid var(--line)}
 .pv-ledger>.pv-ledger-head{padding:10px 0;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--faint)}
-.pv-ledger-what{font-size:15px;color:var(--ink)}
+.pv-ledger-what{font-size:15px;color:var(--ink);white-space:nowrap}
+.pv-ledger-now,.pv-rows small{text-wrap:balance}
 .pv-ledger-now{font-size:14px;line-height:1.7;color:var(--muted)}
 .pv-status{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--faint);white-space:nowrap}
 .pv-checking{color:var(--gold-ink)}
-.pv-report{border:1px solid var(--line);border-radius:12px;padding:28px 28px 30px}
-.pv-report img{width:104px;margin:0 0 6px -8px}
+.pv-report{display:grid;grid-template-columns:88px minmax(0,1fr);gap:4px 16px;align-items:start;border:1px solid var(--line);border-radius:12px;padding:24px 24px 26px}
+.pv-report img{grid-row:1/4;width:88px;margin:-6px 0 0 -6px}
+.pv-report .btn{justify-self:start}
 .pv-report h3{font-size:22px;line-height:1.2;margin-bottom:10px}
-.pv-report p{font-size:14.5px;line-height:1.75;color:var(--muted);margin:0 0 20px}
+.pv-report p{font-size:14px;line-height:1.7;color:var(--muted);margin:0 0 16px}
 .arrow{width:14px;height:14px}
 .pv-reason [data-notes]{display:inline-flex;align-items:center;gap:4px;color:var(--ink)}
 .pv-reason [data-notes][hidden]{display:none}
@@ -117,23 +134,29 @@
 
 .nav nav .nav-in{color:var(--muted)}
 
+@media (max-width:1180px){
+  .pv-get .pv-steps{grid-template-columns:1fr}
+  .pv-get .pv-steps>li{grid-template-columns:44px minmax(0,1fr);gap:8px;padding:18px 0;border-bottom:1px solid var(--line);border-top:0}
+  .pv-get .pv-flow-label+.pv-steps{border-top:1px solid var(--line)}
+}
 @media (max-width:960px){
   .pv-hero{grid-template-columns:1fr}
   .pv-hero .hero-art{order:0}
   .pv-hero .hero-art img{max-width:180px}
   .pv-screens .screen-grid,.pv-split,.pv-know-grid{grid-template-columns:1fr}
   .pv-side{position:static}
-  .pv-get .pv-steps{grid-template-columns:1fr}
-  .pv-get .pv-steps>li{grid-template-columns:44px minmax(0,1fr);gap:8px;padding:18px 0;border-bottom:1px solid var(--line);border-top:0}
-  .pv-get .pv-flow-label+.pv-steps{border-top:1px solid var(--line)}
-  .cmd{grid-template-columns:minmax(0,1fr) auto}
   .pv-connect .pv-steps>li{grid-template-columns:44px minmax(0,1fr);gap:8px}
-  .pv-cmds{grid-column:2}
-  .cmd-label{grid-column:1/-1}
+  .pv-cmds{grid-column:1/-1}
+  .cmd,.pv-cmds .cmd{grid-template-columns:minmax(0,1fr) auto;gap:6px 14px}
+  .cmd-label,.pv-cmds .cmd-label{grid-column:1;grid-row:1;align-self:center}
+  .cmd .copy{grid-column:2;grid-row:1}
+  .cmd code,.pv-prompt{grid-column:1/-1}
   .nav nav .nav-in{display:none}
 }
 @media (max-width:640px){
-  .nav-tag{padding:3px 8px;letter-spacing:.12em}
+  .pv-hero .hero-art{display:none}
+  .nav .lang{min-height:40px;padding:9px 12px}
+  .nav-tag{padding:3px 8px;letter-spacing:.1em}
   .pv-hero h1 span{display:inline}
   .dl-split{display:flex;width:100%}
   .dl-split>.btn-primary{flex:1;width:auto}
