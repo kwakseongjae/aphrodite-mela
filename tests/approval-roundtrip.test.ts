@@ -82,3 +82,10 @@ test('the last step before storage drops a stale fingerprint on its own',()=>{
   withoutStaleApprovals(library);
   assert.equal(library.entries[0].project.approvedFingerprint,undefined);
 });
+
+/* Codex 2026-11-22 (check 4): a project absent from the snapshot read was taken for one whose fingerprint was dropped. */
+test('a project the read did not include is not a dropped fingerprint',()=>{
+  const p=approved(rich);
+  const stored=JSON.stringify({version:1,entries:[{project:{...p,approvedFingerprint:'stale:0:0'},createdAt:'2026-11-22T00:00:00.000Z',updatedAt:'2026-11-22T00:00:00.000Z',pinned:false,archived:false}]});
+  assert.equal(readDroppedApprovals(stored,{version:1,entries:[]}),false);
+});

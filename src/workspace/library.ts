@@ -44,7 +44,7 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
  *  Files, which checks the two against each other, refuses until it is written once. */
 export function readDroppedApprovals(raw:string|null,library:Library):boolean{
   if(raw===null)return false;
-  try{const stored=(JSON.parse(raw) as {entries?:{project?:{id?:string;approvedFingerprint?:unknown}}[]}).entries??[];return stored.some(e=>e.project?.approvedFingerprint!==undefined&&library.entries.find(x=>x.project.id===e.project?.id)?.project.approvedFingerprint===undefined);}catch{return false;}
+  try{const stored=(JSON.parse(raw) as {entries?:{project?:{id?:string;approvedFingerprint?:unknown}}[]}).entries??[];return stored.some(e=>{if(e.project?.approvedFingerprint===undefined)return false;const read=library.entries.find(x=>x.project.id===e.project?.id);return !!read&&read.project.approvedFingerprint===undefined;});}catch{return false;}
 }
 export function withoutStaleApprovals(library:Library):Library{for(const e of library.entries)dropStaleApproval(e.project);return library;}
 export function writeLibrary(storage:LocalStore,library:Library):void{
