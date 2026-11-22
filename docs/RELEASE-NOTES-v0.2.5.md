@@ -5,7 +5,7 @@ do it for you.
 
 ## What's new since v0.2.4
 
-**An agent can no longer approve a direction, or bring back an approval you had moved past**
+**Through the app's agent connection, an agent can no longer approve a direction, or bring back an approval you had moved past**
 - What was wrong: once you had let an agent edit, it could approve a board itself. Asking the app to
   run the approve action, or clicking the real Approve direction button, marked the board approved
   exactly as your own click does. It could also bring an approval back: after a change turned an
@@ -21,18 +21,20 @@ do it for you.
   brought it back. Approve it again when you are happy with it.
 - Undo and redo: a step that leaves the board as you approved it keeps the approval. If an agent's
   undo or redo would bring back an approval the board did not have, the content comes back as a
-  draft, and only then does its reply say so. Your own ⌘Z can step back to a board you approved,
-  unless an agent's undo or redo has passed over that step since. Undo history starts empty each
-  time a board is opened.
+  draft, and only then does its reply say so. For example, you approve a board as A and then change
+  it: your own ⌘Z back to A shows A approved again, but when an agent's undo brings it back to A, A
+  comes back as a draft. Your own ⌘Z can step back to a board you approved, unless an agent's undo
+  or redo has passed over that step since. Undo history starts empty each time a board is opened.
 - Approve now approves the board the export window showed you. If the board, the page it shows or
-  its approval changed while the window was open, the window says so, and Approve now shows you the
-  board as it is instead of approving.
+  its approval changed while the window was open, the window says so, and the first press of Approve
+  now shows you the board as it is instead of approving.
 
 **If you work with an agent**
-- On Home no board is open, so an agent's reading and changing of a board is refused with "no board
-  is open", and the actions of the editor do not run there. Open the project first, then ask the
+- On Home no board is open, so an agent's request that needs one, reading or changing the board or
+  an action of the editor, is refused with "no board is open". Open the project first, then ask the
   agent; it can also open one itself from Home. Home's own actions, such as deleting or renaming a
-  project, run only on Home.
+  project, run only on Home. A project's Files still open from its card on Home; asking for the open
+  board's Files there is told that no board is open.
 - A picture or design system that is still arriving when you switch boards is not put on the board
   you switched to. It is cancelled, and the app says so.
 
@@ -47,8 +49,10 @@ do it for you.
   made, so they keep the mark they have; that is why the check above is worth the minute.
 - A tool that works the screen itself, such as computer use or an accessibility tool, presses buttons
   the way your hand does. The app cannot tell those presses from yours.
-- A project file saved from a board's Files and imported again opens as a draft, as it did before
-  this update. Approve it again.
+- A project file saved from a board's Files and imported again can open as a draft, as it could
+  before this update. Approve it again.
+- When you import a design-system graph, colours whose names a project cannot store are not kept;
+  the message after the import says how many were left out.
 - An Aphrodite older than v0.1.6 has no updater and must be replaced from the disk image once.
 
 ## Download
