@@ -1168,7 +1168,12 @@ check('a handoff of several pages carries each one cleaned, and one the cleaner 
   const before = {hits: hits.length, tcp: connections.length};
   const viewer = await openPage('about:blank', {cdp: 9393, profile: '/tmp/aphrodite-pages-handoff-many-profile'});
   try {
-    for (const name of pages) { await viewer.send('Page.navigate', {url: `file://${join(dir, name)}`}); await sleep(1_200); }
+    // Each page is seen to have opened before what it reached is counted (0.3-P3-fix4).
+    for (const name of pages) {
+      await viewer.send('Page.navigate', {url: `file://${join(dir, name)}`}); await sleep(1_200);
+      assert.equal(await viewer.evaluate('decodeURIComponent(location.pathname)'), join(dir, name), `${name} opened`);
+      assert.ok((await viewer.evaluate('document.body?.textContent ?? ""')).trim().length > 0, `${name} has its words`);
+    }
     await sleep(2_000);
   } finally { viewer.close(); }
   assert.deepEqual({hits: hits.slice(before.hits), tcp: connections.length - before.tcp}, {hits: [], tcp: 0}, 'nothing was reached, over HTTP or a raw connection');
