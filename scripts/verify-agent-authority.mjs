@@ -738,6 +738,36 @@ check('the export window says it is stale exactly while what it shows differs fr
   await closeModal();
 });
 
+/* Codex 2026-11-22 (check 4): Approve now checked the content only, so a page switch under an open window let the first press approve. */
+check('Approve now in a window whose page changed under it redraws instead of approving', async () => {
+  await freshDraft();
+  const contract = await agent('contract');
+  const first = contract.pages.find(p => p.active), second = contract.pages.find(p => p.name === 'Second');
+  await control('export');
+  await sleep(200);
+  assert.equal((await agent('act', {action: 'page', data: {id: second.page_id}})).error, undefined);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') !== null`), true, 'the window says it is stale');
+  await personPresses('[data-action="approve-export"]');
+  await sleep(250);
+  assert.equal(await approval(), 'draft', 'the first press redrew the window instead of approving');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /board changed|보드가 바뀌었/);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') === null`), true, 'redrawn with the page that is open');
+  await closeModal();
+  await sleep(5_200);
+  await agent('act', {action: 'page', data: {id: first.page_id}});
+});
+
+check('a window left open while the approval is undone says it no longer shows the board', async () => {
+  await personApproves();
+  await control('export');
+  await sleep(200);
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-status.approved') !== null`), true);
+  assert.equal((await agent('act', {action: 'undo'})).error, undefined);
+  assert.equal(await approval(), 'draft');
+  assert.equal(await evaluate(`document.querySelector('#modal-root .export-stale') !== null`), true, 'an Approved badge over a draft board is called stale');
+  await closeModal();
+});
+
 /* Opus review 2026-11-22, H1: Home left the last board in memory, and an agent's write put the old copy back. */
 const toHome = async () => { await control('home'); await sleep(300); assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home'); };
 const refusedNoBoard = (answer, what) => {
