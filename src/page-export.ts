@@ -23,8 +23,12 @@ export const MAX_EXPORTED_PAGE = 100_000_000;
 export const CLEAN_FORBID_TAGS = ['script', 'noscript', 'template', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'base', 'link', 'meta', 'plaintext', 'xmp', 'listing', 'noembed', 'noframes', 'foreignobject', 'animate', 'set', 'animatetransform', 'animatemotion', 'discard', 'math', 'portal', 'fencedframe'];
 /** Attributes taken out wherever they are: where a form goes, what is pinged, a frame's own document, and the addresses this file cannot keep. */
 export const CLEAN_FORBID_ATTR = ['action', 'formaction', 'ping', 'srcdoc', 'srcset', 'imagesrcset', 'imagesizes', 'background', 'codebase', 'manifest', 'longdesc', 'usemap', 'lowsrc', 'dynsrc', 'archive', 'classid', 'attributionsrc'];
-/** A board file's address as a page names it, or the stand-in the export puts in before cleaning (a picture, or a video beside the page). A relative path the page wrote itself is not one. */
-const MEDIA_ADDRESS_VALUE = /^(?:media:[0-9a-f]{64}|aphrodite-media-[0-9a-f]{16}-[0-9a-f]{64})$/;
+/**
+ * A board file's address as a page names it, or the stand-in this export puts in before cleaning (a picture, or a video
+ * beside the page), known by the export's own nonce. A relative path the page wrote itself is not one, nor is a stand-in
+ * it wrote with any other nonce (0.3-P3-fix4).
+ */
+const mediaAddress = (v: string, own?: string) => /^media:[0-9a-f]{64}$/.test(v) || (!!own && /^[0-9a-f]{16}$/.test(own) && new RegExp(`^aphrodite-media-${own}-[0-9a-f]{64}$`).test(v));
 const FRAGMENT = /^#[^\s]*$/;
 const DATA_FILE = /^data:(?:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)|video\/(?:mp4|webm)|audio\/(?:mpeg|mp4|ogg|wav|webm)|font\/(?:woff2?|ttf|otf))[;,]/i;
 const OUT = /^(?:https?:|mailto:|tel:)/i;
@@ -35,7 +39,7 @@ const URL_ATTRS = new Set(['src', 'href', 'xlink:href', 'poster', 'data', 'cite'
  * file (`media:<sha256>`) the export puts in. A link a person presses (`<a href>` to the web, to mail or to a phone)
  * is the one address that leads out. Anything else that names an address, `url(…)` in a drawing's paint included, goes.
  */
-export function keepsAttribute(tag: string, namespace: 'html' | 'svg', name: string, value: string): boolean {
+export function keepsAttribute(tag: string, namespace: 'html' | 'svg', name: string, value: string, own?: string): boolean {
   const v = value.trim(), lc = name.toLowerCase();
   if (/^on/i.test(lc) || CLEAN_FORBID_ATTR.includes(lc)) return false;
   if (URL_ATTRS.has(lc)) {
@@ -43,14 +47,14 @@ export function keepsAttribute(tag: string, namespace: 'html' | 'svg', name: str
     if (FRAGMENT.test(v)) return true;
     if (lc === 'href' || lc === 'xlink:href') {
       if (tag === 'a' || (namespace === 'html' && tag === 'area')) return OUT.test(v);
-      if (namespace === 'svg' && tag === 'image') return MEDIA_ADDRESS_VALUE.test(v) || DATA_FILE.test(v);
+      if (namespace === 'svg' && tag === 'image') return mediaAddress(v, own) || DATA_FILE.test(v);
       return false;
     }
-    if (lc === 'src' || lc === 'poster') return MEDIA_ADDRESS_VALUE.test(v) || DATA_FILE.test(v);
+    if (lc === 'src' || lc === 'poster') return mediaAddress(v, own) || DATA_FILE.test(v);
     return false;
   }
   // Any other value that names an address with url(…): only a fragment, a data file or a board file.
-  for (const m of v.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi)) { const target = m[2].trim(); if (!(FRAGMENT.test(target) || DATA_FILE.test(target) || MEDIA_ADDRESS_VALUE.test(target))) return false; }
+  for (const m of v.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi)) { const target = m[2].trim(); if (!(FRAGMENT.test(target) || DATA_FILE.test(target) || mediaAddress(target, own))) return false; }
   if (/url\(/i.test(v) && !/url\(\s*(['"]?)([^'")]*)\1\s*\)/i.test(v)) return false;
   return true;
 }
@@ -89,7 +93,7 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') && choice.videos !== 'beside' ? undefined : placeholder(sha); };
   // Board files are put in the stored text first, where the board's frame puts them, and only then is it cleaned (0.3-P3-fix3 #3).
   const placed = withMedia(source, address);
-  let html = choice.scripts ? withDoctype(placed) : (await import('./page-clean')).cleanPage(placed);
+  let html = choice.scripts ? withDoctype(placed) : (await import('./page-clean')).cleanPage(placed, nonce);
   const beside: ExportedPage['beside'] = [];
   let length = utf8Length(html);
   const pictures: [string, {bytes: number; mime: string}, number][] = [];

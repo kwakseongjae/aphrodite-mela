@@ -106,6 +106,8 @@ export function hidesAName(tag: string, attribute: string, value: string, names:
 }
 
 let purifier: DOMPurify | undefined;
+/** The nonce of the export being cleaned: its stand-ins, and no others, are board files (src/page-export.ts). */
+let standIn: string | undefined;
 /** One cleaner for the app, its rules added once: an attribute stays only when keepsAttribute says so, and no element keeps a name that hides one of the document's or a form's. */
 function cleaner(): DOMPurify {
   if (purifier) return purifier;
@@ -116,7 +118,7 @@ function cleaner(): DOMPurify {
     // Owned by a form: inside one, or naming one with its form attribute.
     let owned = d.get(element, 'form') !== null;
     for (let up = d.parent(element); up && !owned; up = d.parent(up)) if (d.type(up) === 1 && d.tag(up as Element).toLowerCase() === 'form') owned = true;
-    if (hidesAName(tag, data.attrName.toLowerCase(), data.attrValue, d, {owned, named: d.get(element, 'name') !== null}) || !keepsAttribute(tag, svg ? 'svg' : 'html', data.attrName, data.attrValue)) data.keepAttr = false;
+    if (hidesAName(tag, data.attrName.toLowerCase(), data.attrValue, d, {owned, named: d.get(element, 'name') !== null}) || !keepsAttribute(tag, svg ? 'svg' : 'html', data.attrName, data.attrValue, standIn)) data.keepAttr = false;
     // A video's poster written into the page as a picture: DOMPurify lets a data: address stand only in a src, so it is kept here (0.3-P3-fix2 O-3).
     else if (tag === 'video' && data.attrName.toLowerCase() === 'poster') data.forceKeepAttr = true;
   });
@@ -153,11 +155,14 @@ export function startsWithHeader(written: string, htmlOpen: string, headOpen: st
  * The page without anything that runs or reaches out, as a whole document whose first bytes say its charset and the
  * policy it runs under. `address` gives what a `media:<sha256>` the page names becomes (a placeholder the export
  * fills, a file beside it, or nothing); it is put in attribute values and style sheets only, never in the page's words.
+ * `nonce` is the export's own: a stand-in with it is a board file, and one with any other is a relative address (0.3-P3-fix4).
  */
-export function cleanPage(source: string): string {
+export function cleanPage(source: string, nonce?: string): string {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') throw new Error('a page is cleaned in the app\'s window, where a browser reads it; there is none here');
   const d = dom();
-  const cleaned = cleaner().sanitize(source, CONFIG) as unknown as Element;
+  let cleaned: Element;
+  standIn = nonce;
+  try { cleaned = cleaner().sanitize(source, CONFIG) as unknown as Element; } finally { standIn = undefined; }
   const doc = d.blank();
   const root = d.adopt(doc, cleaned) as Element;
   d.replace(doc, root, d.root(doc));

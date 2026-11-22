@@ -21,8 +21,10 @@ test('an address stays only where it stays in the page, or is a link a person pr
     ['use', 'svg', 'href', 'https://x.example/a.svg#i', false], ['image', 'svg', 'href', 'https://x.example/a.png', false], ['blockquote', 'html', 'cite', 'https://x.example', false],
     ['div', 'html', 'style', 'color:red;background:url(https://x.example/a)', false], ['div', 'html', 'style', 'background:url(#g)', true], ['div', 'html', 'style', 'background:url("data:image/png;base64,AA")', true],
     ['rect', 'svg', 'fill', 'url(https://x.example/a#g)', false], ['rect', 'svg', 'fill', 'url(#g)', true], ['rect', 'svg', 'filter', 'url(//x.example/f)', false],
-    ['p', 'html', 'onclick', 'go()', false], ['img', 'html', 'src', `aphrodite-media-${'1'.repeat(16)}-${sha}`, true], ['video', 'html', 'src', `media/${sha}.mp4`, false], ['a', 'html', 'href', `aphrodite-media-${'1'.repeat(16)}-${sha}`, false], ['a', 'html', 'ping', 'https://x.example', false], ['iframe', 'html', 'srcdoc', '<p>x</p>', false], ['p', 'html', 'title', 'javascript: a word', true],
-  ] as const) assert.equal(keepsAttribute(tag, ns, name, value), keeps, `<${tag} ${name}="${value}">`);
+    ['p', 'html', 'onclick', 'go()', false], ['img', 'html', 'src', `aphrodite-media-${'1'.repeat(16)}-${sha}`, true], ['video', 'html', 'src', `aphrodite-media-${'0'.repeat(16)}-${sha}`, false], ['div', 'html', 'style', `background:url(aphrodite-media-${'0'.repeat(16)}-${sha})`, false], ['video', 'html', 'src', `media/${sha}.mp4`, false], ['a', 'html', 'href', `aphrodite-media-${'1'.repeat(16)}-${sha}`, false], ['a', 'html', 'ping', 'https://x.example', false], ['iframe', 'html', 'srcdoc', '<p>x</p>', false], ['p', 'html', 'title', 'javascript: a word', true],
+  ] as const) assert.equal(keepsAttribute(tag, ns, name, value, '1'.repeat(16)), keeps, `<${tag} ${name}="${value}">`);
+  // Only this export's stand-in is one (0.3-P3-fix4): one a page wrote itself, with another nonce or with none to match, is a relative address.
+  assert.equal(keepsAttribute('img', 'html', 'src', `aphrodite-media-${'1'.repeat(16)}-${sha}`), false);
 });
 
 test('without a browser a page is not cleaned at all, and nothing weaker stands in', async () => {
