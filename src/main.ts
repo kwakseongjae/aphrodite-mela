@@ -26,7 +26,7 @@ import {moaPage} from './moa';
 import './moa.css';
 import { buildPrompt, designMarkdown, exportBundle, exportSnapshot, fileName, saveFile } from './export';
 import {graphSystem} from './design/omd';
-import {actionScreen} from './editor/screens';
+import {actionScreen,screenRefuses} from './editor/screens';
 import { tokensJson } from './design/tokens';
 import { sceneManifest } from './components';
 import type { DesignSystem } from './model';
@@ -856,8 +856,8 @@ function compareModal() {
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 async function action(el: HTMLElement, origin?: Origin) {
-  const where=actionScreen(el.dataset.action??'');
-  if(where!=='any'&&where!==screen){if(origin&&origin!=='person'){if(where==='editor')origin.noBoard=true;else origin.homeOnly=true;}return;}
+  const byAgent=!!origin&&origin!=='person';
+  if(screenRefuses(el.dataset.action??'',screen,byAgent)){if(byAgent){if(actionScreen(el.dataset.action??'')==='editor')origin.noBoard=true;else origin.homeOnly=true;}return;}
   /* A handler that waits (a fetch, a file, an import) writes only to the board it started on. */
   const board=project.id;const onBoard=()=>{if(!boardOpen()||project.id!==board)throw cancelled();};
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}

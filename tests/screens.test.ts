@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {actionScreen,editorActions,homeActions} from '../src/editor/screens';
+import {actionScreen,screenRefuses,editorActions,homeActions} from '../src/editor/screens';
 
 const read=(path:string)=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const actionsIn=(text:string)=>[...text.matchAll(/data-action="([a-z0-9-]+)"/g)].map(m=>m[1]);
@@ -27,4 +27,14 @@ test('Home draws no editor action, and the table is one name per action with no 
   assert.equal(actionScreen('hub-backup'),'any');
   assert.equal(actionScreen('disk-start-fresh'),'any','the missing-folder notice draws it on either screen');
   assert.equal(actionScreen('not-a-real-action'),'any','an action the table does not name runs anywhere');
+});
+
+/* Codex 2026-11-22 (check 5): the table refused the person's End Agent mode on Home, the third button it killed. The
+   person can only press what a screen draws, so the table is asked of an agent's turn and nobody else. */
+test('the screen rule turns away an agent only, and the font dialog belongs to the editor',()=>{
+  for(const action of [...editorActions,...homeActions,'delegation-return'])for(const screen of ['home','editor'] as const){
+    assert.equal(screenRefuses(action,screen,false),false,`the person's ${action} on ${screen}`);
+    assert.equal(screenRefuses(action,screen,true),actionScreen(action)!=='any'&&actionScreen(action)!==screen,`an agent's ${action} on ${screen}`);
+  }
+  for(const action of ['font-picker','font-install','font-choose'])assert.equal(actionScreen(action),'editor',action);
 });

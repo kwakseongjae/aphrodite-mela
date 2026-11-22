@@ -871,10 +871,62 @@ check('when a save fails in the editor, the backup holds the edit that was not s
   assert.match(await lastDownload() ?? '', /Not saved yet/, 'the backup carries the unsaved edit');
 });
 
+/* Codex 2026-11-22 (check 5): the screen table refused the person's own End Agent mode on Home. The table is for an
+   agent's turn; what the person presses runs as it did in 0.2.4, and the structure (commit, history and persist refuse
+   off the editor) is what keeps Home's presses off the board. */
+check('in Agent mode on Home, the person presses End Agent mode and has control back', async () => {
+  await control('hub-open', {id: (await saved('Start')).id});
+  await sleep(500);
+  await personClicks('agent-disconnect');
+  await sleep(150);
+  await control('editor-mode', {mode: 'agent'});
+  await sleep(300);
+  assert.equal(await personSubmits('#agent-mode-form', {operator: 'astra', intent: 'look around'}), true, 'the hand-over form was filled in');
+  await sleep(400);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.mode`), 'agent', 'Agent mode is on');
+  assert.equal((await agent('act', {action: 'home'}, 'astra')).error, undefined, 'the agent went to Home');
+  await sleep(400);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home');
+  await sweep('home', [], 'Home in Agent mode');
+  await personPresses('.agent-banner [data-action="delegation-return"]');
+  await sleep(300);
+  assert.equal(await evaluate(`document.querySelector('.agent-banner') === null`), true, 'the Agent mode band is gone');
+  assert.notEqual(await evaluate(`document.querySelector('#app').dataset.mode`), 'agent', 'control is back with the person');
+});
+
+check('the agent is still refused across screens: an editor action on Home, a Home action in the editor', async () => {
+  await personClicks('agent-connect-toggle');
+  await sleep(250);
+  await closeModal();
+  refusedNoBoard(await agent('act', {action: 'export'}), 'act export on Home');
+  assert.equal(await modals(), 0, 'no window opened');
+  const start = (await saved('Start')).id;
+  await control('hub-open', {id: start});
+  await sleep(500);
+  const answer = await agent('act', {action: 'hub-delete-confirm', data: {id: start}});
+  assert.equal(answer.status, 409, JSON.stringify(answer).slice(0, 200));
+  await control('home');
+  await sleep(300);
+});
+
+check('on Home, whatever is pressed leaves every board in the library as it was', async () => {
+  const library = () => evaluate(`localStorage.getItem('aphrodite-project-library-v1')`);
+  const before = await library();
+  for (const action of editorActionNames) {
+    await control(action);
+    await sleep(40);
+    await closeModal();
+    assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home', `${action} left Home`);
+  }
+  await sleep(300);
+  assert.equal(await library(), before, 'the library is byte for byte the same');
+});
+
 /* The rule the prefixes broke: a button a screen draws can be pressed on that screen. Every window and band the
    browser build can open, on each screen, with every menu unfolded. */
 const screensModule = await build({entryPoints: ['src/editor/screens.ts'], bundle: true, write: false, format: 'esm', logLevel: 'silent'});
-const {actionScreen} = await import('data:text/javascript;base64,' + Buffer.from(screensModule.outputFiles[0].contents).toString('base64'));
+const {actionScreen, screenRefuses, editorActions} = await import('data:text/javascript;base64,' + Buffer.from(screensModule.outputFiles[0].contents).toString('base64'));
+const editorActionNames = [...editorActions].filter(a => a !== 'editor-mode');
 const drawnActions = () => evaluate(`(() => { document.querySelectorAll('details').forEach(d => { d.open = true; }); return [...new Set([...document.querySelectorAll('[data-action]')].map(e => e.dataset.action))]; })()`);
 const opened = {}, collected = {};
 const sweep = async (where, windows, shown = 'the screen and its menus') => {
@@ -902,10 +954,10 @@ check('every button a screen draws can be pressed on that screen', async () => {
 });
 /** Each action drawn on a screen that the table keeps to the other one, with the window it was drawn in. */
 const refusedWhereDrawn = wheres => wheres.flatMap(where => {
-  const screen = where.endsWith('editor') ? 'editor' : 'home', other = screen === 'editor' ? 'home' : 'editor';
+  const screen = where.endsWith('editor') ? 'editor' : 'home';
   console.log(`       opened (${where}): ${opened[where].join(', ')}`);
   console.log(`       actions drawn (${where}): ${collected[where].size}`);
-  return [...collected[where]].filter(([a]) => actionScreen(a) === other).map(([a, from]) => `${where} draws ${a} (in ${from})`);
+  return [...collected[where]].filter(([a]) => screenRefuses(a, screen, false)).map(([a, from]) => `${where} draws ${a} (in ${from})`);
 });
 
 /* The bands the browser build never draws (the save-failure band, Files, the missing-folder notice, the unreadable-store
