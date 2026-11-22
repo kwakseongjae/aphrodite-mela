@@ -23,8 +23,8 @@ export const MAX_EXPORTED_PAGE = 100_000_000;
 export const CLEAN_FORBID_TAGS = ['script', 'noscript', 'template', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'base', 'link', 'meta', 'plaintext', 'xmp', 'listing', 'noembed', 'noframes', 'foreignobject', 'animate', 'set', 'animatetransform', 'animatemotion', 'discard', 'math', 'portal', 'fencedframe'];
 /** Attributes taken out wherever they are: where a form goes, what is pinged, a frame's own document, and the addresses this file cannot keep. */
 export const CLEAN_FORBID_ATTR = ['action', 'formaction', 'ping', 'srcdoc', 'srcset', 'imagesrcset', 'imagesizes', 'background', 'codebase', 'manifest', 'longdesc', 'usemap', 'lowsrc', 'dynsrc', 'archive', 'classid', 'attributionsrc'];
-/** A board file's address as a page names it, or as the export has put it in before cleaning: its stand-in for a picture, or a video beside the page. */
-const MEDIA_ADDRESS_VALUE = /^(?:media:[0-9a-f]{64}|aphrodite-media-[0-9a-f]{16}-[0-9a-f]{64}|media\/[0-9a-f]{64}\.(?:mp4|webm))$/;
+/** A board file's address as a page names it, or the stand-in the export puts in before cleaning (a picture, or a video beside the page). A relative path the page wrote itself is not one. */
+const MEDIA_ADDRESS_VALUE = /^(?:media:[0-9a-f]{64}|aphrodite-media-[0-9a-f]{16}-[0-9a-f]{64})$/;
 const FRAGMENT = /^#[^\s]*$/;
 const DATA_FILE = /^data:(?:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)|video\/(?:mp4|webm)|audio\/(?:mpeg|mp4|ogg|wav|webm)|font\/(?:woff2?|ttf|otf))[;,]/i;
 const OUT = /^(?:https?:|mailto:|tel:)/i;
@@ -84,7 +84,9 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
   const placeholder = (sha: string) => `aphrodite-media-${nonce}-${sha}`;
   // A video left behind, and a file this Mac does not have, keep their names: a `media:` address loads nothing anywhere.
-  const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') ? choice.videos === 'beside' ? `media/${sha}.${mediaExtension(file.mime)}` : undefined : placeholder(sha); };
+  // A video beside the page gets the stand-in too, and its path only once the page is cleaned (0.3-P3-fix4): a path the
+  // page wrote itself goes like any other relative address.
+  const address = (sha: string) => { const file = files.get(sha); if (!file) return undefined; return file.mime.startsWith('video/') && choice.videos !== 'beside' ? undefined : placeholder(sha); };
   // Board files are put in the stored text first, where the board's frame puts them, and only then is it cleaned (0.3-P3-fix3 #3).
   const placed = withMedia(source, address);
   let html = choice.scripts ? withDoctype(placed) : (await import('./page-clean')).cleanPage(placed);
@@ -92,7 +94,7 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   let length = utf8Length(html);
   const pictures: [string, {bytes: number; mime: string}, number][] = [];
   for (const [sha, file] of files) {
-    if (file.mime.startsWith('video/')) { if (choice.videos === 'beside' && html.includes(`media/${sha}.`)) beside.push({path: `media/${sha}.${mediaExtension(file.mime)}`, sha, bytes: file.bytes}); continue; }
+    if (file.mime.startsWith('video/')) { const path = `media/${sha}.${mediaExtension(file.mime)}`; if (choice.videos === 'beside' && html.includes(placeholder(sha))) { html = html.split(placeholder(sha)).join(path); beside.push({path, sha, bytes: file.bytes}); } continue; }
     const times = html.split(placeholder(sha)).length - 1;
     if (!times) continue;
     pictures.push([sha, file, times]);

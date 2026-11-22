@@ -104,6 +104,8 @@ export const LOST_ATTRIBUTES = {
   'autofocus': ['<input id="k" autofocus>', '#k', 'autofocus'],
   // A control its form owns gives up a name the form has of its own (form.action would be it).
   'owned-control-name': ['<form><input id="k" name="action"></form>', '#k', 'name'],
+  // 0.3-P3-fix4: a video path the page wrote itself goes like any relative address; the export's own goes in after cleaning.
+  'page-written-video-path': ['<video id="k" src="media/'+'d'.repeat(64)+'.mp4"></video>', '#k', 'src'],
 };
 /** What an ordinary page loses without its scripts: formulas written in MathML (the export dialog says so). */
 export const LOSSES = {
