@@ -116,6 +116,14 @@ export function importedProject(raw:string,library:Library):Project{
   delete project.approvedFingerprint;
   return project;
 }
+/**
+ * The board to open by its id as the library has it now, in the workspace it is in now (0.3-P3-fix4): a received board
+ * shown after a wait is the one the library holds, moved or renamed since, and none if it was taken out.
+ */
+export function boardToOpen(library:Library,id:string):{project:Project;workspaceId:string}|undefined{
+  const entry=library.entries.find(e=>e.project.id===id);
+  return entry&&{project:entry.project,workspaceId:entry.workspaceId??DEFAULT_WORKSPACE_ID};
+}
 export function cloneProject(project:Project):Project{
   const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;
 }

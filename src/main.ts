@@ -48,7 +48,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -506,7 +506,11 @@ async function placeReadBoard(read:ReadBoard):Promise<string[]>{
 }
 /** The board on screen, and what did not come with it said. */
 function showReadBoard(read:ReadBoard,notes:string[]){
-  openProject(read.project);
+  // The library's board by its id, as it is after the wait: moved, it opens in its workspace; renamed, by its name; gone, not at all.
+  const open=boardToOpen(library,read.project.id);
+  if(!open)return;
+  if(open.workspaceId!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,open.workspaceId));hubCardCache.clear();}
+  openProject(open.project);
   toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
 function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}

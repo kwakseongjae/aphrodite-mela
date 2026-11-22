@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {importedProject, upsertProject, type Library} from '../src/workspace/library';
+import {importedProject, upsertProject, boardToOpen, type Library} from '../src/workspace/library';
 import {initialProject, fingerprint, isApproved, MAX_PROJECT, parseProject} from '../src/model';
 
 /* 0.3-P3-fix1 #2: no file can make an approval. A project file someone sent comes in as a draft, whether or not its id is one this library has. */
@@ -45,4 +45,16 @@ test('a project file\'s history comes in as made elsewhere, never by this Mac\'s
   assert.ok(got.ledger!.changes.length > 0);
   assert.ok(got.ledger!.changes.every(c => c.author.elsewhere === true), 'every change made elsewhere');
   assert.ok(JSON.stringify(got).length <= MAX_PROJECT, 'and the whole still fits');
+});
+
+/* 0.3-P3-fix4: a received board shown after a wait is opened as the library has it then. */
+test('a board opened after a wait is the library\'s by its id: moved, in its workspace; renamed, by its name; taken out, none', () => {
+  const p = initialProject();
+  let lib = upsertProject({version: 1, entries: []}, p, undefined, 'ws-a');
+  assert.deepEqual(boardToOpen(lib, p.id)?.workspaceId, 'ws-a');
+  lib = upsertProject(lib, p, undefined, 'ws-b');
+  assert.equal(boardToOpen(lib, p.id)?.workspaceId, 'ws-b', 'moved: it opens where it is now');
+  lib = upsertProject(lib, {...p, name: 'Renamed meanwhile'});
+  assert.equal(boardToOpen(lib, p.id)?.project.name, 'Renamed meanwhile', 'renamed: by its name now');
+  assert.equal(boardToOpen({version: 1, entries: []}, p.id), undefined, 'taken out: nothing opens');
 });

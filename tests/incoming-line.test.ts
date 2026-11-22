@@ -21,3 +21,10 @@ test('a board file from the picker takes its place in the line as it starts to b
 test('the workspaces on screen change only once they are stored', () => {
   assert.match(main, /function saveWorkspaces\(next:WorkspaceBook\)\{if\(!writeWorkspaces\(localStorage,next\)\)throw new Error\([^\n]*\);workspaces=next;\}/);
 });
+
+test('a received board shown after its wait is the library\'s by its id, never the copy read from the file', () => {
+  const show = body('function showReadBoard(', '\n}\n');
+  assert.match(show, /const open=boardToOpen\(library,read\.project\.id\);\n  if\(!open\)return;/);
+  assert.match(show, /openProject\(open\.project\)/);
+  assert.doesNotMatch(show, /openProject\(read\.project\)/);
+});
