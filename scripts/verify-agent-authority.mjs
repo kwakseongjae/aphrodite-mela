@@ -827,6 +827,13 @@ check('a board deleted on Home stays deleted, whatever an agent then sends', asy
     refusedNoBoard(await agent('act', {action}), `act ${action}`);
     assert.equal(await modals(), 0, `act ${action}: no window opened`);
   }
+  /* Codex 2026-11-22 (check 4): on Home "no board is open" comes before the approval refusal. */
+  refusedNoBoard(await agent('act', {action: 'approve-export'}), 'act approve-export');
+  /* Codex 2026-11-22 (check 4): Files with no project named passed in silence on Home. */
+  refusedNoBoard(await agent('act', {action: 'vault-open'}), 'act vault-open without a project');
+  await control('vault-open');
+  await sleep(200);
+  assert.match(await evaluate(`document.body.innerText`), /No board is open\. Use Files on a project card\.|열린 보드가 없습니다\. 프로젝트 카드의 파일을 쓰세요\./, 'the person is told too');
   await sleep(200);
   assert.equal(await gone(), false, 'and it was not written back');
 });
@@ -961,6 +968,14 @@ check('on the desktop build too, every button a screen draws can be pressed on t
   await reopenAsDesktop(library, true);
   assert.ok(await evaluate(`[...document.querySelectorAll('[data-action]')].some(e => e.dataset.action === 'disk-start-fresh')`), 'the missing-folder notice is up');
   await sweep('desktop Home', [], 'the missing-folder notice');
+  /* The notice stays up in the editor of a project started while the folder is missing. */
+  await control('new-project');
+  await sleep(300);
+  assert.equal(await personSubmits('#new-project-form', {name: 'While missing'}), true);
+  await sleep(600);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor');
+  assert.ok(await evaluate(`[...document.querySelectorAll('[data-action]')].some(e => e.dataset.action === 'disk-start-fresh')`), 'the missing-folder notice is drawn in the editor');
+  await sweep('desktop editor', [], 'the missing-folder notice in the editor');
   await reopenAsDesktop('{not a library');
   assert.ok(await evaluate(`[...document.querySelectorAll('[data-action]')].some(e => e.dataset.action === 'hub-recovery')`), 'the unreadable-store band is up');
   await sweep('desktop Home', [], 'the unreadable-store band');
