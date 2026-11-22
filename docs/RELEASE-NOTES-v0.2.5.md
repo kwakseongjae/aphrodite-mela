@@ -5,7 +5,7 @@ do it for you.
 
 ## What's new since v0.2.4
 
-**Through the app's agent connection, an agent can no longer approve a direction, or bring back an approval you had moved past**
+**Through the app's agent connection, an agent can no longer approve a direction or bring an approval back**
 - What was wrong: once you had let an agent edit, it could approve a board itself. Asking the app to
   run the approve action, or clicking the real Approve direction button, marked the board approved
   exactly as your own click does. It could also bring an approval back: after a change turned an
