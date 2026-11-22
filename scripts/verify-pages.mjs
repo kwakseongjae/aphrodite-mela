@@ -1635,6 +1635,34 @@ check('closing the window is a leaving: nothing can be typed while its write is 
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix5 #1: closes are one at a time. Two asked while the write is held are one close: its save is refused, so the
+   window stays and says so, and Save project file still keeps the board; a close asked once that is on the screen goes. */
+check('two closes asked while the write is held are one: refused, the window stays and says so, Save project file still works, and a close asked after it closes', async () => {
+  await sleep(5_200);
+  const closed = await evaluate('window.__closed ?? 0');
+  await typeIntoTitle(' 닫기 실패');
+  await evaluate(`(() => { const set = Storage.prototype.setItem; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { if (k === 'aphrodite-project-library-v1') throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
+  try {
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await evaluate('window.aphroditeCloseWindow(), window.aphroditeCloseWindow(), true');
+    await sleep(400);
+    await evaluate('window.aphroditeHoldWrites(false), true');
+    await waitFor(() => evaluate(`/Could not save before closing|종료 전 저장에 실패/.test(document.querySelector('#toast').textContent)`), 'the warning');
+    await sleep(1_000);
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'the window stays: neither close went unsaved');
+    const save = await downloads();
+    const kept = await save('save-project');
+    assert.ok(Buffer.from(kept.bytes).toString('utf8').includes(' 닫기 실패'), 'Save project file keeps the board as it is on screen');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 1, 'the close asked after the warning to go');
+  } finally { await evaluate('window.__restoreSetItem(), true'); }
+  // The store takes writes again; what was typed lands with the next save, so the checks after start from a saved board.
+  await sleep(5_200);
+  await typeIntoTitle(' 다시 저장');
+  await waitFor(() => evaluate(`localStorage.getItem('aphrodite-project-library-v1').includes('닫기 실패')`), 'the store to have the board again');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
 check('a board file whose library write fails where it is stored comes out alone, the picture it placed new left named by no board, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;

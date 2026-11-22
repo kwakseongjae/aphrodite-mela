@@ -104,6 +104,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
+import {windowCloser} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -425,7 +426,7 @@ function saveLibrary(next:Library){if(startupError)throw new Error(startupError)
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
  const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
-function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue){lastSaved=true;closer.saved();} } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -473,6 +474,12 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
  * input again and the error comes back to the one closing.
  */
 function closeWindow(destroy:()=>Promise<void>){return leave(async()=>{if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
+/**
+ * The window's close, the desktop's and the browser build's check alike (src/workspace/closing.ts, 0.3-P3-fix5 #1). The
+ * warning shows over the request to edit too, and is on the screen two frames after it is painted, or half a second
+ * after, in a window that draws none. Save project file writes the board elsewhere than the store, so it still works.
+ */
+const closer=windowCloser(closeWindow,error=>notice(ui(`Could not save before closing — ${String(error)}. Close again to close without saving. Before that, Save project file (the project menu, or ⌘K) keeps this board as a file.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 닫으면 저장하지 않고 닫습니다. 그 전에 프로젝트 파일 저장(프로젝트 메뉴 또는 ⌘K)으로 이 보드를 파일로 남길 수 있습니다.`)),()=>new Promise<void>(shown=>{let done=false;const go=()=>{if(!done){done=true;shown();}};requestAnimationFrame(()=>requestAnimationFrame(go));setTimeout(go,500);}));
 async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
@@ -2337,7 +2344,7 @@ installPatternRuntime(document);
 installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 function diskWarningHtml(){return `<div class="disk-warning" role="alert">${icon('circle-alert')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
-function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';
+function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';if(saved&&!error)closer.saved();
   /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
   if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
@@ -2389,22 +2396,16 @@ async function boot(){
       /* Closing with work in hand: hold the window, write to disk, then go. destroy() rather than
          close(), because close() asks again and lands back in this handler. Whatever happens the
          person must be able to leave — a window that will not shut can only be force-quit, so a
-         failure says so, and the second press tries the save again and goes through if it fails again. */
-      let closing=false,closeWarned=false;
+         failure says so, and a close asked once that is on the screen goes unsaved (closer). Every
+         request it holds is prevented, or the window would go on its own. */
+      let closing=false;
       await getCurrentWindow().onCloseRequested(async event=>{
         if(closing)return;
         // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
         saveTyping();
-        if(lastSaved&&!leaving)return;
+        if(lastSaved&&!leaving&&!closer.busy())return;
         event.preventDefault();
-        try{
-          await closeWindow(async()=>{closing=true;await getCurrentWindow().destroy();});
-        }catch(error){
-          // The next ⌘W tries the save again; only if it fails again, after the person was told, does the window go unsaved (0.3-P3-fix4).
-          if(closeWarned){closing=true;await getCurrentWindow().destroy();return;}
-          closeWarned=true;
-          notice(ui(`Could not save before closing — ${String(error)}. Press again to try once more and, if that fails too, leave without saving; or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 다시 저장해 보고, 그래도 안 되면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
-        }
+        await closer.request(async()=>{closing=true;await getCurrentWindow().destroy();});
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
@@ -2421,7 +2422,7 @@ async function boot(){
     // And says how many leavings are under way, for a check that waits on one.
     (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
     // And closes the window the way the desktop does, with a window that only counts that it went.
-    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closeWindow(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
+    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();
