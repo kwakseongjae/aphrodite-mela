@@ -1600,17 +1600,16 @@ check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from
   // ⌘Z would take back the agent's page: it may not, while the board is left.
   const [before, seen] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 4); await sleep(200); });
   assert.deepEqual(seen, before, '⌘Z took no step on the board being left');
-  // ⌘⇧Z would put back a page taken back (0.3-P3-fix5 #3): it does so on the board, and may not while the board is left.
+  // ⌘⇧Z would put back words taken back (0.3-P3-fix5 #3): it does so on the board, and may not while the board is left.
   await sleep(5_200);
-  const again = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Leaving keys again', html: '<p>again</p>'}]});
-  assert.ok(again.ok, JSON.stringify(again).slice(0, 300));
-  const pages = async () => (await agent('contract', {})).pages.length;
-  await evaluate('document.activeElement?.blur?.(), true');
-  const withIt = await pages();
+  const typed = await typeIntoTitle(' 되돌림');
+  await evaluate('document.activeElement?.blur?.(), true'); await sleep(600);
+  const titled = async () => (await titleOf(typed) ?? '').endsWith(' 되돌림');
+  assert.equal(await titled(), true, 'the words are on the board');
   await presses('z', 4); await sleep(600);
-  assert.equal(await pages(), withIt - 1, '⌘Z takes the page back on the board');
+  assert.equal(await titled(), false, '⌘Z takes them back on the board');
   await presses('z', 12); await sleep(600);
-  assert.equal(await pages(), withIt, '⌘⇧Z puts it back');
+  assert.equal(await titled(), true, '⌘⇧Z puts them back');
   await presses('z', 4); await sleep(600);
   const [beforeR, seenR] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 12); await sleep(200); });
   assert.deepEqual(seenR, beforeR, '⌘⇧Z took no step on the board being left');
@@ -1705,6 +1704,7 @@ check('two closes asked while the write is held are one: refused, the window sta
   // The store takes writes again; what was typed lands with the next save, so the checks after start from a saved board.
   await sleep(5_200);
   await typeIntoTitle(' 다시 저장');
+  await evaluate('document.activeElement?.blur?.(), true');
   await waitFor(() => evaluate(`localStorage.getItem('aphrodite-project-library-v1').includes('닫기 실패')`), 'the store to have the board again');
   await sleep(5_200);
 });
