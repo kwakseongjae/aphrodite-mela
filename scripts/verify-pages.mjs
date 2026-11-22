@@ -1686,7 +1686,7 @@ check('two closes asked while the write is held are one: refused, the window sta
   await sleep(5_200);
 });
 
-/* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
+/* 0.3-P3-fix2 #3, fix4: a board file whose library write fails takes out only that board and leaves the files it placed: what else changed in the library meanwhile stays. */
 check('a board file whose library write fails where it is stored comes out alone, the picture it placed new left named by no board, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;
   const entries = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`);
