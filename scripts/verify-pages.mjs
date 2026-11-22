@@ -1458,6 +1458,29 @@ check('while a board is being left nothing can be typed into it, and what was ty
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix3 #8, kept on its own when the take-back went (0.3-P3-fix5 #3): the browser build's own host, in a browser,
+   says it put nothing when a put's transaction is aborted after its request succeeded, and nothing is there. */
+check('the browser host refuses a put whose transaction is aborted after its request succeeded, and the file is not there', async () => {
+  const bundle = await build({stdin: {contents: "import {browserFrameHost} from './src/free-page.ts'; window.makeHost = () => browserFrameHost();", resolveDir: process.cwd(), loader: 'ts'}, bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent'});
+  writeFileSync(fileAt('host.html'), '<!doctype html><meta charset=utf-8><script>' + bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script') + '</script>');
+  const page = await openPage(`file://${fileAt('host.html')}`, {cdp: 9394, profile: '/tmp/aphrodite-pages-host-profile'});
+  try {
+    await waitFor(() => page.evaluate('typeof window.makeHost === "function"'), 'the host code');
+    const got = await page.evaluate(`(async () => {
+      const host = window.makeHost();
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 99, 100, 101]);
+      const sha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+      const put0 = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (...args) { const r = put0.apply(this, args); r.addEventListener('success', () => this.transaction.abort()); return r; };
+      let aborted;
+      try { aborted = await host.put(new Blob([bytes], {type: 'image/png'})).then(() => 'resolved', () => 'refused'); } finally { IDBObjectStore.prototype.put = put0; }
+      const there = await host.stat(sha).then(f => !!f, () => 'error');
+      return {aborted, there};
+    })()`);
+    assert.deepEqual(got, {aborted: 'refused', there: false}, 'an aborted put is refused, and the file is not there');
+  } finally { page.close(); }
+});
+
 /* 0.3-P3-fix3 #7: a board file dropped on the board opens as a board, in the line of what comes in, not as a picture. */
 check('a board file dropped on the board opens as a new board, and nothing is added to the board it was dropped on', async () => {
   const here = (await agent('contract', {})).project.project_id;
