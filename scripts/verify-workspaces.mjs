@@ -73,6 +73,23 @@ check('switching back shows the first workspace\'s projects again', async () => 
   assert.doesNotMatch(ids, /Second/);
 });
 
+/* 0.3-P3-fix5 #2: the list of workspaces is stored before any project moves, so a list the browser will not store
+   leaves the workspace and its projects as they were, and a reload finds them so. */
+check('deleting a workspace whose list cannot be stored keeps the workspace and moves none of its projects, after a reload too', async () => {
+  const other = await otherId();
+  assert.ok(other, 'a workspace to delete');
+  const stored = () => evaluate(`({where: JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => (e.workspaceId ?? 'default') + ':' + e.project.name).sort(), workspaces: JSON.parse(localStorage.getItem('aphrodite-workspaces-v1')).workspaces.map(w => w.id).sort()})`);
+  const before = await stored();
+  assert.ok(before.where.some(w => w.startsWith(other + ':')), 'it has a project of its own');
+  await evaluate(`(() => { const set = Storage.prototype.setItem; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { if (k === 'aphrodite-workspaces-v1') throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
+  try { await clickData('ws-delete-confirm', {id: other}); await sleep(800); } finally { await evaluate('window.__restoreSetItem(), true'); }
+  assert.deepEqual(await stored(), before, 'the workspace and where each project is are as they were');
+  await evaluate('location.reload(), true');
+  await sleep(2_500);
+  assert.deepEqual(await stored(), before, 'and so after a reload');
+  assert.equal(await evaluate('!!document.querySelector("#app")'), true, 'the app is back');
+});
+
 /* Deleting a workspace is the one place a project changes hands. Nothing may be lost in it. */
 check('deleting a workspace hands its projects to a sibling rather than dropping them', async () => {
   const other = await otherId();
