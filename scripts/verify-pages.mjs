@@ -1515,6 +1515,31 @@ check('on a board received as a file, its words as sent: a step made on them is 
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix4: a workspace store that refuses leaves the board and the workspace as they were. */
+check('a link to a board in another workspace, when the workspaces cannot be stored, leaves the board and the workspace as they were', async () => {
+  const lib = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => ({id: e.project.id, ws: e.workspaceId ?? 'default'}))`);
+  const here = (await agent('contract', {})).project.project_id;
+  const mine = (await lib()).find(e => e.id === here).ws;
+  const far = (await lib()).find(e => e.ws !== mine);
+  assert.ok(far, 'a board in another workspace');
+  const active = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-workspaces-v1') ?? '{}').activeId ?? null`);
+  const before = await active();
+  await sleep(5_200);
+  await evaluate(`(() => { const set = Storage.prototype.setItem; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { if (k === 'aphrodite-workspaces-v1') throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
+  try {
+    await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + far.id)}), true`);
+    await sleep(2_000);
+    assert.equal((await agent('contract', {})).project.project_id, here, 'the board is the one it was');
+    assert.equal(await active(), before, 'and the workspace stored');
+  } finally { await evaluate('window.__restoreSetItem(), true'); }
+  // The workspace the screen holds is the one it was too: an edit saved now keeps the board where it was.
+  await sleep(5_200);
+  await typeIntoTitle(' 작업 공간 그대로');
+  await sleep(1_500);
+  assert.equal((await lib()).find(e => e.id === here).ws, mine, 'an edit saved after keeps the board in its own workspace');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix3 #10: a link waiting behind a dialog the person opened does not hold up the person: their own leaving,
    from that dialog, goes at once, and the link is looked at again after it. Nothing is left not taking input. */
 check('a link waiting behind a dialog the person opened does not hold up the person leaving from it, and nothing is left not taking input', async () => {

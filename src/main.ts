@@ -315,7 +315,7 @@ let dockGroupOpen='';let helpOpen=false;
 let inspectorWidth=(()=>{try{const v=Number(localStorage.getItem('aphrodite-inspector-w'));return Number.isFinite(v)&&v>=220&&v<=520?v:264;}catch{return 264;}})();
 let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
 /** The workspaces change on screen only once they are stored: a store that throws leaves both as they were (0.3-P3-fix3 #7). */
-function saveWorkspaces(next:WorkspaceBook){writeWorkspaces(localStorage,next);workspaces=next;}
+function saveWorkspaces(next:WorkspaceBook){if(!writeWorkspaces(localStorage,next))throw new Error(ui('The workspaces could not be stored, so nothing changed.','작업 공간을 저장하지 못해 아무것도 바꾸지 않았습니다.'));workspaces=next;}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
