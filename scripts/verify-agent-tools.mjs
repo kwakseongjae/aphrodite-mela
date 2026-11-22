@@ -111,6 +111,27 @@ check('an unknown component kind is refused with the real ones listed', async ()
   assert.match(result.error, /Closest match: "hero"/);
 });
 
+check('an agent that finds no board open is told how to open one, opens it, and carries on', async () => {
+  await sleep(5_200); // the person's last key press holds the screen for five seconds
+  assert.equal((await agent('act', {action: 'home'})).error, undefined);
+  await sleep(300);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'home');
+  const refused = await agent('apply', {ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.equal(refused.status, 409, JSON.stringify(refused));
+  assert.match(refused.error, /no board is open/);
+  assert.match(refused.error, /hub-open/, 'the refusal says how to open one');
+  const {guide} = await agent('guide');
+  assert.match(guide, /No board is open/);
+  assert.doesNotMatch(guide, /You may change the design/, 'and the guide does not say the design can be changed');
+  assert.equal((await agent('click', {selector: '[data-action="hub-open"]'})).error, undefined);
+  await sleep(500);
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor', 'a board is open again');
+  const before = await blockCount();
+  const added = await agent('apply', {ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.equal(await blockCount(), before + 1, 'and the change landed');
+});
+
 check('reading needs no door, writing does', async () => {
   await personClicks('agent-disconnect');
   await sleep(200);

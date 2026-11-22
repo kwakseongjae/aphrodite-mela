@@ -1,4 +1,4 @@
-import {parseProject,uid,type Project} from '../model';
+import {parseProject,uid,dropStaleApproval,type Project} from '../model';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -39,6 +39,14 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const next=existing?{...existing,project:parseProject(JSON.stringify(project)),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
+/** What is written, to disk or browser storage: no entry keeps a fingerprint its content no longer matches. */
+/** Whether reading dropped a fingerprint the stored text still has. Then the store differs from what the app holds, and
+ *  Files, which checks the two against each other, refuses until it is written once. */
+export function readDroppedApprovals(raw:string|null,library:Library):boolean{
+  if(raw===null)return false;
+  try{const stored=(JSON.parse(raw) as {entries?:{project?:{id?:string;approvedFingerprint?:unknown}}[]}).entries??[];return stored.some(e=>{if(e.project?.approvedFingerprint===undefined)return false;const read=library.entries.find(x=>x.project.id===e.project?.id);return !!read&&read.project.approvedFingerprint===undefined;});}catch{return false;}
+}
+export function withoutStaleApprovals(library:Library):Library{for(const e of library.entries)dropStaleApproval(e.project);return library;}
 export function writeLibrary(storage:LocalStore,library:Library):void{
   // One atomic localStorage write: quota errors cannot leave a half-written index.
   const raw=JSON.stringify(library);

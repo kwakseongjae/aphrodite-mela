@@ -76,6 +76,15 @@ export function fingerprint(p: Project): string {
   return `${value.length}:${(a >>> 0).toString(16)}:${(b >>> 0).toString(16)}`;
 }
 export function isApproved(p: Project) { return p.approvedFingerprint === fingerprint(p); }
+/**
+ * A fingerprint the content no longer matches is gone the moment it is stale. Kept, it would match
+ * again whenever the content came back — an agent's edit, a late handler, a rename on the home
+ * screen — and the board would read as approved without the person. With it gone, content that comes
+ * back is a draft, whoever brought it back. An approval that still holds is never touched.
+ */
+/** A system as parseProject keeps it. Put on a board as a file had it, the fingerprint on screen and the one saved would differ. */
+export function canonicalSystem(p: Project, system: DesignSystem): DesignSystem { return parseProject(JSON.stringify({ ...p, system })).system; }
+export function dropStaleApproval(p: Project): Project { if (p.approvedFingerprint !== undefined && p.approvedFingerprint !== fingerprint(p)) delete p.approvedFingerprint; return p; }
 export function assemble(brief: string): BlockKind[] {
   if (/shop|store|furniture|commerce|가구|쇼핑|스토어|상품/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'features', 'footer'];
   if (/portfolio|studio|포트폴리오|스튜디오/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'testimonial', 'footer'];
@@ -141,7 +150,7 @@ export function parseProject(raw: string): Project {
     if (!validateTree(page.blocks)) throw new Error('프레임 중첩이 올바르지 않습니다 (순환/누락/깊이 초과).');
   }
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{})};
+  return dropStaleApproval({ version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{})});
 }
 export function importDesignMarkdown(markdown: string, name: string, base: DesignSystem): DesignSystem {
   if (markdown.length > 200000) throw new Error('DESIGN.md는 200KB 이하여야 합니다.');

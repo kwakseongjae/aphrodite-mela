@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState} from '../src/agent/authority';
+import {judge,gateFor,leaseHeld,normalizeCaller,isRead,isWrite,isAsk,askKinds,readKinds,writeKinds,HUMAN,HUMAN_IDLE_MS,LEASE_IDLE_MS,type Authority,type Mode,connectionState,writesApproval,approvalActions,APPROVAL_REFUSED,pressedBy,type AgentTurn} from '../src/agent/authority';
+import {readFileSync} from 'node:fs';
 
 const NOW=1_700_000_000_000;
 const at=(mode:Mode,holder:{label:string;since:number}|null=null):Authority=>({mode,holder,now:NOW});
@@ -125,4 +126,36 @@ test('the state tells an agent about the door, in a word the editor tab cannot s
   assert.equal(state.mode,'design','the editor tab survives');
   assert.equal(state.connection,'connected');
   assert.equal(state.writes,'on');
+});
+
+/* v0.2.4 let a connected agent press approve through `act`: the gate saw a write like any other. */
+test('every press that would write an approval is named, and only those',()=>{
+  assert.deepEqual([...approvalActions],['approve','approve-human-only','approve-export']);
+  for(const action of approvalActions)assert.equal(writesApproval(action,false),true,`${action} on a draft`);
+  assert.equal(writesApproval('approve-export',true),true,'approve-export always writes the fingerprint');
+  assert.equal(writesApproval('approve',true),false,'on an approved board the same button only opens the export window');
+  assert.equal(writesApproval('approve-human-only',true),false);
+  for(const action of ['export','undo','redo','agent-connect-toggle','assembly-review',''])assert.equal(writesApproval(action,false),false,action);
+  assert.match(APPROVAL_REFUSED,/person/,'the refusal says whose decision it is');
+});
+
+
+test('only a trusted event is the person; an untrusted one is the turn it carries, or nobody',()=>{
+  const plain=new Event('click');
+  assert.equal(pressedBy(plain),undefined,'an event nobody tagged is nobody');
+  const turn:AgentTurn={refused:false,cleared:false,noBoard:false,homeOnly:false};
+  const tagged=Object.assign(new Event('click'),{by:turn});
+  assert.equal(pressedBy(tagged),turn);
+});
+
+/* A submit an agent's `type` sends with requestSubmit() is trusted in Chrome and WebKit alike, and so is
+   focus and change. Asking pressedBy about them would hand an agent the person's name. */
+test('pressedBy is never asked about a submit, a focus or a change',()=>{
+  const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+  for(const type of ['submit','focus','focusin','change','input']){
+    const at=main.indexOf(`document.addEventListener('${type}'`);
+    if(at<0)continue;
+    const end=main.indexOf('\n});',at);
+    assert.doesNotMatch(main.slice(at,end),/pressedBy\(/,type);
+  }
 });

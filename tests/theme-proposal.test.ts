@@ -15,3 +15,21 @@ test('theme preview is isolated; applying is explicit, undoable by caller, and n
  assert.throws(()=>applyThemeProposal(p,proposal),/changed/);
  assert.throws(()=>themeProposal(p,'red','sans'),/Invalid/);
 });
+
+/* Codex 2026-11-22: the candidate cloned the old fingerprint, so a proposal that restored the approved
+   accent exported a draft as approved while the open board stayed a draft. */
+test('a theme candidate that restores an approved accent is still a draft',()=>{
+ const p=initialProject();const accent=p.system.accent;p.approvedFingerprint=fingerprint(p);
+ p.system.accent='#2255cc';
+ const proposal=themeProposal(p,accent,p.system.font);
+ assert.equal(proposal.candidate.approvedFingerprint,undefined,'the candidate carries no fingerprint');
+ assert.equal(isApproved(proposal.candidate),false);
+});
+
+/* Codex 2026-11-22 (check 3): an untouched candidate matched its approved source, so the draft ZIP shipped approved. */
+test('a theme candidate is always a draft, even untouched',()=>{
+ const p=initialProject();p.approvedFingerprint=fingerprint(p);
+ const proposal=themeProposal(p,p.system.accent,p.system.font);
+ assert.equal(proposal.candidate.approvedFingerprint,undefined);
+ assert.equal(isApproved(p),true,'the board itself keeps its approval');
+});

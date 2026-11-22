@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {build} from 'esbuild';
-import {initialProject,makeBlock} from '../src/model';
+import {initialProject,makeBlock,fingerprint,isApproved,dropStaleApproval} from '../src/model';
+import {themeProposal} from '../src/design/theme-proposal';
 import {unzipSync,strFromU8} from 'fflate';
 
 const PNG1='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -89,4 +90,54 @@ test('an export never ships the placeholder a lazy chunk leaves behind',async()=
   const html=Object.entries(files).filter(([name])=>name.endsWith('.html')).map(([,bytes])=>strFromU8(bytes)).join('');
   assert.doesNotMatch(html,/official-pending/,'the runtime had not arrived when the pages were rendered');
   assert.match(html,/official-component official-action/,'the real component is in the bundle');
+});
+
+/* Codex 2026-11-22, high 5: the theme draft ZIP is built from the candidate, which cloned the old
+   fingerprint, so a candidate that restored the approved accent shipped as approved. */
+test('a theme draft that restores an approved accent is exported as a draft',async()=>{
+  const p=initialProject();p.pages[0].blocks=[makeBlock('hero')];const accent=p.system.accent;
+  p.approvedFingerprint=fingerprint(p);p.system.accent='#2255cc';
+  const originalFetch=globalThis.fetch;globalThis.fetch=async()=>({ok:false} as Response);
+  let files:Record<string,Uint8Array>;
+  try{files=unzipSync(await exportBundle(themeProposal(p,accent,p.system.font).candidate));}finally{globalThis.fetch=originalFetch;}
+  assert.equal(JSON.parse(strFromU8(files['project.aphrodite.json'])).approvedFingerprint,undefined,'the project in the ZIP carries no fingerprint');
+  assert.match(strFromU8(files['PROMPT.md']),/DRAFT/,'and its prompt says draft');
+});
+
+/* Codex 2026-11-22 (check 2): the bundle read its documents before it waited on a picture and its
+   pages after, so a board edited in between shipped approved documents around the edited page. */
+test('an export reads the board it started from, even when the board changes while it waits',async()=>{
+  const p=initialProject();const hero=p.pages[0].blocks.find(b=>b.kind==='hero')!;
+  hero.image='/assets/lighting-hero.png';hero.title='Reviewed title';p.approvedFingerprint=fingerprint(p);
+  let reached=()=>{},release=()=>{};
+  const waiting=new Promise<void>(r=>{reached=r;}),held=new Promise<void>(r=>{release=r;});
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=(async(url:string)=>{if(String(url)==='/assets/lighting-hero.png'){reached();await held;}return {ok:true,arrayBuffer:async()=>new Uint8Array([1]).buffer};}) as unknown as typeof fetch;
+  let files:Record<string,Uint8Array>;
+  try{
+    const pending=exportBundle(p);
+    await waiting;
+    hero.title='Edited during export';dropStaleApproval(p);
+    release();
+    files=unzipSync(await pending);
+  }finally{globalThis.fetch=originalFetch;}
+  assert.equal(isApproved(p),false,'the live board is a draft now');
+  const json=JSON.parse(strFromU8(files['project.aphrodite.json']));
+  assert.equal(isApproved(json),true,'the project in the ZIP is the approved one it started from');
+  assert.match(strFromU8(files['PROMPT.md']),/Approved for the exact exported composition/);
+  assert.match(strFromU8(files['DESIGN.md']),/Visually approved/);
+  const html=strFromU8(files['index.html']);
+  assert.match(html,/Reviewed title/,'the page is the same board');
+  assert.doesNotMatch(html,/Edited during export/,'and not the one edited while it waited');
+});
+
+/* Codex 2026-11-22 (check 3): pictures were looked up under whichever board was open when the lookup ran. */
+test('an export looks its pictures up under the board it started from',async()=>{
+  const p=initialProject();p.pages[0].blocks=[makeBlock('hero')];p.pages[0].blocks[0].image='local:0123456789abcdef';
+  const asked:string[]=[];
+  const pending=exportBundle(p,async(_id:string,projectId:string)=>{asked.push(projectId);return {bytes:new Uint8Array([1]),mime:'image/png'};});
+  const started=p.id;p.id='another-board';
+  await pending;
+  assert.ok(asked.length>0,'a picture was looked up');
+  assert.deepEqual([...new Set(asked)],[started]);
 });

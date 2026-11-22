@@ -83,3 +83,10 @@ test('the switch says how long the permission still has to run',()=>{
   assert.equal(connectLeftLabel(0,false),'','a lapsed one says nothing');
   assert.equal(connectLeftLabel(Number('not a time')-NOW,true),'','nor does an unreadable one');
 });
+
+test('on Home the guide says no board is open and what to do next, and does not offer to change the design',()=>{
+  const home=guideFor({mode:'connected',holder:null,projectName:'none open (the person is on Home)',pageCount:0,approved:false,canWrite:true,askedRecently:false,boardOpen:false});
+  assert.match(home,/No board is open/);
+  assert.match(home,/hub-open/);
+  assert.doesNotMatch(home,/You may change the design/);
+});

@@ -10,6 +10,7 @@
  * much of it this prototype can actually paint.
  */
 import {semanticTokens, tokenSynonyms, isColour, typeRoles, sanitizeTypeRole, type SemanticToken, type TypeRole, type TypeScale} from './tokens';
+import {canonicalSystem, type DesignSystem, type Project} from '../model';
 
 export type GraphImport = {
   tokens: Partial<Record<SemanticToken, string>>;
@@ -134,12 +135,30 @@ export function importDesignGraph(raw: unknown): GraphImport & {accent?: string;
 }
 
 /** One sentence a person can read about what landed. */
-export function importSummary(report: GraphImport['report'], ko: boolean): string {
-  const {read, painted, carried, skipped} = report;
+/**
+ * A graph put on a board: the system as parseProject keeps it, and a report that counts what the board kept, not what the
+ * file had. Token names a project cannot store are dropped by canonicalSystem; the report says how many.
+ */
+export function graphSystem(project: Project, read: ReturnType<typeof importDesignGraph>, name: string, description: string): {system: DesignSystem; report: GraphImport['report'] & {dropped: number}} {
+  const system = canonicalSystem(project, {
+    ...project.system, id: 'imported', name, description,
+    ...(read.accent ? {accent: read.accent} : {}), ...(read.background ? {background: read.background} : {}),
+    ...(read.foreground ? {foreground: read.foreground} : {}), ...read.tokens,
+    ...(read.type ? {type: read.type} : {}),
+    ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
+  } as DesignSystem);
+  const kept = Object.keys(read.carried).filter(k => system.carried?.[k] !== undefined).length;
+  // Everything read that is neither painted, kept nor a non-colour was lost on the way: a name a project cannot
+  // store, two names that read the same, or a colour past the 200 a board carries.
+  return {system, report: {...read.report, carried: kept, dropped: read.report.read - read.report.skipped - read.report.painted - kept}};
+}
+
+export function importSummary(report: GraphImport['report'] & {dropped?: number}, ko: boolean): string {
+  const {read, painted, carried, skipped, dropped = 0} = report;
   if (!read) return ko ? '이 파일에서 토큰을 찾지 못했습니다.' : 'No tokens were found in that file.';
   return ko
-    ? `토큰 ${read}개 중 ${painted}개를 화면에 적용하고, ${carried}개는 그대로 보관했습니다${skipped ? `. ${skipped}개는 색이 아니어서 읽지 않았습니다` : ''}.`
-    : `Of ${read} tokens, ${painted} are painted and ${carried} carried${skipped ? `; ${skipped} were not colours and were left` : ''}.`;
+    ? `토큰 ${read}개 중 ${painted}개를 화면에 적용하고, ${carried}개는 그대로 보관했습니다${skipped ? `. ${skipped}개는 색이 아니어서 읽지 않았습니다` : ''}${dropped ? `. ${dropped}개는 남기지 못했습니다` : ''}.`
+    : `Of ${read} tokens, ${painted} are painted and ${carried} carried${skipped ? `; ${skipped} were not colours and were left` : ''}${dropped ? `; ${dropped} could not be kept` : ''}.`;
 }
 
 /** The type roles, for a caller that wants them separately. */

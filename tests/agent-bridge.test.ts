@@ -53,3 +53,9 @@ test('library commands validate the action, the scope and the payload',()=>{
   assert.match((parseAgentCommand('library',{action:'import',name:'x',base64:'not base64 <>'}) as {error:string}).error,/base64/);
   assert.deepEqual(parseAgentCommand('library',{action:'import',name:'hero',base64:'AAAA',scope:'project'}),{command:{kind:'library',action:'import',name:'hero',base64:'AAAA',scope:'project'}});
 });
+
+/* Opus review 2026-11-22, M2: data was copied onto the button after its action, so data.action renamed
+   the press past the refusal that had read the name. */
+test('act data may not carry an action of its own',()=>{
+  assert.match((parseAgentCommand('act',{action:'export',data:{action:'approve-export'}}) as {error:string}).error,/"action"/);
+});

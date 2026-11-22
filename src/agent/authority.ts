@@ -101,3 +101,31 @@ export function judge(kind: string, caller: string, a: Authority): Verdict {
   }
   return {allow: false, status: 409, error: `the screen is held by ${held.label}. Wait for it to finish, or ask the person to hand it over.`};
 }
+
+/**
+ * Approving a direction is the person's decision. These are the presses that write the approval; an
+ * agent's command must never get one to run, by `act`, a click on the real button, a key or a form.
+ * On an approved board `approve` only opens the export window, which writes nothing, so it may run.
+ */
+export const approvalActions = ['approve', 'approve-human-only', 'approve-export'] as const;
+export function writesApproval(action: string, approved: boolean): boolean {
+  if (action === 'approve-export') return true;
+  return (approvalActions as readonly string[]).includes(action) && !approved;
+}
+export const APPROVAL_REFUSED = 'approving a direction is the person\'s decision: they press Approve direction on their own screen. Nothing was changed. Ask them to review it instead.';
+export const APPROVAL_CLEARED = 'cleared — only the person approves';
+/** One agent command while it runs: what the app refused or cleared on its behalf, so that command's reply can say so. */
+export type AgentTurn = {refused: boolean; cleared: boolean; noBoard: boolean; homeOnly: boolean};
+/** Who pressed: the person's own trusted input, an agent command's turn, or nobody known, which is never the person. */
+export type Origin = 'person' | AgentTurn | undefined;
+/**
+ * Who caused a press. Only the person's own input is trusted; an agent's synthetic event carries its turn; anything else is
+ * neither. Ask it about presses only (click, keydown). A submit an agent's `type` sends with requestSubmit() is trusted in
+ * Chrome and WebKit, and so are focus and change, so asking about those would hand an agent the person's name.
+ */
+export type Pressed = Event & {by?: AgentTurn};
+export function pressedBy(e: Event): Origin { return e.isTrusted ? 'person' : (e as Pressed).by; }
+/** Off the editor there is no open board: the copy left in memory is not the one the person sees on Home. */
+export const NO_BOARD = 'no board is open: the person is on Home. Ask them to open a project, or, if they have let you edit, open one with aphrodite_use_interface: click [data-action="hub-open"] opens the first project card; click [data-action="new-project"], then type a name into #new-project-form input[name="name"] with submit, starts a new one. Then carry on.';
+/** Home's actions change library entries, and one of them may be the board open in the editor, so they run on Home only. */
+export const HOME_ONLY = 'that is a Home action, and a board is open: it runs only on Home. Ask the person, or send act {action:"home"} first.';

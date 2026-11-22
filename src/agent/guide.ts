@@ -13,6 +13,8 @@ export type GuideStatus = {
   approved: boolean;
   canWrite: boolean;
   askedRecently: boolean;
+  /** False on Home: no board is open, so nothing on the board can be read or changed until one is. */
+  boardOpen?: boolean;
 };
 
 /** The unchanging part: what this is and how to work with it. */
@@ -22,12 +24,13 @@ export const playbook = [
   'Aphrodite is a local design workbench. You are editing a design — pages, components, tokens — not a screen. There is no cloud and no account; everything is on this Mac.',
   '',
   '## Start here',
+  'If no board is open (the person is on Home), open one first: "Right now" below says how.',
   '1. `aphrodite_get_contract` — what is on the canvas, and what the person has selected. Every other call takes ids from it.',
   '2. `aphrodite_get_tokens` — the CSS variables the page is painted with, if you are writing code for this design.',
   '3. `aphrodite_list_components` — the kinds and variants you may add.',
   '',
-  '## Reading is always open. Changing is not.',
-  'Reading needs nothing. Changing needs the person to have opened the door, in one of two ways:',
+  '## Reading needs no permission. Changing does.',
+  'Reading the board needs nothing but an open one (the component list and shared references read on Home too). Changing needs the person to have opened the door, in one of two ways:',
   '- **Connected mode** — they keep working, you edit alongside them, a banner counts your changes and ⌘Z takes any of them back.',
   '- **Agent mode** — they hand over the whole screen and are locked out until they end it.',
   '',
@@ -54,7 +57,11 @@ export function guideFor(status: GuideStatus): string {
     `- Project: ${status.projectName} · ${status.pageCount} page${status.pageCount === 1 ? '' : 's'}${status.approved ? ' · approved' : ' · draft'}`,
     `- Mode: ${status.mode}${status.holder ? ` · the screen is held by ${status.holder}` : ''}`,
   ];
-  if (status.canWrite) {
+  if (status.boardOpen === false) {
+    lines.push(status.canWrite
+      ? '- No board is open: the person is on Home, and the board tools answer "no board is open". Ask them to open a project, or open one with `aphrodite_use_interface`: click `[data-action="hub-open"]` for the first project card, or click `[data-action="new-project"]` and type a name into `#new-project-form input[name="name"]` with submit. Then make your change.'
+      : '- No board is open: the person is on Home. Ask them to open a project.');
+  } else if (status.canWrite) {
     lines.push('- You may change the design. Send a whole change in one call.');
   } else if (status.askedRecently) {
     lines.push('- Editing is closed and a request is already on their screen. Tell the person what you want to do; do not ask again.');

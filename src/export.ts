@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import {localRefsIn,extensionFor,LOCAL_PREFIX} from './design/local-images';
 import {sampleImages} from './design/sample-images';
-import { type Project, isApproved, type DesignSystem } from './model';
+import { type Project, isApproved, dropStaleApproval, type DesignSystem } from './model';
 import { pageHtml } from './render';
 import { loadLibraryRuntime } from './library-render';
 import { sceneManifest } from './components';
@@ -71,7 +71,13 @@ function uploadsMarkdown(p: Project, uploads: { name: string; dataUrl: string }[
     return `${u.name} → ${used.join(', ')}`;
   }).join('\n');
 }
-export async function exportBundle(p: Project, resolveLocal?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
+/**
+ * The board an export describes, taken once before it waits on anything. A bundle that read its
+ * documents before a wait and its pages after could ship "approved" around a page edited meanwhile.
+ */
+export function exportSnapshot(p: Project): Project { return dropStaleApproval(structuredClone(p)); }
+export async function exportBundle(live: Project, resolveLocal?: (id: string, projectId: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): Promise<Uint8Array> {
+  const p = exportSnapshot(live);
   // The exported HTML has to stand alone on someone else's machine, so the vendor runtime must be
   // here before a single page is rendered — a lazy chunk that has not arrived would ship a
   // placeholder into the handoff.
@@ -100,7 +106,7 @@ export async function exportBundle(p: Project, resolveLocal?: (id: string) => Pr
   // Pictures from the local library are referenced by hash; the handoff carries the bytes instead.
   const localFiles: {ref: string; name: string}[] = [];
   for(const id of localRefsIn(p)){
-    const got=await resolveLocal?.(id);
+    const got=await resolveLocal?.(id,p.id);
     if(!got)continue;
     const name=`assets/uploads/local-${id}.${extensionFor(got.mime)}`;
     files[name]=got.bytes;
