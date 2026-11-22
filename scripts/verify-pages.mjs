@@ -1540,6 +1540,44 @@ check('a link to a board in another workspace, when the workspaces cannot be sto
   await sleep(5_200);
 });
 
+/* 0.3-P3-fix4: while a board is being left, what is outside the editor takes no step on it either: ⌘Z and ⌘⇧Z from
+   the document, and Edit in the app pressed in the page seen on its own. */
+check('while a board is being left, ⌘Z, ⌘⇧Z and Edit in the app from the page seen on its own change nothing', async () => {
+  await evaluate('document.activeElement?.blur?.(), true');
+  await sleep(5_200);
+  const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Leaving keys', html: '<p>keys</p>'}]});
+  assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
+  const page = made.created_pages[0].page_id;
+  const here = (await agent('contract', {})).project.project_id;
+  const other = (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`)).find(id => id !== here);
+  const activePage = () => evaluate(`document.querySelector('.space-frame.active')?.dataset.pageId ?? null`);
+  const state = async () => ({seq: await seq(), rev: await revision(), page: await activePage()});
+  const leaveAndBack = async during => {
+    await sleep(5_200);
+    const before = await state();
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + other)}), true`);
+    await sleep(600);
+    await during();
+    await sleep(400);
+    const seen = await state();
+    await evaluate('window.aphroditeHoldWrites(false), true');
+    await waitFor(async () => (await agent('contract', {})).project?.project_id === other, 'the board the link names');
+    await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + here)}), true`);
+    await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the board');
+    return [before, seen];
+  };
+  // ⌘Z would take back the agent's page, ⌘⇧Z put it again: neither may, while the board is left.
+  const [before, seen] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 4); await sleep(200); await presses('z', 4); });
+  assert.deepEqual(seen, before, '⌘Z took no step on the board being left');
+  // Edit in the app, pressed in the page seen on its own, would open that page on the board.
+  await sleep(5_200);
+  await personPresses('page-view', {id: page}); await sleep(600);
+  const [before2, seen2] = await leaveAndBack(() => personPresses('page-view-edit'));
+  assert.deepEqual(seen2, before2, 'Edit in the app took no step on the board being left');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix3 #10: a link waiting behind a dialog the person opened does not hold up the person: their own leaving,
    from that dialog, goes at once, and the link is looked at again after it. Nothing is left not taking input. */
 check('a link waiting behind a dialog the person opened does not hold up the person leaving from it, and nothing is left not taking input', async () => {

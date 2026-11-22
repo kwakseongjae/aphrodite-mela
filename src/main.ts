@@ -418,7 +418,9 @@ function paintToasts(){
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
 }
 /** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
-function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
+function toast(message:string){if(askOpen())return;notice(message);}
+/** A line shown even over the request to edit: what the person must not miss, a window that could not save before closing. */
+function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
@@ -548,7 +550,8 @@ function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusa
 watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
 function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
-  if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
+  // A board being left takes no step (0.3-P3-fix4).
+  if(leaving||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
   const before=project;let done;
   try{done=stepForScreen(project,direction,edits,d.author);}
@@ -1350,7 +1353,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page-view': openPageView(el.dataset.id!); break;
     case 'page-view-close': closePageView(); break;
-    case 'page-view-edit': {if(refusal(d,'edit.page-view-edit'))break;const id=pageView?.page;if(!id||!project.pages.some(p=>p.id===id))break;closePageView();if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-view-edit');fitFrame(id);break;}
+    case 'page-view-edit': {if(leaving||refusal(d,'edit.page-view-edit'))break;const id=pageView?.page;if(!id||!project.pages.some(p=>p.id===id))break;closePageView();if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-view-edit');fitFrame(id);break;}
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
@@ -2303,6 +2306,9 @@ document.addEventListener('keydown', e => {
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
+  // While a board is being left no key reaches it or opens anything over it; a dialog the person has open still takes
+  // its own keys, and nothing replaces it (0.3-P3-fix4).
+  if(leaving&&(!modalRoot.children.length||((e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')))){e.preventDefault();return;}
   if(pageView&&!modalRoot.children.length){if(e.key==='Escape'||e.code==='Escape')closePageView();return;}
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
@@ -2383,8 +2389,8 @@ async function boot(){
       /* Closing with work in hand: hold the window, write to disk, then go. destroy() rather than
          close(), because close() asks again and lands back in this handler. Whatever happens the
          person must be able to leave — a window that will not shut can only be force-quit, so a
-         failure says so and lets the second press through instead of holding on. */
-      let closing=false;
+         failure says so, and the second press tries the save again and goes through if it fails again. */
+      let closing=false,closeWarned=false;
       await getCurrentWindow().onCloseRequested(async event=>{
         if(closing)return;
         // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
@@ -2394,8 +2400,10 @@ async function boot(){
         try{
           await closeWindow(async()=>{closing=true;await getCurrentWindow().destroy();});
         }catch(error){
-          closing=true;   // the next ⌘W leaves, saved or not: being stuck is worse than losing the last edit
-          toast(ui(`Could not save before closing — ${String(error)}. Press again to leave anyway, or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
+          // The next ⌘W tries the save again; only if it fails again, after the person was told, does the window go unsaved (0.3-P3-fix4).
+          if(closeWarned){closing=true;await getCurrentWindow().destroy();return;}
+          closeWarned=true;
+          notice(ui(`Could not save before closing — ${String(error)}. Press again to try once more and, if that fails too, leave without saving; or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 다시 저장해 보고, 그래도 안 되면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
         }
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
