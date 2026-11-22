@@ -1547,7 +1547,7 @@ check('a link to a board in another workspace, when the workspaces cannot be sto
 
 /* 0.3-P3-fix4: while a board is being left, what is outside the editor takes no step on it either: ⌘Z and ⌘⇧Z from
    the document, and Edit in the app pressed in the page seen on its own. */
-check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from the page seen on its own change nothing, and nothing opens over it', async () => {
+check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from the page seen on its own change nothing, and nothing opens over it; Escape still closes the page seen on its own', async () => {
   await evaluate('document.activeElement?.blur?.(), true');
   await sleep(5_200);
   const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Leaving keys', html: '<p>keys</p>'}]});
@@ -1567,14 +1567,30 @@ check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from
     await sleep(400);
     const seen = await state();
     await evaluate('window.aphroditeHoldWrites(false), true');
+    // A dialog that should not have opened would hold the link up: it is closed, so the step is judged by what was seen.
+    if (seen.dialogs > before.dialogs) { await presses('Escape'); await sleep(300); }
     await waitFor(async () => (await agent('contract', {})).project?.project_id === other, 'the board the link names');
     await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + here)}), true`);
     await waitFor(async () => (await agent('contract', {})).project?.project_id === here, 'back on the board');
     return [before, seen];
   };
-  // ⌘Z would take back the agent's page, ⌘⇧Z put it again: neither may, while the board is left.
-  const [before, seen] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 4); await sleep(200); await presses('z', 4); });
+  // ⌘Z would take back the agent's page: it may not, while the board is left.
+  const [before, seen] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 4); await sleep(200); });
   assert.deepEqual(seen, before, '⌘Z took no step on the board being left');
+  // ⌘⇧Z would put back a page taken back (0.3-P3-fix5 #3): it does so on the board, and may not while the board is left.
+  await sleep(5_200);
+  const again = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Leaving keys again', html: '<p>again</p>'}]});
+  assert.ok(again.ok, JSON.stringify(again).slice(0, 300));
+  const pages = async () => (await agent('contract', {})).pages.length;
+  await evaluate('document.activeElement?.blur?.(), true');
+  const withIt = await pages();
+  await presses('z', 4); await sleep(600);
+  assert.equal(await pages(), withIt - 1, '⌘Z takes the page back on the board');
+  await presses('z', 12); await sleep(600);
+  assert.equal(await pages(), withIt, '⌘⇧Z puts it back');
+  await presses('z', 4); await sleep(600);
+  const [beforeR, seenR] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('z', 12); await sleep(200); });
+  assert.deepEqual(seenR, beforeR, '⌘⇧Z took no step on the board being left');
   // Edit in the app, pressed in the page seen on its own, would open that page on the board.
   await sleep(5_200);
   await personPresses('page-view', {id: page}); await sleep(600);
@@ -1584,6 +1600,13 @@ check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from
   await sleep(5_200);
   const [before3, seen3] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('k', 4); await sleep(200); });
   assert.deepEqual(seen3, before3, '⌘K opened nothing over the board being left');
+  // Escape in the page seen on its own, its own toolbar holding the keys, still closes it while the board is left (0.3-P3-fix5 #2).
+  await sleep(5_200);
+  await personPresses('page-view', {id: page}); await sleep(600);
+  let closed;
+  const [before4, seen4] = await leaveAndBack(async () => { await evaluate(`document.querySelector('#page-view-root [data-action="page-view-close"]')?.focus(), true`); await presses('Escape'); await sleep(300); closed = await evaluate(`!document.querySelector('#page-view-root iframe')`); });
+  assert.equal(closed, true, 'Escape closed the page seen on its own while the board was left');
+  assert.deepEqual(seen4, before4, 'and the board took no step');
   await sleep(5_200);
 });
 

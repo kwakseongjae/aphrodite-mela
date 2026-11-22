@@ -2319,9 +2319,12 @@ document.addEventListener('keydown', e => {
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
-  // While a board is being left no key reaches it or opens anything over it; a dialog the person has open still takes
-  // its own keys, and nothing replaces it (0.3-P3-fix4).
-  if(leaving&&(!modalRoot.children.length||((e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')))){e.preventDefault();return;}
+  // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
+  // take no step (history() refuses too), and with no dialog and no page seen on its own its shortcuts do not run. A dialog
+  // the person has open and the page seen on its own keep their keys: Escape, Tab, and Enter or Space on a button.
+  if(leaving){const meta=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
+    if(meta&&(e.code==='KeyK'||k==='k'||((e.code==='KeyZ'||k==='z')&&!modalRoot.contains(e.target as Node)))){e.preventDefault();return;}
+    if(!modalRoot.children.length&&!pageView)return;}
   if(pageView&&!modalRoot.children.length){if(e.key==='Escape'||e.code==='Escape')closePageView();return;}
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
