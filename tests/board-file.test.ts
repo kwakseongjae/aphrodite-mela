@@ -5,11 +5,12 @@ import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
 import {boardFileBytes, readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
 import {sizeOf} from '../src/ledger/types';
+import {upsertProject} from '../src/workspace/library';
 import {ensureSpace} from '../src/editor/space';
 import {readdirSync, statSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {initialProject, isApproved, fingerprint, parseProject, type Project} from '../src/model';
+import {initialProject, isApproved, fingerprint, parseProject, uid, type Project} from '../src/model';
 import {parseBatch} from '../src/agent/ops';
 import {MAX_EXPORT_FILE} from '../src/page-export';
 
@@ -321,8 +322,9 @@ test('pages whose ids differ only in case both travel: each page is an entry by 
   assert.deepEqual(got.project.pages.slice(-2).map(x => [x.id, x.html]), [['Page', '<p>upper</p>'], ['page', '<p>lower</p>']]);
 });
 
-test('a board just under what a board holds comes back: its history, marked as made elsewhere, gives way the way a save makes it', async () => {
+for (const id of [undefined, 'x']) test(`a board just under what a board holds comes back: its history, marked as made elsewhere, gives way the way a save makes it${id ? ', written with an id one character long' : ''}`, async () => {
   const p = board();
+  if (id) p.id = id;
   for (let i = 0; i < 9; i++) p.pages.push({id: 'big' + i, name: 'Big ' + i, blocks: [], kind: 'html', html: '<p>' + 'a'.repeat(1_999_000) + '</p>'} as never);
   p.ledger!.changes.push(...Array.from({length: 200}, (_, i) => ({id: 'x' + i, parent: i ? 'x' + (i - 1) : 'c2', seq: 3 + i, at: '2026-11-20T00:00:02.000Z', author: {kind: 'person' as const, name: 'you'}, source: 'editor:change', ops: [{op: 'set', on: 'project', field: 'brief', value: 'b'.repeat(4_000)} as never], anchors: {pages: [], nodes: []}, baseRevision: 'r' + i, revision: 'r' + (i + 1), view: false, size: 0})));
   p.ledger!.seq = 202;
@@ -335,8 +337,9 @@ test('a board just under what a board holds comes back: its history, marked as m
   saved = parseProject(JSON.stringify(p));
   assert.equal(JSON.stringify(saved).length, 20_000_000 - 500, 'just under what a board holds');
   const got = await readBoardFile(await written(saved), store().host);
-  assert.ok(JSON.stringify(got.project).length <= 20_000_000, 'and it fits once more after the marks');
+  assert.ok(JSON.stringify(got.project).length <= 20_000_000, 'and it fits once more after the marks, its new id and all');
   assert.ok(got.project.ledger!.changes.every(c => c.author.elsewhere === true));
+  assert.equal(upsertProject({version: 1, entries: []}, got.project).entries.length, 1, 'and the library keeps it');
 });
 
 test('the words are counted as they are unpacked, and the reading stops at the page that passes what a board holds', async () => {
@@ -364,23 +367,31 @@ test('a file holding an entry the board does not name, a newer format, or a file
 
 /* 0.3-P3-fix3 #6: the file's envelope is not counted against what a board holds; a folder entry holds nothing; and the
    history is counted with the rest as it is unpacked. */
-test('a board one character under what a board holds, all of it sections, its id one character long, goes out and comes back', async () => {
+test('a board one character under what a board holds once it has its own id, all of it sections, written with an id one character long, goes out, comes back and is kept', async () => {
   // Sections only: board.json is the whole board, and the file's own format is all it adds. Its id is shorter than the
-  // one a received board is given (0.3-P3-fix4): it is measured as it was written.
-  const p = initialProject();
-  delete p.ledger;
-  p.id = 'x';
-  const tmpl = p.pages[0].blocks[0];
-  p.pages = Array.from({length: 30}, (_, i) => ({...p.pages[0], id: 'pg' + i, name: 'P' + i, blocks: Array.from({length: 40}, (_, j) => ({...tmpl, id: `b${i}-${j}`, text: 'x'.repeat(15_000)}))}));
-  p.activePageId = 'pg0';
-  // What is left up to one character under the cap, spread over the blocks from the last, each within what a text holds.
-  let left = 20_000_000 - 1 - JSON.stringify(parseProject(JSON.stringify(p))).length;
-  for (const block of p.pages.flatMap(g => g.blocks).reverse()) { if (!left) break; const more = Math.min(left, 4_000); block.text += 'y'.repeat(more); left -= more; }
-  const saved = parseProject(JSON.stringify(p));
-  assert.equal(JSON.stringify(saved).length, 19_999_999);
+  // one a received board is given (0.3-P3-fix4): it is measured as it was written, and once more with its new id.
+  const atCap = (under: number) => {
+    const p = initialProject();
+    delete p.ledger;
+    p.id = 'x';
+    const tmpl = p.pages[0].blocks[0];
+    p.pages = Array.from({length: 30}, (_, i) => ({...p.pages[0], id: 'pg' + i, name: 'P' + i, blocks: Array.from({length: 40}, (_, j) => ({...tmpl, id: `b${i}-${j}`, text: 'x'.repeat(15_000)}))}));
+    p.activePageId = 'pg0';
+    // What is left up to `under` characters under the cap, spread over the blocks from the last, each within what a text holds.
+    let left = 20_000_000 - under - JSON.stringify(parseProject(JSON.stringify(p))).length;
+    for (const block of p.pages.flatMap(g => g.blocks).reverse()) { if (!left) break; const more = Math.min(left, 4_000); block.text += 'y'.repeat(more); left -= more; }
+    return parseProject(JSON.stringify(p));
+  };
+  const longer = uid().length - 1;
+  const saved = atCap(1 + longer);
+  assert.equal(JSON.stringify(saved).length, 19_999_999 - longer);
   const got = await readBoardFile(await written(saved), store().host);
-  assert.equal(got.project.pages[29].blocks[39].text, p.pages[29].blocks[39].text);
+  assert.equal(got.project.pages[29].blocks[39].text, saved.pages[29].blocks[39].text);
   assert.notEqual(got.project.id, 'x', 'and it is a new board');
+  assert.equal(JSON.stringify(got.project).length, 19_999_999, 'one character under once it has its own id');
+  assert.ok(upsertProject({version: 1, entries: []}, got.project).entries.length === 1, 'and the library keeps it');
+  // At the cap as written, its new id would take it past what a board holds: it is refused as it is read, before a file is placed.
+  await assert.rejects(readBoardFile(await written(atCap(1)), store().host), /with the id it is given here the board would be 20,000,034 characters/);
 });
 
 test('a folder entry with something in it refuses the file', async () => {

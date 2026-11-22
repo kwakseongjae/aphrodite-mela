@@ -310,6 +310,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     project = parseProject(JSON.stringify(project));
     project.id = uid();
     if (project.ledger && JSON.stringify(project).length > MAX_PROJECT) fitSaved(project);
+    // A board with no history to give way that only its new id takes past the cap is refused here, before a file is placed.
+    const length = JSON.stringify(project).length;
+    if (length > MAX_PROJECT) throw new Error(`with the id it is given here the board would be ${length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}`);
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
   return {
