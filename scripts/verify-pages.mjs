@@ -1547,7 +1547,7 @@ check('a link to a board in another workspace, when the workspaces cannot be sto
 
 /* 0.3-P3-fix4: while a board is being left, what is outside the editor takes no step on it either: ⌘Z and ⌘⇧Z from
    the document, and Edit in the app pressed in the page seen on its own. */
-check('while a board is being left, ⌘Z, ⌘⇧Z and Edit in the app from the page seen on its own change nothing', async () => {
+check('while a board is being left, ⌘Z, ⌘⇧Z, ⌘K and Edit in the app from the page seen on its own change nothing, and nothing opens over it', async () => {
   await evaluate('document.activeElement?.blur?.(), true');
   await sleep(5_200);
   const made = await agent('apply', {reason: WHY, base_revision: await revision(), ops: [{op: 'html_page', name: 'Leaving keys', html: '<p>keys</p>'}]});
@@ -1556,7 +1556,7 @@ check('while a board is being left, ⌘Z, ⌘⇧Z and Edit in the app from the p
   const here = (await agent('contract', {})).project.project_id;
   const other = (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`)).find(id => id !== here);
   const activePage = () => evaluate(`document.querySelector('.space-frame.active')?.dataset.pageId ?? null`);
-  const state = async () => ({seq: await seq(), rev: await revision(), page: await activePage()});
+  const state = async () => ({seq: await seq(), rev: await revision(), page: await activePage(), dialogs: await evaluate(`document.querySelector('#modal-root').children.length`)});
   const leaveAndBack = async during => {
     await sleep(5_200);
     const before = await state();
@@ -1580,6 +1580,10 @@ check('while a board is being left, ⌘Z, ⌘⇧Z and Edit in the app from the p
   await personPresses('page-view', {id: page}); await sleep(600);
   const [before2, seen2] = await leaveAndBack(() => personPresses('page-view-edit'));
   assert.deepEqual(seen2, before2, 'Edit in the app took no step on the board being left');
+  // ⌘K would open the commands over the board being left.
+  await sleep(5_200);
+  const [before3, seen3] = await leaveAndBack(async () => { await evaluate('document.activeElement?.blur?.(), true'); await presses('k', 4); await sleep(200); });
+  assert.deepEqual(seen3, before3, '⌘K opened nothing over the board being left');
   await sleep(5_200);
 });
 
