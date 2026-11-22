@@ -15,7 +15,7 @@ test('a file macOS hands over again while it waits in the line is put in once, a
 
 test('a board file from the picker takes its place in the line as it starts to be read, not once it has been', () => {
   const pick = body("case 'import-project':", "case 'new-project':");
-  assert.match(pick, /await opening\(async\(\)=>openBoardFileNow\(new Uint8Array\(await file\.arrayBuffer\(\)\)\)\)/);
+  assert.match(pick, /await opening\(async\(\)=>openBoardFileNow\(await boardFileBytes\(file\)\)\)/);
 });
 
 test('the workspaces on screen change only once they are stored', () => {

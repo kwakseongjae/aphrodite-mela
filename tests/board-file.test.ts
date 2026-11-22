@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {zipSync, strToU8, type Zippable} from 'fflate';
-import {readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
+import {boardFileBytes, readBoardFile, writeBoardFile, readZip, readOpenLink, openLink, checkEntries, contentId, BoardFileError, MAX_BOARD_FILE, BOARD_FILE} from '../src/board-file';
 import {sizeOf} from '../src/ledger/types';
 import {ensureSpace} from '../src/editor/space';
 import {readdirSync, statSync} from 'node:fs';
@@ -410,6 +410,19 @@ test('a board file carries the files its board named when the writing began, wha
   const {bytes} = await writeBoardFile(p, host);
   const names = readZip(bytes, 500 * 1024 * 1024).names;
   assert.ok(names.includes(`media/${PIC2}.png`), `the file of the page taken off meanwhile goes: ${names.join(', ')}`);
+});
+
+/* 0.3-P3-fix4: a file too big is refused by its size, before a byte of it is read, by the picker and a drop alike. */
+test('a board file over the cap is refused by its size, and never read', async () => {
+  let reads = 0;
+  const big = {size: MAX_BOARD_FILE + 1, arrayBuffer: async () => { reads++; return new ArrayBuffer(0); }};
+  await assert.rejects(boardFileBytes(big), /a board file holds at most/);
+  assert.equal(reads, 0, 'nothing was read');
+  const small = {size: 3, arrayBuffer: async () => { reads++; return new Uint8Array([1, 2, 3]).buffer; }};
+  assert.deepEqual([...await boardFileBytes(small)], [1, 2, 3]);
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.equal([...main.matchAll(/openBoardFileNow\(await boardFileBytes\(/g)].length, 2, 'the picker and a drop on the board both go through it');
+  assert.doesNotMatch(main, /openBoardFileNow\(new Uint8Array\(await [a-z]+\.arrayBuffer/, 'neither reads first');
 });
 
 test('a history that does not hold together is dropped, the board kept', async () => {

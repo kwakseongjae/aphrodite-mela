@@ -219,6 +219,15 @@ export type ReadBoard = {
 const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
 
 /**
+ * A board file's bytes from a file the person gave (the picker, a drop on the board): its size is looked at before a
+ * byte is read, the same cap Finder's files meet (src-tauri/src/opened.rs), so a file too big is never read (0.3-P3-fix4).
+ */
+export async function boardFileBytes(file: {size: number; arrayBuffer(): Promise<ArrayBuffer>}): Promise<Uint8Array> {
+  if (file.size > MAX_BOARD_FILE) refuse(`the file is ${file.size.toLocaleString('en')} bytes; a board file holds at most ${MAX_BOARD_FILE.toLocaleString('en')}`);
+  return new Uint8Array(await file.arrayBuffer());
+}
+
+/**
  * Reads a board file someone else made. Everything in it is read and checked before anything is put anywhere: its
  * pages, its history, and each file by its first bytes and the hash of its bytes, which must be its name. A file
  * that does not hold together refuses the whole board, and nothing has been placed. A carried file that is not what
