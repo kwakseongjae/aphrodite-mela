@@ -10,6 +10,9 @@
  *   node scripts/verify-agent-authority.mjs
  */
 import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {readdirSync, readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
 const {agent, send, personClicks, personPresses, personSubmits, personTypes, presses, evaluate, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
@@ -826,6 +829,173 @@ check('a board deleted on Home stays deleted, whatever an agent then sends', asy
   }
   await sleep(200);
   assert.equal(await gone(), false, 'and it was not written back');
+});
+
+/* Codex 2026-11-22 (check 4): on Home, disk-backup wrote the board left in memory, a deleted one included. */
+const captureDownloads = () => evaluate(`(() => { window.__downloads = []; if (!window.__realObjectURL) { window.__realObjectURL = URL.createObjectURL; URL.createObjectURL = blob => { window.__downloads.push(blob); return window.__realObjectURL(blob); }; } return true; })()`);
+const lastDownload = () => evaluate(`(async () => { const b = window.__downloads?.at(-1); return b ? await b.text() : null; })()`);
+check('on Home a backup holds the library as saved, not the board deleted there', async () => {
+  const deleted = (await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.name)`));
+  assert.equal(deleted.includes(NAME), false, 'the scene before deleted it');
+  await captureDownloads();
+  await control('disk-backup');
+  await sleep(300);
+  const text = await lastDownload();
+  assert.ok(text, 'a file came out');
+  assert.equal(text.includes('"name": "' + NAME + '"') || text.includes('"name":"' + NAME + '"'), false, 'the deleted board is not in it');
+  assert.ok(text.includes('Other'), 'the library that is saved is');
+});
+
+/* Codex 2026-11-22 (check 4): the editor's save-failure buttons were refused by a disk- prefix. In the browser the
+   save fails at storage; the backup has to carry the edit that could not be saved. */
+check('when a save fails in the editor, the backup holds the edit that was not saved', async () => {
+  const start = (await saved('Start')).id;
+  await control('hub-open', {id: start});
+  await sleep(500);
+  await captureDownloads();
+  await evaluate(`(() => { window.__realSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); }; return true; })()`);
+  try {
+    const blockId = await evaluate(`document.querySelector('#design-canvas [data-block-id]')?.dataset.blockId`);
+    assert.ok(blockId, 'the board has a block');
+    assert.equal((await agent('edit', {blockId, field: 'title', text: 'Not saved yet'})).error, undefined);
+    await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'disk-backup'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+    await sleep(300);
+  } finally { await evaluate(`(() => { Storage.prototype.setItem = window.__realSetItem; return true; })()`); }
+  assert.match(await lastDownload() ?? '', /Not saved yet/, 'the backup carries the unsaved edit');
+});
+
+/* The rule the prefixes broke: a button a screen draws can be pressed on that screen. Every window and band the
+   browser build can open, on each screen, with every menu unfolded. */
+const screensModule = await build({entryPoints: ['src/editor/screens.ts'], bundle: true, write: false, format: 'esm', logLevel: 'silent'});
+const {actionScreen} = await import('data:text/javascript;base64,' + Buffer.from(screensModule.outputFiles[0].contents).toString('base64'));
+const drawnActions = () => evaluate(`(() => { document.querySelectorAll('details').forEach(d => { d.open = true; }); return [...new Set([...document.querySelectorAll('[data-action]')].map(e => e.dataset.action))]; })()`);
+const opened = {}, collected = {};
+const sweep = async (where, windows, shown = 'the screen and its menus') => {
+  opened[where] ??= []; collected[where] ??= new Map();
+  for (const a of await drawnActions()) if (!collected[where].has(a)) collected[where].set(a, shown);
+  opened[where].push(`(${shown})`);
+  for (const [action, data] of windows) {
+    await closeModal();
+    await control(action, data);
+    await sleep(250);
+    if (await modals()) opened[where].push(action);
+    for (const a of await drawnActions()) if (!collected[where].has(a)) collected[where].set(a, action);
+  }
+  await closeModal();
+};
+check('every button a screen draws can be pressed on that screen', async () => {
+  const start = (await saved('Start')).id, other = (await saved('Other')).id;
+  await control('hub-open', {id: start});
+  await sleep(500);
+  await sweep('editor', [['export', {}], ['export-tab', {view: 'html'}], ['storage-info', {}], ['theme-review', {}], ['commands', {}], ['project', {}], ['systems', {}], ['component-explorer', {}], ['reference', {}], ['add-page', {}], ['page-menu', {}], ['agent', {}], ['agent-connect', {}], ['about', {}], ['brand-kit', {}], ['language-settings', {}], ['welcome-show', {}], ['new-frame', {}], ['autofill', {}], ['design-md', {}], ['preview', {}], ['font-picker', {}], ['new-project', {}]]);
+  await control('home');
+  await sleep(300);
+  await sweep('home', [['storage-info', {}], ['ws-new', {}], ['ws-settings', {}], ['hub-rename', {id: other}], ['hub-delete', {id: other}], ['new-project', {}], ['welcome-show', {}], ['language-settings', {}], ['about', {}], ['brand-kit', {}], ['agent-connect', {}]]);
+  assert.deepEqual(refusedWhereDrawn(['editor', 'home']), [], 'a drawn button its screen would refuse');
+});
+/** Each action drawn on a screen that the table keeps to the other one, with the window it was drawn in. */
+const refusedWhereDrawn = wheres => wheres.flatMap(where => {
+  const screen = where.endsWith('editor') ? 'editor' : 'home', other = screen === 'editor' ? 'home' : 'editor';
+  console.log(`       opened (${where}): ${opened[where].join(', ')}`);
+  console.log(`       actions drawn (${where}): ${collected[where].size}`);
+  return [...collected[where]].filter(([a]) => actionScreen(a) === other).map(([a, from]) => `${where} draws ${a} (in ${from})`);
+});
+
+/* The bands the browser build never draws (the save-failure band, Files, the missing-folder notice, the unreadable-store
+   band) belong to the desktop app. The page is reopened as the desktop build, its Tauri calls answered here, and
+   saves are made to fail to raise the band. This check reloads the page, so it runs last. */
+const desktopCalls = `(() => {
+  const state = window.__desktop = {library: localStorage.getItem('__desktopLibrary'), gone: localStorage.getItem('__desktopGone') === '1', failWrites: false, revision: 1, calls: [], files: []};
+  const callbacks = new Map(); let next = 1;
+  const vault = {path: '/tmp/aphrodite-desktop-check/vault', snapshot: 'project.json', files: [{name: 'project.json', kind: 'snapshot', bytes: 10}, {name: 'notes.md', kind: 'document', bytes: 10}, {name: 'logo.png', kind: 'image', bytes: 10}], externalReferences: []};
+  const answers = {
+    workspace_read: () => ({revision: state.revision, data: state.gone ? null : state.library, path: '/tmp/aphrodite-desktop-check/workspace.json'}),
+    workspace_write: ({data}) => { if (state.failWrites) throw 'the disk is full'; state.library = data; return ++state.revision; },
+    workspace_recovery: () => ({}),
+    vault_sync: () => vault, vault_document: () => vault,
+    image_library_list: () => ({dir: '/tmp/aphrodite-desktop-check/images', images: []}),
+    references_list: () => ({entries: []}),
+    'plugin:event|listen': () => next++, 'plugin:event|unlisten': () => null,
+    'plugin:dialog|save': ({options}) => '/tmp/aphrodite-desktop-check/' + (options?.defaultPath ?? 'file'),
+    'plugin:fs|write_file': args => { state.files.push(new TextDecoder().decode(args instanceof Uint8Array ? args : new Uint8Array(args?.data ?? []))); return null; },
+  };
+  window.isTauri = true;
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener: () => {}};
+  window.__TAURI_INTERNALS__ = {
+    metadata: {currentWindow: {label: 'main'}, currentWebview: {windowLabel: 'main', label: 'main'}},
+    transformCallback: cb => { const id = next++; callbacks.set(id, cb); return id; },
+    unregisterCallback: id => callbacks.delete(id),
+    convertFileSrc: p => p,
+    invoke: async (cmd, args) => { state.calls.push(cmd); const answer = answers[cmd]; if (!answer) throw cmd + ' is not part of this check'; return answer(args ?? {}); },
+  };
+})();`;
+/** Every action name written in the source as a data-action or as an action in a menu table. */
+const actionsInCode = () => {
+  const names = new Set();
+  const walk = dir => { for (const entry of readdirSync(dir, {withFileTypes: true})) { const path = join(dir, entry.name);
+    if (entry.isDirectory()) walk(path); else if (path.endsWith('.ts')) for (const m of readFileSync(path, 'utf8').matchAll(/data-action="([a-z0-9-]+)"|\baction:'([a-z0-9-]+)'|\bbutton\('([a-z0-9-]+)'/g)) names.add(m[1] ?? m[2] ?? m[3]); } };
+  walk('src');
+  return names;
+};
+const reopenAsDesktop = async (library, gone = false) => {
+  await evaluate(`(() => { localStorage.setItem('__desktopLibrary', ${JSON.stringify(library)}); localStorage.setItem('__desktopGone', ${JSON.stringify(gone ? '1' : '0')}); return true; })()`);
+  await send('Page.reload');
+  let screen;
+  for (let i = 0; i < 40 && screen !== 'home'; i++) { await sleep(250); screen = await evaluate(`document.documentElement.classList.contains('native-desktop') && document.querySelector('#app')?.dataset.screen`).catch(() => undefined); }
+  assert.equal(screen, 'home', 'the page came back as the desktop build, on Home');
+  await closeModal();
+};
+const desktopWritten = () => evaluate(`window.__desktop.files.at(-1) ?? null`);
+check('on the desktop build too, every button a screen draws can be pressed on that screen, the save-failure band included', async () => {
+  const start = (await saved('Start')).id, other = (await saved('Other')).id;
+  const library = await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`);
+  await send('Page.enable');
+  await send('Page.addScriptToEvaluateOnNewDocument', {source: desktopCalls});
+  /* Home: its windows, a save that fails there, the missing-folder notice, and a store that cannot be read. */
+  await reopenAsDesktop(library);
+  await sweep('desktop Home', [['storage-info', {}], ['vault-open', {id: other}], ['ws-settings', {}], ['hub-rename', {id: other}], ['hub-delete', {id: other}], ['new-project', {}], ['about', {}], ['agent-connect', {}]]);
+  await evaluate(`(() => { window.__desktop.failWrites = true; return true; })()`);
+  await control('hub-pin', {id: other});
+  await sleep(500);
+  await sweep('desktop Home', [], 'Home after a save failed there');
+  await reopenAsDesktop(library, true);
+  assert.ok(await evaluate(`[...document.querySelectorAll('[data-action]')].some(e => e.dataset.action === 'disk-start-fresh')`), 'the missing-folder notice is up');
+  await sweep('desktop Home', [], 'the missing-folder notice');
+  await reopenAsDesktop('{not a library');
+  assert.ok(await evaluate(`[...document.querySelectorAll('[data-action]')].some(e => e.dataset.action === 'hub-recovery')`), 'the unreadable-store band is up');
+  await sweep('desktop Home', [], 'the unreadable-store band');
+  /* The editor: its windows, then a save that fails, which raises the band. */
+  await reopenAsDesktop(library);
+  await control('hub-open', {id: start});
+  await sleep(500);
+  await sweep('desktop editor', [['storage-info', {}], ['vault-open', {}], ['export', {}], ['about', {}], ['agent-connect', {}], ['theme-review', {}]]);
+  await evaluate(`(() => { window.__desktop.failWrites = true; return true; })()`);
+  await control('add', {kind: 'cta'});
+  await sleep(800);
+  assert.equal(await evaluate(`document.querySelector('.disk-warning') !== null`), true, 'the save-failure band is up');
+  await sweep('desktop editor', [['storage-info', {}]], 'the save-failure band');
+  const refused = refusedWhereDrawn(['desktop editor', 'desktop Home']);
+  const reached = new Set(Object.values(collected).flatMap(m => [...m.keys()]));
+  /* An action that runs anywhere cannot be refused where it is drawn; the ones kept to a screen and never reached here are what this sweep does not vouch for. */
+  const unreached = [...actionsInCode()].filter(a => !reached.has(a) && actionScreen(a) !== 'any').sort();
+  console.log(`       kept to a screen, written in src, drawn in none of these windows (${unreached.length}): ${unreached.map(a => `${a} (${actionScreen(a)})`).join(', ')}`);
+  assert.deepEqual(refused, [], 'a drawn button its screen would refuse');
+});
+
+check('on the desktop build, when a save fails the backup holds the edit that was not saved, and reload reads the disk', async () => {
+  assert.equal(await evaluate(`document.querySelector('.disk-warning') !== null`), true, 'the scene before left a failed save in the editor');
+  const saved = JSON.parse(await evaluate(`window.__desktop.library`)).entries.find(e => e.project.name === 'Start').project;
+  const kept = saved.pages.flatMap(p => p.blocks).length;
+  const added = await evaluate(`[...document.querySelectorAll('#design-canvas [data-block-id]')].map(e => e.dataset.blockId).at(-1)`);
+  await control('disk-backup');
+  await sleep(500);
+  assert.ok((await desktopWritten() ?? '').includes(added), 'the backup holds the block the failed save did not keep');
+  const reads = await evaluate(`window.__desktop.calls.filter(c => c === 'workspace_read').length`);
+  await control('disk-reload');
+  await sleep(600);
+  assert.equal(await evaluate(`window.__desktop.calls.filter(c => c === 'workspace_read').length`), reads + 1, 'reload read the disk');
+  assert.equal(await evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`), kept, 'and the board is the saved one');
+  assert.equal(await evaluate(`document.querySelector('.disk-warning') !== null`), false, 'the band is gone');
 });
 
 await runChecks(checks, close);

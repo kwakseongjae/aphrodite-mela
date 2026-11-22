@@ -26,6 +26,7 @@ import {moaPage} from './moa';
 import './moa.css';
 import { buildPrompt, designMarkdown, exportBundle, exportSnapshot, fileName, saveFile } from './export';
 import {graphSystem} from './design/omd';
+import {actionScreen} from './editor/screens';
 import { tokensJson } from './design/tokens';
 import { sceneManifest } from './components';
 import type { DesignSystem } from './model';
@@ -181,14 +182,6 @@ function boardChanged(){
 }
 /** What the export window shows: the content, the page its preview is of, and whether it says approved. */
 function shownState(){return `${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
-/** Which screen an action belongs to. Home's actions change library entries; the editor's read or change the open board; a
- *  few work on either. An action runs only on its own screen, whoever pressed it. Prefixes keep the list short. */
-const anywhereActions=new Set(['hub-open','hub-theme','home','language-settings','set-language','about','brand-kit','close-modal','copy-storage-path','storage-info','new-project','import-project','agent-connect','agent-connect-toggle','agent-disconnect','ask-allow','ask-decline']);
-function actionScreen(act:string):'home'|'editor'|'any'{
-  if(anywhereActions.has(act)||/^(vault-|update-|welcome-|tour-|taste)/.test(act))return 'any';
-  if(/^(hub-|ws-|disk-)/.test(act)||act==='home-sidebar')return 'home';
-  return 'editor';
-}
 const cancelled=()=>new Error(ui('Cancelled: the board this was for is no longer the one open.','취소했습니다: 이 작업을 시작한 보드가 지금 열려 있지 않습니다.'));
 /** An approval is for the board the person was shown: the press carries the stamp drawn with its button, and a board that has
  *  changed since is redrawn instead of approved. */
@@ -877,7 +870,7 @@ async function action(el: HTMLElement, origin?: Origin) {
   if(act&&await archive.handle(act,el,pickFile,src=>{onBoard();commit(()=>{project.reference=src;});referenceModal();}))return;
   switch (act) {
     case 'language-settings':showModal(ui('Language / 언어','Language / 언어'),ui('Interface and content are separate preferences.','앱 조작 언어와 콘텐츠 언어는 별개의 설정입니다.'),languageSettingsHtml(uiLanguage,screen==='editor'?(project.contentLanguage??'en'):undefined));break;
-    case 'vault-open': if(!el.dataset.id&&!boardOpen())break;vaultProjectId=el.dataset.id||project.id;vaultState=undefined;await showVault();break;
+    case 'vault-open': if(!el.dataset.id&&!boardOpen()){if(origin&&origin!=='person')origin.noBoard=true;else toast(ui('No board is open. Use Files on a project card.','열린 보드가 없습니다. 프로젝트 카드의 파일을 쓰세요.'));break;}vaultProjectId=el.dataset.id||project.id;vaultState=undefined;await showVault();break;
     case 'vault-refresh': await showVault();break;
     case 'vault-back': await showVault(false);break;
     case 'vault-note': showModal(ui('A document for this project.','이 프로젝트의 문서.'),'문서는 저장만 하며 AI 지시로 실행하지 않습니다.',`<form id="vault-note-form"><label class="form-label">${ui('Filename','파일 이름')}<input name="name" value="brief.md" required maxlength="100" pattern="[A-Za-z0-9_][A-Za-z0-9_.-]*" title="영문·숫자·점·밑줄·하이픈 파일명"></label><label class="form-label">${ui('Document','문서')}<textarea name="text" rows="10" maxlength="1000000" required placeholder="레퍼런스, 디자인 결정, 작업 메모…"></textarea></label><button class="primary-button" type="submit">${ui('Save document','문서 저장')}</button></form>`);break;
@@ -1147,7 +1140,8 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'preview': recordRun('preview:opened',{device,interactionCapture:false});showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(currentPage(project).name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); { const frame = modalRoot.querySelector<HTMLIFrameElement>('iframe')!; mountPagePreview(frame,project,currentPage(project)); } break;
     case 'close-modal': closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
-    case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
+    /* In the editor the board being worked on; on Home there is none open, so the library as it is saved, never the copy left in memory. */
+    case 'disk-backup': if(!boardOpen()){if(await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다'));break;} if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': await reloadFromDisk(); break;
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
@@ -1178,7 +1172,7 @@ async function action(el: HTMLElement, origin?: Origin) {
     case 'ask-decline': {askState=askState?{...askState,answered:'declined',at:Date.now()}:null;refreshBanners();toast(ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));break;}
     case 'agent-connect-toggle': {connectMode=!connectMode;rememberConnect(connectMode);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
     case 'agent-disconnect': connectMode=false;rememberConnect(false);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
-    case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
+    case 'about': showModal(ui('Shape before you build.','만들기 전에, 방향부터.'), '긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.', `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${boardOpen()?button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width'):''}`); break;
   }
 }
 document.addEventListener('click', e => {
