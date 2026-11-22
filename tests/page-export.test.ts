@@ -85,6 +85,17 @@ test('a page too big with its pictures put in is refused before any picture is r
   assert.equal(MAX_EXPORTED_PAGE, 100_000_000);
 });
 
+/* 0.3-P3-fix5 #3: a video beside the page is counted by the path it ends up with, not by its stand-in, so a page exactly at the cap goes. */
+test('a page with a picture and a video beside it, exactly at the cap once both are put in, goes; one character more does not', async () => {
+  const files = host({[sha(1)]: {mime: 'image/png', bytes: 3}, [sha(2)]: {mime: 'video/mp4', bytes: 10}});
+  const page = (n: number) => `<img src="media:${sha(1)}"><video src="media:${sha(2)}"></video><p>${'x'.repeat(n)}</p>`;
+  const final = (n: number) => '<!doctype html>'.length + page(n).length - 2 * `media:${sha(1)}`.length + 'data:image/png;base64,'.length + 4 + `media/${sha(2)}.mp4`.length;
+  const n = MAX_EXPORTED_PAGE - final(0);
+  const out = await exportPage(page(n), {scripts: true, videos: 'beside'}, files.host, {inline: false});
+  assert.deepEqual(out.beside.map(b => b.path), [`media/${sha(2)}.mp4`]);
+  await assert.rejects(exportPage(page(n + 1), {scripts: true, videos: 'beside'}, files.host, {inline: false}), /comes to 100,000,001 bytes/);
+});
+
 test('the preview reads no file, and shows each picture by its size', async () => {
   const files = host({[sha(1)]: {mime: 'image/png', bytes: 3000}});
   const {html} = await exportPage(`<img src="media:${sha(1)}">`, {scripts: true, videos: 'out'}, files.host, {inline: false});

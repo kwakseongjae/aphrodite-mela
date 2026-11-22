@@ -95,10 +95,16 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
   const placed = withMedia(source, address);
   let html = choice.scripts ? withDoctype(placed) : (await import('./page-clean')).cleanPage(placed, nonce);
   const beside: ExportedPage['beside'] = [];
+  for (const [sha, file] of files) {
+    if (!file.mime.startsWith('video/')) continue;
+    const path = `media/${sha}.${mediaExtension(file.mime)}`;
+    if (choice.videos === 'beside' && html.includes(placeholder(sha))) { html = html.split(placeholder(sha)).join(path); beside.push({path, sha, bytes: file.bytes}); }
+  }
+  // Measured once the videos have their paths, so the size is the page's as it goes (0.3-P3-fix5 #3).
   let length = utf8Length(html);
   const pictures: [string, {bytes: number; mime: string}, number][] = [];
   for (const [sha, file] of files) {
-    if (file.mime.startsWith('video/')) { const path = `media/${sha}.${mediaExtension(file.mime)}`; if (choice.videos === 'beside' && html.includes(placeholder(sha))) { html = html.split(placeholder(sha)).join(path); beside.push({path, sha, bytes: file.bytes}); } continue; }
+    if (file.mime.startsWith('video/')) continue;
     const times = html.split(placeholder(sha)).length - 1;
     if (!times) continue;
     pictures.push([sha, file, times]);
