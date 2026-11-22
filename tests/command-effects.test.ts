@@ -46,8 +46,6 @@ const INTERNAL_COMMANDS=[
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
   'board_media_begin','board_media_chunk','board_media_finish',
-  // A board file's import keeps or takes back what it placed (0.3-P3-fix1): only files it put in board-media/ new, which Rust itself noted.
-  'board_media_hold_begin','board_media_keep','board_media_take_back',
 ];
 /**
  * Tauri commands that read a file outside the app's own folders, at a path an agent names (0.3-P2-fix1):
@@ -229,16 +227,12 @@ test('reading a file an agent names is declared by the row that does it, for thi
   assert.ok(row.mcp?.description.includes('path')&&JSON.stringify(row.input).includes('library_id'));
 });
 
-/* 0.3-P3-fix1 #5: taking back an import's files is reached from one place, the board file's own reading, and from no
-   row, tool or op an agent could name. Rust takes back only what the import itself put there new (src-tauri/src/board.rs). */
-test('taking back a board file\'s files is only the import\'s, never a row, a tool or an op', () => {
+/* 0.3-P3-fix4: nothing removes a board's files any more. A failed import leaves what it placed (src/board-file.ts),
+   so no command, row, tool or op takes files back, and none is left for an agent to reach. */
+test('no command takes a board file\'s files back: the failed import leaves them', () => {
   const src = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
   const files = ['main.ts', 'free-page.ts', 'board-file.ts', 'agent/commands.mjs', 'agent/ops.ts', 'agent/bridge.ts'].map(p => [p, src(p)] as const);
-  const invokes = files.filter(([, t]) => /board_media_(take_back|keep|hold_begin)/.test(t)).map(([p]) => p);
-  assert.deepEqual(invokes, ['free-page.ts'], 'only the hosts invoke it');
-  const settles = files.filter(([, t]) => /host\.settle\(/.test(t)).map(([p]) => p);
-  assert.deepEqual(settles, ['board-file.ts'], 'and only the board file\'s reading settles what it placed');
-  assert.equal([...src('main.ts').matchAll(/read\.settle\(/g)].length, 2, 'which openBoardFile keeps or takes back, once each way');
-  assert.ok(!/take_back|board_media_keep|hold_begin/.test(JSON.stringify(commands)), 'no row names it');
-  assert.equal([...src('board-file.ts').matchAll(/host\.hold\(/g)].length, 1, 'and a ticket is asked for in one place, the board file\'s placing');
+  assert.deepEqual(files.filter(([, t]) => /board_media_(take_back|keep|hold_begin)|\.settle\(|host\.hold\(/.test(t)).map(([p]) => p), [], 'nothing names a take-back');
+  const rust = readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8');
+  assert.doesNotMatch(rust, /take_back|hold_begin|struct Held/, 'and Rust has none to give');
 });

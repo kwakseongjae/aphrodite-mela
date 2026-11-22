@@ -1453,34 +1453,6 @@ check('while a board is being left nothing can be typed into it, and what was ty
   await sleep(5_200);
 });
 
-/* 0.3-P3-fix3 #8: the browser build's own host, in a browser: a take-back does not remove a file a drop in the same tab
-   has just claimed, and a put whose transaction is aborted after its request succeeded says it put nothing. */
-check('the browser host takes back only what is still its import\'s, and a put whose transaction is aborted is refused', async () => {
-  const bundle = await build({stdin: {contents: "import {browserFrameHost} from './src/free-page.ts'; window.makeHost = () => browserFrameHost();", resolveDir: process.cwd(), loader: 'ts'}, bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent'});
-  writeFileSync(fileAt('host.html'), '<!doctype html><meta charset=utf-8><script>' + bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script') + '</script>');
-  const page = await openPage(`file://${fileAt('host.html')}`, {cdp: 9394, profile: '/tmp/aphrodite-pages-host-profile'});
-  try {
-    await waitFor(() => page.evaluate('typeof window.makeHost === "function"'), 'the host code');
-    const got = await page.evaluate(`(async () => {
-      const host = window.makeHost();
-      const png = i => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, i, i + 1, i + 2])], {type: 'image/png'});
-      const t = await host.hold();
-      const put = [];
-      for (let i = 0; i < 30; i++) put.push(await host.put(png(i), {holding: t}));
-      const settling = host.settle(t, false);
-      const dropped = await host.put(png(29));
-      await settling;
-      const kept = !!(await host.stat(dropped.sha)), first = !!(await host.stat(put[0].sha));
-      const put0 = IDBObjectStore.prototype.put;
-      IDBObjectStore.prototype.put = function (...args) { const r = put0.apply(this, args); r.addEventListener('success', () => this.transaction.abort()); return r; };
-      let aborted;
-      try { aborted = await host.put(png(99)).then(() => 'resolved', e => 'refused'); } finally { IDBObjectStore.prototype.put = put0; }
-      return {kept, first, aborted};
-    })()`);
-    assert.deepEqual(got, {kept: true, first: false, aborted: 'refused'}, 'the dropped file stays, the import\'s own goes, and an aborted put is refused');
-  } finally { page.close(); }
-});
-
 /* 0.3-P3-fix3 #7: a board file dropped on the board opens as a board, in the line of what comes in, not as a picture. */
 check('a board file dropped on the board opens as a new board, and nothing is added to the board it was dropped on', async () => {
   const here = (await agent('contract', {})).project.project_id;
@@ -1592,12 +1564,12 @@ check('closing the window is a leaving: nothing can be typed while its write is 
 });
 
 /* 0.3-P3-fix2 #3: a board file whose library write fails takes out only that board, and its files: what else changed in the library meanwhile stays. */
-check('a board file whose library write fails where it is stored comes out alone with the picture it placed new, and a change made meanwhile on the open board stays', async () => {
+check('a board file whose library write fails where it is stored comes out alone, the picture it placed new left named by no board, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;
   const entries = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => e.project.id)`);
   const count = (await entries()).length;
-  // 0.3-P3-fix3 #9: the board file carries a picture this browser has never had, so its import places it new, and the
-  // failed write must take it back.
+  // 0.3-P3-fix3 #9, fix4: the board file carries a picture this browser has never had, so its import places it new; the
+  // failed write leaves it (taking it back could take one another board has come to rely on).
   const {createHash} = await import('node:crypto');
   const files = unzipSync(new Uint8Array(readFileSync(fileAt(`sent.${BOARD_FILE.extension}`))));
   const fresh = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Buffer.from(`never seen ${Date.now()}`)]);
@@ -1627,7 +1599,7 @@ check('a board file whose library write fails where it is stored comes out alone
   assert.deepEqual((await entries()).length, count, 'no board was added');
   assert.equal((await agent('contract', {})).project.project_id, here, 'the board open is the one it was');
   assert.equal(await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(here)}).project.pages[0].name`), 'Renamed meanwhile', 'the change made meanwhile is still in the library');
-  assert.equal(await inBrowser(freshSha), false, 'and the picture it placed new is taken back');
+  assert.equal(await inBrowser(freshSha), true, 'and the picture it placed new is still here, named by no board');
   result.failedImport = {renamed: !!renamed.ok};
 });
 

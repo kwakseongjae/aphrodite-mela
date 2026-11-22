@@ -209,10 +209,12 @@ export type ReadBoard = {
   project: Project; files: number; left: {file: string; why: string}[];
   /** The image library's pictures it carried, for the caller to put in this board's library once the board is in. */
   pictures: {id: string; mime: string; name: string; read: () => Uint8Array}[];
-  /** Puts the files it carried on this Mac, held: if one cannot be put, those it put here new are taken back, and it throws. */
+  /**
+   * Puts the files it carried on this Mac. If one cannot be put, or the board then cannot go in the library, the files
+   * already put stay where they are, named by no board (0.3-P3-fix4): removing them could remove one another board
+   * has come to rely on, leaving them costs only disk.
+   */
   place: () => Promise<void>;
-  /** Once the board is in the library (keep) or could not be (not), what place put is kept or taken back. */
-  settle: (keep: boolean) => Promise<void>;
 };
 const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
 
@@ -221,10 +223,9 @@ const digest = async (bytes: Uint8Array) => hex(await crypto.subtle.digest('SHA-
  * pages, its history, and each file by its first bytes and the hash of its bytes, which must be its name. A file
  * that does not hold together refuses the whole board, and nothing has been placed. A carried file that is not what
  * its name says is left out and said so, as is one it names and did not carry; nothing the board says is rewritten.
- * The caller checks the board fits the library, then places its files (place), adds it, and keeps or takes them
- * back (settle).
+ * The caller checks the board fits the library, then places its files (place) and adds it.
  */
-export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes' | 'hold' | 'settle'>): Promise<ReadBoard> {
+export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'put' | 'maxBytes'>): Promise<ReadBoard> {
   const zip = readZip(bytes, host.maxBytes);
   if (!zip.names.includes('board.json')) refuse('it has no board.json');
   const read = new Set<string>();
@@ -298,39 +299,16 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     project = parseProject(JSON.stringify(project));
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
-  let ticket: string | undefined;
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {
-      await settleAgain();
-      ticket = await host.hold();
-      try {
-        for (const [sha, name, mime] of verified) {
-          const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}), {holding: ticket});
-          if (stored.sha !== sha) refuse(`${name} was kept under another name`);
-        }
-      } catch (error) { await settleOrKeepFor(host, ticket, false); ticket = undefined; throw error; }
+      for (const [sha, name, mime] of verified) {
+        const stored = await host.put(new Blob([zip.read(name) as Uint8Array<ArrayBuffer>], {type: mime}));
+        if (stored.sha !== sha) refuse(`${name} was kept under another name`);
+      }
     },
-    settle: async keep => { if (ticket) await settleOrKeepFor(host, ticket, keep); ticket = undefined; },
   };
 }
-
-/**
- * Imports whose end did not go through (0.3-P3-fix3 #9): a file Rust could not remove, or a keep or take-back that
- * failed. They are not let go of; the next import tries them again before it begins, while the app is open.
- */
-const unsettled = new Map<string, {host: Pick<FrameHost, 'settle'>; keep: boolean}>();
-async function settleOrKeepFor(host: Pick<FrameHost, 'settle'>, ticket: string, keep: boolean): Promise<void> {
-  let done = false;
-  try { done = await host.settle(ticket, keep); } catch { done = false; }
-  if (done) unsettled.delete(ticket); else unsettled.set(ticket, {host, keep});
-}
-/** Tries again the ends of imports that did not go through. */
-export async function settleAgain(): Promise<void> {
-  for (const [ticket, {host, keep}] of [...unsettled]) await settleOrKeepFor(host, ticket, keep);
-}
-/** How many imports have an end still to go through (for checks). */
-export const unsettledImports = () => unsettled.size;
 
 /**
  * Writes a board as a board file. Its entries are counted and measured first by the reader's own rule

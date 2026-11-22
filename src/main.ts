@@ -477,7 +477,7 @@ async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}
  * files are on this board before it; the library entry comes last, once the screen and the store are asked
  * again and the board is known to fit. A file that fails anywhere adds no board.
  */
-/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder, a drop on the board): the next starts once the one before has kept or taken back its files. The picker's file takes its place in the line as it starts to be read. */
+/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder, a drop on the board): the next starts once the one before has finished. The picker's file takes its place in the line as it starts to be read. */
 async function openBoardFileNow(bytes:Uint8Array){
   await noDialog();
   const read=await readBoardFile(bytes,frameHost);
@@ -490,12 +490,12 @@ async function openBoardFileNow(bytes:Uint8Array){
 async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
-  // Its files are placed only once it is known to fit; if the library cannot take it, they are taken back and the library is as it was.
+  // Its files are placed only once it is known to fit. If the library cannot take it, the files placed stay, named by no
+  // board (0.3-P3-fix4: taking them back could take one another board has come to rely on), and the library is as it was.
   await read.place();
   try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();}
-  // Only this board comes out again: whatever else changed in the library meanwhile stays. Its files are taken back.
-  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}await read.settle(false);throw error;}
-  await read.settle(true);
+  // Only this board comes out again: whatever else changed in the library meanwhile stays.
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}throw error;}
   // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.

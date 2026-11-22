@@ -356,19 +356,6 @@ check('an allowed agent cannot send a page or the board as a file, open the file
     assert.equal(r.status, 403, `${action} ${JSON.stringify(data)}: ${JSON.stringify(r)}`);
     assert.match(r.error, /the person's to do/);
   }
-  // Taking back a board file's media (0.3-P3-fix1) is no action, command, tool or op an agent can name: only an import that failed does it.
-  for (const action of ['board_media_take_back', 'board-media-take-back', 'board_media_keep', 'media-take-back', 'board_media_hold_begin', 'hold-begin']) {
-    const r = await agent('act', {action, data: {shas: ['0'.repeat(64)]}}, 'claude-code');
-    assert.ok(r.error && !r.ok, `${action}: ${JSON.stringify(r)}`);
-  }
-  // No palette command answers to these at all: one that ran and said only ok would be a side effect the check could not see.
-  // In both of the app's languages: the palette is searched in the one the app shows.
-  for (const query of ['take back', 'board media', 'keep files', '파일 걷기', '보드 파일 확정', '미디어 걷기']) {
-    const r = await agent('command', {query}, 'claude-code');
-    assert.ok(!r.ok && /no palette command matches/.test(r.error ?? ''), `palette "${query}": ${JSON.stringify(r).slice(0, 200)}`);
-  }
-  const op = await agent('apply', {reason: WHY, base_revision: (await agent('changes', {limit: 1}, 'claude-code')).revision, ops: [{op: 'media_take_back', shas: ['0'.repeat(64)]}]}, 'claude-code');
-  assert.ok(op.error, `an op named for it is no op: ${JSON.stringify(op)}`);
   await personPresses('page-view', {id: page});
   await sleep(5_200);
   const clicked = await agent('click', {selector: '[data-action="page-view-edit"]'}, 'claude-code');
