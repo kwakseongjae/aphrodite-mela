@@ -364,10 +364,12 @@ test('a file holding an entry the board does not name, a newer format, or a file
 
 /* 0.3-P3-fix3 #6: the file's envelope is not counted against what a board holds; a folder entry holds nothing; and the
    history is counted with the rest as it is unpacked. */
-test('a board one character under what a board holds, all of it sections, goes out and comes back', async () => {
-  // Sections only: board.json is the whole board, and the file's own format is all it adds.
+test('a board one character under what a board holds, all of it sections, its id one character long, goes out and comes back', async () => {
+  // Sections only: board.json is the whole board, and the file's own format is all it adds. Its id is shorter than the
+  // one a received board is given (0.3-P3-fix4): it is measured as it was written.
   const p = initialProject();
   delete p.ledger;
+  p.id = 'x';
   const tmpl = p.pages[0].blocks[0];
   p.pages = Array.from({length: 30}, (_, i) => ({...p.pages[0], id: 'pg' + i, name: 'P' + i, blocks: Array.from({length: 40}, (_, j) => ({...tmpl, id: `b${i}-${j}`, text: 'x'.repeat(15_000)}))}));
   p.activePageId = 'pg0';
@@ -378,6 +380,7 @@ test('a board one character under what a board holds, all of it sections, goes o
   assert.equal(JSON.stringify(saved).length, 19_999_999);
   const got = await readBoardFile(await written(saved), store().host);
   assert.equal(got.project.pages[29].blocks[39].text, p.pages[29].blocks[39].text);
+  assert.notEqual(got.project.id, 'x', 'and it is a new board');
 });
 
 test('a folder entry with something in it refuses the file', async () => {

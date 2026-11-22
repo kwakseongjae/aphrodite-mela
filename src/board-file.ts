@@ -242,7 +242,9 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   // What a file says about approval, its own id and its history is not read from board.json: a received
   // board is new, unapproved, and its history comes from ledger/ alone.
   delete raw.approvedFingerprint; delete raw.ledger;
-  raw.id = uid();
+  // The board is measured with the id it was written with, so one a save held still fits (0.3-P3-fix4); it is given
+  // its own new id once read. An id a board could not have is measured as a new one.
+  if (typeof raw.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(raw.id)) raw.id = uid();
   for (const [i, page] of (raw.pages as {id?: unknown; kind?: unknown; html?: unknown}[]).entries()) {
     if (!page || typeof page !== 'object') continue;
     delete page.html;
@@ -297,6 +299,8 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     const ledger = history ? readLedger(history) : undefined;
     if (ledger) { project.ledger = ledger; fitSaved(project); }
     project = parseProject(JSON.stringify(project));
+    project.id = uid();
+    if (project.ledger && JSON.stringify(project).length > MAX_PROJECT) fitSaved(project);
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
   return {
