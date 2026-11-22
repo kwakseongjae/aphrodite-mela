@@ -22,6 +22,12 @@ test('the workspaces on screen change only once they are stored', () => {
   assert.match(main, /function saveWorkspaces\(next:WorkspaceBook\)\{if\(!writeWorkspaces\(localStorage,next\)\)throw new Error\([^\n]*\);workspaces=next;\}/);
 });
 
+/* 0.3-P3-fix5 #2: a board already in the library that its workspace keeps from opening is said to be imported, there. */
+test('a received board whose workspace cannot be switched to is said to be imported and where, and the import is not called failed', () => {
+  const show = body('function showReadBoard(', '\n}\n');
+  assert.match(show, /try\{saveWorkspaces\(setActiveWorkspace\(workspaces,open\.workspaceId\)\);\}catch\{[^\n]*toast\(ui\(`The board was imported and is in \$\{where\}; it could not be opened now\.`,`보드는 들여왔고 \$\{where\}에 있습니다\. 지금은 열지 못했습니다\.`\)\);return;\}/);
+});
+
 test('a received board shown after its wait is the library\'s by its id, never the copy read from the file', () => {
   const show = body('function showReadBoard(', '\n}\n');
   assert.match(show, /const open=boardToOpen\(library,read\.project\.id\);\n  if\(!open\)return;/);

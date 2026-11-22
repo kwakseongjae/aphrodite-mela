@@ -518,7 +518,11 @@ function showReadBoard(read:ReadBoard,notes:string[]){
   // The library's board by its id, as it is after the wait: moved, it opens in its workspace; renamed, by its name; gone, not at all.
   const open=boardToOpen(library,read.project.id);
   if(!open)return;
-  if(open.workspaceId!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,open.workspaceId));hubCardCache.clear();}
+  if(open.workspaceId!==workspaces.activeId){
+    // The board is in the library already: a list of workspaces that will not store keeps it from opening now, and that is what is said (0.3-P3-fix5 #2).
+    try{saveWorkspaces(setActiveWorkspace(workspaces,open.workspaceId));}catch{const where=workspaces.workspaces.find(w=>w.id===open.workspaceId)?.name??'';toast(ui(`The board was imported and is in ${where}; it could not be opened now.`,`보드는 들여왔고 ${where}에 있습니다. 지금은 열지 못했습니다.`));return;}
+    hubCardCache.clear();
+  }
   openProject(open.project);
   toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
