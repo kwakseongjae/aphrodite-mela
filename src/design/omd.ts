@@ -148,7 +148,9 @@ export function graphSystem(project: Project, read: ReturnType<typeof importDesi
     ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
   } as DesignSystem);
   const kept = Object.keys(read.carried).filter(k => system.carried?.[k] !== undefined).length;
-  return {system, report: {...read.report, carried: kept, dropped: read.report.carried - kept}};
+  // Everything read that is neither painted, kept nor a non-colour was lost on the way: a name a project cannot
+  // store, two names that read the same, or a colour past the 200 a board carries.
+  return {system, report: {...read.report, carried: kept, dropped: read.report.read - read.report.skipped - read.report.painted - kept}};
 }
 
 export function importSummary(report: GraphImport['report'] & {dropped?: number}, ko: boolean): string {

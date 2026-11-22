@@ -51,3 +51,16 @@ test('the graph import counts what the board kept, and says how many names it co
   assert.match(importSummary(put.report,false),new RegExp(`${put.report.dropped} had names a project cannot store`));
   assert.equal(stable({...p,system:put.system}),true);
 });
+
+/* Codex 2026-11-22 (check 4): colours past the 200 a board carries, and names that read the same, were lost unsaid. */
+test('the graph import counts colours past the cap and colliding names among those it could not keep',()=>{
+  const tokens:Record<string,unknown>={primary:{$type:'color',$value:'#223344'}};
+  for(let i=0;i<201;i++)tokens[`brand-${i}`]={$type:'color',$value:'#'+(0x100000+i).toString(16)};
+  tokens['Brand-0']={$type:'color',$value:'#abcdef'};
+  const p=initialProject();
+  const read=importDesignGraph({foundations:{tokens}});
+  const put=graphSystem(p,read,'Big','Imported');
+  assert.equal(put.report.read,read.report.read);
+  assert.equal(put.report.painted+put.report.carried+put.report.skipped+put.report.dropped,put.report.read,'every token read is accounted for');
+  assert.ok(put.report.dropped>=2,'at least the one past the cap and the colliding name');
+});
