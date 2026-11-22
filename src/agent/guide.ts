@@ -30,7 +30,7 @@ export const playbook = [
   '3. `aphrodite_list_components` — the kinds and variants you may add.',
   '',
   '## Reading needs no permission. Changing does.',
-  'Reading needs nothing but an open board. Changing needs the person to have opened the door, in one of two ways:',
+  'Reading the board needs nothing but an open one (the component list and shared references read on Home too). Changing needs the person to have opened the door, in one of two ways:',
   '- **Connected mode** — they keep working, you edit alongside them, a banner counts your changes and ⌘Z takes any of them back.',
   '- **Agent mode** — they hand over the whole screen and are locked out until they end it.',
   '',

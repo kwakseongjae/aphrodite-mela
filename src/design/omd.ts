@@ -157,8 +157,8 @@ export function importSummary(report: GraphImport['report'] & {dropped?: number}
   const {read, painted, carried, skipped, dropped = 0} = report;
   if (!read) return ko ? '이 파일에서 토큰을 찾지 못했습니다.' : 'No tokens were found in that file.';
   return ko
-    ? `토큰 ${read}개 중 ${painted}개를 화면에 적용하고, ${carried}개는 그대로 보관했습니다${skipped ? `. ${skipped}개는 색이 아니어서 읽지 않았습니다` : ''}${dropped ? `. ${dropped}개는 프로젝트가 저장할 수 없는 이름이라 버렸습니다` : ''}.`
-    : `Of ${read} tokens, ${painted} are painted and ${carried} carried${skipped ? `; ${skipped} were not colours and were left` : ''}${dropped ? `; ${dropped} had names a project cannot store and were dropped` : ''}.`;
+    ? `토큰 ${read}개 중 ${painted}개를 화면에 적용하고, ${carried}개는 그대로 보관했습니다${skipped ? `. ${skipped}개는 색이 아니어서 읽지 않았습니다` : ''}${dropped ? `. ${dropped}개는 남기지 못했습니다` : ''}.`
+    : `Of ${read} tokens, ${painted} are painted and ${carried} carried${skipped ? `; ${skipped} were not colours and were left` : ''}${dropped ? `; ${dropped} could not be kept` : ''}.`;
 }
 
 /** The type roles, for a caller that wants them separately. */

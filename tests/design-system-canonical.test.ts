@@ -48,7 +48,7 @@ test('the graph import counts what the board kept, and says how many names it co
   assert.equal(put.report.carried,kept);
   assert.equal(put.report.dropped,read.report.carried-kept);
   assert.ok(put.report.dropped>0,'Brand Blue and link_hover are names a project cannot store');
-  assert.match(importSummary(put.report,false),new RegExp(`${put.report.dropped} had names a project cannot store`));
+  assert.match(importSummary(put.report,false),new RegExp(`${put.report.dropped} could not be kept`));
   assert.equal(stable({...p,system:put.system}),true);
 });
 
@@ -63,4 +63,7 @@ test('the graph import counts colours past the cap and colliding names among tho
   assert.equal(put.report.read,read.report.read);
   assert.equal(put.report.painted+put.report.carried+put.report.skipped+put.report.dropped,put.report.read,'every token read is accounted for');
   assert.ok(put.report.dropped>=2,'at least the one past the cap and the colliding name');
+  /* Codex 2026-11-22 (check 5): the toast blamed the names for colours lost to the cap and to collisions. */
+  for(const ko of [false,true])assert.doesNotMatch(importSummary(put.report,ko),/name|이름/,'the reason is not given as the name');
+  assert.match(importSummary(put.report,true),new RegExp(`${put.report.dropped}개는 남기지 못했습니다`));
 });

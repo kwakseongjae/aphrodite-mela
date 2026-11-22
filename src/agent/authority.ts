@@ -126,6 +126,6 @@ export type Origin = 'person' | AgentTurn | undefined;
 export type Pressed = Event & {by?: AgentTurn};
 export function pressedBy(e: Event): Origin { return e.isTrusted ? 'person' : (e as Pressed).by; }
 /** Off the editor there is no open board: the copy left in memory is not the one the person sees on Home. */
-export const NO_BOARD = 'no board is open: the person is on Home. Ask them to open a project, or open one with aphrodite_use_interface: click [data-action="hub-open"] opens the first project card; click [data-action="new-project"], then type a name into #new-project-form input[name="name"] with submit, starts a new one. Then carry on.';
+export const NO_BOARD = 'no board is open: the person is on Home. Ask them to open a project, or, if they have let you edit, open one with aphrodite_use_interface: click [data-action="hub-open"] opens the first project card; click [data-action="new-project"], then type a name into #new-project-form input[name="name"] with submit, starts a new one. Then carry on.';
 /** Home's actions change library entries, and one of them may be the board open in the editor, so they run on Home only. */
 export const HOME_ONLY = 'that is a Home action, and a board is open: it runs only on Home. Ask the person, or send act {action:"home"} first.';
