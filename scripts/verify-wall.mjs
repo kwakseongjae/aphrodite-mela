@@ -257,6 +257,7 @@ check('every page built to slip past the cleaner, cleaned in WebKit as the app c
   console.log(`       ${got.inputs} inputs; controls that reached out: ${got.alive}`);
   assert.deepEqual(got.refused, [], 'every input is cleaned, none refused');
   assert.deepEqual(got.unrecorded, [], 'every file opened in WebKit came back with what it did');
+  assert.deepEqual(got.noControl, [], 'every input\'s control came back from the cleaning, so none drops out unseen');
   assert.deepEqual(got.reached, [], 'no cleaned page reached out');
   assert.deepEqual(got.holding, [], 'no cleaned page holds anything that runs or loads, and each has its policy first in its head');
   assert.deepEqual(got.unread, [], 'every cleaned page was read where it opened');

@@ -54,6 +54,9 @@ export async function cleanerMatrix(tmp, {only} = {}) {
     const out = {};
     for (const line of await run({mode: 'clean', url: `http://127.0.0.1:${SITE}/cleaner.html`, pages: names.flatMap(n => [{id: n + '|C', src: src(n, 'C'), scripts: false}, {id: n + '|S', src: src(n, 'S'), scripts: true}])})) if (line.id) out[line.id] = line.html ?? 'refused: ' + line.error;
     const refused = names.filter(n => !out[n + '|C'] || out[n + '|C'].startsWith('refused: ')).map(n => [n, (out[n + '|C'] ?? 'no answer').slice(0, 160)]);
+    // Each input's control, the same page with its scripts, came back from the cleaning too: one that did not would drop
+    // out of what is expected and of the dead controls alike, unseen (0.3-P3-fix4).
+    const noControl = names.filter(n => !out[n + '|S'] || out[n + '|S'].startsWith('refused: ')).map(n => [n, (out[n + '|S'] ?? 'no answer').slice(0, 160)]);
     const opened = names.filter(n => out[n + '|C'] && !out[n + '|C'].startsWith('refused: '));
     for (const n of opened) writeFileSync(join(files, n + '.C.html'), '\ufeff' + out[n + '|C']);
     for (const n of names) if (out[n + '|S'] && !out[n + '|S'].startsWith('refused: ')) writeFileSync(join(files, n + '.S.html'), '\ufeff' + out[n + '|S']);
@@ -98,7 +101,7 @@ export async function cleanerMatrix(tmp, {only} = {}) {
     }
     const cleaned = windows.filter(w => w.variant === 'C');
     return {
-      inputs: names.length, refused, unrecorded,
+      inputs: names.length, refused, unrecorded, noControl,
       // A name that hides one of the document's or a form's own is taken off the element, so the page received hides nothing either.
       hiding: opened.filter(n => /\s(?:name|id)="(?:documentElement|head|body|querySelectorAll|createElement|nextSibling|firstChild|forms|images)"/.test(out[n + '|C'])),
       reached: cleaned.filter(w => w.reached).map(w => [w.engine, w.name, w.http, w.tcp, w.left, w.navs]),
