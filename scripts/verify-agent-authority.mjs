@@ -922,6 +922,43 @@ check('on Home, whatever is pressed leaves every board in the library as it was'
   assert.equal(await library(), before, 'the library is byte for byte the same');
 });
 
+/* Codex 2026-11-22 (check 5): the early 409 skipped the reset, so the person's next edit was receipted as the agent's. */
+check('after an agent command refused on Home, the person\'s next edit is receipted as theirs', async () => {
+  const start = (await saved('Start')).id;
+  await control('hub-open', {id: start});
+  await sleep(500);
+  await control('agent');
+  await sleep(200);
+  if (!await evaluate(`!!document.querySelector('#assembly-run-form')`)) { await control('assembly-end'); await sleep(200); await control('agent'); await sleep(200); }
+  assert.equal(await personSubmits('#assembly-run-form', {intent: 'receipts'}), true, 'an assembly run started');
+  await sleep(300);
+  await closeModal();
+  await control('home');
+  await sleep(300);
+  refusedNoBoard(await agent('command', {query: 'Preview'}), 'command Preview on Home');
+  await control('hub-open', {id: start});
+  await sleep(500);
+  await control('add', {kind: 'cta'});
+  await sleep(300);
+  await captureDownloads();
+  await control('assembly-log');
+  await sleep(300);
+  const last = JSON.parse(await lastDownload() ?? '{}').events?.at(-1);
+  assert.ok(last, 'the run log came out with the edit in it');
+  assert.equal(last.kind, 'catalog:add', 'the receipt is the person\'s add');
+  assert.equal(last.details?.by, undefined, `no agent on the person's receipt: ${JSON.stringify(last).slice(0, 300)}`);
+  await control('assembly-end');
+  await sleep(200);
+  await closeModal();
+});
+
+/* Codex 2026-11-22 (check 5): the palette search on Home was built from the last board's page names. */
+check('on Home a palette request answers "no board is open" whatever the last board was', async () => {
+  await control('home');
+  await sleep(300);
+  for (const query of ['Qwxyzzy', 'Home']) refusedNoBoard(await agent('command', {query}), `command ${query}`);
+});
+
 /* The rule the prefixes broke: a button a screen draws can be pressed on that screen. Every window and band the
    browser build can open, on each screen, with every menu unfolded. */
 const screensModule = await build({entryPoints: ['src/editor/screens.ts'], bundle: true, write: false, format: 'esm', logLevel: 'silent'});

@@ -1557,7 +1557,7 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
       case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};const control=el.closest<HTMLElement>('[data-action]');if(control&&!boardOpen()&&actionScreen(control.dataset.action??'')==='editor')return {error:NO_BOARD,status:409};if(control&&writesApproval(control.dataset.action??'',isApproved(project)))return {error:APPROVAL_REFUSED,status:403};clickAs(el,turn);recordRun('agent:click',{selector:c.selector});break;}
       case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(c.submit)el.form?.requestSubmit();recordRun('agent:type',{selector:c.selector,length:c.text.length});break;}
       case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};for(const type of ['keydown','keyup']){const ev=new KeyboardEvent(type,init) as Pressed;ev.by=turn;document.body.dispatchEvent(ev);}recordRun('agent:key',{key:c.key});break;}
-      case 'command':{const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};if(!boardOpen()&&actionScreen(hit.action)==='editor')return {error:NO_BOARD,status:409};if(writesApproval(hit.action,isApproved(project)))return {error:APPROVAL_REFUSED,status:403};await actViaButton(hit.action,hit.data??{},turn);recordRun('agent:command',{query:c.query,command:hit.id});break;}
+      case 'command':{if(!boardOpen())return {error:NO_BOARD,status:409};const hit=filterCommands(commandTable(paletteContext()),c.query,uiLanguage)[0];if(!hit)return {error:`no palette command matches "${c.query}"`};if(writesApproval(hit.action,isApproved(project)))return {error:APPROVAL_REFUSED,status:403};await actViaButton(hit.action,hit.data??{},turn);recordRun('agent:command',{query:c.query,command:hit.id});break;}
       case 'references':{
         if(!nativeDesktop)return {error:'the reference archive is desktop only'};
         await archive.load(true);
@@ -1683,8 +1683,8 @@ async function agentCommand(kind:unknown,payload:unknown,caller:string|undefined
       }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
-  }catch(error){commandCaller='';if(error instanceof NoBoardOpen)return {error:NO_BOARD,status:409};return {error:error instanceof Error?error.message:String(error)};}
-  commandCaller='';
+  }catch(error){if(error instanceof NoBoardOpen)return {error:NO_BOARD,status:409};return {error:error instanceof Error?error.message:String(error)};}
+  finally{commandCaller='';}
   if(agentMode()==='connected')bumpConnect(who);
   await new Promise(r=>setTimeout(r,60));
   return agentState();
