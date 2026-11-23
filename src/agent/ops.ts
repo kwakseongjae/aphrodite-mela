@@ -382,6 +382,21 @@ export type Batch = {ops: Op[]; patch: PatchOp[]; pageId?: string; reason: strin
  * Validates everything `aphrodite_apply_edits` was sent, before a single thing is changed: the ops,
  * the patch, the reason, and the revision the agent last read.
  */
+/**
+ * What a batch sent with base_revision leaves to where the person is looking (0.3-R fix 1 #6), or undefined. The revision
+ * does not move when the person opens another page or selects another component, so an op that works on "the page open"
+ * or on "selection" could land somewhere the agent never read: with a revision, it names its page (page_id) and its
+ * component (block_id). A page the batch makes names itself for the ops after it.
+ */
+function leansOnView(ops: Op[], pageId: string | undefined): string | undefined {
+  for (const [i, op] of ops.entries()) {
+    if (op.op === 'page' && op.page_id === undefined) return undefined;
+    if ('block_id' in op && op.block_id === SELECTION) return `ops[${i}].block_id is "${SELECTION}". A batch sent with base_revision names its component: use the block_id from aphrodite_get_contract.`;
+    if (!pageId && (['add', 'update', 'move', 'delete'].includes(op.op) || (op.op === 'frame' && op.page_id === undefined))) return `ops[${i}] works on the page open, which can change without the revision changing. A batch sent with base_revision names its page: add "page_id" from aphrodite_get_contract.`;
+  }
+  return undefined;
+}
+
 export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
   const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
   const reason = typeof p.reason === 'string' ? p.reason.trim() : '';
@@ -406,6 +421,7 @@ export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
     ops = hasOps ? parsed.ops : [];
     pageId = parsed.pageId;
   }
+  if (baseRevision) { const unnamed = leansOnView(ops, pageId); if (unnamed) return {error: unnamed}; }
   const patch: PatchOp[] = [];
   if (hasPatch) {
     const list = p.patch as unknown[];

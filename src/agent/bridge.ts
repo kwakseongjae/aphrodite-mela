@@ -250,6 +250,8 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       if(blockId!==undefined&&!/^[a-zA-Z0-9_-]{1,200}$/.test(blockId))return {error:'bad blockId'};
       const why=reasonOf(p.reason,true);if('error' in why)return why;
       const read=revisionOf(p);if('error' in read)return read;
+      // Sent with the revision it read, an edit names its block: the selection can move without the revision moving (0.3-R fix 1 #6).
+      if(read.baseRevision&&!blockId)return {error:'edit sent with base_revision names its block: add "blockId" from aphrodite_get_contract rather than leaning on the selection.'};
       return {command:{kind:'edit',field,text,...(blockId?{blockId}:{}),reason:why.reason!,...read}};
     }
     default:return {error:`unknown command kind "${String(kind)}"`};

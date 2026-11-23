@@ -148,7 +148,8 @@ check('a sample project is open and the door is open to agents', async () => {
 
 const systems = ['mono', 'toss', 'seed', 'karrot', 'shadcn', 'mui'];
 const payloads = {
-  'edit.apply': async () => ({reason: WHY, base_revision: await revision(), ops: [{op: 'add', component_kind: 'cta'}]}),
+  // Sent with a revision, a batch names its page (0.3-R fix 1 #6).
+  'edit.apply': async () => ({reason: WHY, base_revision: await revision(), page_id: await (async () => { const pages = (await read('contract', {})).pages; return (pages.find(p => p.active && !p.kind) ?? pages.find(p => !p.kind)).page_id; })(), ops: [{op: 'add', component_kind: 'cta'}]}),
   'edit.text': async surface => ({reason: WHY, base_revision: await revision(), field: 'title', text: `Written by an agent on ${surface}`, blockId: await blockOf('hero')}),
   'edit.system': async () => ({reason: WHY, base_revision: await revision(), id: systems.shift()}),
 };

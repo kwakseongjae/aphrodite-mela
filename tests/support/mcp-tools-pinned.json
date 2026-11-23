@@ -645,7 +645,7 @@
         },
         "base_revision": {
           "type": "string",
-          "description": "The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed."
+          "description": "The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection."
         }
       },
       "required": [
@@ -927,7 +927,7 @@
         },
         "base_revision": {
           "type": "string",
-          "description": "The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed."
+          "description": "The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection."
         },
         "patch": {
           "type": "array",

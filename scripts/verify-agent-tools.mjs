@@ -232,11 +232,12 @@ check('a revision read before the person resized a frame is refused (409, nothin
   assert.notEqual(after.revision, revision);
   await sleep(5_200);
   const {seq} = await agent('changes', {limit: 1});
-  const refused = await agent('apply', {reason: WHY, base_revision: revision, ops: [{op: 'frame', preset: 'desktop'}]});
+  const page_id = after.pages[0].page_id;
+  const refused = await agent('apply', {reason: WHY, base_revision: revision, page_id, ops: [{op: 'frame', preset: 'desktop'}]});
   assert.equal(refused.status, 409, JSON.stringify(refused).slice(0, 300));
   assert.equal((await agent('changes', {limit: 1})).seq, seq, 'nothing changed');
   assert.equal((await agent('contract')).pages[0].frame.preset, 'mobile');
-  const sent = await agent('apply', {reason: WHY, base_revision: refused.revision, ops: [{op: 'frame', preset: 'desktop'}]});
+  const sent = await agent('apply', {reason: WHY, base_revision: refused.revision, page_id, ops: [{op: 'frame', preset: 'desktop'}]});
   assert.ok(sent.ok, `sent again with the revision the 409 gave, it lands: ${JSON.stringify(sent).slice(0, 300)}`);
   assert.equal(sent.receipt.savedRevision, sent.revision, 'the receipt and the reply name the same revision');
   const last = (await agent('changes', {since: sent.seq - 1})).changes.at(-1);
@@ -247,8 +248,10 @@ check('a revision read before the person resized a frame is refused (409, nothin
    and change nothing: the person's words are saved first, as their own change, and the revision then is not the one read. */
 check('edit and system sent with the revision read before the person typed are refused with a 409, and the board keeps what they typed', async () => {
   await send('Emulation.clearDeviceMetricsOverride');
-  const contract = await agent('contract');
-  const block = contract.pages[0].blocks?.[0]?.block_id ?? (await evaluate(`document.querySelector('.space-frame.active [data-block-id]')?.dataset.blockId`));
+  await sleep(5_200);
+  const added = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.ok(added.ok, JSON.stringify(added).slice(0, 200));
+  const block = added.receipt.changedNodes[0]?.id;
   assert.ok(block, 'a block to edit');
   await pressDoor('select', {id: block});
   await sleep(300);

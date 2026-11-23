@@ -194,3 +194,32 @@ test('text cut to a length never ends on half a pair', () => {
   assert.ok(!c.reason!.includes('\uFFFD'), 'cut, not mended');
   assert.match(readFileSync(new URL('../src/agent/apply.ts', import.meta.url), 'utf8'), /name: clip\(name, MAX_PAGE_NAME\)/, 'a media item\'s name');
 });
+
+/* 6 (as decided 2026-11-23): a write sent with the revision it read names what it changes. A page opened or a selection
+   moved since does not change the revision, so a batch that leans on them would land elsewhere. Without base_revision a
+   write is not checked, and the tools say so. */
+import {parseAgentCommand} from '../src/agent/bridge.ts';
+import {mcpTools} from '../src/agent/commands.mjs';
+const REV = 'r2:1:2:3';
+test('a batch sent with base_revision names its page for the ops that work on one, and a component by id, not the selection', () => {
+  for (const [ops, what] of [
+    [[{op: 'add', component_kind: 'hero'}], /page_id/],
+    [[{op: 'update', block_id: 'selection', fields: {title: 'x'}}], /selection/],
+    [[{op: 'frame', preset: 'mobile'}], /page_id/],
+  ] as const) {
+    const got = parseBatch({reason: REASON, base_revision: REV, ops});
+    assert.ok('error' in got, JSON.stringify(ops));
+    assert.match((got as {error: string}).error, what);
+  }
+  assert.ok('batch' in parseBatch({reason: REASON, base_revision: REV, page_id: 'p1', ops: [{op: 'add', component_kind: 'hero'}]}), 'with the page named it goes');
+  assert.ok('batch' in parseBatch({reason: REASON, base_revision: REV, ops: [{op: 'page', name: 'New'}, {op: 'add', component_kind: 'hero'}]}), 'a page it makes is named by the making');
+  assert.ok('batch' in parseBatch({reason: REASON, ops: [{op: 'add', component_kind: 'hero'}]}), 'without base_revision nothing changes: it is not checked, as the tools say');
+  const edit = parseAgentCommand('edit', {reason: REASON, base_revision: REV, field: 'title', text: 'x'});
+  assert.ok('error' in edit && /blockId/.test(edit.error), 'edit with a revision names its block');
+});
+test('the tools say a write without base_revision is not checked', () => {
+  for (const name of ['aphrodite_apply_edits', 'aphrodite_set_design_system']) {
+    const tool = mcpTools().find(t => t.name === name)!;
+    assert.match(JSON.stringify(tool), /without base_revision[^"]*not checked/i, name);
+  }
+});

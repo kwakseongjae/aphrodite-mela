@@ -43,7 +43,7 @@ export const playbook = [
   '## Making a change',
   'Send the whole change as one `aphrodite_apply_edits` call. It lands as a single undo step, so the person can take back your work in one press. If any operation in it is wrong, none are applied.',
   '',
-  'Give every call a `reason`: one sentence, for the person, on why. It is shown beside the change and stays with it. Send the `revision` you last read as `base_revision`; if the person has changed the project since, nothing is applied and the reply lists what they changed, so you build on their work.',
+  'Give every call a `reason`: one sentence, for the person, on why. It is shown beside the change and stays with it. Send the `revision` you last read as `base_revision` (without it nothing is checked); if the person has changed the project since, nothing is applied and the reply lists what changed.',
   '',
   '`aphrodite_set_design_system` takes the same `reason` and `base_revision`, and a `command` through `aphrodite_use_interface` may carry a `reason`. Whatever you change is recorded under your name, never as the person\'s.',
   '',

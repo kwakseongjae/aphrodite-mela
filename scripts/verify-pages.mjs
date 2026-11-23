@@ -656,7 +656,8 @@ check('an agent batch written against the revision before the person’s typing 
   const rev = (await agent('changes', {limit: 1})).revision;
   const id = await typeIntoTitle(' 사람이 친 글');
   await sleep(5_200); // the person's keys hold the screen for five seconds; the field keeps the focus
-  const got = await agent('apply', {reason: WHY, base_revision: rev, ops: [{op: 'update', block_id: id, fields: {title: 'Written by the agent'}}]});
+  const page_id = await evaluate(`document.querySelector('[data-block-id="${id}"]')?.closest('[data-page-id]')?.dataset.pageId`);
+  const got = await agent('apply', {reason: WHY, base_revision: rev, page_id, ops: [{op: 'update', block_id: id, fields: {title: 'Written by the agent'}}]});
   assert.equal(got.status, 409, JSON.stringify(got).slice(0, 300));
   assert.match(await titleOf(id) ?? '', / 사람이 친 글$/, 'the person’s text stands');
   const {changes} = await agent('changes', {limit: 3});
@@ -993,7 +994,8 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
     if (!(await evaluate(`document.querySelector('[data-export-scripts]')?.checked`))) await evaluate(`document.querySelector('[data-export-scripts]').click(), true`);
     await sleep(300);
     await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
-    await personPresses(opening); await sleep(600);
+    // A real press carries what the button was drawn over (0.3-R): the review card's.
+    await personPresses(opening, opening === 'approve' ? {shown: await evaluate(`document.querySelector('.review-card [data-action="approve"]')?.dataset.shown ?? ''`)} : {}); await sleep(600);
     assert.equal(await evaluate(`!!document.querySelector('[data-export-page]')`), opens, `${opening} ${opens ? 'opens the dialog' : 'opens no dialog'}`);
     if (!opens) continue;
     assert.equal(await evaluate(`document.querySelector('[data-export-scripts]').checked`), false, `opened by ${opening}, the dialog leaves the scripts out`);
@@ -1252,7 +1254,7 @@ check('a page sent with its video beside it is a zip of the page and the video, 
 check('a board saved as a board file opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
   await personPresses('page', {id: viewId}); await sleep(300);
   await personPresses('export'); await sleep(600);
-  if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export'); await sleep(400); }
+  if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export', {shown: await evaluate(`document.querySelector('#modal-root [data-action="approve-export"]').dataset.shown`)}); await sleep(400); }
   assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'approved', 'the board sent is approved here');
   const save = await downloads();
   const board = await save('download-board-file');

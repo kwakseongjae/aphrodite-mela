@@ -31,7 +31,7 @@ const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint:
 const NOTHING = {type: 'object', properties: {}, additionalProperties: false};
 /** What an edit that is `reason: 'required'` and `revision: 'checked'` takes besides its own input. */
 const REASON = {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'};
-const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed.'};
+const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection.'};
 /** A screen verb's reason is optional: it is kept with the change the verb reaches, when there is one. */
 const OPTIONAL_REASON = {type: 'string', maxLength: 500, description: 'Optional. One sentence for the person on why, kept with the change this makes.'};
 const UI = {ui: true, mcp: false, loopback: false, inApp: false};
@@ -459,7 +459,7 @@ export const commands = [
         },
         page_id: {type: 'string', description: 'The page to edit. Defaults to the one the person is on.'},
         reason: {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'},
-        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed.'},
+        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection.'},
         patch: {type: 'array', maxItems: 400, items: {type: 'object'}, description: 'Ops exactly as aphrodite_get_changes returns them, to replay a change. Applied after ops. Cannot approve anything.'},
       },
       required: ['reason'],
