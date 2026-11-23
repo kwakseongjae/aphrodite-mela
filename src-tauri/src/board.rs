@@ -245,7 +245,8 @@ pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
-/// Writes the copy a frame loads (publish), as a write naming no frame that shows a copy.
+/// Writes the copy a frame loads (publish), as a write naming no frame that shows a copy: what the tests write.
+#[cfg(test)]
 pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Result<PathBuf, String> {
     publish(base, page, key, html, &[], PAGES_BOUND)
 }
