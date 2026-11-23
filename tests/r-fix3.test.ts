@@ -136,3 +136,8 @@ test('deleting a workspace puts back only what is still where it moved it, and e
   assert.match(del, /await moveOut\(\);if\(here\(\)\)await moveOut\(\);/, 'what arrived while it waited moves too');
   assert.ok(del.indexOf('if(here())throw') > del.indexOf('await moveOut();if(here())await moveOut();') && del.indexOf('if(here())throw') < del.indexOf('saveWorkspaces(book)'), 'and a workspace still holding projects is not deleted');
 });
+
+/* 9: a tab closed while the person is still in a field puts those words in first, then asks if they could not be saved. */
+test('the browser build puts in what is being typed before it decides whether to warn', () => {
+  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{saveTyping\(\);if\(!lastSaved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
+});
