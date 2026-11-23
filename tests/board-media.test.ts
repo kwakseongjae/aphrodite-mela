@@ -192,6 +192,9 @@ test('a batch with files is held to the page it arrived on, and lands there afte
   assert.equal(page(first).blocks.filter(b => b.kind === 'cta').length, initialProject().pages[0]!.blocks.filter(b => b.kind === 'cta').length + 1, 'the component landed on the page it arrived on');
   assert.equal(page('second').blocks.length, 0);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /const held:Batch=heldBatch\(batch,project\);\n\s*const imported=withFiles\?await importMedia\(/, 'applyBatch holds the batch before its one wait, and waits only for files');
+  // 0.3-R: a batch with files is run ahead (preflightBatch) and the door asked before the copy; neither waits.
+  assert.match(main, /const held:Batch=heldBatch\(batch,project\);\n(?:.*\n){0,5}?\s*const imported=withFiles\?await importMedia\(/, 'applyBatch holds the batch before its one wait, and waits only for files');
+  const ahead = main.slice(main.indexOf('const held:Batch=heldBatch(batch,project);'), main.indexOf('const imported=withFiles?await importMedia('));
+  assert.doesNotMatch(ahead, /await /, 'nothing before the copy waits');
   assert.match(main, /const result=runBatch\(project,held,selected,media\);/);
 });
