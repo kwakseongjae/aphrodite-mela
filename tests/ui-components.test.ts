@@ -89,18 +89,22 @@ const focusable:Record<string,'self'|'within'|'switch'>={
   'ui-input':'self','ui-textarea':'self',
   // A box around a native field takes focus from inside it.
   'ui-select':'within','ui-composer':'within',
-  // The checkbox under the track takes focus; the track draws it.
-  'ui-switch-track':'switch',
+  // The checkbox under the track (or the box) takes focus; the track (or the box) draws it.
+  'ui-switch-track':'switch','ui-check-box':'switch',
+  'ui-menu-item':'self','ui-option':'within',
 };
 
+/** For a part drawn beside a hidden input: the label it sits in, and the input before it. */
+const drawnFor:Record<string,[host:string,input:string]>={'ui-switch-track':['ui-switch','ui-switch-input'],'ui-check-box':['ui-check','ui-check-input']};
 function focused(chain:El[],how:'self'|'within'|'switch',from:'keyboard'|'gallery'){
   const target=chain.at(-1)!,above=chain.slice(0,-1);
-  if(from==='gallery'){(how==='switch'?above.find(e=>e.classes.has('ui-switch'))!:target).classes.add('is-focus');return chain;}
+  const [host,input]=drawnFor[Object.keys(drawnFor).find(k=>target.classes.has(k))??'ui-switch-track'];
+  if(from==='gallery'){(how==='switch'?above.find(e=>e.classes.has(host))!:target).classes.add('is-focus');return chain;}
   for(const e of above)e.states.add('focus-within');
   if(how==='within')target.states.add('focus-within');
   if(how==='self')for(const s of ['focus','focus-visible','focus-within'])target.states.add(s);
   if(how==='switch'){
-    target.prev=target.prev?.length?target.prev:[el(['ui-switch-input'])];
+    target.prev=target.prev?.length?target.prev:[el([input])];
     for(const input of target.prev)for(const s of ['focus','focus-visible'])input.states.add(s);
   }
   return chain;
@@ -174,7 +178,8 @@ test('the ring check sees a state rule that replaces the ring',()=>{
 const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
   'ui-btn':[{states:['disabled']}],'ui-icon-btn':[{states:['disabled']}],'ui-chip':[{states:['disabled']}],'ui-seg-item':[{states:['disabled']}],
   'ui-tab':[{states:['disabled']}],'ui-attach':[{states:['disabled']}],'ui-send':[{states:['disabled']}],'ui-input':[{states:['disabled']}],'ui-textarea':[{states:['disabled']}],
-  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],'ui-fab':[{states:['disabled']}],
+  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],'ui-fab':[{states:['disabled']}],'ui-menu-item':[{states:['disabled']},{classes:['is-disabled']}],
+  'ui-option':[{states:[hasFlag('> .ui-option-input:disabled')]},{classes:['is-disabled']}],
   'ui-select':[{states:[hasFlag('> select:disabled')]},{classes:['is-disabled']}],
 };
 export function litWhileDisabled(css:string){

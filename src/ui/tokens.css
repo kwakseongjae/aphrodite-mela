@@ -105,7 +105,9 @@
   --ui-composer-sm-min-h: 64px;
   --ui-composer-lg-min-h: 152px;
   --ui-modal-w: 420px;
+  --ui-modal-w-md: 560px;
   --ui-modal-w-lg: 600px;
+  --ui-strip-h: 36px;
   --ui-thumb-w: 28px;
   --ui-thumb-h: 20px;
   --ui-handle: 7px;

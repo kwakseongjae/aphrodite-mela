@@ -362,6 +362,88 @@
       <span class="ui-gallery-row"><button class="ui-fab" aria-label="기본"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-hover" aria-label="호버"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-pressed" aria-label="눌림"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-focus" aria-label="포커스"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab" disabled aria-label="비활성"><i data-lucide="circle-help" class="ui-icon"></i></button></span>
       <span class="ui-gallery-note">도움말 단추: 기본 · 호버 · 눌림 · 포커스 · 비활성. 틀의 눈 단추(셋째 틀)는 포커스.</span>
     </div>
+
+    <!-- l3:C -->
+    <div class="ui-gallery-grid">
+      <div>
+        <h3 class="ui-gallery-h3">메뉴 · 단축키 · 구분선 · 위험 항목</h3>
+        <div class="ui-menu" role="menu" aria-label="보드">
+          <button class="ui-menu-item" role="menuitem"><i data-lucide="pencil" class="ui-icon ui-icon-sm"></i>이름 바꾸기<span class="ui-menu-key">⏎</span></button>
+          <button class="ui-menu-item is-hover" role="menuitem"><i data-lucide="copy" class="ui-icon ui-icon-sm"></i>복제 (호버)<span class="ui-menu-key">⌘D</span></button>
+          <button class="ui-menu-item is-pressed" role="menuitem"><i data-lucide="folder-open" class="ui-icon ui-icon-sm"></i>파일 보기 (눌림)<span class="ui-menu-key">⌘⇧R</span></button>
+          <button class="ui-menu-item is-focus" role="menuitem"><i data-lucide="archive" class="ui-icon ui-icon-sm"></i>보관하기 (포커스)</button>
+          <button class="ui-menu-item" role="menuitem" disabled><i data-lucide="share" class="ui-icon ui-icon-sm"></i>옮기기 (비활성)</button>
+          <div class="ui-menu-sep" role="separator"></div>
+          <button class="ui-menu-item is-danger" role="menuitem"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>지우기<span class="ui-menu-key">⌫</span></button>
+          <button class="ui-menu-item is-danger is-hover" role="menuitem"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>지우기 (호버)</button>
+        </div>
+      </div>
+      <div class="ui-gallery-two-span">
+        <h3 class="ui-gallery-h3">띠(위 줄): 연결됨 · 에이전트 모드 · 경고 · 폴더 없음</h3>
+        <div class="ui-gallery-stack">
+          <div class="ui-strip" role="status"><span class="ui-dot ui-dot-agent"></span><span class="ui-strip-strong">연결됨</span>·<span>Claude Code</span>·<span class="ui-strip-changes">변경 1개</span><span class="ui-strip-push">에이전트 편집도 ⌘Z로 되돌립니다</span><button class="ui-btn ui-btn-quiet"><i data-lucide="unplug" class="ui-icon ui-icon-xs"></i>연결 끊기</button></div>
+          <div class="ui-strip ui-strip-agent" role="status"><span class="ui-dot ui-dot-agent"></span><span class="ui-strip-strong">에이전트 모드</span>·<span>Claude Code가 이 보드를 고칠 수 있습니다</span><span class="ui-strip-changes">변경 3개</span><button class="ui-btn ui-btn-secondary ui-strip-push">멈추기</button></div>
+          <div class="ui-strip ui-strip-warn" role="status"><i data-lucide="triangle-alert" class="ui-icon ui-icon-sm"></i><span class="ui-strip-strong">디스크가 거의 찼습니다</span><span>남은 공간 1.2GB · 저장이 멈출 수 있습니다</span><button class="ui-btn ui-btn-quiet ui-strip-push">자세히</button></div>
+          <div class="ui-strip ui-strip-danger" role="status"><i data-lucide="folder-x" class="ui-icon ui-icon-sm"></i><span class="ui-strip-strong">보드 폴더를 찾을 수 없습니다</span><span class="ui-mono">~/Aphrodite/봄 컬렉션</span><button class="ui-btn ui-btn-secondary ui-strip-push">다시 찾기</button></div>
+        </div>
+        <h3 class="ui-gallery-h3">알림: 기본 · 되돌리기 단추 · 오류</h3>
+        <div class="ui-gallery-row">
+          <div class="ui-toast" role="status"><i data-lucide="check" class="ui-icon ui-icon-sm"></i>HTML로 저장했습니다</div>
+          <div class="ui-toast" role="status">페이지 1개를 지웠습니다<button class="ui-btn ui-btn-quiet ui-btn-small-text"><i data-lucide="undo-2" class="ui-icon ui-icon-xs"></i>되돌리기</button></div>
+          <div class="ui-toast ui-toast-error" role="alert"><i data-lucide="circle-alert" class="ui-icon ui-icon-sm"></i>저장하지 못했습니다<button class="ui-btn ui-btn-quiet ui-btn-small-text">다시 시도</button></div>
+          <div class="ui-toast ui-toast-error" role="alert">오류 · 단추 호버<button class="ui-btn ui-btn-quiet ui-btn-small-text is-hover">다시 시도</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ui-gallery-grid ui-gallery-two">
+      <div>
+        <h3 class="ui-gallery-h3">모달 틀(머리의 작은 표지 · 제목 · 닫기) · 선택지 카드 · 체크 줄 · 발</h3>
+        <div class="ui-gallery-stage">
+          <div class="ui-modal ui-modal-md" role="dialog" aria-labelledby="g-x-t">
+            <div class="ui-modal-head">
+              <div class="ui-modal-heading"><span class="ui-modal-kicker">봄 컬렉션 검수 보드</span><h2 class="ui-modal-title" id="g-x-t">내보내기</h2></div>
+              <button class="ui-icon-btn" aria-label="닫기"><i data-lucide="x" class="ui-icon"></i></button>
+            </div>
+            <div class="ui-modal-body ui-modal-stack" role="radiogroup" aria-label="무엇을">
+              <label class="ui-option"><input type="radio" name="g-x" class="ui-option-input" checked><span class="ui-option-radio"></span><span class="ui-option-icon"><i data-lucide="file-code" class="ui-icon"></i></span>
+                <span><span class="ui-option-name">이 페이지를 HTML로 <span class="ui-option-ext">.html</span></span><span class="ui-option-why">11월 4주 제품 브리핑 한 장을 HTML 파일 하나로 내보냅니다.</span></span>
+                <span class="ui-option-sub"><label class="ui-check"><input type="checkbox" class="ui-check-input"><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">페이지의 스크립트 포함</span><span class="ui-check-help">빼면 폼이 보내는 주소, 안에 띄운 틀, 다른 페이지로 가는 링크가 빠집니다.</span></label></span>
+              </label>
+              <label class="ui-option"><input type="radio" name="g-x" class="ui-option-input"><span class="ui-option-radio"></span><span class="ui-option-icon"><i data-lucide="package" class="ui-icon"></i></span>
+                <span><span class="ui-option-name">보드 파일 <span class="ui-option-ext">.aph</span></span><span class="ui-option-why">페이지 2개, 그림 1개, 영상 1개와 놓인 자리를 파일 하나로. 받은 사람의 Aphrodite에서 그대로 열립니다.</span></span>
+              </label>
+              <label class="ui-check ui-check-boxed"><input type="checkbox" class="ui-check-input" checked><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">누가·왜 기록 포함</span><span class="ui-check-help">바뀐 것마다 누가 고쳤고 왜 고쳤는지가 함께 담깁니다.</span></label>
+            </div>
+            <div class="ui-modal-foot ui-modal-foot-plain"><span class="ui-modal-foot-note"><i data-lucide="hard-drive" class="ui-icon ui-icon-sm"></i>이 Mac에 저장합니다</span><button class="ui-btn ui-btn-secondary ui-btn-md">취소</button><button class="ui-btn ui-btn-primary ui-btn-md"><i data-lucide="download" class="ui-icon ui-icon-sm"></i>내보내기</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 class="ui-gallery-h3">확인 창(위험) · 선택지 카드와 체크 줄의 상태</h3>
+        <div class="ui-gallery-stage">
+          <div class="ui-modal" role="alertdialog" aria-labelledby="g-d-t">
+            <div class="ui-modal-body">
+              <h2 class="ui-modal-title" id="g-d-t">"봄 컬렉션 검수 보드"를 지울까요?</h2>
+              <p class="ui-modal-text">페이지 2개, 그림 1개, 영상 1개가 함께 지워집니다. 이 Mac의 휴지통으로 옮기므로 Finder에서 되살릴 수 있습니다.</p>
+            </div>
+            <div class="ui-modal-foot"><button class="ui-btn ui-btn-quiet">취소</button><button class="ui-btn ui-btn-danger"><i data-lucide="trash-2" class="ui-icon ui-icon-sm"></i>지우기</button></div>
+          </div>
+        </div>
+        <div class="ui-gallery-stack ui-gallery-gap">
+          <label class="ui-option is-hover"><input type="radio" name="g-s1" class="ui-option-input"><span class="ui-option-radio"></span><span class="ui-option-icon"><i data-lucide="package" class="ui-icon"></i></span><span><span class="ui-option-name">호버</span><span class="ui-option-why">테두리가 조작 테두리 색으로.</span></span></label>
+          <label class="ui-option is-on is-focus"><input type="radio" name="g-s2" class="ui-option-input" checked><span class="ui-option-radio"></span><span class="ui-option-icon"><i data-lucide="package" class="ui-icon"></i></span><span><span class="ui-option-name">고름 + 포커스</span><span class="ui-option-why">잉크 테두리 밖에 포커스 고리.</span></span></label>
+          <label class="ui-option"><input type="radio" name="g-s3" class="ui-option-input" disabled><span class="ui-option-radio"></span><span class="ui-option-icon"><i data-lucide="package" class="ui-icon"></i></span><span><span class="ui-option-name">비활성</span><span class="ui-option-why">고를 수 없을 때.</span></span></label>
+          <div class="ui-gallery-row ui-gallery-wide">
+            <label class="ui-check"><input type="checkbox" class="ui-check-input"><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">기본</span></label>
+            <label class="ui-check is-hover"><input type="checkbox" class="ui-check-input"><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">호버</span></label>
+            <label class="ui-check"><input type="checkbox" class="ui-check-input" checked><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">켜짐</span></label>
+            <label class="ui-check is-focus"><input type="checkbox" class="ui-check-input" checked><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">포커스</span></label>
+            <label class="ui-check"><input type="checkbox" class="ui-check-input" disabled><span class="ui-check-box"><i data-lucide="check" class="ui-icon"></i></span><span class="ui-check-label">비활성</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- l3:end -->
   </section>
 
@@ -369,11 +451,11 @@
 </div>
 
 <script type="module">
-  import {createIcons, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
+  import {createIcons, Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
   import {primitives, pairs, resolve} from '/src/ui/tokens.ts';
   import {contrastRatio} from '/src/design/contrast.ts';
 
-  createIcons({icons: {Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
+  createIcons({icons: {Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
 
   const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
   const swatch = name => el('i', {style: `background: var(--ui-${name})`});

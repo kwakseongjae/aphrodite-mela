@@ -32,7 +32,8 @@
 /* Parts carry their own type, so one dropped into an older screen still reads as itself. */
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
-.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab {
+.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab,
+.ui-menu, .ui-strip, .ui-option, .ui-check {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -56,7 +57,7 @@
 /* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
-.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus,
+.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus, .ui-menu-item:focus-visible, .ui-menu-item.is-focus,
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
@@ -384,6 +385,95 @@
 .ui-fab:hover:not(:disabled), .ui-fab.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
 .ui-fab:active:not(:disabled), .ui-fab.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
 .ui-fab:disabled, .ui-fab.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* ── Menu, strip, toast error, modal head, option card, check row (0.3-L3) ── */
+.ui-menu { display: flex; flex-direction: column; min-width: calc(var(--ui-control-lg) * 5); padding: var(--ui-space-1); background: var(--ui-bg-raised); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-panel); }
+.ui-menu-item {
+  appearance: none; cursor: default; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
+  border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); white-space: nowrap;
+}
+.ui-menu-item > .ui-icon { color: var(--ui-text-2); }
+.ui-menu-item:hover:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-hover { background: var(--ui-bg-hover); }
+.ui-menu-item:active:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-pressed { background: var(--ui-bg-active); }
+.ui-menu-item.is-danger, .ui-menu-item.is-danger > .ui-icon { color: var(--ui-danger-text); }
+.ui-menu-item.is-danger:hover:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-danger.is-hover, .ui-menu-item.is-danger:active:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-danger.is-pressed { background: var(--ui-danger-soft); }
+.ui-menu-item:disabled, .ui-menu-item.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-menu-key { margin-left: auto; padding-left: var(--ui-space-4); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-3); }
+/* Pressed is bg-active, where text-3 falls under 4.5: the shortcut moves up a step, as a lit row's meta does. */
+.ui-menu-item:active:where(:not(:disabled):not(.is-disabled)) > .ui-menu-key, .ui-menu-item.is-pressed > .ui-menu-key,
+.ui-menu-item.is-danger:hover:where(:not(:disabled):not(.is-disabled)) > .ui-menu-key, .ui-menu-item.is-danger.is-hover > .ui-menu-key { color: var(--ui-text-2); }
+.ui-menu-sep { height: var(--ui-hairline); margin: var(--ui-space-1) calc(var(--ui-space-1) * -1); background: var(--ui-line); }
+
+/* The line at the top of the window: connected, agent mode, a warning, a folder that is gone. */
+.ui-strip { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-strip-h); padding: 0 var(--ui-space-2) 0 var(--ui-space-3); background: var(--ui-bg-app); color: var(--ui-text-2); border-bottom: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-strip > .ui-dot { width: var(--ui-dot-sm); height: var(--ui-dot-sm); }
+.ui-strip-strong { color: var(--ui-text-1); font-weight: var(--ui-w-semibold); }
+.ui-strip-changes { color: var(--ui-agent-text); font-weight: var(--ui-w-medium); }
+.ui-strip-push { margin-left: auto; }
+.ui-strip > .ui-btn { height: calc(var(--ui-control-sm) - var(--ui-space-1)); padding: 0 var(--ui-space-2); font-size: var(--ui-text-12); }
+.ui-strip.ui-strip-agent { background: var(--ui-agent-soft); border-color: transparent; }
+.ui-strip.ui-strip-warn { background: var(--ui-warn-soft); border-color: transparent; }
+.ui-strip.ui-strip-danger { background: var(--ui-danger-soft); border-color: transparent; }
+.ui-strip.ui-strip-warn > .ui-icon { color: var(--ui-warn-text); }
+.ui-strip.ui-strip-danger > .ui-icon { color: var(--ui-danger-text); }
+
+/* An error toast: the danger fill, its buttons on it. */
+.ui-toast > .ui-icon { color: inherit; }
+.ui-toast.ui-toast-error { background: var(--ui-danger); color: var(--ui-on-danger); }
+.ui-toast.ui-toast-error .ui-btn { color: var(--ui-on-danger); }
+.ui-toast.ui-toast-error .ui-btn:hover:not(:disabled), .ui-toast.ui-toast-error .ui-btn.is-hover { background: color-mix(in srgb, var(--ui-on-danger) 16%, transparent); color: var(--ui-on-danger); }
+
+/* A modal's head: a small label, the title, a line under it, and the close button. */
+.ui-modal-head { display: flex; align-items: flex-start; gap: var(--ui-space-3); padding: var(--ui-space-5) var(--ui-space-4) var(--ui-space-4) var(--ui-space-5); }
+.ui-modal-heading { flex: 1 1 auto; min-width: 0; }
+.ui-modal-kicker { display: block; margin: 0 0 var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-medium); letter-spacing: var(--ui-track-caps); color: var(--ui-text-2); }
+.ui-modal-head .ui-modal-title { font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); }
+.ui-modal-head .ui-modal-text { margin-top: var(--ui-space-1); }
+.ui-modal-head > .ui-icon-btn { margin-top: calc(var(--ui-space-1) * -1); }
+.ui-modal-head + .ui-modal-body { padding-top: 0; }
+.ui-modal-body.ui-modal-stack { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+.ui-modal.ui-modal-md { width: var(--ui-modal-w-md); }
+.ui-modal-foot.ui-modal-foot-plain { align-items: center; padding: var(--ui-space-5); border-top: 0; background: none; }
+.ui-modal-foot-note { display: inline-flex; align-items: center; gap: var(--ui-space-1); margin-right: auto; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+
+/* A choice drawn as a large row, picked like a radio (the export dialog). The real radio covers the card. */
+.ui-option {
+  position: relative; display: grid; grid-template-columns: var(--ui-icon-16) var(--ui-control-md) minmax(0, 1fr); column-gap: var(--ui-space-3); align-items: start;
+  padding: var(--ui-space-4); background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); cursor: default;
+}
+.ui-option-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
+.ui-option:hover:not(.is-disabled):not(:has(> .ui-option-input:disabled)), .ui-option.is-hover { border-color: var(--ui-edge-control); }
+.ui-option.is-on, .ui-option:has(> .ui-option-input:checked) { border-color: var(--ui-accent); box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-accent); }
+.ui-option:focus-within, .ui-option.is-focus { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+.ui-option.is-on:focus-within, .ui-option.is-on.is-focus, .ui-option:has(> .ui-option-input:checked):focus-within, .ui-option:has(> .ui-option-input:checked).is-focus {
+  box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-accent), 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
+}
+.ui-option.is-disabled, .ui-option:has(> .ui-option-input:disabled) { opacity: var(--ui-disabled-opacity); }
+.ui-option-radio { position: relative; width: var(--ui-icon-16); height: var(--ui-icon-16); margin-top: calc(var(--ui-space-2) + var(--ui-hairline)); border-radius: var(--ui-radius-pill); border: var(--ui-hairline) solid var(--ui-edge-control); background: var(--ui-bg-panel); }
+.ui-option.is-on .ui-option-radio, .ui-option-input:checked ~ .ui-option-radio { border-color: var(--ui-accent); background: var(--ui-accent); }
+.ui-option.is-on .ui-option-radio::after, .ui-option-input:checked ~ .ui-option-radio::after { content: ""; position: absolute; inset: calc(var(--ui-space-1) - var(--ui-hairline)); border-radius: var(--ui-radius-pill); background: var(--ui-on-accent); }
+.ui-option-icon { display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); color: var(--ui-text-1); }
+.ui-option-name { display: flex; align-items: baseline; gap: var(--ui-space-2); margin: 0; font-weight: var(--ui-w-semibold); }
+.ui-option-ext { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); font-weight: var(--ui-w-regular); color: var(--ui-text-3); }
+.ui-option-why { margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-option-sub { position: relative; grid-column: 3; margin-top: var(--ui-space-3); padding-top: var(--ui-space-3); border-top: var(--ui-hairline) solid var(--ui-line); }
+
+/* A checkbox row: a real checkbox under a drawn box, a label and a line of help. */
+.ui-check { position: relative; display: grid; grid-template-columns: var(--ui-icon-16) minmax(0, 1fr); column-gap: var(--ui-space-2); align-items: start; color: var(--ui-text-1); cursor: default; }
+.ui-check-input { position: absolute; width: var(--ui-icon-16); height: var(--ui-icon-16); margin: 0; opacity: 0; }
+.ui-check-box {
+  display: inline-flex; align-items: center; justify-content: center; width: var(--ui-icon-16); height: var(--ui-icon-16); margin-top: calc((var(--ui-lh-13) - var(--ui-icon-16)) / 2);
+  border-radius: var(--ui-radius-1); border: var(--ui-hairline) solid var(--ui-edge-control); background: var(--ui-bg-panel); color: transparent;
+}
+.ui-check-box > .ui-icon { width: var(--ui-icon-12); height: var(--ui-icon-12); stroke-width: calc(var(--ui-icon-stroke) * 1.4); }
+.ui-check:hover .ui-check-input:not(:disabled) + .ui-check-box, .ui-check.is-hover .ui-check-box { border-color: var(--ui-text-1); }
+.ui-check-input:checked + .ui-check-box, .ui-check.is-on .ui-check-box { background: var(--ui-accent); border-color: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-check-input:focus-visible + .ui-check-box, .ui-check.is-focus .ui-check-box { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+.ui-check:has(.ui-check-input:disabled), .ui-check.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-check-label { font-weight: var(--ui-w-medium); }
+.ui-check-help { grid-column: 2; margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-check.ui-check-boxed { padding: var(--ui-space-4); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); }
 
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }
