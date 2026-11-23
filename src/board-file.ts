@@ -12,7 +12,7 @@
  */
 import {Inflate, strFromU8, strToU8, zipSync, type Zippable} from 'fflate';
 import {MAX_PROJECT, parseProject, uid, type Project} from './model';
-import {htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
+import {filesNamed, htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
 import {LEDGER_BUDGET, readLedger} from './ledger/types';
 import {fitSaved} from './ledger/ledger';
 import {MAX_EXPORT_FILE} from './page-export';
@@ -194,14 +194,28 @@ export function contentId(bytes: Uint8Array): string {
 }
 const MEDIA_NAMED = /media:([0-9a-f]{64})(?![0-9a-f])/g, LOCAL_NAMED = /local:([0-9a-f]{16})(?![0-9a-f])/g;
 
-/** The files a project names: its media items' and every `media:<sha256>` in its pages' html. */
-export function filesNamed(project: Project): string[] {
-  const named = new Set<string>();
-  for (const page of project.pages) {
-    if (page.media) named.add(page.media.src.slice('media:'.length));
-    if (isFreePage(page)) for (const sha of mediaNamed(page.html)) named.add(sha);
-  }
-  return [...named];
+export {filesNamed};
+
+/**
+ * What goes out of a board (0.3-R ④): the host and the library lookup an export is given, holding back the files the
+ * board came without (`leftOut`), as if this Mac had none of them, so a board file, a handoff or a page sent on never carries
+ * them; `withheld` is filled with those an export asked for, for it to say how many it left out. What the board shows
+ * is not changed: the frames are given the host as it is.
+ */
+export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Project, host: H, local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): {host: H; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; withheld: Set<string>} {
+  const without = new Set(project.leftOut ?? []), withheld = new Set<string>();
+  const held = (file: string) => { if (!without.has(file)) return false; withheld.add(file); return true; };
+  return {
+    host: {...host, stat: async (sha: string) => held(sha) ? undefined : host.stat(sha), read: async (sha: string) => held(sha) ? undefined : host.read(sha)},
+    ...(local ? {local: async (id: string) => held(`local:${id}`) ? undefined : local(id)} : {}),
+    withheld,
+  };
+}
+/** Files put on the board directly, by the person or an agent (a drop, a paste, media_add, a picture added to the library): they come off the list. */
+export function carriedNow(project: Project, files: string[]): void {
+  if (!project.leftOut) return;
+  const kept = project.leftOut.filter(f => !files.includes(f));
+  if (kept.length) project.leftOut = kept; else delete project.leftOut;
 }
 
 /** What a board file was read into: the project, never yet saved anywhere, the files it carried and those left out and why. */
@@ -250,7 +264,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   delete raw[FORMAT_KEY];
   // What a file says about approval, its own id and its history is not read from board.json: a received
   // board is new, unapproved, and its history comes from ledger/ alone.
-  delete raw.approvedFingerprint; delete raw.ledger;
+  delete raw.approvedFingerprint; delete raw.ledger; delete raw.leftOut;
   // The board is measured with the id it was written with, so one a save held still fits (0.3-P3-fix4); it is given
   // its own new id once read. An id a board could not have is measured as a new one.
   if (typeof raw.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(raw.id)) raw.id = uid();
@@ -315,6 +329,8 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     if (length > MAX_PROJECT) throw new Error(`with the id it is given here the board would be ${length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}`);
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
+  // What it came without, as this reader found it (0.3-R ④): shown wherever this Mac has it, never sent on with the board.
+  if (left.length) project!.leftOut = [...new Set(left.map(l => l.file))];
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {
@@ -335,7 +351,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
  * Approval does not travel: the person who opens it has not approved anything.
  */
 export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'stat' | 'read'> & {local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>}): Promise<{bytes: Uint8Array; left: string[]}> {
-  const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined})) as Project & Record<string, unknown>;
+  const board = JSON.parse(JSON.stringify({...project, ledger: undefined, approvedFingerprint: undefined, leftOut: undefined})) as Project & Record<string, unknown>;
   board[FORMAT_KEY] = BOARD_FILE_FORMAT;
   const texts: Record<string, string> = {};
   const half = halfPairWhere(project);

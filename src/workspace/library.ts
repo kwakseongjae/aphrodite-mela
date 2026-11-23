@@ -1,4 +1,6 @@
-import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
+import {parseProject,uid,MAX_PROJECT,MAX_LEFT_OUT,type Project} from '../model';
+import {filesNamed} from '../free-page';
+import {localRefsIn} from '../design/local-images';
 import {halfPairIn,clip} from '../text';
 import {fitSaved} from '../ledger/ledger';
 import {LEDGER_RESERVE,readLedger} from '../ledger/types';
@@ -134,6 +136,9 @@ export function importedProject(raw:string,library:Library):Project{
   if(ledger){loaded.ledger=ledger;fitSaved(loaded);}
   const project=library.entries.some(e=>e.project.id===loaded.id)?cloneProject(loaded):loaded;
   delete project.approvedFingerprint;
+  // A project file carries no files: every one it names came without it, and none is sent on with it (0.3-R ④).
+  const named=[...filesNamed(project),...localRefsIn(project).map(id=>`local:${id}`)];
+  if(named.length)project.leftOut=[...new Set(named)].slice(0,MAX_LEFT_OUT);else delete project.leftOut;
   return project;
 }
 /**

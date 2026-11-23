@@ -66,10 +66,10 @@ import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} fro
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
-import {readBoardFile,boardFileBytes,writeBoardFile,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
+import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,carriedNow,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -295,7 +295,7 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   const place=()=>{
     const result=runBatch(project,{ops},selected,media,places);
     refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
-    if(result.ok&&!refused)project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+    if(result.ok&&!refused){project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));}
   };
   commit(place,d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
   if(refused){toast(refused);return;}
@@ -1151,18 +1151,33 @@ function pageExportHtml(page:Page){return `<div class="export-page" data-export-
 /** The export dialog as a way in opens it: the scripts left out again, whichever way that is (0.3-P3-fix1). */
 /** What an approve button was drawn over: the design, the page and whether it was approved. Approving writes only when it is still that (0.2.5 H2). */
 function shownState(){return `${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
+/** The files an export of `board` carries, counted and measured as it would send them, and how many it holds back (0.3-R ④). */
+async function carriedSummary(board:Project):Promise<string>{
+  const go=outgoing(board,frameHost);let count=0,bytes=0;
+  for(const sha of filesNamed(board)){const file=await go.host.stat(sha);if(file){count++;bytes+=file.bytes;}}
+  const locals=localRefsIn(board).filter(id=>!go.withheld.has(`local:${id}`)&&!board.leftOut?.includes(`local:${id}`)).length;
+  const held=(board.leftOut??[]).length;
+  if(!count&&!locals&&!held)return '';
+  const mb=(bytes/1_048_576).toLocaleString(uiLanguage==='ko'?'ko':'en',{maximumFractionDigits:1});
+  return [count||locals?ui(`Goes out with it: ${count+locals} picture(s) and video(s)${count?`, ${mb} MB`:''}`,`함께 나가는 그림·영상 ${count+locals}개${count?`, ${mb}MB`:''}`):'',held?ui(`${held} file(s) the board came without stay here`,`받을 때 없던 파일 ${held}개는 싣지 않습니다`):''].filter(Boolean).join(' · ');
+}
+/** What an export says of the files the board came without (0.3-R ④), or nothing when it held none back. */
+function withheldNote(n:number){return n?ui(`${n} file(s) the board came without were not sent with it. To send one, put it on the board again.`,`받을 때 없던 파일 ${n}개는 싣지 않았습니다. 실으려면 보드에 다시 놓으세요`):'';}
 function openExport(){exportChoice={scripts:false,videos:'beside'};exportModal();}
 function exportModal(view = 'prompt') {
   const approved = isApproved(project), page = currentPage(project), own = !!page.kind;
-  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export" data-shown="${esc(shownState())}">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, project.pages[0]))}</pre>${own ? pageExportHtml(page) : ''}<div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions"><button class="secondary-button" data-action="download-board-file" title="${ui('The whole board as it is, scripts running, for another Aphrodite to open','보드 전체를 그대로, 스크립트가 도는 채로, 다른 Aphrodite에서 열 수 있게')}">${icon('archive')}<span>${ui(`Save the board as .${BOARD_FILE.extension}`,`보드를 .${BOARD_FILE.extension}로 저장`)}</span></button>${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
+  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export" data-shown="${esc(shownState())}">${ui('Approve now','지금 승인')}</button>` : ''}</div><p class="panel-description" data-export-carried hidden></p><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, project.pages[0]))}</pre>${own ? pageExportHtml(page) : ''}<div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions"><button class="secondary-button" data-action="download-board-file" title="${ui('The whole board as it is, scripts running, for another Aphrodite to open','보드 전체를 그대로, 스크립트가 도는 채로, 다른 Aphrodite에서 열 수 있게')}">${icon('archive')}<span>${ui(`Save the board as .${BOARD_FILE.extension}`,`보드를 .${BOARD_FILE.extension}로 저장`)}</span></button>${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
   const activeIndex = project.pages.findIndex(page => page.id === project.activePageId);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
   if (htmlTab) htmlTab.textContent = own ? `${fileName({...project,name:page.name},'html')}` : activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
   // An html page or a media item is shown the way it goes out, no file read: each picture by its size.
   const code = modalRoot.querySelector<HTMLElement>('.export-code')!;
-  if (view === 'html') { if (own) void exportPage(pageSource(page), exportChoice, frameHost, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, currentPage(project)); }
+  if (view === 'html') { if (own) void exportPage(pageSource(page), exportChoice, outgoing(project, frameHost).host, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, currentPage(project)); }
   // The videos choice shows only for a page that has a video, asked of the files' kinds without reading them.
   // The answer goes only into the dialog that asked: one drawn since, for this page or another, asks again for itself.
+  // What goes out with the board (0.3-R ④): its pictures and videos, how many and how big, and how many it came without stay here.
+  const carried = modalRoot.querySelector<HTMLElement>('[data-export-carried]');
+  if (carried) void carriedSummary(project).then(text => { if (carried.isConnected && text) { carried.textContent = text; carried.hidden = false; } });
   const videos = modalRoot.querySelector<HTMLElement>('[data-export-videos]');
   if (own && videos) void Promise.all(mediaNamed(pageSource(page)).map(sha => frameHost.stat(sha))).then(files => { if (videos.isConnected && files.some(f => f?.mime.startsWith('video/'))) videos.hidden = false; });
 }
@@ -1500,7 +1515,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const bytes=new Uint8Array(await file.arrayBuffer());
       let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
       const scope=el.dataset.scope==='project'?project.id:undefined;
-      await invoke('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary),project:scope});
+      const added=await invoke<{id:string}>('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary),project:scope});
+      // A picture the person adds is theirs to send with the board, one it came without included (0.3-R ④).
+      if(screen==='editor'&&added?.id&&project.leftOut){carriedNow(project,[`local:${added.id}`]);persist();}
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;
@@ -1584,9 +1601,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
     // An export reads its board as it was when Save was pressed (0.3-P3-fix2 #11): its page, its name, and its pictures' library.
-    case 'download-page-html': { const board=project,page=currentPage(board);if(!page.kind||refusal(d,'outside.export-page'))break;const choice={...exportChoice},name=fileName({...board,name:page.name},'html').slice(0,-'.html'.length);el.setAttribute('disabled','');try{const out=await pageDownload(await exportPage(pageSource(page),choice,frameHost),name,frameHost);const accepted=await saveFile(out.name,out.bytes,out.mime);if(project.id===board.id)recordRun('page:exported',{scripts:choice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast(ui(choice.scripts?'Page exported with its scripts':'Page exported without its scripts',choice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
-    case 'download-board-file': { if(refusal(d,'outside.export-page'))break;const board=project,name=fileName(board,BOARD_FILE.extension);el.setAttribute('disabled','');try{const out=await writeBoardFile(board,{...frameHost,local:id=>resolveLocalBytes(id,board.id)});const accepted=await saveFile(name,out.bytes,'application/zip');if(project.id===board.id)recordRun('board:exported',{byteLength:out.bytes.length,left:out.left.length},d);if(accepted)toast(out.left.length?ui(`Board saved · ${out.left.length} file(s) this Mac does not have were left out`,`보드를 저장했습니다 · 이 Mac에 없는 파일 ${out.left.length}개는 빠졌습니다`):ui(`Board saved as a .${BOARD_FILE.extension} file`,`보드를 .${BOARD_FILE.extension} 파일로 저장했습니다`));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
-    case 'download-bundle': { const board=project,name=fileName(board,'zip');el.setAttribute('disabled', ''); try { const bytes = await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);const accepted=await saveFile(name, bytes, 'application/zip');if(project.id===board.id)recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    case 'download-page-html': { const board=project,page=currentPage(board);if(!page.kind||refusal(d,'outside.export-page'))break;const choice={...exportChoice},name=fileName({...board,name:page.name},'html').slice(0,-'.html'.length);el.setAttribute('disabled','');try{const go=outgoing(board,frameHost);const out=await pageDownload(await exportPage(pageSource(page),choice,go.host),name,go.host);const accepted=await saveFile(out.name,out.bytes,out.mime);if(project.id===board.id)recordRun('page:exported',{scripts:choice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast([ui(choice.scripts?'Page exported with its scripts':'Page exported without its scripts',choice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'),withheldNote(go.withheld.size)].filter(Boolean).join(' · '));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-board-file': { if(refusal(d,'outside.export-page'))break;const board=project,name=fileName(board,BOARD_FILE.extension);el.setAttribute('disabled','');try{const go=outgoing(board,frameHost,id=>resolveLocalBytes(id,board.id));const out=await writeBoardFile(board,{...go.host,local:go.local});const accepted=await saveFile(name,out.bytes,'application/zip');const missing=out.left.filter(f=>!go.withheld.has(f)).length;if(project.id===board.id)recordRun('board:exported',{byteLength:out.bytes.length,left:missing,withheld:go.withheld.size},d);if(accepted)toast([missing?ui(`Board saved · ${missing} file(s) this Mac does not have were left out`,`보드를 저장했습니다 · 이 Mac에 없는 파일 ${missing}개는 빠졌습니다`):ui(`Board saved as a .${BOARD_FILE.extension} file`,`보드를 .${BOARD_FILE.extension} 파일로 저장했습니다`),withheldNote(go.withheld.size)].filter(Boolean).join(' · '));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-bundle': { const board=project,name=fileName(board,'zip');el.setAttribute('disabled', ''); try { const go=outgoing(board,frameHost,id=>resolveLocalBytes(id,board.id));const bytes = await exportBundle(board,go.local,go.host);const accepted=await saveFile(name, bytes, 'application/zip');if(project.id===board.id)recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast([ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다'),withheldNote(go.withheld.size)].filter(Boolean).join(' · ')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': { recordRun('preview:opened',{device,interactionCapture:false},d); const page = currentPage(project), free = isFreePage(page); showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(page.name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
@@ -1912,6 +1929,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
     created=result.created;
     project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+    carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));
     selected=result.selected;
   },d,'edit.apply',{source:'agent:apply'});
   if(stale)return stale;
@@ -2068,7 +2086,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         if(!nativeDesktop)return {error:'the image library is desktop only'};
         const scope=c.scope==='project'?project.id:undefined;
         if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id},d);}
-        if(c.action==='import'){try{await invoke('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope},d);}
+        if(c.action==='import'){try{const added=await invoke<{id:string}>('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});if(added?.id&&project.leftOut){carriedNow(project,[`local:${added.id}`]);persist();}}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope},d);}
         // Listing is a read: it must not redraw the screen under the person's hands.
         if(c.action==='list'){await loadLocalLibrary(true);}else{forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();}
         /* The fifty photographs the app ships with are in the person's picker but were invisible
@@ -2119,7 +2137,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
           if(!nativeDesktop)return {error:'writing the bundle is desktop only; ask for the contract instead'};
           try{
             const board=project,name=fileName(board,'zip');
-            const bytes=await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);
+            const go=outgoing(board,frameHost,id=>resolveLocalBytes(id,board.id));
+            const bytes=await exportBundle(board,go.local,go.host);
             const saved=await saveFile(name,bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
             if(project.id===board.id)recordRun('agent:export',{format:'files'},d);

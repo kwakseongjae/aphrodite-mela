@@ -540,3 +540,13 @@ export function htmlWindow(html: string, range: {start?: number; end?: number} =
   if (end > start && end < html.length && lowSurrogate(html, end)) end--;
   return {start, end, length: html.length, more: end < html.length, html: html.slice(start, end)};
 }
+
+/** The files a project names: its media items' and every `media:<sha256>` in its pages' html. */
+export function filesNamed(project: {pages: {media?: PageMedia; kind?: PageKind; html?: string}[]}): string[] {
+  const named = new Set<string>();
+  for (const page of project.pages) {
+    if (page.media) named.add(page.media.src.slice('media:'.length));
+    if (page.kind === 'html' && typeof page.html === 'string') for (const sha of mediaNamed(page.html)) named.add(sha);
+  }
+  return [...named];
+}

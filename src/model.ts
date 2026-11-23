@@ -26,12 +26,17 @@ export type VibeReceipt = {packId:string;changedFields:number;source:'local-auth
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
 /** A section page has `blocks`. A free page (`kind: 'html'`) and a media item (`kind: 'media'`) keep `blocks: []` and hold their content in `html` or `media` (src/free-page.ts). */
 export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal; kind?: PageKind; html?: string; media?: PageMedia };
-/** `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. */
-export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger };
+/**
+ * `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. Nor is
+ * `leftOut` (0.3-R ④): the files, by hash or `local:` id, a received board named and did not carry, which no export sends.
+ */
+export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger; leftOut?:string[] };
 export const uid = () => crypto.randomUUID();
 /** How many pages (and media items) a project holds, and how long a page's name may be. */
 export const MAX_PAGES = 30;
 export const MAX_PAGE_NAME = 100;
+/** How many files a board may be marked as having come without (0.3-R ④). */
+export const MAX_LEFT_OUT = 10_000;
 export const systems: DesignSystem[] = [
   ...ownSystems,
   {id:'mui',name:'Material · MUI',description:'Official React adapters + project tokens',accent:'#1976d2',background:'#ffffff',foreground:'#1b1b1f',radius:4,font:'sans',source:'MUI official package adapters for Button, TextField, Card. Remaining compositions are Aphrodite originals.'},
@@ -134,6 +139,7 @@ export function parseProject(raw: string): Project {
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
+  if(p.leftOut!==undefined&&(!Array.isArray(p.leftOut)||p.leftOut.length>MAX_LEFT_OUT||!p.leftOut.every(f=>typeof f==='string'&&/^(?:[0-9a-f]{64}|local:[0-9a-f]{16})$/.test(f))))throw new Error('Invalid list of files the board came without');
   if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
   if (s.headingFamily !== undefined) { const clean = sanitizeFamily(s.headingFamily); if (clean) s.headingFamily = clean; else delete s.headingFamily; }
   if (s.bodyFamily !== undefined) { const clean = sanitizeFamily(s.bodyFamily); if (clean) s.bodyFamily = clean; else delete s.bodyFamily; }
@@ -180,7 +186,7 @@ export function parseProject(raw: string): Project {
   // A saved ledger that does not hold together is dropped, never a reason to refuse the project.
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{})};
+  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{})};
   if (approved) read.approvedFingerprint = approvalPrint(read);
   return read;
 }
