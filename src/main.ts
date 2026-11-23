@@ -476,8 +476,10 @@ function turn<T>(go:()=>T|Promise<T>):Promise<T>{
 }
 function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   return turn(async()=>{
-    saveTyping();await flushDisk();if(heldWrites)await heldWrites;
-    if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
+    // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
+    const slow=()=>new Error(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
+    saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();
+    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
     return await go();
   });
 }
@@ -495,7 +497,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>){return turn(async()=>{const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the

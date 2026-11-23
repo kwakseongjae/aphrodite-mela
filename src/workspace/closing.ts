@@ -9,14 +9,15 @@ export type CloseAnswer='save-file'|'discard'|'cancel';
 export type WindowCloser={request(destroy:()=>Promise<void>):Promise<void>;busy():boolean};
 /** How long a close waits for the save before it asks. */
 export const SAVE_LIMIT=10_000;
-export function windowCloser(close:(destroy:()=>Promise<void>)=>Promise<void>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT):WindowCloser{
+export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT):WindowCloser{
   let run:Promise<void>|undefined;
   return{
     request(destroy){if(run)return run;
       run=(async()=>{
         let late=false,timer:ReturnType<typeof setTimeout>|undefined;
         const timeUp=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{late=true;reject(new Error(`the save did not finish in ${Math.round(limit/1000)} seconds`));},limit);});
-        try{await Promise.race([close(async()=>{if(!late)await destroy();}),timeUp]);}
+        // `answered` tells a close whose turn comes after its time is up that the person has been asked: it does nothing then (0.3-R fix 3 #8).
+        try{await Promise.race([close(async()=>{if(!late)await destroy();},()=>late),timeUp]);}
         catch(error){
           for(let why=error;;){
             const answer=await ask(why);

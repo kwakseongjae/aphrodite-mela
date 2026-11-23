@@ -1744,6 +1744,27 @@ check('a close whose write never ends asks in bounded time, and when the person 
   await sleep(5_200);
 });
 
+/* 0.3-R fix 3 #8: going Home waits on a write that never ends, a close comes behind it, and the person stays: the editor takes input. */
+check('a leaving whose write never ends gives up in bounded time, so a close behind it and Stay leave an editor that takes input', async () => {
+  await sleep(5_200);
+  const closed = await evaluate('window.__closed ?? 0');
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
+  try {
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await personPresses('home');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked', 150);
+    await waitFor(() => evaluate('document.querySelector("#app").inert === false'), 'the editor to take input again', 60);
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'the window stayed');
+    assert.equal(await evaluate('!!document.querySelector(".inspector, .space-frame")'), true, 'and the board is still open');
+    const typed = await typeIntoTitle(' 남음');
+    await evaluate('document.activeElement?.blur?.(), true'); await sleep(300);
+    assert.ok((await titleOf(typed) ?? '').endsWith(' 남음'), 'what the person types goes in');
+  } finally { await evaluate('window.aphroditeHoldWrites(false), window.confirm = window.__confirm, true'); }
+  await evaluate('document.activeElement?.blur?.(), true');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix2 #3, fix4: a board file whose library write fails takes out only that board and leaves the files it placed: what else changed in the library meanwhile stays. */
 check('a board file whose library write fails where it is stored comes out alone, the picture it placed new left named by no board, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;

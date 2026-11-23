@@ -44,3 +44,24 @@ test('an agent cannot put back a file the board came without: by library id, by 
   assert.ok(apply.indexOf('heldFromAgent(project,`local:${contentId(') > copy, 'and a picture by the id the library would give it');
   assert.doesNotMatch(apply, /carriedNow\(/, 'an agent\'s file never takes one off the list');
 });
+
+/* 8: every leaving that holds the editor still waits for the save a bounded time, and gives up then; a close whose question
+   was answered before its turn came does nothing when its turn comes. */
+import {windowCloser, type CloseAnswer} from '../src/workspace/closing.ts';
+test('a close the person already answered does nothing when its turn comes at last', async () => {
+  let turnCame!: () => void, over: (() => boolean) | undefined;
+  const turn = new Promise<void>(r => { turnCame = r; });
+  const closer = windowCloser(async (destroy, answered) => { over = answered; await turn; if (answered?.()) return; await destroy(); }, async (): Promise<CloseAnswer> => 'cancel', async () => false, 50);
+  let destroyed = 0;
+  await closer.request(async () => { destroyed++; });
+  assert.equal(over?.(), true, 'the close is told its question was answered');
+  turnCame(); await new Promise(r => setTimeout(r, 10));
+  assert.equal(destroyed, 0);
+});
+test('leaving the board waits for the save a bounded time, and a close behind it gives up when its question was answered', () => {
+  const at = main.indexOf('function leave<T>(');
+  const leave = main.slice(at, main.indexOf('\n}\n', at));
+  for (const wait of ['flushDisk()', 'heldWrites']) assert.ok(leave.includes(`within(${wait},SAVE_LIMIT)`), `${wait}, bounded`);
+  assert.doesNotMatch(leave, /await flushDisk\(\)|await heldWrites/, 'nothing waited for without a bound');
+  assert.match(main, /function closeWindow\(destroy:\(\)=>Promise<void>,answered:\(\)=>boolean=\(\)=>false\)\{return turn\(async\(\)=>\{if\(answered\(\)\)return;/);
+});
