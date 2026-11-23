@@ -3,7 +3,7 @@ import { createIcons, createElement } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, catalog, currentPage, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
+import { assemble, canonicalSystem, catalog, currentPage, approvalPrint, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -11,7 +11,8 @@ import { providers, supportsProvider } from './providers';
 import {implementations,explorerBlock,catalogMime,parseCatalogChoice,catalogGroup,type CatalogChoice} from './design/component-explorer';
 import './design/component-explorer.css';
 import {pinShelf,shelfPage} from './design/shelf';
-import {begin,end,newHistory,stepForScreen,HumanOnlyStep,StepDoesNotFit} from './ledger/session';
+import {begin,end,newHistory,stepForScreen,changeAside,HumanOnlyStep,StepDoesNotFit} from './ledger/session';
+import {screenRefuses} from './editor/screens';
 import {supportsComponentTheme,componentAccent,primaryEffect,type ComponentTheme} from './design/component-theme';
 import {hydrateNativeLibraries} from './design/native-library';
 import {mountNativePreview} from './design/native-preview';
@@ -48,11 +49,11 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen,readTidied} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
-import {importDesignGraph,importSummary} from './design/omd';
+import {importDesignGraph,importSummary,graphSystem} from './design/omd';
 import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
@@ -328,7 +329,7 @@ let library:Library={version:1,entries:[]};
 let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=localStorage.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
 const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
-try { library=readLibrary(localStorage);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+try { library=readLibrary(localStorage);if(readTidied(library)&&!nativeDesktop)writeLibraryText(localStorage,JSON.stringify(library));if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
 /** The block the inspector's fields were last drawn for. */
 let inspectedId:string|undefined;
@@ -372,7 +373,9 @@ let connectMode=allowedAgents.length>0;
 function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
-let lease:Holder|null=null;let connectWrites=0;let stepRefused='';let askState:AskState=null;let pointerHeld=false;
+/** An agent's step refused for moving the approval, kept with that command's own Dispatch: a command running beside it never answers with it. */
+const stepRefusals=new WeakMap<Dispatch,string>();
+let lease:Holder|null=null;let connectWrites=0;let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
@@ -426,7 +429,8 @@ function saveLibrary(next:Library){if(startupError)throw new Error(startupError)
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
  const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
-function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue){lastSaved=true;closer.saved();} } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+/* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
+function persist() { if(screen!=='editor')return; try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue){lastSaved=true;closer.saved();} } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -539,6 +543,7 @@ function openProject(next:Project){if(screen==='editor')saveTyping();project=par
  * clearing redo).
  */
 function commit(change: () => void, d: Dispatch, row: string, {source, updateUI = true}: {source?: string; updateUI?: boolean} = {}) {
+  if(screen!=='editor')throw new Error(HOME_CANVAS_HINT);
   const refused=refusal(d,row);if(refused)throw new Error(refused);
   const from=sourceFor(row,source);
   if(d.author.kind!=='agent'&&from.startsWith('agent:'))throw new Error(`${from} is an agent's source`);
@@ -562,13 +567,13 @@ watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
 function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   // A board being left takes no step (0.3-P3-fix4).
-  if(leaving||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
+  if(leaving||screen!=='editor'||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
   const before=project;let done;
   try{done=stepForScreen(project,direction,edits,d.author);}
   catch(error){
     // An agent's step would have given or taken back the approval: nothing moves, and runAgentCommand tells the agent why.
-    if(error instanceof HumanOnlyStep){stepRefused=error.message;return;}
+    if(error instanceof HumanOnlyStep){stepRefusals.set(d,error.message);return;}
     // The design it would show could not be saved: nothing moved, and the step stays where it was.
     if(error instanceof StepDoesNotFit){toast(ui('That step would make the project too big to save, so nothing changed.','그 단계는 프로젝트를 저장할 수 없을 만큼 크게 만들어, 아무것도 바꾸지 않았습니다.'));return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
@@ -1049,7 +1054,7 @@ function inspectorHtml() {
   return `<div class="inspector-title"><span>${ui('Design','디자인')}</span><span class="inspector-kicker">${ui('PROJECT TOKENS','프로젝트 토큰')}</span></div>
   <section class="inspector-section"><div class="section-heading"><h2>${ui('Look & feel','분위기와 스타일')}</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">${ui('Color palette','색상 팔레트')} <span>${ui('Shared across pages','모든 페이지에 공유')}</span></label><div class="color-swatches">${([['accent',ui('Primary','메인')],['background',ui('Background','배경')],['foreground',ui('Foreground','전경')],['surface',ui('Surface','표면')],['line',ui('Line','선')]] as const).map(([key,label])=>{const colour=key==='accent'||key==='background'||key==='foreground'?project.system[key]:resolveTokens(project.system)[key as SemanticToken];return `<span style="background:${colour}" title="${label}: ${colour}"></span>`;}).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${[ui('Primary','메인'), ui('Canvas','캔버스'), ui('Text','텍스트')][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>${ui('Typeface','서체')}<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>${ui('Editorial serif','에디토리얼 세리프')}</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>${ui('Modern sans','모던 산스')}</option></select></label><label class="font-family-field">${ui('Heading font','제목 서체')}<button type="button" class="font-pick" data-action="font-picker" style="font-family:${esc(fontStack({family:project.system.headingFamily,category:project.system.font}))}"><span>${esc(project.system.headingFamily??(project.system.font==='serif'?ui('Editorial serif','에디토리얼 세리프'):ui('Modern sans','모던 산스')))}</span>${icon('chevron-down')}</button></label><label>${ui('Radius','모서리')}<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><details class="token-group"${tokensOpen?' open':''}><summary>${ui('Semantic colours','의미 색상')}<em>${semanticTokens.filter(t=>project.system[t]).length}/${semanticTokens.length}</em></summary><div class="color-inputs">${semanticTokens.map(name=>{const resolved=resolveTokens(project.system)[name];const set=!!project.system[name];return `<label${set?'':' class="token-inherited"'}><input type="color" aria-label="${name}" data-token="${name}" value="${resolved}"><span>${semanticLabel(name)}</span><code>${set?resolved.toUpperCase():ui('default','기본값')}</code></label>`;}).join('')}</div><p class="token-note">${ui('Left alone, each is what the page is painted with today. A design system that names one takes over.','비워두면 지금 페이지가 칠해지는 값 그대로입니다. 디자인 시스템이 지정하면 그쪽이 이깁니다.')}</p></details><button class="text-link" data-action="design-md">${icon('file-text')}${ui('View DESIGN.md','DESIGN.md 보기')}${icon('arrow-up-right')}</button></section>
   <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', currentPage(project).blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', currentPage(project).blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
-  <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button')}</div>`;
+  <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-shown="${esc(shownState())}"`)}</div>`;
 }
 function showModal(title: string, subtitle: string, body: string, wide = false) {
   comparisonObserver?.disconnect(); comparisonObserver = null;
@@ -1143,10 +1148,12 @@ let exportChoice:ExportChoice={scripts:false,videos:'beside'};
 /** The page as one file, for an html page or a media item: whether its scripts go too (said in one line when they do), and what becomes of its videos. */
 function pageExportHtml(page:Page){return `<div class="export-page" data-export-page><strong>${ui('This page as one HTML file','이 페이지를 HTML 파일 하나로')}</strong>${page.kind==='html'?`<label class="check-option"><input type="checkbox" data-export-scripts ${exportChoice.scripts?'checked':''}>${ui('Include the page’s scripts','페이지의 스크립트 포함')}</label>${exportChoice.scripts?`<p class="export-page-note" role="note">${ui(`Its scripts will run in the browser of whoever opens the file, where this app cannot keep them in. To hand it over running, send the board as a .${BOARD_FILE.extension} file.`,`받는 사람의 브라우저에서 스크립트가 그대로 돌고, 거기에는 이 앱의 벽이 없습니다. 움직이는 그대로 건네려면 보드를 .${BOARD_FILE.extension} 파일로 보내세요.`)}</p>`:''}`:''}${page.kind==='html'&&!exportChoice.scripts?`<p class="export-page-quiet" data-export-cleaned>${ui('Without its scripts it also goes without its forms\' addresses, frames inside it, formulas written in MathML, and links to its other pages.','스크립트 없이 보내면 폼이 보내는 주소, 안에 띄운 틀, MathML로 쓴 수식, 다른 페이지로 가는 링크도 빠집니다.')}</p>`:''}<div class="export-page-videos" data-export-videos hidden><label class="check-option"><input type="radio" name="export-videos" value="beside" ${exportChoice.videos==='beside'?'checked':''}>${ui('Videos beside it, as files in a .zip','영상은 옆에 파일로 (.zip)')}</label><label class="check-option"><input type="radio" name="export-videos" value="out" ${exportChoice.videos==='out'?'checked':''}>${ui('Leave the videos out','영상은 빼기')}</label></div><button class="secondary-button" data-action="download-page-html">${icon('download')}<span>${ui('Download this page','이 페이지 내려받기')}</span></button></div>`;}
 /** The export dialog as a way in opens it: the scripts left out again, whichever way that is (0.3-P3-fix1). */
+/** What an approve button was drawn over: the design, the page and whether it was approved. Approving writes only when it is still that (0.2.5 H2). */
+function shownState(){return `${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
 function openExport(){exportChoice={scripts:false,videos:'beside'};exportModal();}
 function exportModal(view = 'prompt') {
   const approved = isApproved(project), page = currentPage(project), own = !!page.kind;
-  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, project.pages[0]))}</pre>${own ? pageExportHtml(page) : ''}<div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions"><button class="secondary-button" data-action="download-board-file" title="${ui('The whole board as it is, scripts running, for another Aphrodite to open','보드 전체를 그대로, 스크립트가 도는 채로, 다른 Aphrodite에서 열 수 있게')}">${icon('archive')}<span>${ui(`Save the board as .${BOARD_FILE.extension}`,`보드를 .${BOARD_FILE.extension}로 저장`)}</span></button>${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
+  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export" data-shown="${esc(shownState())}">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, project.pages[0]))}</pre>${own ? pageExportHtml(page) : ''}<div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions"><button class="secondary-button" data-action="download-board-file" title="${ui('The whole board as it is, scripts running, for another Aphrodite to open','보드 전체를 그대로, 스크립트가 도는 채로, 다른 Aphrodite에서 열 수 있게')}">${icon('archive')}<span>${ui(`Save the board as .${BOARD_FILE.extension}`,`보드를 .${BOARD_FILE.extension}로 저장`)}</span></button>${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
   const activeIndex = project.pages.findIndex(page => page.id === project.activePageId);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
   if (htmlTab) htmlTab.textContent = own ? `${fileName({...project,name:page.name},'html')}` : activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
@@ -1395,7 +1402,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'new-frame': showModal(ui('A new frame on the space.','공간 위에 새 프레임.'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
 
     case 'systems': designBridgeModal(); break;
-    case 'choose-system': commit(() => { project.system = { ...systems.find(s => s.id === el.dataset.system)! }; }, d, 'edit.system'); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
+    case 'choose-system': commit(() => { project.system = canonicalSystem({ ...systems.find(s => s.id === el.dataset.system)! }); }, d, 'edit.system'); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
     case 'brief': briefModal(); break;
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
@@ -1407,7 +1414,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
       if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
-      commit(()=>{project.system=system;},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+      commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
     }
     case 'omd-issue': {
       const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
@@ -1546,21 +1553,14 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if (/\.json$/i.test(file.name)) {
         const read = importDesignGraph(JSON.parse(text));
         if (!read.report.read) throw new Error(ui('No tokens were found in that file.','이 파일에서 토큰을 찾지 못했습니다.'));
-        commit(() => {
-          project.system = {
-            ...project.system, id: 'imported', name: read.report.name ?? file.name.replace(/\.json$/i, ''),
-            description: ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'),
-            ...(read.accent ? {accent: read.accent} : {}), ...(read.background ? {background: read.background} : {}),
-            ...(read.foreground ? {foreground: read.foreground} : {}), ...read.tokens,
-            ...(read.type ? {type: read.type} : {}),
-            ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
-          };
-        }, d, 'edit.system');
+        const system = graphSystem(project.system, read, read.report.name ?? file.name.replace(/\.json$/i, ''), ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'));
+        commit(() => { project.system = system; }, d, 'edit.system');
         closeModal();
-        toast(importSummary(read.report, uiLanguage === 'ko'));
+        // What the board kept is what is said: a colour name it cannot store is counted as not kept.
+        toast(importSummary({...read.report, carried: Object.keys(system.carried ?? {}).length}, uiLanguage === 'ko'));
         return;
       }
-      const s = importDesignMarkdown(text, file.name, project.system);
+      const s = canonicalSystem(importDesignMarkdown(text, file.name, project.system));
       commit(() => { project.system = s; }, d, 'edit.system');
       closeModal();
       toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
@@ -1572,7 +1572,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'approve-export': {
       const andExport = el.dataset.action === 'approve-export';
       if (!andExport && isApproved(project)) { openExport(); break; }
-      commit(() => { project.approvedFingerprint = fingerprint(project); }, d, 'human.approve');
+      // The board the person was shown (0.2.5 H2): read where it is written, after what they typed is saved. One that changed since is shown again, not approved.
+      let seen=true;
+      commit(() => { if(el.dataset.shown!==shownState()){seen=false;return;} project.approvedFingerprint = approvalPrint(project); }, d, 'human.approve');
+      if (!seen) { if(andExport)exportModal();toast(ui('The board changed since it was shown. Look at it again, then approve.','보여 드린 뒤 보드가 바뀌었습니다. 다시 확인한 뒤 승인해 주세요.'));break; }
       if (andExport) openExport(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
       break;
     }
@@ -1792,7 +1795,9 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
+      // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
+      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=name.slice(0,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
@@ -1843,7 +1848,7 @@ async function inlineAssets(html:string):Promise<string>{
   for(const [path,data] of seen)out=out.split(path).join(data);
   return out;
 }
-function agentState(who=''){return {ok:true,...revisionInfo(),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
+function agentState(who=''){return {ok:true,...(screen==='editor'?revisionInfo():{}),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>,d:Dispatch){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,d,false);}finally{btn.remove();}}
 /** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
@@ -1994,10 +1999,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   }
   // The reason and revision the parser checked; `apply` checks its own (parseBatch) and makes its Dispatch there.
   const d=agentDispatch(who,surface,c.kind==='edit'||c.kind==='system'?{reason:c.reason,baseRevision:c.baseRevision}:c.kind==='act'||c.kind==='command'?{reason:c.reason}:{});
-  stepRefused='';
-  if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export')){
+  if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export'||c.kind==='command')){
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
   }
+  // A screen verb that would reach an action of the other screen does nothing (src/editor/screens.ts): off the editor no board is open, and Home's actions are Home's.
+  const reaches=c.kind==='act'||c.kind==='click'?reachedAction(c,agentLook):undefined;
+  if(screenRefuses(reaches,screen==='editor'?'editor':'home'))return screen==='editor'?{error:`${reaches} is on Home, where the person manages their projects. It does not run while a board is open.`,status:409}:{error:HOME_CANVAS_HINT,screen:'home',visible:false};
   try{
     switch(c.kind){
       /* The screen verbs press, type and key through the same handlers the person's input reaches.
@@ -2092,7 +2099,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         }
         if(!next)return {error:'system changed nothing'};
         const before=project.system.name;
-        commit(()=>{project.system=next!;},d,'edit.system',{source:'agent:system'});
+        commit(()=>{project.system=canonicalSystem(next!);},d,'edit.system',{source:'agent:system'});
         recordRun('agent:system',{from:before,to:next.name},d);
         render();
         return {system:{id:next.id,name:next.name,accent:next.accent,background:next.background,foreground:next.foreground,radius:next.radius,font:next.font}};
@@ -2132,7 +2139,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   }catch(error){return {error:error instanceof Error?error.message:String(error)};}
   await new Promise(r=>setTimeout(r,60));
   // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
-  if(stepRefused){const error=stepRefused;stepRefused='';return {error,status:403};}
+  const refusedStep=stepRefusals.get(d);if(refusedStep)return {error:refusedStep,status:403};
   if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
@@ -2374,6 +2381,7 @@ async function reloadFromDiskNow(){
   const stillGone=storeVanished(stored,readBreadcrumb(localStorage));
   if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your projects are back.','찾았습니다. 프로젝트가 돌아왔습니다.'));}
   else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
+  if(stored.data!==null&&readTidied(library))diskQueue.enqueue(JSON.stringify(library));
   const entry=library.entries.find(e=>e.project.id===project.id);
   if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
   render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
@@ -2391,6 +2399,8 @@ async function boot(){
          is the only thing that can tell them apart, because `workspace_read` answers both the same
          way. When it says we had something here, hold off writing and say so. */
       vanished=storeVanished(stored,readBreadcrumb(localStorage));
+      // A read that dropped a stale approval, or gave an old one its new form, is written once now: the store holds what the screen shows.
+      if(stored.data!==null&&readTidied(library)&&!vanished)diskQueue.enqueue(JSON.stringify(library));
       /* Opening a store tells us as much as saving to one does, and someone who reads their projects
          for a week without editing anything would otherwise leave no trace at all — the folder could
          then go missing with nothing left to say it had ever been there. */

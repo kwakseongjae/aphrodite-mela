@@ -1221,10 +1221,11 @@ export const commands = [
     input: {type: 'object', properties: {name: {type: 'string'}}, required: ['name'], additionalProperties: false},
     reason: 'none',
     revision: 'none',
-    ledger: sources('editor:change'),
+    /* Renaming from Home changes the board's name too, so it is recorded in that board's ledger (0.3-R). */
+    ledger: sources('editor:change', 'home:rename'),
     author: 'transport',
     surfaces: UI,
-    controls: [form('rename-form')],
+    controls: [form('rename-form'), form('hub-rename-form')],
   },
   {
     id: 'edit.content-language',
@@ -1374,7 +1375,7 @@ export const commands = [
     input: {type: 'object', properties: {id: {type: 'string'}}, required: ['id'], additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('hub-rename'), form('hub-rename-form'), action('hub-pin'), action('hub-archive'), action('hub-move'), action('hub-delete'), action('hub-delete-confirm')],
+    controls: [action('hub-rename'), action('hub-pin'), action('hub-archive'), action('hub-move'), action('hub-delete'), action('hub-delete-confirm')],
   },
   {
     id: 'outside.workspace',

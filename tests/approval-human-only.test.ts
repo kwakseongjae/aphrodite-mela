@@ -191,7 +191,8 @@ test('approvedFingerprint is written in exactly one place in main.ts',()=>{
   const sets=main.match(/approvedFingerprint\s*=(?!=)/g)??[];
   assert.equal(sets.length,1,`found ${sets.length} assignments; every approval must pass the one guarded case`);
   // ...and it is recorded as the approve row, which commit() refuses to anyone but the person.
-  assert.match(main,/commit\(\(\) => \{ project\.approvedFingerprint = fingerprint\(project\); \}, d, 'human\.approve'\)/);
+  // 0.3-R: in the form key order cannot break, and only over the board the button was drawn for (0.2.5 H2).
+  assert.match(main,/commit\(\(\) => \{ if\(el\.dataset\.shown!==shownState\(\)\)\{seen=false;return;\} project\.approvedFingerprint = approvalPrint\(project\); \}, d, 'human\.approve'\)/);
 });
 
 /* Undo and redo reach approval through history rather than a button: session.ts refuses an agent's
@@ -203,7 +204,7 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
   const body=main.slice(start,main.indexOf('\n}',start));
   assert.match(body,/stepForScreen\(project,direction,edits,d\.author\)/,'the step is asked as whoever asked for it, the way the screen takes it');
   assert.ok(body.indexOf('refusal(d')<body.indexOf('stepForScreen('),'and nobody named takes no step');
-  assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefused=error\.message;return;\}/,'refused before the stack is popped');
+  assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefusals\.set\(d,error\.message\);return;\}/,'refused before the stack is popped, kept with the command that asked');
   assert.ok(body.indexOf('HumanOnlyStep')<body.indexOf('.pop()'));
   // 0.3-P1 Codex 4th review: a step whose design cannot be saved moves nothing, and the whole project — history included — is not parsed before the save fits it.
   assert.ok(body.indexOf('StepDoesNotFit')>0&&body.indexOf('StepDoesNotFit')<body.indexOf('.pop()'),'a step that does not fit is not popped');
@@ -213,8 +214,9 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
 test('runAgentCommand returns a refused step as the gate\'s 403',()=>{
   const start=main.indexOf('async function runAgentCommand');
   const body=main.slice(start,main.indexOf('\n}',start));
-  assert.match(body,/const d=agentDispatch\(who,[^\n]*\n\s*stepRefused='';/,'a stale refusal never answers the next command');
-  assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*if\(stepRefused\)\{const error=stepRefused;stepRefused='';return \{error,status:403\};\}/,'checked after the wait, so a click has landed');
+  // 0.3-R (0.2.5 check6): kept with the command's own Dispatch, so a refusal never answers another command running beside it.
+  assert.doesNotMatch(main,/stepRefused/,'no refusal is kept where any command could read it');
+  assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*const refusedStep=stepRefusals\.get\(d\);if\(refusedStep\)return \{error:refusedStep,status:403\};/,'checked after the wait, so a click has landed');
 });
 
 test('undo and redo name who asked: the key handler by the event, action() before its first await',()=>{
