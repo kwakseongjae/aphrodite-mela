@@ -120,7 +120,6 @@ test('no html path writes the approval: a changed page is simply not the one the
     const result = runBatch(project, batch(payload), '');
     assert.ok(result.ok, result.ok ? '' : result.error);
     if (!result.ok) continue;
-    assert.equal(result.project.approvedFingerprint, project.approvedFingerprint, 'the approval record stays the person\'s, untouched');
     assert.equal(isApproved(result.project), false, 'the changed page is not the approved one');
   }
   assert.ok('error' in parseBatch({reason: REASON, patch: [{op: 'text', on: 'project', page_id: id, field: 'approvedFingerprint', hunks: [{at: 0, remove: '', insert: 'x'}]}]}), 'a text diff cannot reach the approval');
@@ -131,8 +130,11 @@ test('no html path writes the approval: a changed page is simply not the one the
   if (!changed.ok) return;
   const current = {...changed.project, ledger: project.ledger};
   end(current, before, {author: AGENT, source: 'agent:apply', reason: REASON}, history);
+  // 0.3-R: the fingerprint the changed page no longer matches goes with the change, in the agent's own change.
+  assert.equal(current.approvedFingerprint, undefined, 'the stale fingerprint went with the change');
   const undone = step(current, 'undo', history, AGENT)!;
-  assert.equal(undone.project.approvedFingerprint, project.approvedFingerprint, 'an agent\'s undo of its own html change moves no approval');
+  assert.equal(undone.project.pages.find(p => p.id === id)!.html, project.pages.find(p => p.id === id)!.html, 'an agent\'s undo of its own html change takes it back');
+  assert.equal(isApproved(undone.project), false, 'and brings back no approval: that is the person\'s to give again');
 });
 
 test('a media item arrives with media_add (0.3-P2), not through a patch', () => {

@@ -74,15 +74,32 @@ export function initialProject(): Project {
   return { version: 1, id: uid(), name: 'Form & Field', brief: 'A warm, editorial furniture store. Natural materials, thoughtful objects, and a slower way of living.', system: { ...systems.find(s=>s.id==='atelier')! }, pages: [{ id, name: 'Home', blocks: (['navigation', 'hero', 'features', 'products', 'footer'] as BlockKind[]).map(k => makeBlock(k, true)) }], activePageId: id };
 }
 export function currentPage(p: Project) { return p.pages.find(x => x.id === p.activePageId)!; }
-export function fingerprint(p: Project): string {
+function hashOf(value: string): string {
   // Local change detector, not a security signature. Two independent 32-bit accumulators
   // avoid duplicating multi-megabyte uploaded images in storage and history snapshots.
-  const value = JSON.stringify({ name: p.name, brief: p.brief, system: p.system, pages: p.pages, reference: p.reference, contentLanguage:p.contentLanguage });
   let a = 2166136261, b = 5381;
   for (let i = 0; i < value.length; i++) { a = Math.imul(a ^ value.charCodeAt(i), 16777619); b = Math.imul(b, 33) ^ value.charCodeAt(i); }
   return `${value.length}:${(a >>> 0).toString(16)}:${(b >>> 0).toString(16)}`;
 }
-export function isApproved(p: Project) { return p.approvedFingerprint === fingerprint(p); }
+const designFields = (p: Project) => ({ name: p.name, brief: p.brief, system: p.system, pages: p.pages, reference: p.reference, contentLanguage:p.contentLanguage });
+/** The design's revision as it has always been read: the JSON as the keys happen to fall. Approvals made before 0.3-R hold this. */
+export function fingerprint(p: Project): string { return hashOf(JSON.stringify(designFields(p))); }
+/** JSON with every object's keys in order: the same design reads the same, whichever order its keys were made in. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, (v as Record<string, unknown>)[k]])) : v);
+}
+/**
+ * What an approval holds (0.3-R): the design, read so that key order does not count. A store that sorts keys, or an undo
+ * that puts a field back after the others, gives back the design the person approved, and the approval holds for it.
+ */
+export function approvalPrint(p: Project): string { return `c1:${hashOf(canonicalJson(designFields(p)))}`; }
+/** An approval written before 0.3-R (`fingerprint`) still holds; a read gives it back as an `approvalPrint`. */
+export function isApproved(p: Project) { const held = p.approvedFingerprint; return held !== undefined && (held === approvalPrint(p) || held === fingerprint(p)); }
+/**
+ * The invariant (0.3-R): a fingerprint that is kept matches the board it is on. One the content no longer matches is dropped
+ * where the board changes, is read or is saved, so content that comes back, by whoever, comes back a draft. True when it dropped one.
+ */
+export function dropStaleApproval(p: Project): boolean { if (p.approvedFingerprint === undefined || isApproved(p)) return false; delete p.approvedFingerprint; return true; }
 export function assemble(brief: string): BlockKind[] {
   if (/shop|store|furniture|commerce|가구|쇼핑|스토어|상품/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'features', 'footer'];
   if (/portfolio|studio|포트폴리오|스튜디오/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'testimonial', 'footer'];
@@ -102,6 +119,8 @@ export const MAX_PROJECT = 20_000_000;
 export function parseProject(raw: string): Project {
   if (raw.length > MAX_PROJECT) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
+  // Judged on the content as it came, before anything below tidies it: what was approved stays approved, in the form key order cannot break.
+  const approved = typeof p?.approvedFingerprint === 'string' && isApproved(p);
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
   if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > MAX_PAGES) throw new Error('지원하지 않는 프로젝트 형식입니다.');
@@ -154,7 +173,13 @@ export function parseProject(raw: string): Project {
   // A saved ledger that does not hold together is dropped, never a reason to refuse the project.
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{})};
+  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{})};
+  if (approved) read.approvedFingerprint = approvalPrint(read);
+  return read;
+}
+/** A design system in the shape a read keeps (parseProject): a board's approval is over what is saved, not over names a read would drop. */
+export function canonicalSystem(system: DesignSystem): DesignSystem {
+  return parseProject(JSON.stringify({ version: 1, id: 'system', name: 'system', brief: '', system, pages: [{ id: 'page', name: 'page', blocks: [] }], activePageId: 'page' })).system;
 }
 export function importDesignMarkdown(markdown: string, name: string, base: DesignSystem): DesignSystem {
   if (markdown.length > 200000) throw new Error('DESIGN.md는 200KB 이하여야 합니다.');

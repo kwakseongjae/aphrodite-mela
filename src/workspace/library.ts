@@ -10,21 +10,29 @@ export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinn
 export type Library={version:1;entries:ProjectEntry[]};
 export type LocalStore=Pick<Storage,'getItem'|'setItem'>;
 function requireWorkspaceId(id:string){if(!WORKSPACE_ID.test(id))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');return id;}
+/** Libraries whose read held an approval differently from what was stored (0.3-R): a stale one dropped, an old one in its new form. */
+const tidied=new WeakSet<Library>();
+/**
+ * Whether reading this library changed an approval from what is stored. The app writes such a library once, at once, so
+ * the store holds what the screen shows (a Files sync compares the two and would otherwise call the board changed).
+ */
+export const readTidied=(library:Library):boolean=>tidied.has(library);
 export function readLibrary(storage:LocalStore):Library{
   const raw=storage.getItem(LIBRARY_KEY);
   if(raw!==null){
     if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 원본은 보존됩니다.');
     const value=JSON.parse(raw);
     if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>200)throw new Error('프로젝트 보관함 형식을 읽지 못했습니다.');
-    const seen=new Set<string>();
+    const seen=new Set<string>();let changed=false;
     const entries=value.entries.map((e:ProjectEntry)=>{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       const project=parseProject(JSON.stringify(e.project));
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
+      if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
       return {...e,project};
-    });return {version:1,entries};
+    });const read:Library={version:1,entries};if(changed)tidied.add(read);return read;
   }
   const legacy=storage.getItem(LEGACY_KEY);
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.

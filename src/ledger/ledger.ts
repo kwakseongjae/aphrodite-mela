@@ -17,7 +17,8 @@ import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
 import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
 export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
-export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
+/** `cleared`: the change cleared the approval as the system does (src/ledger/session.ts), and wrote none of its own. */
+export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]; cleared?: true};
 
 export const UNDO_LIMIT = 200;
 

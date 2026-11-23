@@ -10,10 +10,38 @@
  * one, by an `unknown` author — not whoever happens to edit next. The ledger stays complete even when a
  * code path forgets to commit, and the source name says which kind of path to go and fix.
  */
-import {parseProject, type Project} from '../model';
+import {dropStaleApproval, isApproved, parseProject, type Project} from '../model';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
-import {applyPatch, diffProject} from './patch';
-import {designOf, emptyLedger, record, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
+import {applyPatch, diffProject, type PatchOp} from './patch';
+import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
+
+/**
+ * The note a change carries when the approval went with it (0.3-R): its content no longer matched the fingerprint, or
+ * someone other than the person would have brought an approval the board did not have. Approving is the person's alone.
+ */
+export const APPROVAL_CLEARED = 'Approval cleared: only the person brings an approval back.';
+
+/**
+ * Holds a board's approval to the rule where a change is recorded, on the board itself (not a copy): a fingerprint the
+ * content no longer matches goes, and so does one anyone but the person would bring (one other than the board had in
+ * `before`, compared as fingerprints, so a step that left a standing approval as it was keeps it). True when it cleared.
+ */
+function settleApproval(project: Project, before: Project, author: Author, step = false): boolean {
+  if (dropStaleApproval(project)) return true;
+  // A board that came in already without it (a batch's result, read as a saved board is) lost it the same way. A step's
+  // ops are the change it takes back or puts back, so one that takes an approval away is that change's, not a clearing.
+  if (project.approvedFingerprint === undefined) return !step && before.approvedFingerprint !== undefined;
+  if (author.kind === 'person') return false;
+  if (isApproved(before) && before.approvedFingerprint === project.approvedFingerprint) return false;
+  delete project.approvedFingerprint;
+  return true;
+}
+/** The reason a change that cleared the approval records: the one it was given, then the note, which is never the part cut. */
+function noted(reason: string | undefined): string {
+  const given = reason?.trim().slice(0, MAX_REASON - APPROVAL_CLEARED.length - 3).trim();
+  return given ? `${given} · ${APPROVAL_CLEARED}` : APPROVAL_CLEARED;
+}
+const writesApproval = (ops: PatchOp[]) => ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint');
 
 export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
 
@@ -35,9 +63,11 @@ function ledgerOf(project: Project) {
  */
 function reconcile(project: Project, history: History): Project {
   if (history.last) {
+    // Nobody can say whose the drift was, so it brings no approval: the clearing is part of the drift recorded.
+    const cleared = settleApproval(project, history.last, UNKNOWN);
     const drift = diffProject(history.last, designOf(project));
     if (drift.length) {
-      record(ledgerOf(project), history.last, designOf(project), {author: UNKNOWN, source: 'untracked'}, drift);
+      record(ledgerOf(project), history.last, designOf(project), {author: UNKNOWN, source: 'untracked', ...(cleared ? {reason: noted(undefined)} : {})}, drift);
       history.last = clone(project);
       history.redo = [];
     }
@@ -52,13 +82,27 @@ export function begin(project: Project, history: History): Project {
 
 /** Call after an edit. Records it and makes it the next thing undo takes back; null when nothing changed. */
 export function end(project: Project, before: Project, meta: {author: Author; source: string; reason?: string}, history: History): Change | null {
-  const done = record(ledgerOf(project), before, designOf(project), meta);
+  const cleared = settleApproval(project, before, meta.author);
+  const done = record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta);
   if (!done) return null;
+  // A clearing is the system's, not a write of the approval: undoing this change is content, for anyone (step).
+  if (cleared) done.undo.cleared = true;
   history.undo.push(done.undo);
   if (history.undo.length > UNDO_LIMIT) history.undo.shift();
   history.redo = [];
   history.last = clone(project);
   return done.change;
+}
+
+/**
+ * A change to a board that is not open in the editor (Home's rename), by `meta.author`: the same rule as `end`, recorded in
+ * that board's own ledger. It has no undo here; the editor's history starts when the board is opened. Null when nothing changed.
+ */
+export function changeAside(project: Project, change: (project: Project) => void, meta: {author: Author; source: string; reason?: string}): Change | null {
+  const before = clone(project);
+  change(project);
+  const cleared = settleApproval(project, before, meta.author);
+  return record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta)?.change ?? null;
 }
 
 /**
@@ -99,15 +143,18 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   const entry = from[from.length - 1];
   if (!entry) return null;
   const ops = direction === 'undo' ? entry.inverse : entry.ops;
-  if (author.kind !== 'person' && ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint')) throw new HumanOnlyStep();
+  // The person's approve, taken back or given again, is theirs. A clearing the system made with an edit is not (`end`):
+  // that step goes on, and the rule below keeps whatever it would bring of an approval from anyone but the person.
+  if (author.kind !== 'person' && !entry.cleared && writesApproval(ops)) throw new HumanOnlyStep();
   const current = designOf(project);
   const next = applyPatch(current, ops);
+  const cleared = settleApproval(next, current, author, true);
   if (check) {
     try { check(next); }
     catch (error) { throw new StepDoesNotFit(error instanceof Error ? error.message : String(error)); }
   }
   const ledger = ledgerOf(project);
-  const done = record(ledger, current, next, {author, source: direction, ...(direction === 'undo' ? {undoes: entry.seq} : {redoes: entry.seq})});
+  const done = record(ledger, current, next, {author, source: direction, ...(cleared ? {reason: noted(undefined)} : {}), ...(direction === 'undo' ? {undoes: entry.seq} : {redoes: entry.seq})});
   from.pop();
   (direction === 'undo' ? history.redo : history.undo).push(entry);
   next.ledger = ledger;

@@ -10,6 +10,7 @@
  * much of it this prototype can actually paint.
  */
 import {semanticTokens, tokenSynonyms, isColour, typeRoles, sanitizeTypeRole, type SemanticToken, type TypeRole, type TypeScale} from './tokens';
+import {canonicalSystem, type DesignSystem} from '../model';
 
 export type GraphImport = {
   tokens: Partial<Record<SemanticToken, string>>;
@@ -140,6 +141,20 @@ export function importSummary(report: GraphImport['report'], ko: boolean): strin
   return ko
     ? `토큰 ${read}개 중 ${painted}개를 화면에 적용하고, ${carried}개는 그대로 보관했습니다${skipped ? `. ${skipped}개는 색이 아니어서 읽지 않았습니다` : ''}.`
     : `Of ${read} tokens, ${painted} are painted and ${carried} carried${skipped ? `; ${skipped} were not colours and were left` : ''}.`;
+}
+
+/**
+ * The system a read graph puts on a board, over `base`, in the shape a saved board keeps (canonicalSystem): a colour name
+ * a board cannot store is not on the board either, so what the person approves is what is saved (0.3-R, 0.2.5 M3).
+ */
+export function graphSystem(base: DesignSystem, read: ReturnType<typeof importDesignGraph>, name: string, description: string): DesignSystem {
+  return canonicalSystem({
+    ...base, id: 'imported', name, description,
+    ...(read.accent ? {accent: read.accent} : {}), ...(read.background ? {background: read.background} : {}),
+    ...(read.foreground ? {foreground: read.foreground} : {}), ...read.tokens,
+    ...(read.type ? {type: read.type} : {}),
+    ...(Object.keys(read.carried).length ? {carried: read.carried} : {}),
+  });
 }
 
 /** The type roles, for a caller that wants them separately. */
