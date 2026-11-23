@@ -230,6 +230,14 @@ export async function outgoingCount(board: Project, go: {host: Pick<FrameHost, '
   const locals = localRefsIn(board).filter(id => !go.holds(`local:${id}`)).length;
   return {count, bytes, locals, held: held + localRefsIn(board).length - locals, all: go.all};
 }
+/**
+ * Why an agent may not put `file` on the board (0.3-R fix 3 #7): one the board came without stays held back until the person
+ * places it themselves, so an agent cannot let it go out, by its library id, by its hash or as a picture under another name.
+ */
+export function heldFromAgent(project: Project, file: string): string | undefined {
+  if (!project.leftOut?.includes(file)) return undefined;
+  return `this board came without ${file.startsWith('local:') ? `the library picture ${file.slice('local:'.length)}` : `the file media:${file}`}, so it does not go out with the board. Only the person can put it back, by placing it on the board themselves; ask them to.`;
+}
 /** Files put on the board directly, by the person or an agent (a drop, a paste, media_add, a picture added to the library): they come off the list. */
 export function carriedNow(project: Project, files: string[]): boolean {
   if (!project.leftOut || project.leftOut.includes(LEFT_OUT_ALL)) return false;

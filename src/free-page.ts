@@ -234,16 +234,19 @@ export function contentKey(text: string): string {
  * frame be sent nowhere. The frame's scripts run under this policy as well as their own, so it allows
  * what the frame's does and no more.
  */
-export function renderShell(doc: string, origins: readonly string[]): string {
-  const media = ['data:', ...origins].join(' ');
+export function renderShell(doc: string, origins: readonly string[], files?: readonly string[]): string {
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
+  // Given `files`, the shell may load those addresses and no other (0.3-R fix 3 #7): a page that makes an address at run time
+  // for a file it was not given draws nothing. Each is one of the origins' own, with nothing in it a policy reads as a break.
+  const named = files?.filter(f => /^(?:asset|https?):\/\/[^\s"'()<>\\;,]+$/.test(f) && origins.some(o => f.startsWith(o.endsWith(':') ? `${o}//` : `${o}/`)));
+  const media = ['data:', ...(named ?? origins)].join(' ');
   const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */
 export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia'>): Promise<string> {
   const {found} = await pageMedia(page.html, host);
-  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
+  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins, [...new Set(found.values())].filter(a => !a.startsWith('data:')));
 }
 
 /** One file on a board holds at most this many bytes (src-tauri/src/board.rs keeps the same). */

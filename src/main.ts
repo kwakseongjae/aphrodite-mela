@@ -69,7 +69,7 @@ import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
-import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carriedNow,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
+import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carriedNow,heldFromAgent,contentId,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -1970,10 +1970,18 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   if(withFiles){
     const ahead=preflightBatch(project,held,selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
     const shut=stillAllowed();if(shut)return {...shut,applied:0};
+    // A file the board came without goes back only by the person's hand (0.3-R fix 3 #7): a library picture is asked by its id before anything is copied.
+    for(const [i,op] of batch.ops.entries())if(op.op==='media_add'&&op.library_id){const no=heldFromAgent(project,`local:${op.library_id}`);if(no)return {error:`ops[${i}]: ${no}`,failed_at:i,part:'ops',status:403,applied:0};}
   }
   const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
   if('error' in imported)return {...imported,part:'ops',applied:0};
   const {media}=imported;
+  // What was copied is asked by its hash, and a picture by the id the image library would give its bytes: let go of, refused.
+  for(const [i,m] of Object.entries(media)){
+    const sha=m.src.slice('media:'.length);let no=heldFromAgent(project,sha);
+    if(!no&&m.mime.startsWith('image/')&&project.leftOut?.some(f=>f.startsWith('local:'))){const bytes=await frameHost.read(sha);if(bytes)no=heldFromAgent(project,`local:${contentId(bytes)}`);}
+    if(no){await frameHost.releaseMedia(Object.values(media).map(x=>x.src.slice('media:'.length)),false).catch(()=>{});return {error:`ops[${i}]: ${no}`,failed_at:Number(i),part:'ops',status:403,applied:0};}
+  }
   // The files the batch staged are kept only if it lands, at this one place, whichever way it ends (0.3-R fix 2 #20).
   const staged=Object.values(media).map(m=>m.src.slice('media:'.length));
   const answer=((): Record<string,unknown>=>{
@@ -1999,7 +2007,6 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
       if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
       created=result.created;
       project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
-      carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));
       selected=result.selected;
     },d,'edit.apply',{source:'agent:apply'});
     if(stale)return stale;

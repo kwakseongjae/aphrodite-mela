@@ -180,7 +180,8 @@ test('a free page is framed only when the wall reads back off and a real frame h
 test('the render shell has one shape, its frame with scripts: there is no scriptless way to draw a free page', () => {
   const doc = framedDocument('<script>1</script>', {media: () => undefined, origins: []});
   assert.match(renderShell(doc, []), new RegExp(`<iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc=`));
-  assert.equal(renderShell.length, 2);
+  // The document, the origins, and the files it may load (0.3-R fix 3 #7): no way to ask for it without scripts.
+  assert.equal(renderShell.length, 3);
   const source = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /frameSandbox|sandbox="\$\{/);
 });
