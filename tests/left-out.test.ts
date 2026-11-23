@@ -83,7 +83,8 @@ test('the list is no part of the design: not in the fingerprint, the approval, t
   assert.equal(agentRevision(q), agentRevision(p));
   assert.deepEqual(diffProject(p, q), []);
   assert.deepEqual((parseProject(JSON.stringify(q)) as Project & {leftOut?: string[]}).leftOut, [MINE]);
-  assert.throws(() => parseProject(JSON.stringify({...q, leftOut: ['not a file']})));
+  // 0.3-R fix 2 #13: a list that cannot be trusted holds back every file, rather than refusing the board.
+  assert.deepEqual((parseProject(JSON.stringify({...q, leftOut: ['not a file']})) as Project & {leftOut?: string[]}).leftOut, ['*']);
 });
 
 test('a file put on the board directly comes off the list', () => {

@@ -11,7 +11,7 @@
  * readLedger. A received board is always a new board: a new id, and no approval, which no file can give.
  */
 import {Inflate, strFromU8, strToU8, zipSync, type Zippable} from 'fflate';
-import {MAX_PROJECT, parseProject, uid, type Project} from './model';
+import {LEFT_OUT_ALL, MAX_LEFT_OUT, MAX_PROJECT, parseProject, uid, type Project} from './model';
 import {filesNamed, htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
 import {LEDGER_BUDGET, readLedger} from './ledger/types';
 import {fitSaved} from './ledger/ledger';
@@ -210,8 +210,8 @@ export {filesNamed};
  * is not changed: the frames are given the host as it is.
  */
 export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Project, host: H, local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): {host: H; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; withheld: Set<string>} {
-  const without = new Set(project.leftOut ?? []), withheld = new Set<string>();
-  const held = (file: string) => { if (!without.has(file)) return false; withheld.add(file); return true; };
+  const without = new Set(project.leftOut ?? []), all = without.has(LEFT_OUT_ALL), withheld = new Set<string>();
+  const held = (file: string) => { if (!all && !without.has(file)) return false; withheld.add(file); return true; };
   return {
     host: {...host, stat: async (sha: string) => held(sha) ? undefined : host.stat(sha), read: async (sha: string) => held(sha) ? undefined : host.read(sha)},
     ...(local ? {local: async (id: string) => held(`local:${id}`) ? undefined : local(id)} : {}),
@@ -220,7 +220,7 @@ export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Pr
 }
 /** Files put on the board directly, by the person or an agent (a drop, a paste, media_add, a picture added to the library): they come off the list. */
 export function carriedNow(project: Project, files: string[]): void {
-  if (!project.leftOut) return;
+  if (!project.leftOut || project.leftOut.includes(LEFT_OUT_ALL)) return;
   const kept = project.leftOut.filter(f => !files.includes(f));
   if (kept.length) project.leftOut = kept; else delete project.leftOut;
 }
@@ -338,6 +338,8 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   delete project!.approvedFingerprint;
   // What it came without, as this reader found it (0.3-R ④): shown wherever this Mac has it, never sent on with the board.
   if (left.length) project!.leftOut = [...new Set(left.map(l => l.file))];
+  // A list that would be cut is no list: such a board is refused, never sent on with files it named and did not carry (0.3-R fix 2 #13).
+  if ((project!.leftOut?.length ?? 0) > MAX_LEFT_OUT) refuse(`it names ${project!.leftOut!.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}`);
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {

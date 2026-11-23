@@ -152,7 +152,9 @@ export function importedProject(raw:string,library:Library):Project{
   delete project.approvedFingerprint;
   // A project file carries no files: every one it names came without it, and none is sent on with it (0.3-R ④).
   const named=[...filesNamed(project),...localRefsIn(project).map(id=>`local:${id}`)];
-  if(named.length)project.leftOut=[...new Set(named)].slice(0,MAX_LEFT_OUT);else delete project.leftOut;
+  // Never cut (0.3-R fix 2 #13): a file past the cut would go out with the board.
+  const unique=[...new Set(named)];if(unique.length>MAX_LEFT_OUT)throw new Error(`This project file names ${unique.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}, so it is not imported.`);
+  if(unique.length)project.leftOut=unique;else delete project.leftOut;
   return project;
 }
 /**

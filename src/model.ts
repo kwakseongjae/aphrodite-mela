@@ -41,6 +41,8 @@ export const PAGE_KEYS: ReadonlySet<string> = new Set(['id', 'name', 'blocks', '
 export const BLOCK_KEYS: ReadonlySet<string> = new Set(['id', 'kind', 'title', 'text', 'label', 'image', 'filled', 'variant', 'eyebrow', 'description', 'itemImages', 'options', 'provider', 'theme', 'parentId', 'layout']);
 /** How many files a board may be marked as having come without (0.3-R ④). */
 export const MAX_LEFT_OUT = 10_000;
+/** In place of the list (0.3-R fix 2 #13): the board came without files no list could hold, so none of this Mac's goes out with it. */
+export const LEFT_OUT_ALL = '*';
 export const systems: DesignSystem[] = [
   ...ownSystems,
   {id:'mui',name:'Material · MUI',description:'Official React adapters + project tokens',accent:'#1976d2',background:'#ffffff',foreground:'#1b1b1f',radius:4,font:'sans',source:'MUI official package adapters for Button, TextField, Card. Remaining compositions are Aphrodite originals.'},
@@ -143,7 +145,9 @@ export function parseProject(raw: string): Project {
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
-  if(p.leftOut!==undefined&&(!Array.isArray(p.leftOut)||p.leftOut.length>MAX_LEFT_OUT||!p.leftOut.every(f=>typeof f==='string'&&/^(?:[0-9a-f]{64}|local:[0-9a-f]{16})$/.test(f))))throw new Error('Invalid list of files the board came without');
+  // A list that cannot be trusted whole holds back every file (0.3-R fix 2 #13): it is never cut, and never a reason to refuse the board.
+  if(p.leftOut!==undefined&&(!Array.isArray(p.leftOut)||p.leftOut.length>MAX_LEFT_OUT||!p.leftOut.every(f=>typeof f==='string'&&(f===LEFT_OUT_ALL||/^(?:[0-9a-f]{64}|local:[0-9a-f]{16})$/.test(f)))))p.leftOut=[LEFT_OUT_ALL];
+  else if(p.leftOut?.includes(LEFT_OUT_ALL))p.leftOut=[LEFT_OUT_ALL];
   if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
   if (s.headingFamily !== undefined) { const clean = sanitizeFamily(s.headingFamily); if (clean) s.headingFamily = clean; else delete s.headingFamily; }
   if (s.bodyFamily !== undefined) { const clean = sanitizeFamily(s.bodyFamily); if (clean) s.bodyFamily = clean; else delete s.bodyFamily; }
