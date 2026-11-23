@@ -60,7 +60,7 @@ export function projectCards(library:Library,filter:LibraryFilter,query:string,l
 /** Home's own help menu: the shared list (homeHelpItems), drawn as menu items. */
 function helpMenu(language:Language){
   const ko=language==='ko';
-  return `<div class="folio-menu ui-menu" role="menu">${homeHelpItems.map(item=>item==='separator'?'<div class="ui-menu-sep"></div>':item.href?`<a role="menuitem" class="ui-menu-item" href="${esc(item.href)}" target="_blank" rel="noopener"><span>${esc(ko?item.ko:item.en)}</span>${icon('arrow-up-right','ui-icon ui-icon-sm')}</a>`:`<button type="button" role="menuitem" class="ui-menu-item"${item.action?` data-action="${esc(item.action)}"`:''}><span>${esc(ko?item.ko:item.en)}</span>${item.keys?`<span class="ui-menu-key">${esc(item.keys)}</span>`:''}</button>`).join('')}</div>`;
+  return `<div class="folio-menu ui-menu" role="menu">${homeHelpItems.filter((item,i,all)=>item!=='separator'||(i>0&&i<all.length-1&&all[i+1]!=='separator')).map(item=>item==='separator'?'<div class="ui-menu-sep"></div>':item.href?`<a role="menuitem" class="ui-menu-item" href="${esc(item.href)}" target="_blank" rel="noopener"><span>${esc(ko?item.ko:item.en)}</span>${icon('arrow-up-right','ui-icon ui-icon-sm')}</a>`:`<button type="button" role="menuitem" class="ui-menu-item"${item.action?` data-action="${esc(item.action)}"`:''}><span>${esc(ko?item.ko:item.en)}</span>${item.keys?`<span class="ui-menu-key">${esc(item.keys)}</span>`:''}</button>`).join('')}</div>`;
 }
 export function workspaceHome(library:Library,filter:LibraryFilter,query:string,error:string,night=false,language:Language='en',view:HubView='grid',saved=true,book?:WorkspaceBook,sidebar:'open'|'collapsed'='open',connected=false,connectWho=''){
   const t=homeCopy[language];
