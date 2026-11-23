@@ -36,7 +36,7 @@ export const primitives={
 /** Type, space, shape, control sizes and motion: the same in both themes. */
 export const scale={
   'font-sans':'"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
-  'font-mono':'ui-monospace, "SF Mono", Menlo, monospace',
+  'font-mono':'"Geist Mono Variable", "Pretendard Variable", ui-monospace, "SF Mono", Menlo, monospace',
   'text-11':'11px','lh-11':'16px','text-12':'12px','lh-12':'16px','text-13':'13px','lh-13':'20px',
   'text-15':'15px','lh-15':'22px','text-20':'20px','lh-20':'28px','text-28':'28px','lh-28':'36px',
   'w-regular':'400','w-medium':'500','w-semibold':'600',

@@ -55,7 +55,7 @@
   --ui-danger-soft-dark: #4A2321;
   --ui-white: #FFFFFF;
   --ui-font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --ui-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --ui-font-mono: "Geist Mono Variable", "Pretendard Variable", ui-monospace, "SF Mono", Menlo, monospace;
   --ui-text-11: 11px;
   --ui-lh-11: 16px;
   --ui-text-12: 12px;

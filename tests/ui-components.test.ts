@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
+import {scale} from '../src/ui/tokens';
 import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths,hasFlag,conditions} from './support/css';
 
 /** Every sheet the system owns: any .css under src/ui at any depth, but the generated tokens.css. */
@@ -221,12 +222,23 @@ test('every file the new sheets load is bundled in public/, and none comes from 
     assert.ok(existsSync(new URL(`../public${url}`,import.meta.url)),`${url} is not in public/`);
   }
   assert.ok(existsSync(new URL('../public/fonts/LICENSE.txt',import.meta.url)),'the OFL travels with the font file');
+  assert.ok(existsSync(new URL('../public/fonts/GeistMono-OFL.txt',import.meta.url)),'the OFL travels with the mono file');
+  // Where each file came from and which version it is, next to the licences.
+  const sources=readFileSync(new URL('../public/fonts/SOURCES.txt',import.meta.url),'utf8');
+  for(const file of urls.map(u=>u.split('/').pop()!))assert.ok(sources.includes(file),file+' has no source in public/fonts/SOURCES.txt');
 });
 
-test('the bundled face is named so that no design on the canvas picks it up by accident',()=>{
-  // Designs name `Pretendard` (src/design/fonts.ts). Declaring that name would swap their Hangul.
+test('the bundled faces are named so that no design on the canvas picks them up by accident',()=>{
+  // Designs name `Pretendard` (src/design/fonts.ts) and may name `Geist Mono` from a web font. Declaring
+  // either name in the app's own document would swap the face a section page on the board draws with.
   const families=sheets.flatMap(file=>[...strip(read(file)).matchAll(/@font-face\s*\{[^}]*font-family:\s*["']?([^"';]+)["']?/g)].map(m=>m[1]));
-  assert.deepEqual(families,['Pretendard Variable']);
+  assert.deepEqual(families,['Pretendard Variable','Geist Mono Variable']);
+});
+
+test('the mono face is the bundled Geist Mono, with the bundled Pretendard behind it for Hangul',()=>{
+  const mono=String(scale['font-mono']);
+  assert.match(mono,/^"Geist Mono Variable", "Pretendard Variable",/,'a path or a size in Korean falls to Pretendard, not to the system');
+  assert.match(mono,/monospace$/);
 });
 
 test('the app loads the tokens before the parts, from index.html and not from app code',()=>{
