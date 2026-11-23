@@ -448,6 +448,8 @@ check('the export window\'s Approve now approves only the board it showed (0.2.5
 
 /* 0.3-R fix 1 #4: an edit in the inspector redraws the canvas alone; the card follows it, so the person's first press approves. */
 check('right after the person edits a title, Approve direction approves with one press', async () => {
+  for (let i = 0; i < 3 && await evaluate('document.querySelector("#modal-root").children.length'); i++) { await evaluate('document.querySelector("#modal-root [data-action=close-modal]")?.click(), true'); await sleep(300); }
+  assert.equal(await evaluate('document.querySelector("#modal-root").children.length'), 0, 'no dialog is open');
   const id = await evaluate(`document.querySelector('.space-frame.active [data-block-id]').dataset.blockId`);
   await personPresses('select', {id}); await sleep(400);
   assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
