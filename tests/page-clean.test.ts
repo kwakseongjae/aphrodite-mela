@@ -57,3 +57,23 @@ test('a custom element named like an export\'s stand-in for a file is not kept',
   assert.equal(check.test('aphrodite-media-x'), false);
   for (const ok of ['my-card', 'x-y', 'aphrodite-card']) assert.equal(check.test(ok), true, ok);
 });
+
+/* 0.3-R ⑦ (P3 third review L-2): inside the captured block too, each helper reads a node only through a getter, setter
+   or method taken off a prototype (fn.<name>.call), so a read like d => d.head, const {head} = doc or Reflect.get(doc,
+   'head') put back there is seen. */
+test('inside the captured block every helper reads through the prototypes\' own functions, never the node itself', () => {
+  const begin = source.indexOf('/* captured: begin'), end = source.indexOf('/* captured: end */');
+  const block = source.slice(begin, end).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const helpers = block.slice(block.indexOf('return {', block.indexOf('function capture()')));
+  const bodies = [...helpers.matchAll(/^\s{4}(\w+): \(([^)]*)\) => (.*),$/gm)];
+  assert.ok(bodies.length >= 25, `the helpers are read (${bodies.length})`);
+  for (const [, name, , body] of bodies) {
+    assert.ok(/fn\.\w+\.call\(/.test(body), `${name} reads through fn.<name>.call`);
+    const outsideCalls = body.replace(/fn\.\w+\.call\([^;]*?\)/g, '').replace(/new DOMParser\(\)/g, '');
+    assert.doesNotMatch(outsideCalls, /\b[a-z]\.(?:head|documentElement|body|firstChild|nextSibling|parentNode|attributes|textContent|data|querySelectorAll)\b|Reflect\.|\{\s*(?:head|body|documentElement)\s*\}\s*=/, `${name} reads nothing directly`);
+  }
+  for (const slip of ['    head: (d: Document) => d.head,', '    root: (d: Document) => Reflect.get(d, \'documentElement\'),']) {
+    const m = /^\s{4}(\w+): \(([^)]*)\) => (.*),$/m.exec(slip)!;
+    assert.ok(!/fn\.\w+\.call\(/.test(m[3]), `the check sees ${slip.trim()}`);
+  }
+});
