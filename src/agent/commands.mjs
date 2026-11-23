@@ -1450,11 +1450,13 @@ export const commands = [
     ],
   },
   {
+    /* The saved copy, an approved one included, put back over the board on screen (0.3-R fix 1): the person's alone. */
     id: 'outside.disk-reload',
     label: {en: 'Reload the saved copy from disk', ko: '디스크에서 다시 불러오기'},
     grade: 'outside',
     input: NOTHING,
     ...plain,
+    author: 'person-only',
     surfaces: UI,
     controls: [action('disk-reload')],
   },
