@@ -113,3 +113,15 @@ test('a board file whose words fit but whose history leaves no room once read is
   assert.ok(JSON.stringify(got.project).length <= MAX_PROJECT);
   assert.doesNotThrow(() => parseProject(JSON.stringify(got.project)));
 });
+
+/* 16: from the moment the last save of a close or a restart begins until the window goes, an agent's write is turned away to
+   be tried again, so none is answered as done and then lost; the restart's code is loaded before that save. */
+test('an agent write during the last save of a close or a restart is turned away to be tried again', () => {
+  const updates = readFileSync(new URL('../src/editor/updates.ts', import.meta.url), 'utf8');
+  assert.match(updates, /case 'update-relaunch': \{\n(?:\s*\/\/.*\n)?\s*try\{const \{relaunch\}=await import\('@tauri-apps\/plugin-process'\);await host\.leaving\(async\(\)=>\{await relaunch\(\);\}\);\}/, 'the restart is loaded before the save');
+  const close = main.slice(main.indexOf('function closeWindow('), main.indexOf('\n', main.indexOf('function closeWindow(')));
+  assert.match(close, /return turn\(async\(\)=>\{if\(answered\(\)\)return;shuttingDown=true;try\{/, 'set as the last save begins');
+  assert.match(close, /\}catch\(error\)\{shuttingDown=false;throw error;\}\}\);\}$/, 'and let go of when the close does not happen');
+  assert.match(main, /if\(shuttingDown&&isWrite\(gateFor\(c,reachedAction\(c,agentLook\)\)\)\)return \{error:'Aphrodite is saving to close or restart[^']*',status:423\};/);
+  assert.match(main, /goingNow\(/, 'a close the person answered (close unsaved, or kept as a file) sets it too');
+});

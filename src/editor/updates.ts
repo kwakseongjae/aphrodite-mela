@@ -97,7 +97,8 @@ export function createUpdates(host: UpdateHost) {
             break;
           }
           case 'update-relaunch': {
-            try{await host.leaving(async()=>{const {relaunch}=await import('@tauri-apps/plugin-process');await relaunch();});}
+            // The restart's code is loaded before the last save, so nothing waits between that save and the restart (0.3-R fix 3 #16).
+            try{const {relaunch}=await import('@tauri-apps/plugin-process');await host.leaving(async()=>{await relaunch();});}
             catch(error){host.toast(String(error));}
             break;
           }

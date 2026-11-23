@@ -56,7 +56,7 @@ import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
 import {importDesignGraph,importSummary,graphSystem} from './design/omd';
 import {createUpdates} from './editor/updates';
-import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
+import {isWrite,judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
 import {personOnlyRow} from './agent/commands.mjs';
 import {serial} from './serial';
@@ -349,7 +349,7 @@ const updates=createUpdates({
   ui,
   toast,
   hydrateIcons:()=>hydrateIcons(),
-  leaving:go=>closer.request(go),
+  leaving:go=>closer.request(goingNow(go)),
 });
 const archive=createArchive({
   project:()=>project,
@@ -464,6 +464,10 @@ let leaving=0;
 const leaves=serial();
 /** The browser build's checks hold the store's write here, to see nothing can be typed while a board is left. */
 let heldWrites:Promise<void>|undefined;
+/** From the last save of a close or a restart until the window goes: an agent's write is turned away to be tried again, so none is answered as done and then lost (0.3-R fix 3 #16). */
+let shuttingDown=false;
+/** A window's going, the close the person answered included, with the agents' writes held off from its start. */
+const goingNow=(destroy:()=>Promise<void>)=>async()=>{shuttingDown=true;try{await destroy();}catch(error){shuttingDown=false;throw error;}};
 /** And makes the next board file's library write fail, to see only that board comes out again. */
 let failImportWrite:false|'armed'|'now'=false;
 /** Where the keys go back to once a leaving is over: a dialog closed while the editor took no input could not give them back then. */
@@ -499,7 +503,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;shuttingDown=true;try{const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();}catch(error){shuttingDown=false;throw error;}});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -2048,6 +2052,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   // bridge, MCP, window.aphroditeAgent) arrives through this one function.
   const verdict=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
+  if(shuttingDown&&isWrite(gateFor(c,reachedAction(c,agentLook))))return {error:'Aphrodite is saving to close or restart, so nothing was changed. Try again once it is open.',status:423};
   // A screen action only the person does (src/agent/commands.mjs personOnlyRow): files out and in, links, and Edit in the app.
   const theirs=personOnlyRow(reachedAction(c,agentLook));
   if(theirs)return {error:`${theirs} is the person's to do, from their own screen. Tell them what you would like and let them press it.`,status:403};
@@ -2244,7 +2249,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         // A batch that is not well formed is the sender's to fix: 400, all the way out (0.3-R fix 2 #6).
         if('error' in parsed)return {error:parsed.error,status:400};
-        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
+        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{if(shuttingDown)return {error:'Aphrodite is saving to close or restart, so nothing was placed. Try again once it is open.',status:423};const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;
       }
@@ -2538,7 +2543,7 @@ async function boot(){
         if(lastSaved&&!leaving&&!closer.busy())return;
         event.preventDefault();
         // The flag lets the destroy's own close through; a refused destroy lets go of it, so every close after it is held again.
-        await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}});
+        await closer.request(goingNow(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}}));
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
@@ -2557,7 +2562,7 @@ async function boot(){
     // A tab closed with work not saved asks first, the browser's own way (0.3-R fix 2 #16); the three answers are the desktop's.
     window.addEventListener('beforeunload',e=>{if(!lastSaved||leaving){e.preventDefault();e.returnValue='';}});
     // And closes the window the way the desktop does, with a window that only counts that it went.
-    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
+    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(goingNow(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;})).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();
