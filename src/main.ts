@@ -1402,9 +1402,13 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       // The projects move first, to a workspace that stays, and the write is waited for (0.3-R ⑤): refused, nothing has changed, on the desktop too,
       // where the refusal comes after the write is queued. Then the list, worked out again after the wait so a workspace made meanwhile stays
       // (0.3-R fix 2 #17). Refused, only the projects that moved are put back, on the library as it is then, and the person is told whether that landed.
-      const moved=new Set(library.entries.filter(e=>(e.workspaceId??DEFAULT_WORKSPACE_ID)===id).map(e=>e.project.id));
-      const putBack=async()=>{try{saveLibrary({...library,entries:library.entries.map(e=>moved.has(e.project.id)?{...e,workspaceId:id}:e)});await flushDisk();return true;}catch{return false;}};
-      try{saveLibrary(moveEntries(library,id,movedTo));await flushDisk();}catch(error){library={...library,entries:library.entries.map(e=>moved.has(e.project.id)?{...e,workspaceId:id}:e)};throw error;}
+      // Put back is only what is still where it was moved, so a move made meanwhile stays; and what arrived in the workspace while it waited moves too (0.3-R fix 3 #10).
+      const moved=new Set<string>(),here=()=>library.entries.some(e=>(e.workspaceId??DEFAULT_WORKSPACE_ID)===id);
+      const back=(lib:Library):Library=>({...lib,entries:lib.entries.map(e=>moved.has(e.project.id)&&(e.workspaceId??DEFAULT_WORKSPACE_ID)===movedTo?{...e,workspaceId:id}:e)});
+      const putBack=async()=>{try{saveLibrary(back(library));await flushDisk();return true;}catch{return false;}};
+      const moveOut=async()=>{for(const e of library.entries)if((e.workspaceId??DEFAULT_WORKSPACE_ID)===id)moved.add(e.project.id);saveLibrary(moveEntries(library,id,movedTo));await flushDisk();};
+      try{await moveOut();if(here())await moveOut();}catch(error){library=back(library);throw error;}
+      if(here())throw new Error(ui('Projects kept arriving in this workspace while it was being deleted, so it stays. Try again.','지우는 동안 이 작업 공간에 프로젝트가 계속 들어와 그대로 둡니다. 다시 해 주세요.'));
       const {book}=deleteWorkspace(workspaces,id);
       try{saveWorkspaces(book);}catch(error){const back=await putBack();const where=workspaces.workspaces.find(w=>w.id===movedTo)?.name??'';throw new Error(back?String(error instanceof Error?error.message:error):ui(`${String(error instanceof Error?error.message:error)} Its projects could not be put back; they are in ${where}.`,`${String(error instanceof Error?error.message:error)} 프로젝트를 되돌리지 못했습니다. ${where}에 있습니다.`));}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;

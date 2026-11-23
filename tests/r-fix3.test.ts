@@ -125,3 +125,14 @@ test('an agent write during the last save of a close or a restart is turned away
   assert.match(main, /if\(shuttingDown&&isWrite\(gateFor\(c,reachedAction\(c,agentLook\)\)\)\)return \{error:'Aphrodite is saving to close or restart[^']*',status:423\};/);
   assert.match(main, /goingNow\(/, 'a close the person answered (close unsaved, or kept as a file) sets it too');
 });
+
+/* 10: deleting a workspace puts back only the projects that are still where it moved them, and moves any that arrived in it
+   while it waited, so a move made meanwhile is never undone and no project is left in a workspace that is gone. */
+test('deleting a workspace puts back only what is still where it moved it, and empties it again after the wait', () => {
+  const start = main.indexOf("case 'ws-delete-confirm':");
+  const del = main.slice(start, main.indexOf("\n    case '", start + 30));
+  assert.match(del, /const back=\(lib:Library\):Library=>\(\{\.\.\.lib,entries:lib\.entries\.map\(e=>moved\.has\(e\.project\.id\)&&\(e\.workspaceId\?\?DEFAULT_WORKSPACE_ID\)===movedTo\?\{\.\.\.e,workspaceId:id\}:e\)\}\);/, 'only what is still where it was moved');
+  assert.doesNotMatch(del, /moved\.has\(e\.project\.id\)\?\{\.\.\.e,workspaceId:id\}/, 'never by its id alone');
+  assert.match(del, /await moveOut\(\);if\(here\(\)\)await moveOut\(\);/, 'what arrived while it waited moves too');
+  assert.ok(del.indexOf('if(here())throw') > del.indexOf('await moveOut();if(here())await moveOut();') && del.indexOf('if(here())throw') < del.indexOf('saveWorkspaces(book)'), 'and a workspace still holding projects is not deleted');
+});
