@@ -8,7 +8,8 @@ import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
 const WORKSPACE_ID=/^[a-zA-Z0-9_-]{1,60}$/;
-export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string;workspaceId?:string};
+/** `clearedApproval`: when the system dropped a stale approval whose clearing found no room in the board's own history (0.3-R fix 3 #4). */
+export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string;workspaceId?:string;clearedApproval?:string};
 export type Library={version:1;entries:ProjectEntry[]};
 export type LocalStore=Pick<Storage,'getItem'|'setItem'>;
 function requireWorkspaceId(id:string){if(!WORKSPACE_ID.test(id))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');return id;}
@@ -23,10 +24,15 @@ export const readTidied=(library:Library):boolean=>tidied.has(library);
  * A stale fingerprint the library's edge dropped (a read, or a save of a board some path left it on) is recorded in that board's
  * own ledger, by the system, as every other clearing is recorded with its change (0.3-R fix 1 #9).
  */
-function noteCleared(project:Project,held:unknown):void{
-  if(typeof held!=='string'||project.approvedFingerprint!==undefined)return;
+function noteCleared(project:Project,held:unknown):boolean{
+  if(typeof held!=='string'||project.approvedFingerprint!==undefined)return false;
   if(!project.ledger)project.ledger=emptyLedger();
   record(project.ledger,{...designOf(project),approvedFingerprint:held},designOf(project),{author:SYSTEM,source:'library:tidy',reason:APPROVAL_CLEARED});
+  return true;
+}
+/** A clearing the history had no room for, near the cap, is kept in the library's entry beside the board (0.3-R fix 3 #4). */
+function keptClearing(saved:Project,cleared:boolean,at:string):{clearedApproval?:string}{
+  return cleared&&saved.ledger?.changes.at(-1)?.reason!==APPROVAL_CLEARED?{clearedApproval:at}:{};
 }
 export function readLibrary(storage:LocalStore):Library{
   const raw=storage.getItem(LIBRARY_KEY);
@@ -39,20 +45,22 @@ export function readLibrary(storage:LocalStore):Library{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
-      let project=parseProject(JSON.stringify(e.project));noteCleared(project,e.project?.approvedFingerprint);
+      if(e.clearedApproval!==undefined&&(typeof e.clearedApproval!=='string'||!Number.isFinite(Date.parse(e.clearedApproval))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      let project=parseProject(JSON.stringify(e.project));const cleared=noteCleared(project,e.project?.approvedFingerprint);
       // What the read added (the approval in today's form, a clearing recorded) is held to what a project holds before the library is written back (0.3-R fix 2 #19).
       if(JSON.stringify(project).length>MAX_PROJECT)project=parseProject(savedText(project));
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
       if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
-      return {...e,project};
+      return {...e,project,...keptClearing(project,cleared,new Date().toISOString())};
     });const read:Library={version:1,entries};if(changed)tidied.add(read);return read;
   }
   const legacy=storage.getItem(LEGACY_KEY);
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
   if(legacy===null)return {version:1,entries:[]};
   // A stale approval it held is dropped with the clearing in its ledger, as a library read records one (0.3-R fix 2 #9).
-  const project=parseProject(legacy);noteCleared(project,(JSON.parse(legacy) as {approvedFingerprint?:unknown}).approvedFingerprint);
-  return {version:1,entries:[entryFor(project)]};
+  const project=parseProject(legacy),cleared=noteCleared(project,(JSON.parse(legacy) as {approvedFingerprint?:unknown}).approvedFingerprint);
+  const entry=entryFor(project);
+  return {version:1,entries:[{...entry,...keptClearing(entry.project,cleared,entry.createdAt)}]};
 }
 export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=savedText(project)):ProjectEntry{
   const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
@@ -69,9 +77,10 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
   // A board some path left on a stale fingerprint gives it up here, in memory and on disk alike, and the clearing is in its ledger.
-  const held=project.approvedFingerprint;if(dropStaleApproval(project))noteCleared(project,held);
+  const held=project.approvedFingerprint,cleared=dropStaleApproval(project)&&noteCleared(project,held);
   const raw=savedText(project);
-  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
+  const made=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
+  const next={...made,...keptClearing(made.project,cleared,now)};
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }
 /**

@@ -176,3 +176,22 @@ test('the export window counts what each export would carry, by its own lookups'
   assert.match(main, /in the handoff: \$\{pictures\+locals\}/);
   assert.match(main, /const go=outgoing\(board,frameHost,id=>resolveLocalBytes\(id,board\.id\)\);const \{count,bytes,locals,held,all,pictures\}=await outgoingCount\(board,go\);/);
 });
+
+/* 4: a clearing that finds no room in the board's history, near the cap, is kept beside the board in the library's entry. */
+import {readLibrary, LEGACY_KEY, LIBRARY_KEY} from '../src/workspace/library.ts';
+import {APPROVAL_CLEARED} from '../src/ledger/types.ts';
+test('a clearing with no room in the history is kept in the library\'s entry, and read back', () => {
+  const p = {...initialProject(), approvedFingerprint: 'stale'} as Project; delete p.ledger;
+  for (let n = 0; ; n++) { const left = MAX_PROJECT - 40 - JSON.stringify(p).length; if (left <= 0) break; const page = {id: 'pad' + n, name: 'Pad', blocks: [], kind: 'html', html: ''}; p.pages.push(page as never); page.html = 'x'.repeat(Math.max(0, Math.min(1_900_000, MAX_PROJECT - 40 - JSON.stringify(p).length))); }
+  const values = new Map<string, string>([[LEGACY_KEY, JSON.stringify(p)]]);
+  const store = {getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); }};
+  const read = readLibrary(store as never);
+  const entry = read.entries[0] as {project: Project; clearedApproval?: string};
+  assert.equal(entry.project.approvedFingerprint, undefined);
+  assert.notEqual(entry.project.ledger?.changes.at(-1)?.reason, APPROVAL_CLEARED, 'no room for it in the history');
+  assert.ok(entry.clearedApproval && Number.isFinite(Date.parse(entry.clearedApproval)), 'so the entry keeps it');
+  values.set(LIBRARY_KEY, JSON.stringify(read));
+  assert.equal((readLibrary(store as never).entries[0] as {clearedApproval?: string}).clearedApproval, entry.clearedApproval, 'and a read keeps it');
+  values.set(LIBRARY_KEY, JSON.stringify({...read, entries: [{...entry, clearedApproval: 'not a time'}]}));
+  assert.throws(() => readLibrary(store as never));
+});
