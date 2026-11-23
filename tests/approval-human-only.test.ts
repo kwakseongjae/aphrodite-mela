@@ -254,3 +254,9 @@ test('on Home an agent reads no revision and no references kept for the board le
   const body=main.slice(start,main.indexOf("case 'taste':",start));
   assert.match(body,/archive\.entries\(\)\.filter\(r=>screen==='editor'\|\|r\.scope!=='project'\)/,'references kept for one board are read only while it is open');
 });
+
+test('a library whose read tidied an approval is written back once, and a store that refuses that write does not stop the app', () => {
+  assert.match(main, /if\(readTidied\(library\)&&!nativeDesktop\)try\{writeLibraryText\(localStorage,JSON\.stringify\(library\)\);\}catch\{/);
+  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)&&!vanished\)diskQueue\.enqueue\(JSON\.stringify\(library\)\);/, 'the desktop at start');
+  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)\)diskQueue\.enqueue\(JSON\.stringify\(library\)\);/, 'and when it reads the disk again');
+});

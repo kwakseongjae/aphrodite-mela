@@ -330,7 +330,7 @@ let library:Library={version:1,entries:[]};
 let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=localStorage.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
 const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
-try { library=readLibrary(localStorage);if(readTidied(library)&&!nativeDesktop)writeLibraryText(localStorage,JSON.stringify(library));if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+try { library=readLibrary(localStorage);if(readTidied(library)&&!nativeDesktop)try{writeLibraryText(localStorage,JSON.stringify(library));}catch{/* written with the next save */}if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
 /** The block the inspector's fields were last drawn for. */
 let inspectedId:string|undefined;
