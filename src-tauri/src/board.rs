@@ -14,6 +14,8 @@ use tauri::{AppHandle, Manager};
 pub const MAX_MEDIA_BYTES: u64 = 500 * 1024 * 1024;
 const MEDIA: &str = "board-media";
 const PAGES: &str = "free-pages";
+/// How long a page's copy is kept after a frame last wrote or opened it (write_page).
+const PAGE_KEPT: std::time::Duration = std::time::Duration::from_secs(600);
 /// Files on their way in, outside both folders the asset protocol serves.
 const UPLOADS: &str = "board-uploads";
 const EXTENSIONS: [&str; 6] = ["png", "jpg", "gif", "webp", "mp4", "webm"];
@@ -202,7 +204,9 @@ pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
-/// Writes the copy a frame loads: one file per page, named for this version of it, the older ones gone.
+/// Writes the copy a frame loads, named for this version of the page. A copy a frame writes or opens again is made new;
+/// another version of the same page id is cleared only once no frame has written or opened it for PAGE_KEPT (0.3-R), so a
+/// late write from a frame of an older version, on this board or another, never takes away the copy a frame is opening.
 pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Result<PathBuf, String> {
     if page.is_empty() || page.len() > 200 || !page.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return Err("invalid page id".into());
@@ -217,7 +221,10 @@ pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Resu
     let prefix = format!("{page}~");
     let name = format!("{prefix}{key}.html");
     let dest = dir.join(&name);
-    if !dest.exists() {
+    let now = std::time::SystemTime::now();
+    if dest.exists() {
+        let _ = fs::File::options().append(true).open(&dest).and_then(|f| f.set_modified(now));
+    } else {
         let temp = dir.join(format!(".{name}.tmp"));
         fs::write(&temp, html).map_err(|e| e.to_string())?;
         fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
@@ -225,7 +232,8 @@ pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Resu
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let other = entry.file_name().to_string_lossy().to_string();
-            if other.starts_with(&prefix) && other != name {
+            let unused = entry.metadata().and_then(|m| m.modified()).map(|at| now.duration_since(at).map(|d| d > PAGE_KEPT).unwrap_or(false)).unwrap_or(false);
+            if other.starts_with(&prefix) && other != name && unused {
                 let _ = fs::remove_file(entry.path());
             }
         }
@@ -392,10 +400,31 @@ mod tests {
         }
     }
 
+    /// 0.3-R ⑥ (Codex P3 Part B): a frame of an older version that finishes writing after the current one must not take the
+    /// current one's copy away, on this board or another with the same page id. Only a copy no frame has written or
+    /// opened for a while is cleared, and every frame that opens its copy writes it again, which makes it new.
+    #[test]
+    fn a_late_write_of_an_older_version_leaves_the_current_copy_and_only_a_copy_left_unused_is_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let current = write_page(dir.path(), "page-1", "cd34", "<p>current</p>").unwrap();
+        let stale = write_page(dir.path(), "page-1", "ab12", "<p>older, written late</p>").unwrap();
+        assert!(current.exists(), "the current frame's copy is still there");
+        assert!(stale.exists());
+        let long_ago = std::time::SystemTime::now() - PAGE_KEPT - std::time::Duration::from_secs(60);
+        fs::File::options().append(true).open(&stale).unwrap().set_modified(long_ago).unwrap();
+        write_page(dir.path(), "page-1", "cd34", "<p>current</p>").unwrap();
+        assert!(!stale.exists(), "a copy no frame has used for a while is cleared");
+        fs::File::options().append(true).open(&current).unwrap().set_modified(long_ago).unwrap();
+        write_page(dir.path(), "page-1", "cd34", "<p>current</p>").unwrap();
+        write_page(dir.path(), "page-1", "ef56", "<p>next</p>").unwrap();
+        assert!(current.exists(), "a frame opening its copy again makes it new, so it is not cleared under it");
+    }
+
     #[test]
     fn a_page_copy_is_named_for_its_version_and_replaces_the_older_one() {
         let dir = tempfile::tempdir().unwrap();
         let one = write_page(dir.path(), "page-1", "ab12", "<p>one</p>").unwrap();
+        fs::File::options().append(true).open(&one).unwrap().set_modified(std::time::SystemTime::now() - PAGE_KEPT - std::time::Duration::from_secs(60)).unwrap();
         let two = write_page(dir.path(), "page-1", "cd34", "<p>two</p>").unwrap();
         write_page(dir.path(), "page-10", "ef56", "<p>other</p>").unwrap();
         assert!(!one.exists());
