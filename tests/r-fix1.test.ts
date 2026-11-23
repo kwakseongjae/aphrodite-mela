@@ -165,3 +165,12 @@ test('a patch of two clearings and nothing else is refused, not taken as an empt
   const unset = {op: 'set', on: 'project', field: 'approvedFingerprint', unset: true};
   assert.ok('error' in parseBatch({reason: REASON, patch: [unset, {...unset}]}));
 });
+
+/* 10: every write into the disk's line is held to what the desktop can save. */
+test('every library put in the disk\'s line goes through libraryText', () => {
+  const calls = [...main.matchAll(/enqueue\(([^)]*)\)/g)].map(m => m[1]);
+  assert.ok(calls.length >= 2);
+  for (const arg of calls) assert.ok(arg === 'raw' || arg.startsWith('libraryText('), `enqueue(${arg})`);
+  assert.match(main, /const raw=libraryText\(next\);if\(diskQueue\)\{diskQueue\.enqueue\(raw\);\}/);
+  assert.doesNotMatch(main, /enqueue\(JSON\.stringify/);
+});

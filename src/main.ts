@@ -432,6 +432,15 @@ function saveLibrary(next:Library){if(startupError)throw new Error(startupError)
  const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
 function persist() { if(screen!=='editor')return; try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+/**
+ * The library into the disk's line, held to what the desktop can save (libraryText): one it cannot, half of a surrogate pair
+ * in a project carried over from the browser's store say, is said to the person and nothing is queued, so the line is not
+ * held up behind a write that will be refused (0.3-R fix 1 #10).
+ */
+function queueLibrary(next:Library):boolean{
+  try{diskQueue!.enqueue(libraryText(next));return true;}
+  catch(error){notice(ui(`The projects could not be written to disk: ${error instanceof Error?error.message:String(error)} Save a backup file, then fix or remove that project.`,`프로젝트를 디스크에 쓰지 못했습니다: ${error instanceof Error?error.message:String(error)} 백업 파일로 저장한 뒤 그 프로젝트를 고치거나 지워 주세요.`));return false;}
+}
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -1652,7 +1661,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
         `새로 시작할까요? 빈 작업 공간을 새로 저장합니다. 예전 폴더는 지우지 않습니다 — ${old} 에 그대로 있습니다.`,
       )))break;
       vanished=undefined;
-      if(diskQueue){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
+      if(diskQueue&&queueLibrary(library))await flushDisk();
       render();
       toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
       break;
@@ -2448,7 +2457,7 @@ async function reloadFromDiskNow(){
   const stillGone=storeVanished(stored,readBreadcrumb(localStorage));
   if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your projects are back.','찾았습니다. 프로젝트가 돌아왔습니다.'));}
   else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
-  if(stored.data!==null&&readTidied(library))diskQueue.enqueue(JSON.stringify(library));
+  if(stored.data!==null&&readTidied(library))queueLibrary(library);
   const entry=library.entries.find(e=>e.project.id===project.id);
   if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
   render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
@@ -2467,12 +2476,12 @@ async function boot(){
          way. When it says we had something here, hold off writing and say so. */
       vanished=storeVanished(stored,readBreadcrumb(localStorage));
       // A read that dropped a stale approval, or gave an old one its new form, is written once now: the store holds what the screen shows.
-      if(stored.data!==null&&readTidied(library)&&!vanished)diskQueue.enqueue(JSON.stringify(library));
+      if(stored.data!==null&&readTidied(library)&&!vanished)queueLibrary(library);
       /* Opening a store tells us as much as saving to one does, and someone who reads their projects
          for a week without editing anything would otherwise leave no trace at all — the folder could
          then go missing with nothing left to say it had ever been there. */
       if(stored.data!==null)writeBreadcrumb(localStorage,crumbFor(stored.path,stored.revision,library.entries.length,new Date()));
-      if(stored.data===null&&!startupError&&!vanished){diskQueue.enqueue(JSON.stringify(library));await flushDisk();}
+      if(stored.data===null&&!startupError&&!vanished&&queueLibrary(library))await flushDisk();
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.
       // Writing still needs Connected mode or Agent mode — see src/agent/authority.ts.
