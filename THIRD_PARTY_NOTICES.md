@@ -36,7 +36,7 @@ The app can install these families on request. Each is distributed under the SIL
 
 ## Generated brand assets
 
-`public/brand/apple-mark.png` — the engraved golden apple with a cream "a", generated 2026-09-11 with the built-in image generation tool through the Codex CLI, then trimmed and downscaled for the interface. Exact backend model not exposed. It is an original mark for Aphrodite, not a depiction of a real product.
+`public/brand/apple-mark.png` — a render of the project's own vector symbol (`brand/symbol-gold.svg`), drawn for Aphrodite; no external asset. The wordmark outlines in `brand/wordmark.svg` are traced from Wanted Sans Variable, which its repository (https://github.com/wanteddev/wanted-sans) lists under the SIL Open Font License 1.1 (read 2026-11-23).
 
 ## Photography
 
