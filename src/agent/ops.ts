@@ -389,10 +389,12 @@ export type Batch = {ops: Op[]; patch: PatchOp[]; pageId?: string; reason: strin
  * component (block_id). A page the batch makes names itself for the ops after it.
  */
 function leansOnView(ops: Op[], pageId: string | undefined): string | undefined {
+  let made = false;
   for (const [i, op] of ops.entries()) {
-    if (op.op === 'page' && op.page_id === undefined) return undefined;
+    // A page the batch makes is its page from there on; the selection is never one it read (fix 2 #6: the whole batch is looked at).
+    if (op.op === 'page' && op.page_id === undefined) { made = true; continue; }
     if ('block_id' in op && op.block_id === SELECTION) return `ops[${i}].block_id is "${SELECTION}". A batch sent with base_revision names its component: use the block_id from aphrodite_get_contract.`;
-    if (!pageId && (['add', 'update', 'move', 'delete'].includes(op.op) || (op.op === 'frame' && op.page_id === undefined))) return `ops[${i}] works on the page open, which can change without the revision changing. A batch sent with base_revision names its page: add "page_id" from aphrodite_get_contract.`;
+    if (!pageId && !made && (['add', 'update', 'move', 'delete'].includes(op.op) || (op.op === 'frame' && op.page_id === undefined))) return `ops[${i}] works on the page open, which can change without the revision changing. A batch sent with base_revision names its page: add "page_id" from aphrodite_get_contract.`;
   }
   return undefined;
 }

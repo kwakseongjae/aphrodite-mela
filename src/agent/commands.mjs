@@ -495,7 +495,7 @@ export const commands = [
         'Editing needs the person to have opened the door (Connected mode, or Agent mode). If it is closed you get a 423 and a sentence to pass on to them; do not retry in a loop.',
         '',
         'Example: {"reason": "The briefing now covers this week.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
-        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
+        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "page_id": "home-1", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "b-7f3a", "fields": {"label": "See the range"}}]}',
       ].join('\n'),
       annotations: {title: 'Change the design', ...WRITE},
       body: args => ({ops: args.ops, patch: args.patch, page_id: args.page_id, reason: args.reason, base_revision: args.base_revision}),

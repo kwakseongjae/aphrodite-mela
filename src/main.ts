@@ -2013,7 +2013,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   // Half of a surrogate pair on its own is refused on its value, wherever in the command it is (0.3-R): the desktop cannot save it.
   const half=halfPairIn({kind,payload,caller});if(half)return {error:`${half} holds half of a surrogate pair on its own, which cannot be saved. Write the whole character, or leave it out.`,status:400};
   const parsed=parseAgentCommand(kind,payload);
-  if('error' in parsed)return {error:parsed.error};
+  if('error' in parsed)return {error:parsed.error,status:400};
   const c:AgentCommand=parsed.command;
   const who=normalizeCaller(caller);
   // Approving is judged here, before the lease or anything else moves: every agent door (the loopback
@@ -2214,7 +2214,8 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       }
       case 'apply':{
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
-        if('error' in parsed)return {error:parsed.error};
+        // A batch that is not well formed is the sender's to fix: 400, all the way out (0.3-R fix 2 #6).
+        if('error' in parsed)return {error:parsed.error,status:400};
         const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
         if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
         return result;

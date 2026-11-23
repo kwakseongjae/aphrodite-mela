@@ -275,7 +275,8 @@ pub fn agent_bridge_start(app: AppHandle, bridge: State<'_, AgentBridge>) -> Res
                         // The app decides the status; 409 stays the default refusal for older replies.
                         let asked = result.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
                         let status = match (asked, result.get("error").is_some()) {
-                            (403 | 409 | 423, _) => asked as u16,
+                            // 400: what was sent is not well formed (0.3-R fix 2 #6), and it is the sender's to fix.
+                            (400 | 403 | 409 | 423, _) => asked as u16,
                             (_, true) => 409,
                             (_, false) => 200,
                         };

@@ -47,7 +47,7 @@ export const playbook = [
   '',
   '`aphrodite_set_design_system` takes the same `reason` and `base_revision`, and a `command` through `aphrodite_use_interface` may carry a `reason`. Whatever you change is recorded under your name, never as the person\'s.',
   '',
-  'On a section page, target a component by its `block_id`, or `"selection"` for what the person has selected — your shared pointer.',
+  'On a section page, target a component by its `block_id`; `"selection"` (what the person selected) only without `base_revision`.',
   '',
   '## Never',
   '- **Approve a direction.** That decision is the person\'s and no tool here can make it. Ask them to look and decide.',

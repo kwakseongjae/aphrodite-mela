@@ -67,3 +67,17 @@ test('queued opens and late handlers keep to the screen and the opening they beg
   assert.ok(demo.indexOf('if (!here()) break;') > demo.indexOf('await readImage('), 'the sample reference, after its fetch');
   assert.match(main, /const assign=\(image:string\)=>\{if\(!here\(\)\)return;/, 'a collection picture');
 });
+
+/* 6: the whole batch is looked at, a batch that is not well formed is a 400 all the way out, and the examples follow the rule. */
+import {parseBatch} from '../src/agent/ops.ts';
+import {mcpTools} from '../src/agent/commands.mjs';
+test('after a page the batch makes, its ops need no page_id, but the selection is still refused; a refusal is a 400; the example follows the rule', () => {
+  const made = parseBatch({reason: 'r', base_revision: 'r2:1:2:3', ops: [{op: 'page', name: 'New'}, {op: 'add', component_kind: 'hero'}]});
+  assert.ok('batch' in made);
+  const later = parseBatch({reason: 'r', base_revision: 'r2:1:2:3', ops: [{op: 'page', name: 'New'}, {op: 'update', block_id: 'selection', fields: {title: 'x'}}]});
+  assert.ok('error' in later && /selection/.test(later.error));
+  assert.match(main, /if\('error' in parsed\)return \{error:parsed\.error,status:400\};\n\s*const result=await applyBatch\(/);
+  assert.match(readFileSync(new URL('../src-tauri/src/agent.rs', import.meta.url), 'utf8'), /\(400 \| 403 \| 409 \| 423, _\) => asked as u16/);
+  const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
+  for (const example of apply.match(/\{\\"reason\\"[^']*?\]\}/g) ?? []) if (example.includes('base_revision')) assert.doesNotMatch(example, /\\"selection\\"/, example.slice(0, 120));
+});
