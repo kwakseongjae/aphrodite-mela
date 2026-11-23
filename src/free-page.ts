@@ -105,7 +105,9 @@ function tagEnd(html: string, open: number): number {
   }
   return -1;
 }
-const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'head']);
+const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'title']);
+/** What a head holds and is not text. Any other tag, or any words, ends a head the page left open, as a browser ends it (0.3-R). */
+const HEAD_ONLY = new Set(['base', 'basefont', 'bgsound', 'link', 'meta']);
 const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'caption', 'dd', 'details', 'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'tfoot', 'thead', 'ul']);
 
 /**
@@ -115,7 +117,8 @@ const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'capt
  */
 export function pageText(html: string): string {
   const paragraphs: string[] = [];
-  let words = '', lead = '', cells = 0;
+  let words = '', lead = '', cells = 0, inHead = false;
+  const text = (passage: string) => { if (inHead && /\S/.test(passage)) inHead = false; if (!inHead) words += passage; };
   const flush = () => {
     const text = decoded(words).replace(/\s+/g, ' ').trim();
     if (text && /[^|\s]/.test(text)) paragraphs.push(lead + text);
@@ -123,8 +126,8 @@ export function pageText(html: string): string {
   };
   for (let i = 0; i < html.length;) {
     const open = html.indexOf('<', i);
-    if (open < 0) { words += html.slice(i); break; }
-    words += html.slice(i, open);
+    if (open < 0) { text(html.slice(i)); break; }
+    text(html.slice(i, open));
     if (html.startsWith('<!--', open)) { const close = html.indexOf('-->', open + 4); i = close < 0 ? html.length : close + 3; words += ' '; continue; }
     if (html[open + 1] === '!' || html[open + 1] === '?') { const close = html.indexOf('>', open); i = close < 0 ? html.length : close + 1; continue; }
     const tag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(html.slice(open, open + 40));
@@ -133,6 +136,9 @@ export function pageText(html: string): string {
     if (close < 0) break;
     i = close + 1;
     const closing = tag[1] === '/', name = tag[2].toLowerCase();
+    if (name === 'head') { inHead = !closing; continue; }
+    if (inHead && (HEAD_ONLY.has(name) || (closing && name !== 'html'))) continue;
+    if (!SKIPPED.has(name)) inHead = false;
     if (!closing && SKIPPED.has(name)) {
       const end = new RegExp(`</${name}\\s*>`, 'gi');
       end.lastIndex = i;
@@ -526,7 +532,8 @@ export function linkOut(raw: string): {host: string; href: string; shown: string
   return {host, href, shown};
 }
 
-const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
+/** Whether `at` falls between the two halves of a pair: a high half just before it and a low half at it. A half on its own is a unit of its own (0.3-R). */
+const splitsPair = (text: string, at: number) => { const c = text.charCodeAt(at), b = text.charCodeAt(at - 1); return c >= 0xdc00 && c <= 0xdfff && b >= 0xd800 && b <= 0xdbff; };
 
 /**
  * Part of a page's html, from `start` up to `end` (character offsets, end not included), at most
@@ -536,8 +543,8 @@ const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(a
 export function htmlWindow(html: string, range: {start?: number; end?: number} = {}, limit = HTML_WINDOW) {
   let start = Math.min(Math.max(0, Math.floor(range.start ?? 0)), html.length);
   let end = Math.min(html.length, Math.max(start, Math.floor(range.end ?? html.length)), start + limit);
-  if (start > 0 && start < html.length && lowSurrogate(html, start)) start--;
-  if (end > start && end < html.length && lowSurrogate(html, end)) end--;
+  if (start > 0 && start < html.length && splitsPair(html, start)) start--;
+  if (end > start && end < html.length && splitsPair(html, end)) end--;
   return {start, end, length: html.length, more: end < html.length, html: html.slice(start, end)};
 }
 
