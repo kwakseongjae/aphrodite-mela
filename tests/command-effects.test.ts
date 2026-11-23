@@ -28,6 +28,8 @@ const EXTERNAL_COMMANDS=[
   'open_external','open_link','update_check','update_download','update_notes','update_open','update_reveal','fonts_install',
   'image_library_delete','image_library_import','image_library_reveal','references_add','references_delete','references_fetch',
   'taste_write','taste_forget','vault_document','vault_sync','workspace_write',
+  // A board file the person opened from Finder, read by the path macOS gave (0.3-P3): never a path from the page or a link.
+  'opened_file_read',
 ];
 /** Tauri commands that only read, or are the agent channel's own plumbing. */
 const INTERNAL_COMMANDS=[
@@ -35,6 +37,10 @@ const INTERNAL_COMMANDS=[
   'references_list','references_poster','render_free_page','render_page','taste_read','vault_read','workspace_read','workspace_recovery',
   // A free page's frame reads its copy from free-pages/ and its media from board-media/ (0.3-P2): drawing, not an edit.
   'free_page_write','board_media_path',
+  // A board file's kind and size, and its bytes, read from board-media/ for what the person exports (0.3-P3): the export is the row's.
+  'board_media_stat','board_media_read',
+  // What macOS asked the app to open, as links read and files waiting by id (src-tauri/src/opened.rs).
+  'opened_take',
   // Puts the page wall into this window's WebKit and reads it back (src-tauri/src/page_wall.rs): the app's own setting.
   'page_wall_status',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
@@ -90,6 +96,9 @@ const REGIONS:Region[]=[
 const LISTENERS:Record<string,{file:string;marker:string}>={
   'external-link':{file:'main.ts',marker:"invoke('open_external',{url:link.href})"},
   'update-check':{file:'editor/updates.ts',marker:"invoke<UpdateInfo>('update_check')"},
+  'opened':{file:'main.ts',marker:"tauriListen('aphrodite-opened'"},
+  // A board file dropped on the board (0.3-P3-fix3 #7): the person's import, on the import row.
+  'board-drop':{file:'main.ts',marker:"for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board)))"},
 };
 /** Helpers that are the app's own saving, run by every edit rather than by any one command. */
 const EXEMPT:Record<string,string>={
@@ -216,4 +225,14 @@ test('reading a file an agent names is declared by the row that does it, for thi
     assert.deepEqual(where,['free-page.ts'],`${name} is invoked from the one module that reads and writes board files`);
   }
   assert.ok(row.mcp?.description.includes('path')&&JSON.stringify(row.input).includes('library_id'));
+});
+
+/* 0.3-P3-fix4: nothing removes a board's files any more. A failed import leaves what it placed (src/board-file.ts),
+   so no command, row, tool or op takes files back, and none is left for an agent to reach. */
+test('no command takes a board file\'s files back: the failed import leaves them', () => {
+  const src = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const files = ['main.ts', 'free-page.ts', 'board-file.ts', 'agent/commands.mjs', 'agent/ops.ts', 'agent/bridge.ts'].map(p => [p, src(p)] as const);
+  assert.deepEqual(files.filter(([, t]) => /board_media_(take_back|keep|hold_begin)|\.settle\(|host\.hold\(/.test(t)).map(([p]) => p), [], 'nothing names a take-back');
+  const rust = readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8');
+  assert.doesNotMatch(rust, /take_back|hold_begin|struct Held/, 'and Rust has none to give');
 });

@@ -133,3 +133,10 @@ test('readWorkspaces never throws and write swallows quota errors',()=>{
   const fail={setItem:()=>{throw new Error('quota');}};
   assert.doesNotThrow(()=>writeWorkspaces(fail,book as WorkspaceBook));
 });
+
+/* 0.3-P3-fix4: a store that refuses the workspaces says so, so the screen keeps the ones it had. */
+test('writing the workspaces says whether they were stored', () => {
+  const book = {version: 1, activeId: 'a', workspaces: []} as never;
+  assert.equal(writeWorkspaces({setItem: () => {}}, book), true);
+  assert.equal(writeWorkspaces({setItem: () => { throw new Error('quota'); }}, book), false);
+});

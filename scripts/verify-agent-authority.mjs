@@ -338,6 +338,36 @@ check('no agent can answer for the person or change the list — not even an all
   await sleep(200);
 });
 
+/* 0.3-P3-fix1: files out and in, links, and Edit in the app are the person's alone. An allowed agent reaching
+   them through the screen (act, click) is refused before anything runs: no download, no picker, no page change. */
+check('an allowed agent cannot send a page or the board as a file, open the file picker, or press Edit in the app', async () => {
+  assert.equal(await writes('claude-code'), 'on', 'claude-code may write');
+  if (await evaluate('document.querySelector("#app").dataset.screen') !== 'editor') { await personClicks('welcome-sample'); await waitFor(() => evaluate('document.querySelector("#app").dataset.screen === "editor"'), 'a board open'); }
+  await sleep(5_200); // the person's last press holds the screen for a moment
+  await evaluate(`(() => { if (window.__made) return true; window.__made = 0; const make = URL.createObjectURL; URL.createObjectURL = blob => { window.__made++; return make.call(URL, blob); }; return true; })()`);
+  const rev = (await agent('changes', {limit: 1}, 'claude-code')).revision;
+  const made = await agent('apply', {reason: WHY, base_revision: rev, ops: [{op: 'html_page', name: 'Only theirs', html: '<p>only theirs</p>'}]}, 'claude-code');
+  assert.ok(made.ok, JSON.stringify(made).slice(0, 300));
+  const page = made.created_pages[0].page_id;
+  const state = async () => ({seq: (await agent('changes', {limit: 1, include_view: true}, 'claude-code')).seq, page: await evaluate('document.querySelector("#app").dataset.frame'), made: await evaluate('window.__made'), picker: await evaluate('!!document.querySelector("input[data-upload]")')});
+  const before = await state();
+  for (const [action, data] of [['page-view-edit', {id: page}], ['page-view-edit', {id: 'missing'}], ['download-page-html', {}], ['download-board-file', {}], ['import-project', {}]]) {
+    const r = await agent('act', {action, data}, 'claude-code');
+    assert.equal(r.status, 403, `${action} ${JSON.stringify(data)}: ${JSON.stringify(r)}`);
+    assert.match(r.error, /the person's to do/);
+  }
+  await personPresses('page-view', {id: page});
+  await sleep(5_200);
+  const clicked = await agent('click', {selector: '[data-action="page-view-edit"]'}, 'claude-code');
+  assert.equal(clicked.status, 403, `clicking Edit in the app: ${JSON.stringify(clicked)}`);
+  await sleep(300);
+  assert.equal(await evaluate('document.querySelector("#app").dataset.pageView'), page, 'the page is still seen on its own');
+  await personPresses('page-view-close');
+  await sleep(300);
+  const after = await state();
+  assert.deepEqual({...after, seq: after.seq}, {...before, seq: before.seq + 0}, `nothing moved: ${JSON.stringify({before, after})}`);
+});
+
 check('disconnecting forgets the name, and the next request asks again', async () => {
   await personPresses('agent-disconnect');
   await sleep(200);

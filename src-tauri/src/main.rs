@@ -3,6 +3,7 @@ mod agent;
 mod board;
 mod fonts;
 mod image_library;
+mod opened;
 mod page_wall;
 mod reference;
 mod references;
@@ -30,6 +31,7 @@ fn main() {
             Ok(())
         })
         .manage(agent::AgentBridge::default())
+        .manage(opened::OpenedState(Default::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -75,10 +77,23 @@ fn main() {
             board::board_media_begin,
             board::board_media_chunk,
             board::board_media_finish,
+            board::board_media_stat,
+            board::board_media_read,
             board::board_media_import,
             board::board_media_path,
-            board::free_page_write
+            board::free_page_write,
+            opened::opened_take,
+            opened::opened_file_read
         ])
-        .run(tauri::generate_context!())
-        .expect("Aphrodite could not start");
+        .build(tauri::generate_context!())
+        .expect("Aphrodite could not start")
+        .run(|app, event| {
+            // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                opened::opened(app, urls);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

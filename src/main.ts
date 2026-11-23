@@ -48,7 +48,7 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,upsertProject,cloneProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen} from './workspace/library';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -56,12 +56,18 @@ import {importDesignGraph,importSummary} from './design/omd';
 import {createUpdates} from './editor/updates';
 import {judge,gateFor,normalizeCaller,HUMAN,type Authority,type Holder,type Mode,connectionState,humanOnlyBlocked,isDoorAction,mayWrite,readAllowed,allowAgent,forgetAgent,ANYONE} from './agent/authority';
 import {unknownValue} from './agent/errors';
+import {personOnlyRow} from './agent/commands.mjs';
+import {serial} from './serial';
+import {hopLimit} from './page-hops';
+import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
-import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
+import {isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
+import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
+import {readBoardFile,boardFileBytes,writeBoardFile,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
@@ -98,6 +104,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
+import {windowCloser} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -156,13 +163,99 @@ document.addEventListener('pointerdown',e=>{if(enteredPage&&!(e.target as HTMLEl
 addEventListener('message',e=>{
   const frame=Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[data-frame-page]')).find(f=>f.contentWindow===e.source);
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
-  if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal'))return;
-  if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){leavePage();fitFrame(m.id);}
+  if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
+  if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
 function offerLink(href:string){if(modalRoot.children.length)return;const link=linkOut(href);if('refused' in link){toast(ui('This link was not opened: ','이 링크는 열지 않았습니다: ')+link.refused);return;}leavePage();showModal(ui('This page links outside the app.','이 페이지가 앱 밖으로 연결합니다.'),ui('Nothing opens until you press Open.','열기를 누르기 전에는 아무것도 열리지 않습니다.'),`<p class="link-host ui-text-20" dir="ltr"><strong>${esc(link.host)}</strong></p><p class="link-address"><code dir="ltr" title="${esc(link.href)}">${esc(link.shown)}</code></p><button class="primary-button" data-action="open-link" data-href="${esc(link.href)}">${ui('Open in the browser','브라우저에서 열기')}</button>`);}
+/**
+ * One page on its own, filling the window (0.3-P3): back to the board, its name, and Edit in the app. A free
+ * page's frame is made by freePageFrame, as everywhere, or the placeholder stands in; the page takes the keys once
+ * the person presses into it, and only then can a link in it show another page (0.3-P3-fix1). Opening it, following a page link in it and leaving it change nothing in the design:
+ * the board's open page stays what it was. Only Edit in the app opens the page on the board, as the person's own step.
+ */
+let pageView:{project:string;page:string;key:string}|undefined;
+/**
+ * Whether the person has pressed into the page seen on its own: the window lost the keys to its frame itself, not to
+ * a button of the bar (0.3-P3-fix2 #9); each page shown asks it again (0.3-P3-fix1). And how often its links have
+ * shown another page lately: a press inside the frame never reaches the app, so the count goes by time
+ * (src/page-hops.ts), and opening a page anew starts it again.
+ */
+let pageViewEntered=false,pageViewStopped=false;
+const pageViewHops=hopLimit();
+// Read once the blur is over: a press into the frame moves the keys to it after the window has lost them.
+addEventListener('blur',()=>setTimeout(()=>{const on=document.activeElement;if(pageView&&on instanceof HTMLIFrameElement&&pageViewRoot.contains(on))pageViewEntered=true;},0));
+const pageViewRoot=document.createElement('div');pageViewRoot.id='page-view-root';document.body.append(pageViewRoot);
+const pageViewKey=(p:Page)=>frameKey(p.id,p.html??JSON.stringify(p.media??p.blocks));
+function openPageView(id:string,hop=false){
+  const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
+  leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;if(!hop){pageViewStopped=false;pageViewHops.reset();}
+  const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
+  pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar"><button type="button" class="page-view-back" data-action="page-view-close" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left')}<span>${esc(project.name)}</span></button><strong class="page-view-title">${esc(page.name)}</strong><span class="page-view-kind">${kind}</span><button type="button" class="primary-button page-view-edit" data-action="page-view-edit">${icon('mouse-pointer-2')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
+  hydrateIconsIn(pageViewRoot);syncStateAttributes();
+  const body=pageViewRoot.querySelector<HTMLElement>('[data-page-view-body]')!;
+  if(isFreePage(page))void freePageFrame(page,'page-view-frame',made=>{body.append(made);}).then(frame=>{if(!frame){if(body.isConnected)body.innerHTML=unframedHtml(page);return;}if(!frame.isConnected)return;return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);}).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));
+  else if(page.media){const video=page.media.mime.startsWith('video/'),el=document.createElement(video?'video':'img');el.className='page-view-media';if(el instanceof HTMLVideoElement){el.controls=true;el.playsInline=true;}else el.alt=page.name;body.append(el);void frameHost.mediaUrl(page.media.src.slice('media:'.length)).then(url=>{if(url)el.src=url;else if(body.isConnected)body.innerHTML=`<p class="board-missing">${ui('This file is not on this Mac.','이 Mac에 파일이 없습니다.')}</p>`;});}
+  else mountPagePreview(body.querySelector<HTMLIFrameElement>('iframe')!,project,page);
+}
+function closePageView(){if(!pageView)return;pageView=undefined;pageViewRoot.innerHTML='';syncStateAttributes();}
+/** The page view sits under the banners, which say who may edit and stay in sight. */
+function placePageView(){pageViewRoot.style.setProperty('--page-view-top',`${Math.max(0,Math.round(document.querySelector('#banners')?.getBoundingClientRect().bottom??0))}px`);}
+/**
+ * What comes in from outside, links and board files, one at a time (0.3-P3-fix2 #8). Each waits for every dialog to
+ * close (the request to edit or any other) and never closes one; it waits again after each wait of its own, and looks
+ * up what it opens only then. A newer link makes an older one, waiting or on its way, open nothing.
+ */
+const opening=serial();
+/** A dialog is open, the request to edit or any other. */
+const linkWaits=()=>askOpen()||modalRoot.children.length>0;
+/** Resolves once no dialog is open. */
+const noDialog=()=>new Promise<void>(resolve=>{if(!linkWaits()){resolve();return;}const o=new MutationObserver(()=>{if(!linkWaits()){o.disconnect();resolve();}});o.observe(modalRoot,{childList:true,subtree:true});});
+let linkSeq=0;
+/**
+ * Following an aphrodite:// link (src/board-file.ts reads it, here and from macOS): the board it names is opened and
+ * the page it names shown on its own. It opens and never edits. A link to a board this Mac does not have changes
+ * nothing on screen and says so (any app or page can send one); a link to a page the board no longer has, or to no
+ * page, shows the board.
+ */
+function followOpenLink(link:OpenLink|undefined){const seq=++linkSeq;return opening(()=>followOpenLinkNow(link,seq));}
+async function followOpenLinkNow(link:OpenLink|undefined,seq:number){
+  const stale=()=>seq!==linkSeq;
+  const notHere=()=>toast(ui('That link is to a board this Mac does not have.','이 Mac에 없는 보드를 가리키는 링크입니다.'));
+  // It waits for dialogs outside the line of leavings, never in its turn: a turn that waited there would hold up the
+  // person's own leaving, from that very dialog (0.3-P3-fix3 #10). A dialog that came up meanwhile sends it back to wait.
+  for(;;){
+    await noDialog();if(stale())return;
+    if(!link||!library.entries.some(e=>e.project.id===link.board)){notHere();return;}
+    const done=await leave(async()=>{
+      if(linkWaits())return false;
+      if(stale())return true;
+      const entry=library.entries.find(e=>e.project.id===link.board);
+      if(!entry){notHere();return true;}
+      if(screen!=='editor'||project.id!==entry.project.id){
+        // A board in another workspace opens there, after the board left is written, so saving it moves nothing.
+        const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
+        openProject(entry.project);
+      }
+      if(link.page&&project.pages.some(p=>p.id===link.page)){openPageView(link.page);return true;}
+      closePageView();
+      if(link.page)toast(ui('That page is not on this board; the board is open.','그 페이지는 이 보드에 없습니다. 보드를 열었습니다.'));
+      return true;
+    });
+    if(done)return;
+  }
+}
+/** What macOS handed the app to open (src-tauri/src/opened.rs), each once, in the line of what comes in: links followed, board files opened as new boards. */
+async function takeOpened(){
+  const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take').catch(error=>{toast(String(error));return {links:[],files:[]};});
+  for(const link of waiting.links)void followOpenLink(readOpenLink(openLink(link.board,link.page))).catch(error=>toast(String(error)));
+  // A file macOS hands over again while it already waits in the line is not put in twice (0.3-P3-fix3 #7).
+  for(const file of waiting.files){if(filesWaiting.has(file.id))continue;filesWaiting.add(file.id);void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}finally{filesWaiting.delete(file.id);}});}
+}
+const filesWaiting=new Set<number>();
+/* An export's receipt goes into the run of the board Save was pressed on, and into no other board's (0.3-P3-fix3 #9). */
 /** Gives each new picture or video on the board its file: once, since the board keeps it after. */
 function mountMedia(){for(const el of app.querySelectorAll<HTMLImageElement|HTMLVideoElement>('[data-board-media]:not([data-mounted]),[data-board-media][data-mounted="missing"]')){el.dataset.mounted='1';const page=project.pages.find(p=>p.id===el.dataset.boardMedia),sha=page?.media?.src.slice(6);if(!sha)continue;void frameHost.mediaUrl(sha).then(url=>{const missing=el.parentElement?.querySelector<HTMLElement>('.board-missing');if(url){el.src=url;missing?.setAttribute('hidden','');if(el instanceof HTMLVideoElement)el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.min(0.1,el.duration||0);},{once:true});}else{el.dataset.mounted='missing';missing?.removeAttribute('hidden');}});}}
 document.addEventListener('click',e=>{const play=(e.target as HTMLElement).closest?.<HTMLElement>('[data-board-play]');if(!play)return;const video=play.parentElement?.querySelector('video');if(!video)return;if(video.paused){void video.play();play.classList.add('is-on');play.innerHTML=icon('square');}else{video.pause();play.classList.remove('is-on');play.innerHTML=icon('play');}hydrateIconsIn(play);});
@@ -222,7 +315,8 @@ let wsAvatarDraft:WorkspaceAvatar|undefined;
 let dockGroupOpen='';let helpOpen=false;
 let inspectorWidth=(()=>{try{const v=Number(localStorage.getItem('aphrodite-inspector-w'));return Number.isFinite(v)&&v>=220&&v<=520?v:264;}catch{return 264;}})();
 let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
-function saveWorkspaces(next:WorkspaceBook){workspaces=next;writeWorkspaces(localStorage,workspaces);}
+/** The workspaces change on screen only once they are stored: a store that throws leaves both as they were (0.3-P3-fix3 #7). */
+function saveWorkspaces(next:WorkspaceBook){if(!writeWorkspaces(localStorage,next))throw new Error(ui('The workspaces could not be stored, so nothing changed.','작업 공간을 저장하지 못해 아무것도 바꾸지 않았습니다.'));workspaces=next;}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
@@ -325,9 +419,14 @@ function paintToasts(){
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
 }
 /** Toasts sit above dialogs, so none is shown while a request to edit is waiting: it would cover Not now or Allow. */
-function toast(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
-function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
+function toast(message:string){if(askOpen())return;notice(message);}
+/** A line shown even over the request to edit: what the person must not miss, a window that could not save before closing. */
+function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),message,Date.now(),++toastId);paintToasts();}
+function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
+  // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
+  if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
+ const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
+function persist() { try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue){lastSaved=true;closer.saved();} } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
@@ -335,8 +434,99 @@ async function showVault(refresh=true){
   if(refresh||!vaultState)vaultState=await invoke<Vault>('vault_sync',{projectId:vaultProjectId,expected:entry.project,design:designMarkdown(entry.project)});
   showModal(`${esc(entry.project.name)} · ${ui('Files','파일')}`,'프로젝트별 스냅샷 · 이미지 · 디자인 문서',vaultHtml(vaultState,uiLanguage),true);
 }
-async function guardSwitch(){await flushDisk();if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}}
-function openProject(next:Project){project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+/**
+ * Leaving a board, by any way (0.3-P3-fix2): the editor stops taking input (inert), what the person was typing is
+ * saved as their own change, the store is written, and only then does the screen, the board or the workspace change;
+ * the editor takes input again afterwards, whatever happened. Leavings go one at a time, and one that came while
+ * another ran sees the state that one left. Nothing typed can fall between the save and the change.
+ */
+let leaving=0;
+const leaves=serial();
+/** The browser build's checks hold the store's write here, to see nothing can be typed while a board is left. */
+let heldWrites:Promise<void>|undefined;
+/** And makes the next board file's library write fail, to see only that board comes out again. */
+let failImportWrite:false|'armed'|'now'=false;
+/** Where the keys go back to once a leaving is over: a dialog closed while the editor took no input could not give them back then. */
+let focusAfterLeaving:HTMLElement|null|undefined;
+/** A turn in the line of leavings: the editor takes no input until it is over, and gets the keys back after (0.3-P3-fix3 #9). */
+function turn<T>(go:()=>T|Promise<T>):Promise<T>{
+  return leaves(async()=>{
+    leaving++;app.inert=true;
+    try{return await go();}
+    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))focusAfterLeaving.focus();focusAfterLeaving=undefined;}}
+  });
+}
+function leave<T>(go:()=>T|Promise<T>):Promise<T>{
+  return turn(async()=>{
+    saveTyping();await flushDisk();if(heldWrites)await heldWrites;
+    if(screen==='editor'&&!lastSaved){persist();await flushDisk();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
+    return await go();
+  });
+}
+/**
+ * Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing.
+ * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
+ * waits behind the leaving that waits for that dialog.
+ */
+/**
+ * Closing the window is a leaving too (0.3-P3-fix3 #1): the editor stops taking input, what is typed is saved, the store
+ * is written, and only then does the window go. If the write did not land or the window cannot go, the editor takes
+ * input again and the error comes back to the one closing.
+ */
+function closeWindow(destroy:()=>Promise<void>){return leave(async()=>{if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
+/**
+ * The window's close, the desktop's and the browser build's check alike (src/workspace/closing.ts, 0.3-P3-fix5 #1). The
+ * warning shows over the request to edit too, and is on the screen two frames after it is painted, or half a second
+ * after, in a window that draws none. Save project file writes the board elsewhere than the store, so it still works.
+ */
+const closer=windowCloser(closeWindow,error=>notice(ui(`Could not save before closing — ${String(error)}. Close again to close without saving. Before that, Save project file (the project menu, or ⌘K) keeps this board as a file.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 닫으면 저장하지 않고 닫습니다. 그 전에 프로젝트 파일 저장(프로젝트 메뉴 또는 ⌘K)으로 이 보드를 파일로 남길 수 있습니다.`)),()=>new Promise<void>(shown=>{let done=false;const go=()=>{if(!done){done=true;shown();}};requestAnimationFrame(()=>requestAnimationFrame(go));setTimeout(go,500);}));
+async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
+/**
+ * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
+ * files are on this board before it; the library entry comes last, once the screen and the store are asked
+ * again and the board is known to fit. A file that fails anywhere adds no board.
+ */
+/** Board files open one at a time, in the line of what comes in, by every way (the picker, Finder, a drop on the board): the next starts once the one before has finished. The picker's file takes its place in the line as it starts to be read. */
+async function openBoardFileNow(bytes:Uint8Array){
+  await noDialog();
+  const read=await readBoardFile(bytes,frameHost);
+  await noDialog();
+  const notes=await leave(()=>placeReadBoard(read));
+  // Shown once no dialog is up, waiting outside the line of leavings as a link does (0.3-P3-fix3 #10).
+  for(;;){await noDialog();if(await leave(()=>{if(linkWaits())return false;showReadBoard(read,notes);return true;}))return;}
+}
+/** Its files placed and the board in the library; what to say about what did not come with it. */
+async function placeReadBoard(read:ReadBoard):Promise<string[]>{
+  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+  if(refused)throw new Error(refused);
+  // Its files are placed only once it is known to fit. If the library cannot take it, the files placed stay, named by no
+  // board (0.3-P3-fix4: taking them back could take one another board has come to rely on), and the library is as it was.
+  await read.place();
+  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();}
+  // Only this board comes out again: whatever else changed in the library meanwhile stays.
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}throw error;}
+  // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
+  // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
+  // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
+  let missing=0;
+  if(nativeDesktop){for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  else missing=read.pictures.length;
+  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
+}
+/** The board on screen, and what did not come with it said. */
+function showReadBoard(read:ReadBoard,notes:string[]){
+  // The library's board by its id, as it is after the wait: moved, it opens in its workspace; renamed, by its name; gone, not at all.
+  const open=boardToOpen(library,read.project.id);
+  if(!open)return;
+  if(open.workspaceId!==workspaces.activeId){
+    // The board is in the library already: a list of workspaces that will not store keeps it from opening now, and that is what is said (0.3-P3-fix5 #2).
+    try{saveWorkspaces(setActiveWorkspace(workspaces,open.workspaceId));}catch{const where=workspaces.workspaces.find(w=>w.id===open.workspaceId)?.name??'';toast(ui(`The board was imported and is in ${where}; it could not be opened now.`,`보드는 들여왔고 ${where}에 있습니다. 지금은 열지 못했습니다.`));return;}
+    hubCardCache.clear();
+  }
+  openProject(open.project);
+  toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
+}
+function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
  * src/ledger/patch.ts), recorded in the ledger under `d` — who made it, through what, and why — and
@@ -371,7 +561,8 @@ function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusa
 watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
 function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
-  if(!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
+  // A board being left takes no step (0.3-P3-fix4).
+  if(leaving||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
   const before=project;let done;
   try{done=stepForScreen(project,direction,edits,d.author);}
@@ -432,7 +623,9 @@ function syncStateAttributes(){
     viewport:device==='mobile'?'mobile':'desktop',
     modal:modalRoot.querySelector('#modal-title')?.textContent?.trim()??'',
     undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
+    pageView:pageView?.page??'',
   };
+  if(pageView)placePageView();
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
   if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
@@ -482,7 +675,7 @@ function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko
 function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
-  slot.innerHTML=bannersHtml();
+  slot.innerHTML=bannersHtml();if(pageView)placePageView();
   const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
@@ -602,10 +795,10 @@ function toggleHomeSidebar(){
   syncStateAttributes();
 }
 /** Export needs the actual bytes: a `local:` reference means nothing on another machine. */
-async function resolveLocalBytes(id:string):Promise<{bytes:Uint8Array;mime:string}|undefined>{
+async function resolveLocalBytes(id:string,projectId=project.id):Promise<{bytes:Uint8Array;mime:string}|undefined>{
   if(!nativeDesktop)return undefined;
   try{
-    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:project.id});
+    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:projectId});
     const binary=atob(got.base64);
     const bytes=new Uint8Array(binary.length);
     for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
@@ -645,11 +838,13 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
   // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
   if(boardProject!==project.id){boardProject=project.id;enteredPage='';if(pageWallKnown===false)pageWallKnown=undefined;}
+  // The page seen on its own goes with its board, and is drawn again when what it holds has changed.
+  if(pageView){const seen=project.pages.find(p=>p.id===pageView!.page);if(pageView.project!==project.id||!seen)closePageView();else if(pageViewKey(seen)!==pageView.key)openPageView(seen.id);}
   ensureSpace(project);const activeFrame=project.space!.frames[page.id];device=activeFrame.preset==='mobile'?'mobile':'desktop';
   const presetIcon:Record<FramePreset,string>={desktop:icon('monitor'),tablet:icon('tablet'),mobile:icon('smartphone'),custom:icon('monitor')};
   if(!insertionTarget())insertParent=undefined;
@@ -675,7 +870,7 @@ function render() {
     </aside>
     <main class="workbench" data-keep="workbench">
 
-      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
+      <div class="canvas-scroll space" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}" data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span>${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span>${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<button type="button" class="frame-open" data-action="page-view" data-id="${esc(p.id)}" aria-label="${ui('See this page on its own','이 페이지만 보기')}" title="${ui('See this page on its own','이 페이지만 보기')}">${icon('eye')}</button>`:''}${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen})}
       <details class="help-fab"${helpOpen?' open':''}><summary aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
@@ -770,7 +965,7 @@ function libraryHtml() {
   return `<button class="secondary-button explorer-entry" data-action="theme-review">${ui("Compare color & font drafts","색상·폰트 초안 비교")}</button><button class="secondary-button explorer-entry" data-action="component-explorer">${ui("Compare across design systems","DS별 컴포넌트 비교")}</button><label class="search-box">${icon('search')}<input id="component-search" aria-label="Search components" placeholder="${ui('Find a component...','컴포넌트 찾기…')}" value="${esc(query)}"><kbd>/</kbd></label><div class="component-list">${componentCards()}</div><div class="library-hint">${icon('grip')}<span>${ui('Drag onto the canvas.','캔버스로 드래그하세요.')}<br>${ui('Or click + to add instantly.','또는 +를 눌러 바로 추가하세요.')}</span></div>`;
 }
 let assetCategory:SampleCategory|'all'|'local'='all';
-let localLibrary:LocalLibrary|undefined;let localPending=new Set<string>();let localScope:LocalScope='all';
+let localLibrary:LocalLibrary|undefined;let localScope:LocalScope='all';
 let installedFonts:{family:string;installed_here:boolean}[]|undefined;let fontDir='';let fontBusy='';let fontQuery='';
 async function loadFonts(force=false){
   if(!nativeDesktop)return;
@@ -785,18 +980,13 @@ async function loadLocalLibrary(force=false){
   if(localLibrary&&!force)return;
   try{localLibrary=await invoke<LocalLibrary>('image_library_list',{project:project.id});}catch{localLibrary={dir:'',images:[]};}
 }
-/** Pulls one picture's bytes in, then repaints the images waiting on it. */
-async function resolveLocal(id:string){
-  if(cachedLocal(id)||localPending.has(id))return;
-  localPending.add(id);
-  try{
-    const got=await invoke<{mime:string;base64:string}>('image_library_read',{id,project:project.id});
-    cacheLocal(id,dataUrl(got.mime,got.base64));
-    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});
-  }catch{
-    document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`).forEach(img=>{img.dataset.localMissing='gone';});
-  }finally{localPending.delete(id);}
-}
+/** Pulls one picture's bytes in, then repaints the images waiting on it: looked up per board and picture (src/local-lookups.ts). */
+const lookUpLocal=localLookups((id,scope)=>invoke<{mime:string;base64:string}>('image_library_read',{id,project:scope}),()=>project.id,(id,got)=>{
+  const imgs=document.querySelectorAll<HTMLImageElement>(`img[data-local-id="${CSS.escape(id)}"]`);
+  if(got){cacheLocal(id,dataUrl(got.mime,got.base64));imgs.forEach(img=>{img.src=cachedLocal(id)!;img.removeAttribute('data-local-missing');});}
+  else imgs.forEach(img=>{img.dataset.localMissing='gone';});
+});
+async function resolveLocal(id:string){if(cachedLocal(id))return;await lookUpLocal(id);}
 let explorerKind:BlockKind='button',explorerVariant='solid';
 let explorerGroup='All';
 let explorerFilter={...emptyCatalogFilter};
@@ -874,13 +1064,13 @@ function showModal(title: string, subtitle: string, body: string, wide = false) 
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = false; modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; if(leaving)focusAfterLeaving=modalReturnFocus;else modalReturnFocus?.focus();   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2){closeModal();return;}ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -948,14 +1138,27 @@ function autofillModal() {
   showModal(ui('Get Vibe','Get Vibe'), ui('Review changes before filling. Existing content is protected by default.','채우기 전에 변경 내용을 확인하세요. 기존 콘텐츠는 기본적으로 보호됩니다.'), vibeFormHtml(!!vibeImage,project.contentLanguage,uiLanguage),true);
   if(vibeFormDraft){const form=modalRoot.querySelector<HTMLFormElement>('#vibe-form')!;for(const name of ['pack','language'])(form.elements.namedItem(name) as HTMLSelectElement).value=String(vibeFormDraft.get(name));for(const name of ['copy','images','replace'])(form.elements.namedItem(name) as HTMLInputElement).checked=vibeFormDraft.has(name);}
 }
+/** How the person last chose to send a page as one file: by default without its scripts, its videos beside it (0.3-P3). */
+let exportChoice:ExportChoice={scripts:false,videos:'beside'};
+/** The page as one file, for an html page or a media item: whether its scripts go too (said in one line when they do), and what becomes of its videos. */
+function pageExportHtml(page:Page){return `<div class="export-page" data-export-page><strong>${ui('This page as one HTML file','이 페이지를 HTML 파일 하나로')}</strong>${page.kind==='html'?`<label class="check-option"><input type="checkbox" data-export-scripts ${exportChoice.scripts?'checked':''}>${ui('Include the page’s scripts','페이지의 스크립트 포함')}</label>${exportChoice.scripts?`<p class="export-page-note" role="note">${ui(`Its scripts will run in the browser of whoever opens the file, where this app cannot keep them in. To hand it over running, send the board as a .${BOARD_FILE.extension} file.`,`받는 사람의 브라우저에서 스크립트가 그대로 돌고, 거기에는 이 앱의 벽이 없습니다. 움직이는 그대로 건네려면 보드를 .${BOARD_FILE.extension} 파일로 보내세요.`)}</p>`:''}`:''}${page.kind==='html'&&!exportChoice.scripts?`<p class="export-page-quiet" data-export-cleaned>${ui('Without its scripts it also goes without its forms\' addresses, frames inside it, formulas written in MathML, and links to its other pages.','스크립트 없이 보내면 폼이 보내는 주소, 안에 띄운 틀, MathML로 쓴 수식, 다른 페이지로 가는 링크도 빠집니다.')}</p>`:''}<div class="export-page-videos" data-export-videos hidden><label class="check-option"><input type="radio" name="export-videos" value="beside" ${exportChoice.videos==='beside'?'checked':''}>${ui('Videos beside it, as files in a .zip','영상은 옆에 파일로 (.zip)')}</label><label class="check-option"><input type="radio" name="export-videos" value="out" ${exportChoice.videos==='out'?'checked':''}>${ui('Leave the videos out','영상은 빼기')}</label></div><button class="secondary-button" data-action="download-page-html">${icon('download')}<span>${ui('Download this page','이 페이지 내려받기')}</span></button></div>`;}
+/** The export dialog as a way in opens it: the scripts left out again, whichever way that is (0.3-P3-fix1). */
+function openExport(){exportChoice={scripts:false,videos:'beside'};exportModal();}
 function exportModal(view = 'prompt') {
-  const approved = isApproved(project);
-  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : pageHtml(project, project.pages[0]))}</pre><div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions">${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
+  const approved = isApproved(project), page = currentPage(project), own = !!page.kind;
+  showModal(ui('Good direction deserves a head start.','좋은 방향은 앞서 가져갈 가치가 있습니다.'), '확인한 컴포넌트와 디자인 결정을 다음 작업으로 가져가세요.', `<div class="export-status ${approved ? 'approved' : ''}">${icon(approved ? 'circle-check' : 'circle-dashed')}<span>${approved ? ui('Direction approved · Ready for handoff','방향 승인됨 · 핸드오프 준비됨') : ui('Draft export · 아직 디자인 방향을 승인하지 않았습니다.','초안 내보내기 · 아직 디자인 방향을 승인하지 않았습니다.')}</span>${!approved ? `<button data-action="approve-export">${ui('Approve now','지금 승인')}</button>` : ''}</div><div class="export-tabs">${['prompt', 'design', 'html'].map(t => `<button class="${view === t ? 'active' : ''}" data-action="export-tab" data-view="${t}">${t === 'prompt' ? 'PROMPT.md' : t === 'design' ? 'DESIGN.md' : 'index.html'}</button>`).join('')}</div><pre class="export-code">${esc(view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, project.pages[0]))}</pre>${own ? pageExportHtml(page) : ''}<div class="export-contents"><span>${icon('file-code-2')} ${project.pages.length} HTML ${ui(project.pages.length > 1 ? 'pages' : 'page', '페이지')}</span><span>${icon('palette')} ${ui('Design tokens','디자인 토큰')}</span><span>${icon('image')} ${ui('Local assets','로컬 에셋')}</span><span>${icon('folder')} ${ui('Editable project','편집 가능한 프로젝트')}</span></div><div class="export-actions"><button class="secondary-button" data-action="download-board-file" title="${ui('The whole board as it is, scripts running, for another Aphrodite to open','보드 전체를 그대로, 스크립트가 도는 채로, 다른 Aphrodite에서 열 수 있게')}">${icon('archive')}<span>${ui(`Save the board as .${BOARD_FILE.extension}`,`보드를 .${BOARD_FILE.extension}로 저장`)}</span></button>${button('copy-prompt', 'copy', 'Copy prompt', 'secondary-button')}${button('download-bundle', 'download', 'Download handoff .zip', 'primary-button')}</div><p class="fine-print">HTML은 미리보기와 같은 렌더러로 생성됩니다. 모든 이미지를 함께 묶어 오프라인에서도 열 수 있습니다.</p>`, true);
   const activeIndex = project.pages.findIndex(page => page.id === project.activePageId);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
-  if (htmlTab) htmlTab.textContent = activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
-  if (view === 'html') modalRoot.querySelector('.export-code')!.textContent = pageHtml(project, currentPage(project));
+  if (htmlTab) htmlTab.textContent = own ? `${fileName({...project,name:page.name},'html')}` : activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
+  // An html page or a media item is shown the way it goes out, no file read: each picture by its size.
+  const code = modalRoot.querySelector<HTMLElement>('.export-code')!;
+  if (view === 'html') { if (own) void exportPage(pageSource(page), exportChoice, frameHost, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, currentPage(project)); }
+  // The videos choice shows only for a page that has a video, asked of the files' kinds without reading them.
+  // The answer goes only into the dialog that asked: one drawn since, for this page or another, asks again for itself.
+  const videos = modalRoot.querySelector<HTMLElement>('[data-export-videos]');
+  if (own && videos) void Promise.all(mediaNamed(pageSource(page)).map(sha => frameHost.stat(sha))).then(files => { if (videos.isConnected && files.some(f => f?.mime.startsWith('video/'))) videos.hidden = false; });
 }
+modalRoot.addEventListener('change', e => { const input = e.target as HTMLInputElement; if (!input.matches?.('[data-export-scripts],[name="export-videos"]')) return; exportChoice = input.matches('[data-export-scripts]') ? {...exportChoice, scripts: input.checked} : {...exportChoice, videos: input.value === 'out' ? 'out' : 'beside'}; exportModal(modalRoot.querySelector<HTMLElement>('.export-tabs .active')?.dataset.view ?? 'prompt'); });
 function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provider:string;variant:string}) {
   const pageKind=currentPage(project).kind;if (pageKind) { toast(pageKind==='html'?ui('This page is HTML, which has no sections. Open a section page to add one.','이 페이지는 HTML이라 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.'):ui('This is a picture or a video, which has no sections. Open a section page to add one.','그림·영상에는 섹션이 없습니다. 섹션 페이지를 열어 추가하세요.')); return; }
   if (currentPage(project).blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); return; }
@@ -1101,7 +1304,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),'파일 미리보기 · 원문은 지시가 아닌 데이터입니다.',`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
     case 'hub-theme': toggleNight();break;
-    case 'home': await guardSwitch();screen='home';closeModal();render();window.scrollTo(0,0);break;
+    case 'home': await leave(()=>{screen='home';closeModal();render();window.scrollTo(0,0);});break;
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
@@ -1121,10 +1324,12 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'ws-pick-image': pickFile('image/png,image/jpeg,image/webp',async file=>{if(file.size>2_000_000)throw new Error(ui('Pick an image under 2 MB.','2MB 이하 이미지를 골라주세요.'));const data=await readImage(file);const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)return;(form.elements.namedItem('image') as HTMLInputElement).value=data;(form.elements.namedItem('emoji') as HTMLInputElement).value='';wsAvatarDraft={kind:'image',value:data};wsPreview();});break;
     case 'ws-clear-image': {const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(form)(form.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft={kind:'color',value:WORKSPACE_COLORS[0]};wsPreview();break;}
     case 'ws-delete': {const id=el.dataset.id!;const target=workspaces.workspaces.find(w=>w.id===id);if(!target)break;const count=workspaceCounts(library)[id]??0;showModal(ui('Delete this workspace?','이 작업 공간을 삭제할까요?'),esc(target.name),`<p class="panel-description">${count?ui(`Its ${count} project(s) move to the workspace you land in. Nothing is deleted.`,`프로젝트 ${count}개는 이동한 작업 공간으로 옮겨집니다. 삭제되지 않습니다.`):ui('It holds no projects.','프로젝트가 없습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="ws-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete workspace','작업 공간 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
-    case 'ws-delete-confirm': {const id=el.dataset.id!;const name=workspaces.workspaces.find(w=>w.id===id)?.name??'';try{const {book,movedTo}=deleteWorkspace(workspaces,id);saveLibrary(moveEntries(library,id,movedTo));saveWorkspaces(book);}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
+    case 'ws-delete-confirm': {const id=el.dataset.id!;const name=workspaces.workspaces.find(w=>w.id===id)?.name??'';try{const {book,movedTo}=deleteWorkspace(workspaces,id),kept=workspaces;
+      // The list is stored first: refused, no project has moved; a library that then will not store puts the list back (0.3-P3-fix5 #2).
+      saveWorkspaces(book);try{saveLibrary(moveEntries(library,id,movedTo));}catch(error){try{saveWorkspaces(kept);}catch{}throw error;}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
-    case 'hub-open': {await guardSwitch();const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}break;}
+    case 'hub-open': {const id=el.dataset.id;await leave(()=>{const entry=library.entries.find(e=>e.project.id===id);if(entry){saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}});break;}
     case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
     case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});hubRefresh();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
@@ -1159,11 +1364,14 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'undo': history('undo',d); break;
     case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
+    case 'page-view': openPageView(el.dataset.id!); break;
+    case 'page-view-close': closePageView(); break;
+    case 'page-view-edit': {if(leaving||refusal(d,'edit.page-view-edit'))break;const id=pageView?.page;if(!id||!project.pages.some(p=>p.id===id))break;closePageView();if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-view-edit');fitFrame(id);break;}
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
-    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);break;}
+    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);});break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
     case 'welcome-show': welcomeModal();break;
@@ -1363,15 +1571,18 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'approve':
     case 'approve-export': {
       const andExport = el.dataset.action === 'approve-export';
-      if (!andExport && isApproved(project)) { exportModal(); break; }
+      if (!andExport && isApproved(project)) { openExport(); break; }
       commit(() => { project.approvedFingerprint = fingerprint(project); }, d, 'human.approve');
-      if (andExport) exportModal(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
+      if (andExport) openExport(); else toast(ui('Direction approved. 다음 단계로 가져갈 준비가 됐습니다.','방향이 승인됐습니다. 다음 단계로 가져갈 준비가 됐습니다.'));
       break;
     }
-    case 'export': exportModal(); break;
+    case 'export': openExport(); break;
     case 'export-tab': exportModal(el.dataset.view); break;
     case 'copy-prompt': try { await navigator.clipboard.writeText(buildPrompt(project)); toast(ui('Prompt copied','프롬프트를 복사했습니다')); } catch { toast('클립보드 권한을 사용할 수 없습니다. ZIP의 PROMPT.md를 이용해주세요.'); } break;
-    case 'download-bundle': { el.setAttribute('disabled', ''); try { const bytes = await exportBundle(project,resolveLocalBytes);const accepted=await saveFile(fileName(project, 'zip'), bytes, 'application/zip');recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
+    // An export reads its board as it was when Save was pressed (0.3-P3-fix2 #11): its page, its name, and its pictures' library.
+    case 'download-page-html': { const board=project,page=currentPage(board);if(!page.kind||refusal(d,'outside.export-page'))break;const choice={...exportChoice},name=fileName({...board,name:page.name},'html').slice(0,-'.html'.length);el.setAttribute('disabled','');try{const out=await pageDownload(await exportPage(pageSource(page),choice,frameHost),name,frameHost);const accepted=await saveFile(out.name,out.bytes,out.mime);if(project.id===board.id)recordRun('page:exported',{scripts:choice.scripts,videos:out.name.endsWith('.zip'),byteLength:out.bytes.length},d);if(accepted)toast(ui(choice.scripts?'Page exported with its scripts':'Page exported without its scripts',choice.scripts?'스크립트를 포함해 페이지를 내보냈습니다':'스크립트 없이 페이지를 내보냈습니다'));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-board-file': { if(refusal(d,'outside.export-page'))break;const board=project,name=fileName(board,BOARD_FILE.extension);el.setAttribute('disabled','');try{const out=await writeBoardFile(board,{...frameHost,local:id=>resolveLocalBytes(id,board.id)});const accepted=await saveFile(name,out.bytes,'application/zip');if(project.id===board.id)recordRun('board:exported',{byteLength:out.bytes.length,left:out.left.length},d);if(accepted)toast(out.left.length?ui(`Board saved · ${out.left.length} file(s) this Mac does not have were left out`,`보드를 저장했습니다 · 이 Mac에 없는 파일 ${out.left.length}개는 빠졌습니다`):ui(`Board saved as a .${BOARD_FILE.extension} file`,`보드를 .${BOARD_FILE.extension} 파일로 저장했습니다`));}catch(error){toast(error instanceof Error?error.message:String(error));}finally{el.removeAttribute('disabled');}break;}
+    case 'download-bundle': { const board=project,name=fileName(board,'zip');el.setAttribute('disabled', ''); try { const bytes = await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);const accepted=await saveFile(name, bytes, 'application/zip');if(project.id===board.id)recordRun('handoff:save-returned',{saveApiAccepted:accepted,byteLength:bytes.length,artifactIndependentlyVerified:false},d);if(accepted)toast(ui('Handoff exported · Your direction travels with it','핸드오프를 내보냈습니다 · 방향이 함께 갑니다')); } finally { el.removeAttribute('disabled'); } break; }
     case 'preview': { recordRun('preview:opened',{device,interactionCapture:false},d); const page = currentPage(project), free = isFreePage(page); showModal(ui('A moment to see the whole picture.','전체 화면을 잠시 보세요.'), `${esc(page.name)} · ${device === 'mobile' ? ui('375px mobile','375px 모바일') : ui('Responsive desktop','반응형 데스크탑')} ${ui('preview','미리보기')}`, free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('A place for your next idea.','다음 아이디어를 위한 자리.'), '프로젝트를 파일로 보관하고, 언제든 다시 이어서 작업하세요.', `<form id="rename-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save project', 'secondary-button')}${button('import-project', 'folder-open', 'Open project', 'secondary-button')}${button('new-project', 'plus', 'New project', 'secondary-button')}${button('vault-open','folder','Project files','secondary-button')}</div><p class="fine-print">각 프로젝트는 보관함에 자동 저장됩니다. 프로젝트 간 Undo는 분리됩니다. 기기 밖 백업은 Save project를 사용하세요.</p>`); break;
@@ -1394,7 +1605,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       break;
     }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Project saved','프로젝트를 저장했습니다')); break;
-    case 'import-project': await guardSwitch();pickFile('.json,application/json', async file => { if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); await guardSwitch();let loaded = parseProject(await file.text());if(library.entries.some(e=>e.project.id===loaded.id))loaded=cloneProject(loaded);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);toast(ui('Project imported · 기존 프로젝트는 보존됩니다.','프로젝트를 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
+    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);});toast(ui('Project imported unapproved · 기존 프로젝트는 보존됩니다.','프로젝트를 승인되지 않은 상태로 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('Room for something new.','새로운 것을 위한 자리.'), '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('A new page. The same point of view.','새 페이지. 같은 관점.'), '프로젝트의 디자인 시스템을 그대로 이어받습니다.', `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Make this page your own.','이 페이지를 당신답게.'), '페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.', `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
@@ -1581,7 +1792,7 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{await guardSwitch();if(form.id==='new-project-form'){const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);}else{const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));if(entry){saveLibrary(upsertProject(library,{...entry.project,name:name.slice(0,100)}));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
@@ -1700,7 +1911,8 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
     return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
   }
-  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
+  // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
+  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
@@ -1724,6 +1936,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   // bridge, MCP, window.aphroditeAgent) arrives through this one function.
   const verdict=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());
   if(!verdict.allow)return {error:verdict.error,status:verdict.status};
+  // A screen action only the person does (src/agent/commands.mjs personOnlyRow): files out and in, links, and Edit in the app.
+  const theirs=personOnlyRow(reachedAction(c,agentLook));
+  if(theirs)return {error:`${theirs} is the person's to do, from their own screen. Tell them what you would like and let them press it.`,status:403};
   /* While a request to edit is on screen the dialogs are the person's: a button, click, palette entry,
      key or typed submit could close or replace it. Edits (`apply`, `edit`) never touch a dialog and go on. */
   if(askShown()&&(['act','click','command','key','type'] as string[]).includes(c.kind))return {error:'a request to edit is waiting for the person\'s answer. Wait for them; edits through apply still work.',status:409};
@@ -1740,7 +1955,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   if(c.kind==='html'||c.kind==='text'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     const read=c.kind==='html'?pageHtmlRead(project,c):pageTextRead(project,c);
-    return 'error' in read?read:{...read,...revisionInfo()};
+    return 'error' in read?read:{...read,...revisionInfo(),link:openLink(project.id,c.pageId??project.activePageId)};
   }
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='changes'){
@@ -1886,11 +2101,12 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         if(c.format==='files'){
           if(!nativeDesktop)return {error:'writing the bundle is desktop only; ask for the contract instead'};
           try{
-            const bytes=await exportBundle(project,resolveLocalBytes);
-            const saved=await saveFile(fileName(project,'zip'),bytes,'application/zip');
+            const board=project,name=fileName(board,'zip');
+            const bytes=await exportBundle(board,id=>resolveLocalBytes(id,board.id),frameHost);
+            const saved=await saveFile(name,bytes,'application/zip');
             if(!saved)return {error:'the person cancelled the save'};
-            recordRun('agent:export',{format:'files'},d);
-            return {saved:fileName(project,'zip'),approved:isApproved(project)};
+            if(project.id===board.id)recordRun('agent:export',{format:'files'},d);
+            return {saved:name,approved:isApproved(board)};
           }catch(error){return {error:String(error)};}
         }
         /* The words, not a zip an agent cannot open: the same four documents the bundle carries. */
@@ -2080,7 +2296,11 @@ function mountSpace(){
   },{capture:true,signal});
   // Files from the Finder, dropped where they should land.
   space.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}},{signal});
-  space.addEventListener('drop',e=>{const files=[...(e.dataTransfer?.files??[])];if(!files.length)return;e.preventDefault();const d=who(e);if(!d)return;void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
+  space.addEventListener('drop',e=>{const all=[...(e.dataTransfer?.files??[])];if(!all.length)return;e.preventDefault();const d=who(e);if(!d)return;
+    // A board file dropped on the board is opened as a board, the person's to do, in the line of what comes in (0.3-P3-fix3 #7).
+    const boards=all.filter(f=>isBoardFileName(f.name)),files=all.filter(f=>!isBoardFileName(f.name));
+    if(boards.length&&!refusal(d,'outside.import'))for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board))).catch(error=>toast(`${board.name}: ${error instanceof Error?error.message:String(error)}`));
+    if(files.length)void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
     const d=who(e);if(!d)return;
@@ -2099,6 +2319,13 @@ document.addEventListener('keydown', e => {
     if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
     e.preventDefault();answerAsk(e.key==='Enter');return;
   }
+  // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
+  // take no step (history() refuses too), and with no dialog and no page seen on its own its shortcuts do not run. A dialog
+  // the person has open and the page seen on its own keep their keys: Escape, Tab, and Enter or Space on a button.
+  if(leaving){const meta=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
+    if(meta&&(e.code==='KeyK'||k==='k'||((e.code==='KeyZ'||k==='z')&&!modalRoot.contains(e.target as Node)))){e.preventDefault();return;}
+    if(!modalRoot.children.length&&!pageView)return;}
+  if(pageView&&!modalRoot.children.length){if(e.key==='Escape'||e.code==='Escape')closePageView();return;}
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
@@ -2126,13 +2353,17 @@ installPatternRuntime(document);
 installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 function diskWarningHtml(){return `<div class="disk-warning" role="alert">${icon('circle-alert')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
-function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';
+function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';if(saved&&!error)closer.saved();
   /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
   if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
+  // In the line of leavings, so it does not change the board under one: it saves nothing, as it throws away what is unsaved.
+  return turn(()=>reloadFromDiskNow());
+}
+async function reloadFromDiskNow(){
   const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
   storagePath=stored.path;
   if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
@@ -2174,25 +2405,33 @@ async function boot(){
       /* Closing with work in hand: hold the window, write to disk, then go. destroy() rather than
          close(), because close() asks again and lands back in this handler. Whatever happens the
          person must be able to leave — a window that will not shut can only be force-quit, so a
-         failure says so and lets the second press through instead of holding on. */
+         failure says so, and a close asked once that is on the screen goes unsaved (closer). Every
+         request it holds is prevented, or the window would go on its own. */
       let closing=false;
       await getCurrentWindow().onCloseRequested(async event=>{
-        if(lastSaved||closing)return;
+        if(closing)return;
+        // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
+        saveTyping();
+        if(lastSaved&&!leaving&&!closer.busy())return;
         event.preventDefault();
-        try{
-          await flushDisk();
-          if(!lastSaved)throw new Error('the last write did not land');
-          closing=true;
-          await getCurrentWindow().destroy();
-        }catch(error){
-          closing=true;   // the next ⌘W leaves, saved or not: being stuck is worse than losing the last edit
-          toast(ui(`Could not save before closing — ${String(error)}. Press again to leave anyway, or export a backup first.`,`종료 전 저장에 실패했습니다 — ${String(error)}. 한 번 더 누르면 저장 없이 나갑니다. 먼저 백업을 내보내셔도 됩니다.`));
-        }
+        await closer.request(async()=>{closing=true;await getCurrentWindow().destroy();});
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
+  // What macOS opened is opened in the line of what comes in.
+  if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
+  // The browser build has no macOS to hand it links; a check follows one through the same door.
+  else{// It hands the link to the line of what comes in and returns at once, as macOS does: the check waits on the screen.
+    (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>toast(String(error)));};
+    // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
+    let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
+    (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite='armed';};
+    // And says how many leavings are under way, for a check that waits on one.
+    (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
+    // And closes the window the way the desktop does, with a window that only counts that it went.
+    (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

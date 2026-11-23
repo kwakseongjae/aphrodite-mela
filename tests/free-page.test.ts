@@ -84,18 +84,46 @@ test('the words of a page, without its scripts and styles', () => {
   assert.equal(pageText("<p data-x='a>b' title=\"c>'d\">Hi</p><p>Next</p>"), 'Hi\n\nNext\n');
 });
 
+/**
+ * How many characters of `html` the reading searches through: every indexOf and regular expression run over
+ * it, counted from where each starts to where it stops. One pass reads each character about once; a reading
+ * that searches to the end again for every tag left open reads the page over and over. A count, not a clock:
+ * a wall-clock cap failed on a Mac under load (1,663ms against 1,500ms at a load average of 40), and a ratio
+ * of times at two sizes still swung with the load.
+ */
+function searched(html: string, read: (html: string) => unknown): number {
+  const indexOf = String.prototype.indexOf, exec = RegExp.prototype.exec, slice = String.prototype.slice;
+  // Any long text counts, not only the page itself: a reading that copies what is left of the page (html.slice(i))
+  // and searches the copy reads it over again just the same. A short piece (a tag's first 40 characters) is not counted.
+  const LONG = 1_000;
+  let count = 0;
+  String.prototype.indexOf = function (this: string, search: string, from = 0) { const at = indexOf.call(this, search, from); if (this.length > LONG) count += (at < 0 ? this.length : at) - Math.max(0, from); return at; };
+  RegExp.prototype.exec = function (this: RegExp, text: string) { const from = this.global || this.sticky ? this.lastIndex : 0; const hit = exec.call(this, text); if (typeof text === 'string' && text.length > LONG) count += (hit ? hit.index : text.length) - from; return hit; };
+  String.prototype.slice = function (this: string, start?: number, end?: number) { const got = slice.call(this, start, end); if (got.length > LONG) count += got.length; return got; };
+  try { read(html); } finally { String.prototype.indexOf = indexOf; RegExp.prototype.exec = exec; String.prototype.slice = slice; }
+  return count;
+}
+
+test('the count of what is searched tells one pass from a search to the end at every tag, a copy of the rest included', () => {
+  const html = '<p>' + 'x'.repeat(10_000);
+  assert.ok(searched(html, h => h.indexOf('<')) < 2 * html.length);
+  assert.ok(searched(html, h => { for (let i = 0; i < h.length; i += 100) h.indexOf('<', i + 1); }) > 10 * html.length);
+  assert.ok(searched(html, h => { for (let i = 0; i < h.length; i += 100) h.slice(i + 1).indexOf('<'); }) > 10 * html.length, 'searching a copy of what is left counts too');
+});
+
 test('reading the words of a 2MB page takes one pass, however its tags are left open', () => {
-  for (const [what, html] of [
-    ['rows never closed', '<table>' + '<tr><td>cell'.repeat(150_000)],
-    ['a comment never closed', '<p>start</p><!--' + 'x'.repeat(1_900_000)],
-    ['scripts never closed', '<script>'.repeat(200_000)],
-    ['headings never closed', '<h2>title'.repeat(180_000)],
-    ['tags that never end', '<p>text</p>' + '<a'.repeat(900_000)],
-    ['quotes that never close', '<p>text</p>' + '<a title="x>'.repeat(150_000)],
+  for (const [what, html, says] of [
+    ['rows never closed', '<table>' + '<tr><td>cell'.repeat(150_000), 'cell'],
+    ['a comment never closed', '<p>start</p><!--' + 'x'.repeat(1_900_000), 'start'],
+    ['scripts never closed', '<p>before</p>' + '<script>'.repeat(200_000), 'before'],
+    ['headings never closed', '<h2>title'.repeat(180_000), 'title'],
+    ['tags that never end', '<p>text</p>' + '<a'.repeat(900_000), 'text'],
+    ['quotes that never close', '<p>text</p>' + '<a title="x>'.repeat(150_000), 'text'],
   ] as const) {
-    const t0 = performance.now();
-    pageText(html);
-    assert.ok(performance.now() - t0 < 1_500, `${what}: ${Math.round(performance.now() - t0)}ms`);
+    let words = '';
+    const count = searched(html, h => { words = pageText(h); });
+    assert.ok(words.includes(says), `${what}: the words are read (${JSON.stringify(words.slice(0, 40))})`);
+    assert.ok(count <= 3 * html.length, `${what}: ${count.toLocaleString('en')} characters searched in a page of ${html.length.toLocaleString('en')}`);
   }
 });
 
@@ -106,4 +134,10 @@ test('a window onto a long page says where it is and whether there is more', () 
   assert.deepEqual(htmlWindow(html, {start: 95}), {start: 95, end: 100, length: 100, more: false, html: 'fghij'});
   assert.equal(htmlWindow(html, {start: 0}, 30).end, 30, 'a window is bounded');
   assert.equal(htmlWindow(html, {start: 0}, 30).more, true);
+});
+
+test('an html page holding half of a surrogate pair on its own is refused, saying where; a whole pair is fine', () => {
+  assert.match(htmlProblem('<p>ab\ud800c</p>') ?? '', /half of a surrogate pair on its own at character 5/);
+  assert.match(htmlProblem('<p>\udfff</p>') ?? '', /half of a surrogate pair/);
+  assert.equal(htmlProblem('<p>😀 \ud83d\ude00</p>'), undefined);
 });

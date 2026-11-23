@@ -70,8 +70,14 @@ const CSS_URL = /(?:url\(|@import)\s*["']?\s*(file:|asset:|https?:\/\/asset\.loc
  * page loads or links something is read. It keeps what is stored portable; keeping a page from reaching
  * anything is the frame's job (P2), not this.
  */
+/** Where in `text` half of a surrogate pair stands on its own, or -1 (0.3-P3-fix2 #4; src/text.ts). Here, not imported: checks load this file in Node as it is. */
+export function halfPair(text: string): number {
+  return text.search(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+}
 export function htmlProblem(html: string): string | undefined {
   if (html.length > MAX_PAGE_HTML) return `the html is ${html.length.toLocaleString('en')} characters; a page holds at most ${MAX_PAGE_HTML.toLocaleString('en')}.`;
+  const half = halfPair(html);
+  if (half >= 0) return `the html holds half of a surrogate pair on its own at character ${half.toLocaleString('en')}, which cannot be saved. Write the whole character, or leave it out.`;
   let found: string | undefined;
   for (const m of html.matchAll(URL_ATTRIBUTE)) {
     const hit = (m[1] ?? m[2] ?? m[3] ?? '').match(MACHINE);
@@ -202,7 +208,7 @@ export function framedDocument(html: string, host: {media: (sha: string) => stri
     length += grows;
     use.set(sha, address);
   }
-  return head + html.replace(MEDIA_REFS, (all, sha: string) => use.get(sha) ?? all);
+  return head + withMedia(html, sha => use.get(sha));
 }
 
 const attribute = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -328,6 +334,10 @@ export type FrameHost = {
   frameCost(sha: string): Promise<number | undefined>;
   /** The address a frame may load a media file from, or undefined when this board has no such file. */
   frameMedia(sha: string): Promise<string | undefined>;
+  /** What a board file is, its kind and its size in bytes, without reading it; undefined when this board has no such file. */
+  stat(sha: string): Promise<{mime: string; bytes: number} | undefined>;
+  /** A board file's bytes, whole, for a page or a board the person exports; undefined when this board has no such file. */
+  read(sha: string): Promise<Uint8Array | undefined>;
   /** Whether a free page may be put in a frame (wallHolds), asked before any is made. */
   pageWall(): Promise<boolean>;
   /** Puts the framed document in the frame. `key` names this version of the page. */
@@ -335,6 +345,22 @@ export type FrameHost = {
 };
 
 const MEDIA_REFS = /media:([0-9a-f]{64})(?![0-9a-f])/g;
+/**
+ * Every `media:<sha256>` in a page's text given its address, wherever it stands: in a picture, in words, in a script.
+ * The board's frame (framedDocument) and a page sent as a file (src/page-export.ts) both put addresses in this way,
+ * so the file shows what the board shows. One with no address is left as named.
+ */
+export function withMedia(html: string, address: (sha: string) => string | undefined): string {
+  return html.replace(MEDIA_REFS, (all, sha: string) => address(sha) ?? all);
+}
+/** Each file a page names as `media:<sha256>`, once. */
+export function mediaNamed(html: string): string[] {
+  return [...new Set(Array.from(html.matchAll(MEDIA_REFS), m => m[1]))];
+}
+/** The extension a board keeps a file of this kind under (src-tauri/src/board.rs names them the same). */
+export function mediaExtension(mime: string): string {
+  return ({'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm'} as Record<string, string>)[mime] ?? 'bin';
+}
 /**
  * The addresses a page's media is given, read one file at a time and only while it fits: each file's
  * cost is asked first (frameCost reads nothing), counted as many times as the page names it, and a file
@@ -389,11 +415,19 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
       const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
       if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
-      if (!(await read(sha))) await request((await open()).transaction('files', 'readwrite').objectStore('files').put(new Blob([file], {type: mime}), sha));
+      const db = await open();
+      // Whether it is here and putting it if not, in one transaction: no other write in this tab comes between. What
+      // it did counts once the transaction has completed; one that is aborted puts nothing, and says so.
+      const tx = db.transaction('files', 'readwrite'), store = tx.objectStore('files');
+      const got = store.get(sha);
+      got.onsuccess = () => { if (!got.result) store.put(new Blob([file], {type: mime}), sha); };
+      await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('the file was not kept')); tx.onerror = () => reject(tx.error ?? new Error('the file was not kept')); });
       return {sha, mime, bytes: file.size};
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
+    stat: async sha => { const blob = await read(sha); return blob ? {mime: blob.type, bytes: blob.size} : undefined; },
+    read: async sha => { const blob = await read(sha); return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined; },
     frameCost: async sha => { const blob = await read(sha); return blob && blob.size <= INLINE_MEDIA ? `data:${blob.type};base64,`.length + Math.ceil(blob.size / 3) * 4 : undefined; },
     frameMedia: async sha => {
       const blob = await read(sha);
@@ -447,6 +481,9 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
     mediaUrl: where,
+    // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
+    stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,
+    read: async sha => { try { return new Uint8Array(await native.invoke<ArrayBuffer>('board_media_read', {sha})); } catch { return undefined; } },
     frameCost: async sha => (await where(sha))?.length,
     frameMedia: where,
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that

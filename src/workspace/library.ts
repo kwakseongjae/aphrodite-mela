@@ -1,6 +1,7 @@
 import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
+import {halfPairIn} from '../text';
 import {fitSaved} from '../ledger/ledger';
-import {LEDGER_RESERVE} from '../ledger/types';
+import {LEDGER_RESERVE,readLedger} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -92,6 +93,36 @@ export function writeLibrary(storage:LocalStore,library:Library):void{writeLibra
 export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
+}
+/**
+ * A project file someone opened from disk, as it comes into this library: read like any saved project, a copy
+ * when its id is one this library has, never approved, and its history made elsewhere. No file can make an approval
+ * (0.3-P3-fix1).
+ */
+export function importedProject(raw:string,library:Library):Project{
+  // Half a surrogate pair on its own is looked for in the values: the desktop cannot save it (src/text.ts).
+  let values:unknown;try{values=JSON.parse(raw);}catch{values=undefined;}
+  const half=values&&typeof values==='object'?halfPairIn(values):undefined;
+  if(half)throw new Error(`${half} holds half of a surrogate pair on its own, which this Mac cannot save.`);
+  // Its history is the other copy's, whoever it says made it, as a board file's is (0.3-P3-fix2 O-5): no file brings in
+  // a change by this Mac's person or agents. Marked before it is read, so each change is counted with its mark, and the
+  // whole held to what a project holds the way a save holds it (fitSaved), as src/board-file.ts reads a board's.
+  const {ledger:history,...design}=(values&&typeof values==='object'?values:{}) as {ledger?:{changes?:unknown}};
+  if(history&&Array.isArray(history.changes))for(const c of history.changes as {author?:Record<string,unknown>}[])if(c&&typeof c==='object'&&c.author&&typeof c.author==='object')c.author.elsewhere=true;
+  const loaded=parseProject(history?JSON.stringify(design):raw);
+  const ledger=history?readLedger(history):undefined;
+  if(ledger){loaded.ledger=ledger;fitSaved(loaded);}
+  const project=library.entries.some(e=>e.project.id===loaded.id)?cloneProject(loaded):loaded;
+  delete project.approvedFingerprint;
+  return project;
+}
+/**
+ * The board to open by its id as the library has it now, in the workspace it is in now (0.3-P3-fix4): a received board
+ * shown after a wait is the one the library holds, moved or renamed since, and none if it was taken out.
+ */
+export function boardToOpen(library:Library,id:string):{project:Project;workspaceId:string}|undefined{
+  const entry=library.entries.find(e=>e.project.id===id);
+  return entry&&{project:entry.project,workspaceId:entry.workspaceId??DEFAULT_WORKSPACE_ID};
 }
 export function cloneProject(project:Project):Project{
   const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;

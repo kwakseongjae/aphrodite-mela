@@ -64,6 +64,25 @@
         }
       }
     },
+    "fileAssociations": [
+      {
+        "ext": [
+          "aph"
+        ],
+        "name": "Aphrodite board",
+        "description": "A board from Aphrodite: its pages, pictures, videos and history.",
+        "role": "Editor",
+        "rank": "Owner",
+        "mimeType": "application/vnd.aphrodite.board+zip",
+        "exportedType": {
+          "identifier": "studio.aphrodite.mela.board",
+          "conformsTo": [
+            "public.zip-archive",
+            "public.data"
+          ]
+        }
+      }
+    ],
     "externalBin": [
       "bin/aphrodite-vision"
     ],

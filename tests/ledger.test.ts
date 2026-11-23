@@ -139,7 +139,7 @@ test('a project is the baseline from the moment it opens, so a change before the
   edit(p, h, x => { x.name = 'First'; });
   assert.deepEqual(p.ledger!.changes.map(c => c.source), ['untracked', 'editor:change']);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /function openProject\(next:Project\)\{project=parseProject\(JSON\.stringify\(next\)\);selected='';ensureSpace\(project\);edits=newHistory\(project\);/, 'main.ts opens every project that way, its frames laid out first');
+  assert.match(main, /function openProject\(next:Project\)\{if\(screen==='editor'\)saveTyping\(\);project=parseProject\(JSON\.stringify\(next\)\);selected='';ensureSpace\(project\);edits=newHistory\(project\);/, 'main.ts opens every project that way, its frames laid out first');
 });
 
 test('an untracked change is nobody\'s, not the next editor\'s, and redo does not survive it', () => {

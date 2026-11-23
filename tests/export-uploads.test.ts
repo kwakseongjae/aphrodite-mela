@@ -90,3 +90,13 @@ test('an export never ships the placeholder a lazy chunk leaves behind',async()=
   assert.doesNotMatch(html,/official-pending/,'the runtime had not arrived when the pages were rendered');
   assert.match(html,/official-component official-action/,'the real component is in the bundle');
 });
+
+/* 0.3-P3: the handoff wrote every page through the section renderer, so an html page went out blank. It now goes
+   out cleaned, which only the app's window can do (src/page-clean.ts): outside a browser the handoff of a board with
+   an html page refuses instead of writing anything weaker. verify:pages opens the handoff an app writes. */
+test('outside a browser, the handoff of a board with an html page refuses rather than write it uncleaned',async()=>{
+  const p=initialProject(),sha='a'.repeat(64);
+  p.pages[0].blocks=[];
+  p.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:'<h1>Spring launch</h1><script>alert(1)</script><img src="media:'+sha+'">'} as never);
+  await assert.rejects(exportBundle(p,undefined,{stat:async()=>undefined,read:async()=>undefined}),/cleaned in the app's window/);
+});

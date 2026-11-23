@@ -1,0 +1,145 @@
+[
+ {
+  "href": "aphrodite://open?board=abc",
+  "opens": {
+   "board": "abc"
+  }
+ },
+ {
+  "href": "aphrodite://open?board=abc&page=p1",
+  "opens": {
+   "board": "abc",
+   "page": "p1"
+  }
+ },
+ {
+  "href": "aphrodite://open?page=p1&board=abc",
+  "opens": {
+   "board": "abc",
+   "page": "p1"
+  }
+ },
+ {
+  "href": "aphrodite://open/?board=a-b_c",
+  "opens": {
+   "board": "a-b_c"
+  }
+ },
+ {
+  "href": "APHRODITE://OPEN?board=Ab9",
+  "opens": {
+   "board": "Ab9"
+  }
+ },
+ {
+  "href": "aphrodite://open?board=0f3c1a2e-9b7d-4c2a-8e1f-123456789abc&page=80294f8c-bb16-495f-bfc6-c30e5dc0848f",
+  "opens": {
+   "board": "0f3c1a2e-9b7d-4c2a-8e1f-123456789abc",
+   "page": "80294f8c-bb16-495f-bfc6-c30e5dc0848f"
+  }
+ },
+ {
+  "href": "aphrodite://open?page=p1",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&board=def",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&file=/etc/passwd",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&path=%2Fetc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=../x",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=a%2Fb",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=a/b",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc#page=x",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&page=p1=2",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://edit?board=abc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open.evil?board=abc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://openx?board=abc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open/x?board=abc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite:open?board=abc",
+  "opens": null
+ },
+ {
+  "href": "https://open?board=abc",
+  "opens": null
+ },
+ {
+  "href": "file:///Users/x/board.zip",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc&reason=approve",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=한글",
+  "opens": null
+ },
+ {
+  "href": " aphrodite://open?board=abc",
+  "opens": null
+ },
+ {
+  "href": "aphrodite://open?board=abc\n",
+  "opens": null
+ }
+]

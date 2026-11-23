@@ -134,7 +134,7 @@ export const commands = [
       description: [
         'The html of one html page, exactly as it is stored: what to read before you change it, and where to copy the passage you send as `find` to html_replace.',
         '',
-        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make.',
+        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make, and `link`, an aphrodite:// address that opens the page in the app for the person.',
         'A section page has no html; read it with aphrodite_get_contract. For the words of a page without its markup, aphrodite_get_page_text is shorter.',
         '',
         'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
@@ -205,6 +205,7 @@ export const commands = [
         'Call it at the start of each turn with the `seq` from your last reply, and before you edit. Every reply carries `revision`: send it as `base_revision` with aphrodite_apply_edits, and a batch written against an older state is refused with what changed, instead of quietly writing over the person\'s work.',
         'Undo does not erase anything here: it appears as its own change that names the one it took back (`undoes`). Changes that only moved the view — opening another page, dragging a frame around the space — are left out unless you pass include_view.',
         'Each change names at most 500 components in its anchors; one with `anchors.truncated` touched more, so take it to have touched the pages it names whole.',
+        'A change whose author says `elsewhere: true` came with a board someone sent as a board file: it was made in their copy, by whoever it names, never by the person here or by you.',
         'Each change has its own `id` and names the change it was made on as `parent`. A change to a page\'s html is a text diff ({"op": "text"}): the passages that changed, each with `at`, `insert`, and the length and hash of what it took out.',
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
         'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
@@ -481,7 +482,7 @@ export const commands = [
       name: 'aphrodite_apply_edits',
       title: 'Change the design',
       description: [
-        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`.',
+        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`, and carries `link`: an aphrodite:// address that opens the page made (or the one open) in the app, to give the person. Opening it changes nothing.',
         'Put a screenshot or a video on the board with `media_add` (`path` on this Mac, or `library_id`); it is placed beside the pages, and a page shows it as <img src="media:<sha256>"> once you read its hash from aphrodite_get_contract.',
         'On a section page made before html: add, update, move, delete a component, resize a page frame, or make and name a section page (`page`). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle it.',
         '',
@@ -1115,6 +1116,19 @@ export const commands = [
     controls: [action('page')],
   },
   {
+    /* Edit in the app, from a page seen on its own: the person going from looking at a page to working on it (0.3-P3-fix1). */
+    id: 'edit.page-view-edit',
+    label: {en: 'Edit the page seen on its own', ko: '보고 있는 페이지를 앱에서 편집'},
+    grade: 'edit',
+    input: NOTHING,
+    reason: 'none',
+    revision: 'none',
+    ledger: sources('editor:change'),
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('page-view-edit')],
+  },
+  {
     id: 'edit.page-add',
     label: {en: 'Add a page or a frame', ko: '페이지·프레임 추가'},
     grade: 'edit',
@@ -1312,6 +1326,17 @@ export const commands = [
     ],
   },
   {
+    /* A page, or a board, made into a file the person sends elsewhere (0.3-P3): it leaves the app, and no ⌘Z brings it back. */
+    id: 'outside.export-page',
+    label: {en: 'Export a page as one HTML file, or the board as a board file', ko: '페이지를 HTML 파일 하나로, 보드를 보드 파일로 내보내기'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('download-page-html'), action('download-board-file')],
+  },
+  {
     id: 'outside.clipboard',
     label: {en: 'Copy to the clipboard', ko: '클립보드에 복사'},
     grade: 'outside',
@@ -1322,12 +1347,25 @@ export const commands = [
   },
   {
     id: 'outside.project-new',
-    label: {en: 'Make, open, import or duplicate a project', ko: '프로젝트 만들기·열기·가져오기·복제'},
+    label: {en: 'Make, open, import or duplicate a project, or open a board someone sent', ko: '프로젝트 만들기·열기·가져오기·복제, 받은 보드 열기'},
     grade: 'outside',
     input: {type: 'object', properties: {name: {type: 'string'}}, additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('new-project'), form('new-project-form'), action('import-project'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open')],
+    controls: [action('new-project'), form('new-project-form'), action('hub-duplicate'), action('welcome-sample'), action('welcome-blank'), action('hub-open')],
+  },
+  {
+    /* A file or a link from outside the app: someone else's input, opened by the person and nobody else (0.3-P3-fix1).
+       `opened` is what macOS hands the app: a board file opened from Finder becomes a new board, and an
+       aphrodite:// link opens a board and a page and edits nothing (src-tauri/src/opened.rs). */
+    id: 'outside.import',
+    label: {en: 'Open a project or board file, or a link to a board', ko: '프로젝트·보드 파일이나 보드 링크 열기'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('import-project'), listener('opened'), listener('board-drop')],
   },
   {
     id: 'outside.project-manage',
@@ -1448,6 +1486,9 @@ export const commands = [
     action('commands'), field('command-search'), action('close-modal'), action('about'), action('brand-kit'), action('storage-info'), action('agent'),
     action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'),
   ]),
+  chrome('chrome.page-view', 'See a page on its own, or go back to the board', '페이지만 보기·보드로 돌아가기', [
+    action('page-view'), action('page-view-close'),
+  ]),
   chrome('chrome.catalog', 'Browse and compare components', '컴포넌트 둘러보기·비교', [
     action('component-explorer'), action('explorer-variant-pick'), action('explorer-reset'), action('explorer-group'), action('explorer-kind-pick'),
     action('explorer-inspect'), action('inspection-back'), action('shelf-inspect'), action('shelf-page'), form('catalog-filter-form'),
@@ -1472,6 +1513,16 @@ export const commands = [
 
 /** Rows by id. */
 export const commandById = Object.fromEntries(commands.map(row => [row.id, row]));
+/**
+ * The row only the person may do that a screen action belongs to, outside the interface around the design
+ * (chrome rows are the person's too, and an agent may still act them): an agent's act, click or palette
+ * command that would reach one is refused before it runs (0.3-P3-fix1).
+ */
+export function personOnlyRow(actionName) {
+  if (typeof actionName !== 'string') return undefined;
+  const name = actionName.trim().toLowerCase();
+  return commands.find(row => row.author === 'person-only' && row.grade !== 'chrome' && row.controls.some(c => c.kind === 'action' && c.name === name))?.id;
+}
 
 /** The grade the permission rule judges a gate kind by, or undefined for a kind no row has. */
 export function gradeOfKind(kind) {

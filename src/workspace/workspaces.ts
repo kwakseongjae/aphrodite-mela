@@ -76,8 +76,9 @@ export function readWorkspaces(storage:Pick<Storage,'getItem'>,language:'en'|'ko
     return sanitizeBook(JSON.parse(raw) as unknown,language);
   }catch{return defaultBook(language);}
 }
-export function writeWorkspaces(storage:Pick<Storage,'setItem'>,book:WorkspaceBook):void{
-  try{storage.setItem(WORKSPACES_KEY,JSON.stringify(book));}catch{/* quota / private mode */}
+/** Whether the book was stored: a store that refuses (quota, private mode) leaves the caller to keep what it had (0.3-P3-fix4). */
+export function writeWorkspaces(storage:Pick<Storage,'setItem'>,book:WorkspaceBook):boolean{
+  try{storage.setItem(WORKSPACES_KEY,JSON.stringify(book));return true;}catch{return false;}
 }
 export function createWorkspace(book:WorkspaceBook,name:string,avatar?:Partial<WorkspaceAvatar>|WorkspaceAvatar):WorkspaceBook{
   if(book.workspaces.length>=MAX_WORKSPACES)throw new Error('Workspace limit');
