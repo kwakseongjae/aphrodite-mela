@@ -187,7 +187,10 @@ export function parseProject(raw: string): Project {
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
   const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{})};
-  if (approved) read.approvedFingerprint = approvalPrint(read);
+  // A fingerprint written before 0.3-R was checked by the reader after it tidied the design (a type role's keys, say):
+  // it is checked against the design as read too, so what an older reader showed as approved stays approved (fix 1 #8).
+  const held = typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined;
+  if (approved || (held !== undefined && (held === fingerprint(read) || held === approvalPrint(read)))) read.approvedFingerprint = approvalPrint(read);
   return read;
 }
 /** A design system in the shape a read keeps (parseProject): a board's approval is over what is saved, not over names a read would drop. */
