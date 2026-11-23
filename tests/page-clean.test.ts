@@ -46,3 +46,14 @@ test('a cleaned page must begin with exactly the header it was given', () => {
     html + head + metas,
   ]) assert.equal(startsWithHeader(bad, html, head, metas), false, bad.slice(0, 80));
 });
+
+/* 0.3-R ⑦ (P3 third review L-1): a page's own element may not be named like the stand-in an export puts where a file goes,
+   or the stand-in, put in its name after the check, would make markup no check saw. */
+test('a custom element named like an export\'s stand-in for a file is not kept', async () => {
+  const {CLEAN_CONFIG} = await import('../src/page-clean') as unknown as {CLEAN_CONFIG?: {CUSTOM_ELEMENT_HANDLING: {tagNameCheck: RegExp}}};
+  assert.ok(CLEAN_CONFIG, 'page-clean.ts exports its configuration');
+  const check = CLEAN_CONFIG!.CUSTOM_ELEMENT_HANDLING.tagNameCheck;
+  assert.equal(check.test(`aphrodite-media-0123456789abcdef-${'a'.repeat(64)}`), false);
+  assert.equal(check.test('aphrodite-media-x'), false);
+  for (const ok of ['my-card', 'x-y', 'aphrodite-card']) assert.equal(check.test(ok), true, ok);
+});
