@@ -152,3 +152,17 @@ test('deleting a workspace moves its projects first and waits for that write bef
   assert.ok(moved > 0 && listed > moved, 'the move, waited for, comes before the list');
   assert.ok(body.indexOf('toast(`‘') > listed, 'and only then is it said to be done');
 });
+
+/* 0.3-R fix 2 #17: what changed during the wait stays. The list is worked out again after it, so a workspace made meanwhile
+   is kept; a refusal puts back only the projects that moved, on the library as it is then, and says whether it could. */
+test('deleting a workspace keeps what changed while it waited, and says whether what it put back landed', async () => {
+  const {readFileSync} = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const start = main.indexOf("case 'ws-delete-confirm':");
+  const body = main.slice(start, main.indexOf("case '", start + 30));
+  const wait = body.indexOf('await flushDisk();'), listed = body.indexOf('saveWorkspaces(book)');
+  assert.ok(body.lastIndexOf('const {book}=deleteWorkspace(workspaces,id)', listed) > wait, 'the list is worked out after the wait');
+  assert.doesNotMatch(body, /saveLibrary\(kept\)|library=kept/, 'no library taken before the wait is written back');
+  assert.match(body, /const back=await putBack\(\);/);
+  assert.match(body, /could not be put back|되돌리지 못했습니다/);
+});
