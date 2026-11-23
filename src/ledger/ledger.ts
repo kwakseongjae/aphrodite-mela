@@ -12,7 +12,7 @@
  * - The undo entry stays in memory with the ops exactly as they were, pictures included, so undo is
  *   exact for the last `UNDO_LIMIT` changes.
  */
-import {fingerprint, MAX_PROJECT, type Project} from '../model';
+import {agentRevision, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
 import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
 export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
@@ -59,8 +59,8 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
     ...(reason ? {reason} : {}),
     ops: slim(forSaving(ops)),
     anchors: anchored(ops),
-    baseRevision: fingerprint(before),
-    revision: fingerprint(after),
+    baseRevision: agentRevision(before),
+    revision: agentRevision(after),
     view: isViewOnly(ops, before, after),
     ...(meta.undoes !== undefined ? {undoes: meta.undoes} : {}),
     ...(meta.redoes !== undefined ? {redoes: meta.redoes} : {}),
@@ -75,19 +75,24 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
 
 /**
  * The changes after a point, oldest first. `since` is a sequence number, or a revision — then the
- * point is the last change that produced it. View-only changes are left out unless asked for.
+ * point is the last change that produced it, or the first kept change that started from it. A revision
+ * neither names is not one this ledger keeps (older than what is kept, or another board's): `known` is
+ * false and no changes are given, so the reader reads the board again rather than take a history from
+ * its start as what changed since. View-only changes are left out unless asked for. Revisions written
+ * before 0.3-R (the design's fingerprint, src/model.ts) are found as they were written.
  */
-export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number} = {}): {changes: Change[]; more: boolean; from: number} {
+export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number} = {}): {changes: Change[]; more: boolean; from: number; known: boolean} {
   const all = ledger?.changes ?? [];
   let from = 0;
   if (typeof since === 'number') from = since;
   else if (typeof since === 'string') {
-    const hit = [...all].reverse().find(c => c.revision === since);
-    from = hit ? hit.seq : all.length ? all[0].seq - 1 : 0;
+    const hit = [...all].reverse().find(c => c.revision === since) ?? all.find(c => c.baseRevision === since);
+    if (!hit) return {changes: [], more: false, from: all.length ? all[all.length - 1].seq : 0, known: false};
+    from = hit.revision === since ? hit.seq : hit.seq - 1;
   }
   const after = all.filter(c => c.seq > from && (options.includeView || !c.view));
   const limit = options.limit ?? 50;
-  return {changes: after.slice(0, limit), more: after.length > limit, from};
+  return {changes: after.slice(0, limit), more: after.length > limit, from, known: true};
 }
 
 /**

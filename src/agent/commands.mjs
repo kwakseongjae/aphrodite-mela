@@ -31,7 +31,7 @@ const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint:
 const NOTHING = {type: 'object', properties: {}, additionalProperties: false};
 /** What an edit that is `reason: 'required'` and `revision: 'checked'` takes besides its own input. */
 const REASON = {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'};
-const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). If the project has changed since, nothing is changed and the reply lists what changed.'};
+const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed.'};
 /** A screen verb's reason is optional: it is kept with the change the verb reaches, when there is one. */
 const OPTIONAL_REASON = {type: 'string', maxLength: 500, description: 'Optional. One sentence for the person on why, kept with the change this makes.'};
 const UI = {ui: true, mcp: false, loopback: false, inApp: false};
@@ -184,7 +184,7 @@ export const commands = [
     input: {
       type: 'object',
       properties: {
-        since: {type: ['integer', 'string'], description: 'A seq from an earlier reply, or a revision string. Leave it out for the start of the record.'},
+        since: {type: ['integer', 'string'], description: 'A seq from an earlier reply, or a revision string. Leave it out for the start of the record. A revision this board\'s history does not hold comes back with no changes and unknown_since: read the contract again.'},
         include_view: {type: 'boolean', description: 'Also list changes that only moved the view. Off by default.'},
         limit: {type: 'integer', minimum: 1, maximum: 200, description: 'At most this many (default 50). The reply says more: true when there are more.'},
       },
@@ -210,7 +210,7 @@ export const commands = [
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
         'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
         '',
-        'Example: {"since": 12} — or {} for the latest 50, or {"since": "1830:4fa1c2:9b0e11"} with a revision you were given.',
+        'Example: {"since": 12} — or {} for the latest 50, or {"since": "r2:1830:4fa1c2:9b0e11"} with a revision you were given.',
       ].join('\n'),
       annotations: {title: 'Read what changed', ...READ},
       params: args => ({since: args.since, include_view: args.include_view, limit: args.limit}),
@@ -459,7 +459,7 @@ export const commands = [
         },
         page_id: {type: 'string', description: 'The page to edit. Defaults to the one the person is on.'},
         reason: {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'},
-        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). If the project has changed since, nothing is applied and the reply lists what changed.'},
+        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed.'},
         patch: {type: 'array', maxItems: 400, items: {type: 'object'}, description: 'Ops exactly as aphrodite_get_changes returns them, to replay a change. Applied after ops. Cannot approve anything.'},
       },
       required: ['reason'],
@@ -494,8 +494,8 @@ export const commands = [
         'It cannot approve a direction: that decision stays a human one and no tool here can make it.',
         'Editing needs the person to have opened the door (Connected mode, or Agent mode). If it is closed you get a 423 and a sentence to pass on to them; do not retry in a loop.',
         '',
-        'Example: {"reason": "The briefing now covers this week.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
-        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
+        'Example: {"reason": "The briefing now covers this week.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
+        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
       ].join('\n'),
       annotations: {title: 'Change the design', ...WRITE},
       body: args => ({ops: args.ops, patch: args.patch, page_id: args.page_id, reason: args.reason, base_revision: args.base_revision}),
@@ -879,7 +879,7 @@ export const commands = [
         'Anything in `tokens` that is not a real colour is dropped rather than trusted.',
         'Changing the design needs the door open.',
         '',
-        'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "1830:4fa1c2:9b0e11"}',
+        'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "r2:1830:4fa1c2:9b0e11"}',
       ].join('\n'),
       annotations: {title: 'Change the design system', ...WRITE},
       body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens, reason: args.reason, base_revision: args.base_revision}),

@@ -1,4 +1,5 @@
-import {fingerprint,type Project} from '../model';
+import {agentRevision,fingerprint,type Project} from '../model';
+/** A run's `initialRevision` and each event's `revision` are the design's fingerprint (src/model.ts), as runs have always kept them; a receipt's `savedRevision` is the revision an agent reads and sends back (agentRevision). */
 export type RunEvent={seq:number;at:string;kind:string;pageId:string;revision:string;details:Record<string,unknown>};
 export type AssemblyRun={schema:'aphrodite.assembly-run/1';id:string;startedAt:string;endedAt?:string;status:'assembling'|'review-requested'|'ended';intent:string;modelLabel:string;projectId:string;initialRevision:string;environment:{width:number;height:number;appVersion:string};events:RunEvent[];dropped:number;usage:null;recording:null};
 export function newRun(p:Project,intent:string,modelLabel:string,width:number,height:number):AssemblyRun{
@@ -19,7 +20,7 @@ export function changeReceipt(before:Project,after:Project){
  const old=new Map(before.pages.flatMap(p=>p.blocks).map(b=>[b.id,b]));
  const nodes=after.pages.flatMap(p=>p.blocks);
  const changed=nodes.filter(b=>JSON.stringify(old.get(b.id))!==JSON.stringify(b));
- return {projectId:after.id,changedNodes:changed.map(b=>({id:b.id,kind:b.kind,parentId:b.parentId??null,layout:b.layout??{},fields:old.has(b.id)?[...new Set([...Object.keys(old.get(b.id)!),...Object.keys(b)])].filter(k=>JSON.stringify(old.get(b.id)![k as keyof typeof b])!==JSON.stringify(b[k as keyof typeof b])):['added']})),...htmlReceipt(before,after),pageOrders:after.pages.filter(p=>JSON.stringify(before.pages.find(old=>old.id===p.id)?.blocks.map(b=>b.id))!==JSON.stringify(p.blocks.map(b=>b.id))).map(p=>({pageId:p.id,nodeIds:p.blocks.map(b=>b.id)})),removedIds:[...old.keys()].filter(id=>!nodes.some(b=>b.id===id)),savedRevision:fingerprint(after)};
+ return {projectId:after.id,changedNodes:changed.map(b=>({id:b.id,kind:b.kind,parentId:b.parentId??null,layout:b.layout??{},fields:old.has(b.id)?[...new Set([...Object.keys(old.get(b.id)!),...Object.keys(b)])].filter(k=>JSON.stringify(old.get(b.id)![k as keyof typeof b])!==JSON.stringify(b[k as keyof typeof b])):['added']})),...htmlReceipt(before,after),pageOrders:after.pages.filter(p=>JSON.stringify(before.pages.find(old=>old.id===p.id)?.blocks.map(b=>b.id))!==JSON.stringify(p.blocks.map(b=>b.id))).map(p=>({pageId:p.id,nodeIds:p.blocks.map(b=>b.id)})),removedIds:[...old.keys()].filter(id=>!nodes.some(b=>b.id===id)),savedRevision:agentRevision(after)};
 }
 export function readRun(raw:string):AssemblyRun|null{
  try{if(raw.length>2_000_000)return null;const r=JSON.parse(raw) as AssemblyRun;

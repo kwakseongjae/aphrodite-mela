@@ -3,7 +3,7 @@ import { createIcons, createElement } from 'lucide';
 window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
 window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
  import { icons } from './icons';
-import { assemble, canonicalSystem, catalog, currentPage, approvalPrint, dropStaleApproval, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
+import { assemble, canonicalSystem, catalog, currentPage, agentRevision, approvalPrint, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
 import {catalogView} from './design/catalog-view';
 import {filteredKinds,normalizeCatalogFilter,emptyCatalogFilter} from './design/catalog-filter';
@@ -1851,8 +1851,8 @@ async function inlineAssets(html:string):Promise<string>{
 function agentState(who=''){return {ok:true,...(screen==='editor'?revisionInfo():{}),state:{...app.dataset,...connectionState(who?callerMode(who):agentMode())},delegation:delegation?delegationSummary(delegation):null,receipts:(assemblyRun?.events??[]).slice(-10).map(e=>({seq:e.seq,kind:e.kind,at:e.at}))};}
 function keyCodeFor(key:string):string{if(key.length===1){if(/[a-z]/i.test(key))return `Key${key.toUpperCase()}`;if(/[0-9]/.test(key))return `Digit${key}`;if(key===' ')return 'Space';if(key==='/')return 'Slash';if(key==='\\')return 'Backslash';if(key==='=')return 'Equal';if(key==='-')return 'Minus';}return key;}
 async function actViaButton(actionName:string,data:Record<string,string>,d:Dispatch){const btn=document.createElement('button');for(const [k,v] of Object.entries(data))btn.dataset[k]=v;btn.dataset.action=actionName;/* last, so the action the gate judged is the one that runs */app.append(btn);try{await action(btn,d,false);}finally{btn.remove();}}
-/** Where a change stands for an agent: the revision to send back as base_revision, and the ledger's last number. */
-function revisionInfo(){return {revision:fingerprint(project),seq:project.ledger?.seq??0};}
+/** Where a change stands for an agent: the revision to send back as base_revision (the board, its design and its frames: agentRevision), and the ledger's last number. */
+function revisionInfo(){return {revision:agentRevision(project),seq:project.ledger?.seq??0};}
 /** A change as an agent reads it from aphrodite_get_changes. */
 function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{}),seq:c.seq,at:c.at,author:c.author,source:c.source,...(c.reason?{reason:c.reason}:{}),view:c.view,...(c.undoes!==undefined?{undoes:c.undoes}:{}),...(c.redoes!==undefined?{redoes:c.redoes}:{}),anchors:c.anchors,base_revision:c.baseRevision,revision:c.revision,...(c.compacted?{compacted:true}:{}),size:c.size,ops:c.ops};}
 /**
@@ -1861,9 +1861,11 @@ function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{
  * the revision is current, or none was sent. `what` names the thing to send again.
  */
 function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
-  const now=fingerprint(project);
+  const now=agentRevision(project);
   if(!baseRevision||baseRevision===now)return undefined;
   const since=changesSince(project.ledger,baseRevision,{limit:20}),listed=changesForReply(since.changes.map(publicChange));
+  // A revision this board's history does not hold: another board's, a frame layout gone by, or older than what is kept.
+  if(!since.known)return {error:`revision ${baseRevision} is not one of this board's: it may be another board's, from before a frame was resized or moved, or older than the history kept here. Read the contract again, then send the ${what} with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:[],more:false};
   return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:listed.changes,...(listed.note?{note:listed.note}:{}),more:since.more};
 }
 /**
@@ -1967,6 +1969,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
     const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
     const listed=changesForReply(found.changes.map(publicChange));
+    if(!found.known)return {ok:true,...revisionInfo(),from:found.from,more:false,changes:[],unknown_since:true,note:`revision ${String(c.since)} is not in this board's history: it may be another board's, from before a frame was resized or moved, or older than what is kept. Read the contract again and go on from the revision above.`};
     return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:listed.changes,...(listed.note?{note:listed.note}:{})};
   }
   if(c.kind==='render'){
@@ -2075,7 +2078,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
             ...sampleImages.map(sm=>({id:`sample:${sm.id}`,scope:'sample' as const,name:uiLanguage==='ko'?sm.ko:sm.en,category:sm.category,wide:sm.wide,mime:'image/webp'})),
           ]};
       }
-      case 'edit':{const stale=staleSince(d.baseRevision,'edit');if(stale)return stale;const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};commit(()=>{const b=currentPage(project).blocks.find(x=>x.id===target.id)!;(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
+      case 'edit':{const stale=staleSince(d.baseRevision,'edit');if(stale)return stale;const blocks=currentPage(project).blocks;const target=blocks.find(b=>b.id===(c.blockId??selected));if(!target)return {error:c.blockId?`no block ${c.blockId} on this page`:'nothing is selected: click a block first or pass blockId'};if(c.field==='description'&&target.kind!=='products')return {error:'description is only editable on a collection block'};let late:Record<string,unknown>|undefined;commit(()=>{late=staleSince(d.baseRevision,'edit');if(late)return;const b=currentPage(project).blocks.find(x=>x.id===target.id);if(b)(b as unknown as Record<string,string>)[c.field]=c.text;},d,'edit.text',{source:'agent:edit'});if(late)return late;recordRun('agent:edit',{blockId:target.id,field:c.field,length:c.text.length},d);break;}
       case 'ui':{
         // Hand it to the verb's own handler: one door in, the same rules inside, the same surface.
         return runAgentCommand(c.action,c.payload,who,surface);
@@ -2100,7 +2103,10 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         }
         if(!next)return {error:'system changed nothing'};
         const before=project.system.name;
-        commit(()=>{project.system=canonicalSystem(next!);},d,'edit.system',{source:'agent:system'});
+        // Read again once the commit has saved what the person was typing (0.3-R): their words are a change the agent has not read.
+        let late:Record<string,unknown>|undefined;
+        commit(()=>{late=staleSince(d.baseRevision,'system');if(late)return;project.system=canonicalSystem(next!);},d,'edit.system',{source:'agent:system'});
+        if(late)return late;
         recordRun('agent:system',{from:before,to:next.name},d);
         render();
         return {system:{id:next.id,name:next.name,accent:next.accent,background:next.background,foreground:next.foreground,radius:next.radius,font:next.font}};

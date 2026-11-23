@@ -93,6 +93,13 @@ export function canonicalJson(value: unknown): string {
  * that puts a field back after the others, gives back the design the person approved, and the approval holds for it.
  */
 export function approvalPrint(p: Project): string { return `c1:${hashOf(canonicalJson(designFields(p)))}`; }
+/**
+ * The revision an agent reads and sends back as base_revision (0.3-R): the board, its design, and every frame's place
+ * and size in page order, which is all a batch can change (a patch can replace the whole space). A copy of a board, or
+ * a frame resized or moved since it was read, is another revision. Key order does not count. Not what an approval
+ * holds: that is `approvalPrint`, of the design alone, and stays as it is.
+ */
+export function agentRevision(p: Project): string { return `r2:${hashOf(canonicalJson({ board: p.id, design: designFields(p), frames: p.pages.map(page => p.space?.frames[page.id] ?? null) }))}`; }
 /** An approval written before 0.3-R (`fingerprint`) still holds; a read gives it back as an `approvalPrint`. */
 export function isApproved(p: Project) { const held = p.approvedFingerprint; return held !== undefined && (held === approvalPrint(p) || held === fingerprint(p)); }
 /**
