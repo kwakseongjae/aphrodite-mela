@@ -130,11 +130,11 @@ export function deriveTaste(
   // Said — their own words, quoted, never summarised.
   for (const project of projects) {
     const brief = project.brief?.trim();
-    if (brief) push(taste.said, line(`"${brief.slice(0, 160)}" (brief)`, [project.id]));
+    if (brief) push(taste.said, line(`"${clip(brief, 160)}" (brief)`, [project.id]));
   }
   for (const run of runs) {
     const intent = run.intent?.trim();
-    if (intent) push(taste.said, line(`"${intent.slice(0, 160)}" (goal)`, [run.id]));
+    if (intent) push(taste.said, line(`"${clip(intent, 160)}" (goal)`, [run.id]));
   }
   return taste;
 }
@@ -288,3 +288,4 @@ export function orderDirections<T extends Direction>(
 export function againstLabel(ko: boolean): string {
   return ko ? '평소 고르시던 것과 다른 쪽' : 'Not the one you usually pick';
 }
+import {clip} from '../text';

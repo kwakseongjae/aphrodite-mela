@@ -11,7 +11,7 @@
  * code path forgets to commit, and the source name says which kind of path to go and fix.
  */
 import {dropStaleApproval, isApproved, parseProject, type Project} from '../model';
-import {mendHalfPairs} from '../text';
+import {clip, mendHalfPairs} from '../text';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject, type PatchOp} from './patch';
 import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
@@ -36,7 +36,7 @@ function settleApproval(project: Project, before: Project, author: Author, step 
 }
 /** The reason a change that cleared the approval records: the one it was given, then the note, which is never the part cut. */
 function noted(reason: string | undefined): string {
-  const given = reason?.trim().slice(0, MAX_REASON - APPROVAL_CLEARED.length - 3).trim();
+  const given = reason === undefined ? undefined : clip(reason.trim(), MAX_REASON - APPROVAL_CLEARED.length - 3).trim();
   return given ? `${given} · ${APPROVAL_CLEARED}` : APPROVAL_CLEARED;
 }
 /** Mends half pairs (src/text.ts) in the board itself, the design and not its ledger, which records what was mended. */

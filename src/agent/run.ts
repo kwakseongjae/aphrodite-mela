@@ -1,9 +1,10 @@
 import {agentRevision,fingerprint,type Project} from '../model';
+import {clip} from '../text';
 /** A run's `initialRevision` and each event's `revision` are the design's fingerprint (src/model.ts), as runs have always kept them; a receipt's `savedRevision` is the revision an agent reads and sends back (agentRevision). */
 export type RunEvent={seq:number;at:string;kind:string;pageId:string;revision:string;details:Record<string,unknown>};
 export type AssemblyRun={schema:'aphrodite.assembly-run/1';id:string;startedAt:string;endedAt?:string;status:'assembling'|'review-requested'|'ended';intent:string;modelLabel:string;projectId:string;initialRevision:string;environment:{width:number;height:number;appVersion:string};events:RunEvent[];dropped:number;usage:null;recording:null};
 export function newRun(p:Project,intent:string,modelLabel:string,width:number,height:number):AssemblyRun{
- return {schema:'aphrodite.assembly-run/1',id:crypto.randomUUID(),startedAt:new Date().toISOString(),status:'assembling',intent:intent.slice(0,1200),modelLabel:modelLabel.slice(0,100),projectId:p.id,initialRevision:fingerprint(p),environment:{width,height,appVersion:'0.1.0'},events:[],dropped:0,usage:null,recording:null};
+ return {schema:'aphrodite.assembly-run/1',id:crypto.randomUUID(),startedAt:new Date().toISOString(),status:'assembling',intent:clip(intent,1200),modelLabel:clip(modelLabel,100),projectId:p.id,initialRevision:fingerprint(p),environment:{width,height,appVersion:'0.1.0'},events:[],dropped:0,usage:null,recording:null};
 }
 export function appendEvent(run:AssemblyRun,p:Project,kind:string,details:Record<string,unknown>={}){
  if(run.status==='ended')return;

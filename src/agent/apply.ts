@@ -6,6 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
+import {clip} from '../text';
 import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, MAX_PAGES, MAX_PAGE_NAME, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
@@ -82,7 +83,7 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
   if (project.pages.length >= MAX_PAGES) return `this project already has ${MAX_PAGES} pages and media items, which is the limit.`;
   ensureSpace(project);
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
-  const created: Page = {id: uid(), name: name.slice(0, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
+  const created: Page = {id: uid(), name: clip(name, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
   project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(project.space!, 'desktop'));
   focus.created.push(created.id);

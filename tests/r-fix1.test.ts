@@ -174,3 +174,23 @@ test('every library put in the disk\'s line goes through libraryText', () => {
   assert.match(main, /const raw=libraryText\(next\);if\(diskQueue\)\{diskQueue\.enqueue\(raw\);\}/);
   assert.doesNotMatch(main, /enqueue\(JSON\.stringify/);
 });
+
+/* 11: text cut to a length is cut on whole characters wherever it goes out: a concise contract's brief, a media item's name,
+   the reason a clearing records, a run's intent. */
+import {designContract} from '../src/agent/contract.ts';
+import {newRun} from '../src/agent/run.ts';
+import {halfPair} from '../src/free-page.ts';
+const EMOJI = '\u{1F600}';
+test('text cut to a length never ends on half a pair', () => {
+  const p = initialProject(); p.brief = 'b'.repeat(399) + EMOJI + 'tail';
+  const brief = (designContract(p, '') as {project: {brief: string}}).project.brief;
+  assert.equal(halfPair(brief), -1, 'the concise contract\'s brief');
+  const run = newRun(p, 'i'.repeat(1199) + EMOJI, 'm'.repeat(99) + EMOJI, 1, 1);
+  assert.equal(halfPair(run.intent) + halfPair(run.modelLabel), -2, 'a run\'s intent and model');
+  const q = initialProject(); q.approvedFingerprint = approvalPrint(q);
+  const h = newHistory(q), b = begin(q, h); q.brief = 'x';
+  const c = end(q, b, {author: {kind: 'agent', name: 'bot'}, source: 'agent:apply', reason: 'r'.repeat(500 - 'Approval cleared: only the person brings an approval back.'.length - 3 - 1) + EMOJI + 'r'.repeat(80)}, h)!;
+  assert.equal(halfPair(c.reason!), -1, 'the reason a clearing records');
+  assert.ok(!c.reason!.includes('\uFFFD'), 'cut, not mended');
+  assert.match(readFileSync(new URL('../src/agent/apply.ts', import.meta.url), 'utf8'), /name: clip\(name, MAX_PAGE_NAME\)/, 'a media item\'s name');
+});

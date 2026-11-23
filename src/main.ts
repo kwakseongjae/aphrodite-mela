@@ -1727,7 +1727,7 @@ document.addEventListener('change', e => {
   if (target.dataset.field && b) {
     const key = target.dataset.field as 'title' | 'text' | 'label' | 'eyebrow' | 'description';
     if(!['title','text','label','eyebrow','description'].includes(key)||(key==='description'&&b.kind!=='products'))return;
-    const value=target.value.slice(0,key==='eyebrow'?200:key==='description'?2000:20000);
+    const value=clip(target.value,key==='eyebrow'?200:key==='description'?2000:20000);
     if (b[key] === value) return;
     commit(() => { b[key] = value; b.filled = true; }, d, 'edit.text', {updateUI: false});
     /* A person rewriting a field left no trace at all, so the taste file's sharpest section —
@@ -1802,9 +1802,9 @@ document.addEventListener('submit', async e => {
   }
   if(form.id==='workspace-form'){
     const id=form.dataset.id??'';
-    const name=String(data.get('name')??'').trim().slice(0,60);
+    const name=clip(String(data.get('name')??'').trim(),60);
     if(!name){toast(ui('Give the workspace a name.','작업 공간 이름을 입력해주세요.'));return;}
-    const emoji=String(data.get('emoji')??'').trim().slice(0,8);
+    const emoji=clip(String(data.get('emoji')??'').trim(),8);
     const image=String(data.get('image')??'');
     const picked=String(data.get('color')??'');
     const avatar:WorkspaceAvatar=image?{kind:'image',value:image}:emoji?{kind:'emoji',value:emoji}:{kind:'color',value:/^#[0-9a-fA-F]{6}$/.test(picked)?picked:(wsAvatarDraft&&wsAvatarDraft.kind==='color'?wsAvatarDraft.value:WORKSPACE_COLORS[0])};
@@ -1817,7 +1817,7 @@ document.addEventListener('submit', async e => {
     return;
   }
   if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(project.space!,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
-  if(form.id==='agent-mode-form'){startAgentMode(String(data.get('operator')??'').slice(0,100),String(data.get('intent')??'').slice(0,1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
+  if(form.id==='agent-mode-form'){startAgentMode(clip(String(data.get('operator')??''),100),clip(String(data.get('intent')??''),1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
     const nextUi=data.get('uiLanguage'),nextContent=data.get('contentLanguage');
