@@ -2530,6 +2530,8 @@ async function boot(){
     (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite='armed';};
     // And says how many leavings are under way, for a check that waits on one.
     (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
+    // A tab closed with work not saved asks first, the browser's own way (0.3-R fix 2 #16); the three answers are the desktop's.
+    window.addEventListener('beforeunload',e=>{if(!lastSaved||leaving){e.preventDefault();e.returnValue='';}});
     // And closes the window the way the desktop does, with a window that only counts that it went.
     (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();

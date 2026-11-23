@@ -81,3 +81,8 @@ test('after a page the batch makes, its ops need no page_id, but the selection i
   const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
   for (const example of apply.match(/\{\\"reason\\"[^']*?\]\}/g) ?? []) if (example.includes('base_revision')) assert.doesNotMatch(example, /\\"selection\\"/, example.slice(0, 120));
 });
+
+/* 16: a browser tab closed with work not saved asks first. */
+test('the browser build warns before a tab with unsaved work is closed', () => {
+  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{if\(!lastSaved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
+});
