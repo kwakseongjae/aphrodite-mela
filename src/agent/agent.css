@@ -8,7 +8,7 @@
 .assembly-receipt.warning{color:#a04424}
 .assembly-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
 .assembly-actions button{min-height:34px}
-.workbench:has(.assembly-bar)>.workbench-heading,.workbench:has(.assembly-bar)>.workflow{display:none}
+.workbench:has(.assembly-bar)>.workflow{display:none}
 .assembly-bar-header>div{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 .assembly-ledger{padding:10px 0;max-height:180px;overflow:auto;font-size:11px}
 .assembly-ledger p{padding:7px 0;border-bottom:1px solid #e4e8e3;margin:0}

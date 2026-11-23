@@ -161,7 +161,6 @@
 .folio-night .folio-warning{color:#292820}
 .folio-warning img{vertical-align:middle;object-fit:contain;margin-right:12px}
 .folio-wordmark>svg{display:block;width:100%;height:auto;max-width:186px}
-.topbar .wordmark>svg{width:164px;height:36px}
 .folio-home .folio-art img,.folio-home .folio-side-note img,.folio-home .folio-empty img,.paper-review-art{mix-blend-mode:normal!important;border-radius:0!important;background:transparent}
 .folio-home .folio-art img{height:310px;max-width:335px}
 .folio-home .folio-side-note img{height:125px;width:125px}
@@ -293,8 +292,6 @@
 .ws-swatch{width:26px;height:26px;border-radius:8px;border:2px solid transparent;cursor:pointer}
 .ws-swatch[aria-pressed="true"]{border-color:#292820;box-shadow:0 0 0 2px #fff inset}
 .ws-avatar-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
-.ws-emoji-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:#77756c}
-.ws-emoji-field input{width:74px;text-align:center;font-size:17px}
 .ws-avatar-row .secondary-button{height:34px;gap:6px;font-size:12px}
 .ws-danger{margin-top:14px;padding-top:12px;border-top:1px solid #eee9dc;display:flex;flex-direction:column;gap:4px}
 .ws-delete{display:inline-flex;align-items:center;gap:6px;color:#a3462b;font-size:12.5px}
@@ -366,7 +363,6 @@
 .folio-help .folio-menu kbd{font:10px ui-monospace,Menlo,monospace;color:#8b8373}
 .folio-help .help-sep{height:1px;background:#e2ded2;margin:5px 4px}
 /* The agent connection is a state you want to see at a glance, so it sits in the top row with a dot. */
-.folio-top .folio-dot-live{background:#5c8a4a;box-shadow:0 0 0 3px rgba(92,138,74,.16)}
 .folio-night .folio-help>summary:hover,.folio-night .folio-help[open]>summary{background:#3a382e}
 /* A switch reads as a switch: the state is the control's shape, not a word beside it. */
 .folio-top .folio-toggle{gap:8px;padding:0 10px 0 11px}
