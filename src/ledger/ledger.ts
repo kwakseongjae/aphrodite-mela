@@ -81,18 +81,22 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
  * neither names is not one this ledger keeps (older than what is kept, or another board's): `known` is
  * false and no changes are given, so the reader reads the board again rather than take a history from
  * its start as what changed since. View-only changes are left out unless asked for. Revisions written
- * before 0.3-R (the design's fingerprint, src/model.ts) are found as they were written.
+ * before 0.3-R (the design's fingerprint, src/model.ts) are found as they were written. `current` is the revision the
+ * board is at now, known with nothing after it.
  */
-export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number} = {}): {changes: Change[]; more: boolean; from: number; known: boolean} {
+export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number; moved?: boolean; current?: string} = {}): {changes: Change[]; more: boolean; from: number; known: boolean} {
   const all = ledger?.changes ?? [];
   let from = 0;
+  // The revision the board is at now is known, with nothing after it, history or none (0.3-R fix 1 #7).
+  if (typeof since === 'string' && since === options.current) return {changes: [], more: false, from: all.length ? all[all.length - 1].seq : ledger?.seq ?? 0, known: true};
   if (typeof since === 'number') from = since;
   else if (typeof since === 'string') {
     const hit = [...all].reverse().find(c => c.revision === since) ?? all.find(c => c.baseRevision === since);
     if (!hit) return {changes: [], more: false, from: all.length ? all[all.length - 1].seq : 0, known: false};
     from = hit.revision === since ? hit.seq : hit.seq - 1;
   }
-  const after = all.filter(c => c.seq > from && (options.includeView || !c.view));
+  // `moved`: a view change that moved the revision (a frame dragged) is listed too, as a 409 needs to say what moved it.
+  const after = all.filter(c => c.seq > from && (options.includeView || !c.view || (options.moved && c.revision !== c.baseRevision)));
   const limit = options.limit ?? 50;
   return {changes: after.slice(0, limit), more: after.length > limit, from, known: true};
 }

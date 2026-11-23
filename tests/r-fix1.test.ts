@@ -118,3 +118,20 @@ test('every handler that waits before it writes asks whether its board is still 
   assert.match(main, /archive\.handle\(act,el,pickFile,src=>\{if\(!here\(\)\)return;/);
   assert.match(main, /vibePending\.board!==project\.id/);
 });
+
+/* 7: the revision just read is known even to a board with no history; a 409 lists the view changes that moved the revision. */
+import {changesSince} from '../src/ledger/ledger.ts';
+import {agentRevision} from '../src/model.ts';
+import {ensureSpace} from '../src/editor/space.ts';
+test('the live revision is known with nothing after it, and a frame moved since a revision is listed when asked for what moved it', () => {
+  const p = initialProject(); ensureSpace(p);
+  const now = agentRevision(p);
+  const fresh = changesSince(p.ledger, now, {current: now} as never);
+  assert.deepEqual([fresh.known, fresh.changes.length], [true, 0]);
+  const h = newHistory(p), b = begin(p, h);
+  p.space!.frames[p.pages[0].id].x += 100;
+  end(p, b, {author: {kind: 'person', name: 'you'}, source: 'pointer:move'}, h);
+  assert.equal(changesSince(p.ledger, now).changes.length, 0, 'a frame moved is a view change, left out by default');
+  assert.equal(changesSince(p.ledger, now, {moved: true} as never).changes.length, 1, 'but listed when what moved the revision is asked for');
+  assert.match(main, /changesSince\(project\.ledger,baseRevision,\{limit:20,moved:true,current:now\}\)/, 'as a 409 asks');
+});

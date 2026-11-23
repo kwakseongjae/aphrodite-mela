@@ -1915,7 +1915,7 @@ function publicChange(c:Change){return {id:c.id,...(c.parent?{parent:c.parent}:{
 function staleSince(baseRevision:string|undefined,what:string):Record<string,unknown>|undefined{
   const now=agentRevision(project);
   if(!baseRevision||baseRevision===now)return undefined;
-  const since=changesSince(project.ledger,baseRevision,{limit:20}),listed=changesForReply(since.changes.map(publicChange));
+  const since=changesSince(project.ledger,baseRevision,{limit:20,moved:true,current:now}),listed=changesForReply(since.changes.map(publicChange));
   // A revision this board's history does not hold: another board's, a frame layout gone by, or older than what is kept.
   if(!since.known)return {error:`revision ${baseRevision} is not one of this board's: it may be another board's, from before a frame was resized or moved, or older than the history kept here. Read the contract again, then send the ${what} with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:[],more:false};
   return {error:`the project changed since revision ${baseRevision}. Read the changes below (or call aphrodite_get_changes), then send the ${what} again with base_revision "${now}".`,status:409,stale:true,...revisionInfo(),changes:listed.changes,...(listed.note?{note:listed.note}:{}),more:since.more};
@@ -2027,7 +2027,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   if(c.kind==='components')return {ok:true,...componentVocabulary()};
   if(c.kind==='changes'){
     if(screen!=='editor')return {ok:true,screen:'home',visible:false,hint:HOME_CANVAS_HINT};
-    const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit});
+    const found=changesSince(project.ledger,c.since,{includeView:c.includeView,limit:c.limit,current:agentRevision(project)});
     const listed=changesForReply(found.changes.map(publicChange));
     if(!found.known)return {ok:true,...revisionInfo(),from:found.from,more:false,changes:[],unknown_since:true,note:`revision ${String(c.since)} is not in this board's history: it may be another board's, from before a frame was resized or moved, or older than what is kept. Read the contract again and go on from the revision above.`};
     return {ok:true,...revisionInfo(),from:found.from,more:found.more,changes:listed.changes,...(listed.note?{note:listed.note}:{})};
