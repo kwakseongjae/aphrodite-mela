@@ -312,7 +312,7 @@
 .ui-side-sub { display: inline-flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-3); }
 .ui-side-sub > .ui-icon { color: var(--ui-ok-text); }
 .ui-side-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ui-space-2) var(--ui-space-2); }
-.ui-side-foot { display: flex; align-items: flex-start; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-4) var(--ui-space-4); border-top: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
+.ui-side-foot { display: flex; align-items: flex-start; gap: var(--ui-space-2); margin: 0; padding: var(--ui-space-3) var(--ui-space-4) var(--ui-space-4); border-top: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
 
 .ui-list-head { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-md); padding: var(--ui-space-4) 0 var(--ui-space-1) var(--ui-space-2); }
 .ui-list-title { margin: 0; font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); color: var(--ui-text-2); }
