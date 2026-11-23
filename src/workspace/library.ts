@@ -39,7 +39,9 @@ export function readLibrary(storage:LocalStore):Library{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
-      const project=parseProject(JSON.stringify(e.project));noteCleared(project,e.project?.approvedFingerprint);
+      let project=parseProject(JSON.stringify(e.project));noteCleared(project,e.project?.approvedFingerprint);
+      // What the read added (the approval in today's form, a clearing recorded) is held to what a project holds before the library is written back (0.3-R fix 2 #19).
+      if(JSON.stringify(project).length>MAX_PROJECT)project=parseProject(savedText(project));
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
       if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
       return {...e,project};
@@ -49,7 +51,7 @@ export function readLibrary(storage:LocalStore):Library{
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
   return {version:1,entries:legacy?[entryFor(parseProject(legacy))]:[]};
 }
-export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=JSON.stringify(project)):ProjectEntry{
+export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=savedText(project)):ProjectEntry{
   const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
   if(workspaceId!==undefined)entry.workspaceId=requireWorkspaceId(workspaceId);
   return entry;
@@ -65,13 +67,22 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
   // A board some path left on a stale fingerprint gives it up here, in memory and on disk alike, and the clearing is in its ledger.
   const held=project.approvedFingerprint;if(dropStaleApproval(project))noteCleared(project,held);
-  let raw=JSON.stringify(project);
-  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);
-    // A design that leaves no room even for an empty history (0.3-R) is saved without one: the history in memory keeps its
-    // number and the undo its steps, and a board opened again starts its history from nothing, as one never edited does.
-    if(raw.length>MAX_PROJECT&&!project.ledger.changes.length)raw=JSON.stringify({...project,ledger:undefined});}
+  const raw=savedText(project);
   const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
+}
+/**
+ * The text a project is written as, held to what a project holds on that text (0.3-R fix 2 #19): after a read has put its approval
+ * in today's form or recorded a clearing, and after a reader has listed the files a board came without. Only the history gives way,
+ * never the approval or that list. A design that leaves no room even for the newest change (0.3-R) is written without a history:
+ * the history in memory keeps its number and the undo its steps, and a board opened again starts its history from nothing, as one
+ * never edited does. Longer than a project holds only when the design alone is; the caller refuses it.
+ */
+export function savedText(project:Project):string{
+  let raw=JSON.stringify(project);
+  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);
+    if(raw.length>MAX_PROJECT)raw=JSON.stringify({...project,ledger:undefined});}
+  return raw;
 }
 /** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
 export const LIBRARY_LIMIT_BYTES=40_000_000;
@@ -155,6 +166,8 @@ export function importedProject(raw:string,library:Library):Project{
   // Never cut (0.3-R fix 2 #13): a file past the cut would go out with the board.
   const unique=[...new Set(named)];if(unique.length>MAX_LEFT_OUT)throw new Error(`This project file names ${unique.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}, so it is not imported.`);
   if(unique.length)project.leftOut=unique;else delete project.leftOut;
+  const length=savedText(project).length;
+  if(length>MAX_PROJECT)throw new Error(`With the files it names listed, this project would be ${length.toLocaleString('en')} characters; a project holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
   return project;
 }
 /**

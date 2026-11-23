@@ -16,7 +16,7 @@ import {filesNamed, htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, medi
 import {LEDGER_BUDGET, readLedger} from './ledger/types';
 import {fitSaved} from './ledger/ledger';
 import {MAX_EXPORT_FILE} from './page-export';
-import {utf8Length} from './workspace/library';
+import {savedText, utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
 import {halfPairIn} from './text';
 import named from '../src-tauri/board-file.json';
@@ -344,16 +344,15 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     if (ledger) { project.ledger = ledger; fitSaved(project); }
     project = parseProject(JSON.stringify(project));
     project.id = uid();
-    if (project.ledger && JSON.stringify(project).length > MAX_PROJECT) fitSaved(project);
-    // A board with no history to give way that only its new id takes past the cap is refused here, before a file is placed.
-    const length = JSON.stringify(project).length;
-    if (length > MAX_PROJECT) throw new Error(`with the id it is given here the board would be ${length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}`);
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
   // What it came without, as this reader found it (0.3-R ④): shown wherever this Mac has it, never sent on with the board.
   if (left.length) project!.leftOut = [...new Set(left.map(l => l.file))];
   // A list that would be cut is no list: such a board is refused, never sent on with files it named and did not carry (0.3-R fix 2 #13).
   if ((project!.leftOut?.length ?? 0) > MAX_LEFT_OUT) refuse(`it names ${project!.leftOut!.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}`);
+  // Held to the cap as it is written, its new id and that list in it (0.3-R fix 2 #19): a board that does not fit is refused here, before a file is placed.
+  const length = savedText(project!).length;
+  if (length > MAX_PROJECT) refuse(`board.json: with the id it is given here${project!.leftOut ? ' and the files it came without listed' : ''} the board would be ${length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}`);
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {

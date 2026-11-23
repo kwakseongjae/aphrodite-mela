@@ -118,3 +118,52 @@ test('a board whose list could not be read does not tell the person to put a fil
   assert.match(main, /function withheldNote\(n:number,all=false\)/);
   assert.match(main, /withheldNote\(go\.withheld\.size,go\.all\)/);
 });
+
+/* 19: what a read or an import adds after the cap was checked (an approval in today's form, a clearing recorded, the list of
+   files a board came without) is held to the cap on the text that is written: the history gives way, the approval and the
+   list are kept whole. */
+import {emptyLedger, record} from '../src/ledger/ledger.ts';
+import {APPROVAL_CLEARED} from '../src/ledger/types.ts';
+import {readLibrary, LIBRARY_KEY} from '../src/workspace/library.ts';
+import {MAX_PROJECT} from '../src/model.ts';
+/** A board `under` characters under the cap with its history, naming `refs` files, its history `changes` big edits long. */
+function nearCap(refs: number, under: number, changes: number, extra: Partial<Project> = {}): Project {
+  let p = initialProject(); delete p.ledger;
+  if (refs) p.pages.push({id: 'many', name: 'Many', blocks: [], kind: 'html', html: Array.from({length: refs}, (_, i) => `<img src="media:${sha(i + 1)}">`).join('')} as never);
+  const ledger = emptyLedger();
+  for (let i = 0; i < changes; i++) { const next = JSON.parse(JSON.stringify(p)) as Project; next.brief = String.fromCharCode(97 + i % 26).repeat(20_000); record(ledger, p, next, {author: {kind: 'person', name: 'D'}, source: 'editor:change'}); p = next; }
+  p = {...p, ...extra, ledger};
+  for (let n = 0; ; n++) {
+    const left = MAX_PROJECT - under - JSON.stringify(p).length;
+    if (left <= 0) break;
+    const page = {id: 'pad' + n, name: 'Pad', blocks: [], kind: 'html', html: ''};
+    p.pages.push(page as never);
+    page.html = 'x'.repeat(Math.max(0, Math.min(1_900_000, MAX_PROJECT - under - JSON.stringify(p).length)));
+  }
+  assert.equal(JSON.stringify(p).length, MAX_PROJECT - under);
+  return p;
+}
+test('a project file is held to the cap with the list of files it names, the list whole', () => {
+  const p = nearCap(3000, 100_000, 25);
+  const got = importedProject(JSON.stringify(p), {version: 1, entries: []});
+  assert.equal(got.leftOut?.length, 3000);
+  assert.ok(JSON.stringify(got).length <= MAX_PROJECT, `${JSON.stringify(got).length} characters`);
+  assert.ok(got.ledger?.changes.length, 'its history gave way, not all of it');
+});
+test('a board file is held to the cap with the list of files it came without, before a file of it is placed', async () => {
+  const p = nearCap(3000, 100_000, 25);
+  const none = {stat: async (_: string) => undefined, read: async (_: string) => undefined};
+  const written = await writeBoardFile(p, none);
+  const got = await readBoardFile(written.bytes, {maxBytes: 500 * 1024 * 1024, put: async () => { throw new Error('nothing is placed'); }});
+  assert.equal(got.project.leftOut?.length, 3000);
+  assert.ok(JSON.stringify(got.project).length <= MAX_PROJECT, `${JSON.stringify(got.project).length} characters`);
+});
+test('a library read that records a stale approval\'s clearing holds the board to the cap before it is written back', () => {
+  const p = nearCap(0, 10, 3, {approvedFingerprint: 'stale'});
+  const values = new Map<string, string>([[LIBRARY_KEY, JSON.stringify({version: 1, entries: [{project: p, createdAt: '2026-11-24T00:00:00.000Z', updatedAt: '2026-11-24T00:00:00.000Z', pinned: false, archived: false}]})]]);
+  const read = readLibrary({getItem: (k: string) => values.get(k) ?? null, setItem: () => {}} as never);
+  const got = read.entries[0].project;
+  assert.equal(got.approvedFingerprint, undefined);
+  assert.equal(got.ledger?.changes.at(-1)?.reason, APPROVAL_CLEARED, 'the clearing is recorded');
+  assert.ok(JSON.stringify(got).length <= MAX_PROJECT, `${JSON.stringify(got).length} characters`);
+});
