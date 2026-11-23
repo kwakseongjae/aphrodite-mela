@@ -24,12 +24,12 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  */
 const pins:Record<string,{colours:number,sizes:number,set:string}>={
   'agent/agent.css':{colours:10,sizes:2,set:'fc3b5d95'},
-  'design/component-explorer.css':{colours:92,sizes:15,set:'4d09978a'},
-  'design/studio.css':{colours:29,sizes:11,set:'bb0be265'},
-  'editor/pointer-editor.css':{colours:9,sizes:3,set:'b1cb6424'},
+  'design/component-explorer.css':{colours:91,sizes:15,set:'e2e8755c'},
+  'design/studio.css':{colours:24,sizes:11,set:'34c771f1'},
+  'editor/pointer-editor.css':{colours:8,sizes:2,set:'d18413dc'},
   'reference.css':{colours:22,sizes:7,set:'2d3a2d22'},
-  'style.css':{colours:341,sizes:32,set:'dc87d1b2'},
-  'workspace/home.css':{colours:82,sizes:29,set:'11944e9e'},
+  'style.css':{colours:302,sizes:24,set:'98728077'},
+  'workspace/home.css':{colours:81,sizes:29,set:'52a2afe2'},
   'workspace/vault.css':{colours:3,sizes:3,set:'dda54f2f'},
 };
 
