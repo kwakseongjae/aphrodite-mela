@@ -245,7 +245,8 @@ check('a revision read before the person resized a frame is refused (409, nothin
 });
 
 /* 0.3-R fix 1 #12: an edit and a system change written against the revision read before the person typed are refused,
-   and change nothing: the person's words are saved first, as their own change, and the revision then is not the one read. */
+   and change nothing: the person's words are saved first, as their own change, and the revision then is not the one read.
+   Each call meets words of its own not yet saved (fix 2 #12), so taking out either late check fails this. */
 check('edit and system sent with the revision read before the person typed are refused with a 409, and the board keeps what they typed', async () => {
   await send('Emulation.clearDeviceMetricsOverride');
   await sleep(5_200);
@@ -253,20 +254,22 @@ check('edit and system sent with the revision read before the person typed are r
   assert.ok(added.ok, JSON.stringify(added).slice(0, 200));
   const block = added.receipt.changedNodes[0]?.id;
   assert.ok(block, 'a block to edit');
-  await pressDoor('select', {id: block});
-  await sleep(300);
-  const {revision} = await agent('changes', {limit: 1});
-  assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
-  await send('Input.insertText', {text: ' typed'});
-  await sleep(5_200);
   const system = (await agent('contract')).system.id;
-  for (const [kind, payload] of [['edit', {reason: WHY, base_revision: revision, blockId: block, field: 'title', text: 'Agent title'}], ['system', {reason: WHY, base_revision: revision, id: system === 'toss' ? 'mono' : 'toss'}]]) {
-    const r = await agent(kind, payload);
+  // Each call starts from its own revision and words typed after it and not yet saved (0.3-R fix 2 #12): the one before it
+  // has saved the earlier words, so only the check made after the commit can refuse each.
+  for (const [kind, payload, words] of [['edit', {reason: WHY, blockId: block, field: 'title', text: 'Agent title'}, ' typed'], ['system', {reason: WHY, id: system === 'toss' ? 'mono' : 'toss'}, ' again']]) {
+    await pressDoor('select', {id: block});
+    await sleep(300);
+    const {revision} = await agent('changes', {limit: 1});
+    assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
+    await send('Input.insertText', {text: words});
+    await sleep(5_200);
+    const r = await agent(kind, {...payload, base_revision: revision});
     assert.equal(r.status, 409, `${kind}: ${JSON.stringify(r).slice(0, 200)}`);
   }
   const after = await agent('contract');
   assert.equal(after.system.id, system, 'the system is as it was');
-  assert.match(await evaluate(`document.querySelector('[data-block-id="${block}"]')?.textContent ?? ''`), /typed/, 'and the title is what the person typed');
+  assert.match(await evaluate(`document.querySelector('[data-block-id="${block}"]')?.textContent ?? ''`), /typed again/, 'and the title is what the person typed');
 });
 
 /* 0.3-R ③: the desktop cannot save half of a surrogate pair on its own, and a refused write holds up every write after it. */
