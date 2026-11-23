@@ -204,3 +204,11 @@ test('the files a batch copies are staged, and one that fails partway lets go of
   const drop = main.slice(main.indexOf('async function putMedia('), main.indexOf('\n}\n', main.indexOf('async function putMedia(')));
   assert.ok(drop.indexOf('preflightBatch(project,') > 0 && drop.indexOf('preflightBatch(project,') < drop.indexOf('frameHost.put('), 'a drop or a paste asks the library before a file is kept too');
 });
+
+/* 21: the copies frames in this window show are named on each write, so the desktop never clears one under a frame. */
+test('a frame\'s copy is written with the names of the copies the window\'s frames show now', () => {
+  const page = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
+  assert.match(page, /for \(const f of shown\.keys\(\)\) if \(!f\.isConnected\) shown\.delete\(f\);/, 'only frames still in the window');
+  assert.match(page, /native\.invoke<string>\('free_page_write', \{page, key, html: doc, shown: \[\.\.\.new Set\(shown\.values\(\)\)\]\}\)/);
+  assert.match(readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8'), /pub fn free_page_write\(app: AppHandle, page: String, key: String, html: String, shown: Option<Vec<String>>\)/);
+});

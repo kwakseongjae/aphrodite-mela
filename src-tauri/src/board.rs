@@ -18,6 +18,10 @@ const MEDIA: &str = "board-media";
 const PAGES: &str = "free-pages";
 /// How long a page's copy is kept after a frame last wrote or opened it (write_page).
 const PAGE_KEPT: std::time::Duration = std::time::Duration::from_secs(600);
+/// A copy written or opened this recently is never cleared for the folder's size: a frame may be about to show it (publish).
+const PAGE_FRESH: std::time::Duration = std::time::Duration::from_secs(60);
+/// What the copies frames load may take together; past it the oldest no frame shows are cleared (0.3-R fix 2 #21).
+const PAGES_BOUND: u64 = 256 * 1024 * 1024;
 /// Files on their way in, outside both folders the asset protocol serves.
 const UPLOADS: &str = "board-uploads";
 const EXTENSIONS: [&str; 6] = ["png", "jpg", "gif", "webp", "mp4", "webm"];
@@ -241,10 +245,17 @@ pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
-/// Writes the copy a frame loads, named for this version of the page. A copy a frame writes or opens again is made new;
-/// another version of the same page id is cleared only once no frame has written or opened it for PAGE_KEPT (0.3-R), so a
-/// late write from a frame of an older version, on this board or another, never takes away the copy a frame is opening.
+/// Writes the copy a frame loads (publish), as a write naming no frame that shows a copy.
 pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Result<PathBuf, String> {
+    publish(base, page, key, html, &[], PAGES_BOUND)
+}
+
+/// Writes the copy a frame loads, named for this version of the page, through a temporary file of its own. A copy a frame
+/// writes or opens again is made new. Then the folder is swept, every page id in it (0.3-R fix 2 #21): the copy just written
+/// and every copy a frame in the window shows (`shown`, by file name) stay; another is cleared once no frame has written or
+/// opened it for PAGE_KEPT (0.3-R), so a late write from a frame of an older version, on this board or another, never takes
+/// away a copy a frame is opening; and past `bound` bytes the oldest of the rest not used within PAGE_FRESH go first.
+pub(crate) fn publish(base: &Path, page: &str, key: &str, html: &str, shown: &[String], bound: u64) -> Result<PathBuf, String> {
     if page.is_empty() || page.len() > 200 || !page.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return Err("invalid page id".into());
     }
@@ -255,27 +266,55 @@ pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Resu
         return Err("that page is too large to draw".into());
     }
     let dir = folder(base, PAGES)?;
-    let prefix = format!("{page}~");
-    let name = format!("{prefix}{key}.html");
+    let name = format!("{page}~{key}.html");
     let dest = dir.join(&name);
     let now = std::time::SystemTime::now();
     if dest.exists() {
         let _ = fs::File::options().append(true).open(&dest).and_then(|f| f.set_modified(now));
     } else {
-        let temp = dir.join(format!(".{name}.tmp"));
-        fs::write(&temp, html).map_err(|e| e.to_string())?;
-        fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
-    }
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let other = entry.file_name().to_string_lossy().to_string();
-            let unused = entry.metadata().and_then(|m| m.modified()).map(|at| now.duration_since(at).map(|d| d > PAGE_KEPT).unwrap_or(false)).unwrap_or(false);
-            if other.starts_with(&prefix) && other != name && unused {
-                let _ = fs::remove_file(entry.path());
-            }
+        let temp = dir.join(format!(".{name}.{}.tmp", crate::agent::random_token()));
+        if let Err(e) = fs::write(&temp, html).and_then(|_| fs::rename(&temp, &dest)) {
+            let _ = fs::remove_file(&temp);
+            return Err(e.to_string());
         }
     }
+    sweep(&dir, &name, shown, now, bound);
     Ok(dest)
+}
+
+fn sweep(dir: &Path, written: &str, shown: &[String], now: std::time::SystemTime, bound: u64) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let (mut total, mut rest) = (0u64, Vec::new());
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let other = entry.file_name().to_string_lossy().to_string();
+        let idle = meta.modified().ok().and_then(|at| now.duration_since(at).ok()).unwrap_or_default();
+        if other == written || shown.iter().any(|s| *s == other) {
+            total += meta.len();
+            continue;
+        }
+        if idle > PAGE_KEPT {
+            let _ = fs::remove_file(entry.path());
+            continue;
+        }
+        total += meta.len();
+        // Another write's temporary file, or a copy written a moment ago for a frame about to show it, is left to its own time.
+        if idle > PAGE_FRESH && !other.starts_with('.') {
+            rest.push((idle, meta.len(), entry.path()));
+        }
+    }
+    rest.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, len, path) in rest {
+        if total <= bound {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total -= len;
+        }
+    }
 }
 
 #[tauri::command]
@@ -347,9 +386,14 @@ pub async fn board_media_read(app: AppHandle, sha: String) -> Result<tauri::ipc:
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// `shown`: the file names of the copies the window's frames show now, which a sweep never clears (0.3-R fix 2 #21).
 #[tauri::command]
-pub fn free_page_write(app: AppHandle, page: String, key: String, html: String) -> Result<String, String> {
-    Ok(write_page(&base(&app)?, &page, &key, &html)?.to_string_lossy().to_string())
+pub fn free_page_write(app: AppHandle, page: String, key: String, html: String, shown: Option<Vec<String>>) -> Result<String, String> {
+    let shown = shown.unwrap_or_default();
+    if shown.len() > 1024 {
+        return Err("a window shows at most 1,024 frames".into());
+    }
+    Ok(publish(&base(&app)?, &page, &key, &html, &shown, PAGES_BOUND)?.to_string_lossy().to_string())
 }
 
 #[cfg(test)]
@@ -505,5 +549,33 @@ mod tests {
         assert!(media_file(dir.path(), &fresh.sha).is_none(), "the batch's own new file goes");
         assert!(media_file(dir.path(), &taken.sha).is_some(), "a file something else put since stays");
         assert!(media_file(dir.path(), &kept.sha).is_some(), "a file of a batch that landed stays");
+    }
+    /* 0.3-R fix 2 #21: a copy a frame in the window still shows is never cleared, however long it has been open; copies of
+       every page id are swept, not only the one being written; the folder is held to a size, oldest first, never taking a
+       shown one; and each write goes through a temporary file of its own. */
+    #[test]
+    fn a_shown_copy_stays_every_page_is_swept_and_the_folder_is_held_to_a_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let long_ago = std::time::SystemTime::now() - PAGE_KEPT - std::time::Duration::from_secs(60);
+        let age = |p: &Path, at: std::time::SystemTime| fs::File::options().append(true).open(p).unwrap().set_modified(at).unwrap();
+        let open = write_page(dir.path(), "page-1", "ab12", "<p>open an hour</p>").unwrap();
+        let gone = write_page(dir.path(), "page-2", "cd34", "<p>deleted page</p>").unwrap();
+        age(&open, long_ago);
+        age(&gone, long_ago);
+        publish(dir.path(), "page-1", "ef56", "<p>another copy of the board</p>", &["page-1~ab12.html".to_string()], PAGES_BOUND).unwrap();
+        assert!(open.exists(), "a copy a frame shows stays, however long it has been open");
+        assert!(!gone.exists(), "a copy of a page id never written again is swept");
+        let names = ["a1", "b2", "c3", "d4"].map(|k| { publish(dir.path(), "page-3", k, &"x".repeat(100), &["page-1~ab12.html".to_string()], PAGES_BOUND).unwrap() });
+        for (i, p) in names.iter().enumerate() {
+            age(p, std::time::SystemTime::now() - std::time::Duration::from_secs(400 - i as u64 * 100));
+        }
+        publish(dir.path(), "page-4", "e5", &"x".repeat(100), &["page-3~a1.html".to_string(), "page-1~ab12.html".to_string()], 450).unwrap();
+        assert!(names[0].exists(), "the oldest is shown, so it stays");
+        assert!(!names[1].exists() && !names[2].exists(), "the oldest not shown go until the folder fits");
+        assert!(names[3].exists());
+        let total: u64 = fs::read_dir(dir.path().join(PAGES)).unwrap().flatten().map(|e| e.metadata().unwrap().len()).sum();
+        assert!(total <= 450, "{total}");
+        fs::create_dir(dir.path().join(PAGES).join(".page-5~f6.html.tmp")).unwrap();
+        assert!(write_page(dir.path(), "page-5", "f6", "<p>a temporary name of its own</p>").is_ok(), "a write does not share its temporary file");
     }
 }

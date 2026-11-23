@@ -458,6 +458,8 @@ const PIECE = 8 * 1024 * 1024;
 export function desktopFrameHost(native: Native, timing: {deadline: number} = {deadline: WALL_DEADLINE}): FrameHost {
   const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
   let settled: boolean | undefined, asking: Promise<boolean> | undefined, asks = 0;
+  /** The copy each frame of this window shows, by file name: a write names them, so the desktop never clears one under a frame (0.3-R fix 2 #21). */
+  const shown = new Map<HTMLIFrameElement, string>();
   /* One asking of the wall, under one deadline: the status, then a frame made the way free pages are made,
      asked what it has. Whatever comes after the deadline is ignored, and the frame is taken away either way.
      A no from silence or an error is not final (pageWall asks again); one read back from WebKit is. */
@@ -498,7 +500,14 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     frameMedia: where,
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
     // reaches this Mac later changes the document, and so the copy.
-    load: async (frame, page, _key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key: contentKey(doc), html: doc})); },
+    load: async (frame, page, _key, doc) => {
+      const key = contentKey(doc);
+      shown.delete(frame);
+      for (const f of shown.keys()) if (!f.isConnected) shown.delete(f);
+      const path = await native.invoke<string>('free_page_write', {page, key, html: doc, shown: [...new Set(shown.values())]});
+      shown.set(frame, `${page}~${key}.html`);
+      frame.src = native.fileSrc(path);
+    },
     pageWall: () => settled !== undefined ? Promise.resolve(settled) : asking ??= ask().then(answer => {
       asking = undefined;
       if (answer.final || ++asks >= WALL_ASKS) settled = answer.holds;
