@@ -439,10 +439,15 @@ check('the export window\'s Approve now approves only the board it showed (0.2.5
   await personPresses('export');
   await sleep(300);
   await setBrief('Changed while the window was open');
+  const drawn = () => evaluate(`document.querySelector('#modal-root [data-action="approve-export"]')?.dataset.shown ?? ''`);
+  const stale = await drawn();
   await pressOn('#modal-root [data-action="approve-export"]');
   assert.equal(await approval(), 'draft', 'the board changed after the window drew it, so the press approves nothing');
+  // The press is handled after a wait or two; on a busy machine 300 ms is not always enough for the window to be drawn
+  // again, and a second press on the window still drawn over the old board is rightly refused (Fable's run, 9724b9f).
+  await waitFor(async () => { const now = await drawn(); return now && now !== stale; }, 'the window drawn again over the board as it is');
   await pressOn('#modal-root [data-action="approve-export"]');
-  assert.equal(await approval(), 'approved', 'drawn again, the next press approves what is shown');
+  await waitFor(async () => (await approval()) === 'approved', 'drawn again, the next press approves what is shown');
   await key('Escape', 'Escape', 27);
 });
 
