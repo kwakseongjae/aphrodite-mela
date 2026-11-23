@@ -1201,10 +1201,11 @@ function pageExportHtml(page:Page){return `<div class="export-page" data-export-
 function shownState(){return `${project.id}|${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
 /** The files an export of `board` carries, counted and measured as it would send them, and how many it holds back (0.3-R ④). */
 async function carriedSummary(board:Project):Promise<string>{
-  const go=outgoing(board,frameHost);const {count,bytes,locals,held,all}=await outgoingCount(board,go);
+  const go=outgoing(board,frameHost,id=>resolveLocalBytes(id,board.id));const {count,bytes,locals,held,all,pictures}=await outgoingCount(board,go);
   if(!count&&!locals&&!held)return '';
   const mb=(bytes/1_048_576).toLocaleString(uiLanguage==='ko'?'ko':'en',{maximumFractionDigits:1});
-  return [count||locals?ui(`Goes out with it: ${count+locals} picture(s) and video(s)${count?`, ${mb} MB`:''}`,`함께 나가는 그림·영상 ${count+locals}개${count?`, ${mb}MB`:''}`):'',held?(all?ui(`${held} file(s) stay here: the board's record of what it came without could not be read`,`받을 때 없던 파일의 기록을 읽지 못해 ${held}개를 싣지 않습니다`):ui(`${held} file(s) the board came without stay here`,`받을 때 없던 파일 ${held}개는 싣지 않습니다`)):''].filter(Boolean).join(' · ');
+  // Each export's own count (0.3-R fix 3 #11): the board file carries pictures and videos, the handoff its pictures only.
+  return [count||locals?ui(`In the board file: ${count+locals} picture(s) and video(s)${count?`, ${mb} MB`:''}; in the handoff: ${pictures+locals} picture(s)`,`보드 파일에 그림·영상 ${count+locals}개${count?`, ${mb}MB`:''}, 핸드오프에 그림 ${pictures+locals}개`):'',held?(all?ui(`${held} file(s) stay here: the board's record of what it came without could not be read`,`받을 때 없던 파일의 기록을 읽지 못해 ${held}개를 싣지 않습니다`):ui(`${held} file(s) the board came without stay here`,`받을 때 없던 파일 ${held}개는 싣지 않습니다`)):''].filter(Boolean).join(' · ');
 }
 /** What an export says of the files the board came without (0.3-R ④), or nothing when it held none back. */
 function withheldNote(n:number,all=false){return !n?'':all?ui(`${n} file(s) were not sent: the board's record of what it came without could not be read.`,`받을 때 없던 파일의 기록을 읽지 못해 ${n}개를 싣지 않았습니다`):ui(`${n} file(s) the board came without were not sent with it. To send one, put it on the board again.`,`받을 때 없던 파일 ${n}개는 싣지 않았습니다. 실으려면 보드에 다시 놓으세요`);}

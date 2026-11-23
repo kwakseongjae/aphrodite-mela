@@ -224,11 +224,13 @@ export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Pr
   };
 }
 /** What goes out with a board and what is held back, by the lookups its export makes (0.3-R fix 2 #18): the notice before an export counts from this. */
-export async function outgoingCount(board: Project, go: {host: Pick<FrameHost, 'stat'>; holds: (file: string) => boolean; all: boolean}): Promise<{count: number; bytes: number; locals: number; held: number; all: boolean}> {
-  let count = 0, bytes = 0, held = 0;
-  for (const sha of filesNamed(board)) { const file = await go.host.stat(sha); if (file) { count++; bytes += file.bytes; } else if (go.holds(sha)) held++; }
-  const locals = localRefsIn(board).filter(id => !go.holds(`local:${id}`)).length;
-  return {count, bytes, locals, held: held + localRefsIn(board).length - locals, all: go.all};
+export async function outgoingCount(board: Project, go: {host: Pick<FrameHost, 'stat'>; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; holds: (file: string) => boolean; all: boolean}): Promise<{count: number; bytes: number; locals: number; held: number; all: boolean; pictures: number}> {
+  // Counted by the lookups the exports make (0.3-R fix 3 #11): a library picture is counted only if it can be read, and
+  // `pictures` leaves out the videos a handoff leaves out.
+  let count = 0, bytes = 0, held = 0, pictures = 0, locals = 0;
+  for (const sha of filesNamed(board)) { const file = await go.host.stat(sha); if (file) { count++; bytes += file.bytes; if (file.mime.startsWith('image/')) pictures++; } else if (go.holds(sha)) held++; }
+  for (const id of localRefsIn(board)) { if (go.holds(`local:${id}`)) held++; else if (!go.local || await go.local(id)) locals++; }
+  return {count, bytes, locals, held, all: go.all, pictures};
 }
 /**
  * Why an agent may not put `file` on the board (0.3-R fix 3 #7): one the board came without stays held back until the person

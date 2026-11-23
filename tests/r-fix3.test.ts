@@ -158,3 +158,21 @@ test('a page_id that is not an id is refused as sent, and the tool tells "select
   const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
   for (const said of apply.match(/[^."]*\\"selection\\"[^."]*/g) ?? []) assert.match(said, /base_revision/, said);
 });
+
+/* 11: the export window counts by the lookups the exports make: a library picture whose file is gone is not counted, and
+   the handoff's count leaves out the videos it leaves out. */
+test('the export window counts what each export would carry, by its own lookups', async () => {
+  const counted = (bf as unknown as Record<string, unknown>).outgoingCount as (p: Project, go: ReturnType<typeof outgoing>) => Promise<Record<string, unknown>>;
+  const p = initialProject();
+  p.pages.push({id: 'v', name: 'V', blocks: [], kind: 'html', html: `<video src="media:${sha(5)}"></video><img src="media:${sha(6)}">`} as never);
+  p.reference = 'local:00000000000000aa';
+  p.pages[0].blocks[1].image = 'local:00000000000000bb';
+  const host = {stat: async (s: string) => s === sha(5) ? {mime: 'video/mp4', bytes: 10} : s === sha(6) ? {mime: 'image/png', bytes: 4} : undefined, read: async () => undefined};
+  const got = await counted(p, outgoing(p, host, async id => id === '00000000000000aa' ? {bytes: new Uint8Array(4), mime: 'image/png'} : undefined));
+  assert.equal(got.locals, 1, 'a library picture whose file is gone is not counted');
+  assert.equal(got.count, 2);
+  assert.equal(got.pictures, 1, 'the handoff leaves the video out');
+  assert.match(main, /In the board file: \$\{count\+locals\}/);
+  assert.match(main, /in the handoff: \$\{pictures\+locals\}/);
+  assert.match(main, /const go=outgoing\(board,frameHost,id=>resolveLocalBytes\(id,board\.id\)\);const \{count,bytes,locals,held,all,pictures\}=await outgoingCount\(board,go\);/);
+});

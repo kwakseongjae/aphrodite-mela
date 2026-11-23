@@ -102,18 +102,18 @@ test('doing what the notice says sends the picture: putting it back takes it off
   const send = async () => { const go = outgoing(p, files, local); const out = await writeBoardFile(p, {...go.host, local: go.local}); return {go, pictures: (await readBoardFile(out.bytes, store)).pictures.length}; };
   let sent = await send();
   assert.equal(sent.pictures, 0, 'held back');
-  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 0, held: 1, all: false}, 'and the notice says one');
+  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 0, held: 1, all: false, pictures: 0}, 'and the notice says one');
   assert.equal(bf.carriedNow(p, [sha(8)]), false, 'a file not on the list changes nothing, so nothing is saved');
   assert.equal(bf.carriedNow(p, [`local:${ID}`]), true, 'putting it back changes the list, so the board is saved though the design is the same');
   assert.deepEqual(p.leftOut, [sha(9)]);
   sent = await send();
   assert.equal(sent.pictures, 1, 'and now it goes out');
-  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 1, held: 0, all: false});
+  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 1, held: 0, all: false, pictures: 0});
   const apply = main.slice(main.indexOf("case 'apply-local':"), main.indexOf("case '", main.indexOf("case 'apply-local':") + 20));
   assert.equal((apply.match(/freed\(\)/g) ?? []).length, 3, 'whether it went on a section, became the reference, or is on the board already');
   assert.match(apply, /\}else if\(localRefsIn\(project\)\.includes\(id\)&&freed\(\)\)toast\(/, 'a picture the board already shows, the reference say, is freed by pressing it, and said so only when it was');
   assert.match(apply, /const freed=\(\)=>\{if\(d\.author\.kind==='person'&&carriedNow\(project,\[src\]\)\)\{persist\(\);return true;\}return false;\};/);
-  assert.match(main, /function carriedSummary\(board:Project\):Promise<string>\{\n\s*const go=outgoing\(board,frameHost\);const \{count,bytes,locals,held,all\}=await outgoingCount\(board,go\);/);
+  assert.match(main, /function carriedSummary\(board:Project\):Promise<string>\{\n\s*const go=outgoing\(board,frameHost,id=>resolveLocalBytes\(id,board\.id\)\);const \{count,bytes,locals,held,all,pictures\}=await outgoingCount\(board,go\);/);
 });
 test('a board whose list could not be read does not tell the person to put a file back, since that cannot send it', () => {
   assert.match(main, /function withheldNote\(n:number,all=false\)/);
