@@ -1541,8 +1541,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);
       // The person putting a library picture on the board lets it go out with the board, one it came without included (0.3-R fix 2 #18): saved
       // even when the board already showed it, so doing what the export's notice says is enough.
-      const freed=()=>{if(d.author.kind==='person'&&carriedNow(project,[src]))persist();};
-      if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');freed();toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');freed();toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else if(d.author.kind==='person'&&localRefsIn(project).includes(id)){freed();toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+      const freed=()=>{if(d.author.kind==='person'&&carriedNow(project,[src])){persist();return true;}return false;};
+      if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');freed();toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');freed();toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else if(localRefsIn(project).includes(id)&&freed())toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'font-picker': fontQuery='';await loadFonts();fontPickerModal();break;
     case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
     case 'font-install': {

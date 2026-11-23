@@ -110,9 +110,9 @@ test('doing what the notice says sends the picture: putting it back takes it off
   assert.equal(sent.pictures, 1, 'and now it goes out');
   assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 1, held: 0, all: false});
   const apply = main.slice(main.indexOf("case 'apply-local':"), main.indexOf("case '", main.indexOf("case 'apply-local':") + 20));
-  assert.match(apply, /if\(d\.author\.kind==='person'&&carriedNow\(project,\[src\]\)\)persist\(\);/, 'the person\'s press frees it and saves');
-  assert.equal((apply.match(/freed\(\);/g) ?? []).length, 3, 'whether it went on a section, became the reference, or is on the board already');
-  assert.match(apply, /\}else if\(d\.author\.kind==='person'&&localRefsIn\(project\)\.includes\(id\)\)\{freed\(\);/, 'a picture the board already shows, the reference say, is freed by pressing it');
+  assert.equal((apply.match(/freed\(\)/g) ?? []).length, 3, 'whether it went on a section, became the reference, or is on the board already');
+  assert.match(apply, /\}else if\(localRefsIn\(project\)\.includes\(id\)&&freed\(\)\)toast\(/, 'a picture the board already shows, the reference say, is freed by pressing it, and said so only when it was');
+  assert.match(apply, /const freed=\(\)=>\{if\(d\.author\.kind==='person'&&carriedNow\(project,\[src\]\)\)\{persist\(\);return true;\}return false;\};/);
   assert.match(main, /function carriedSummary\(board:Project\):Promise<string>\{\n\s*const go=outgoing\(board,frameHost\);const \{count,bytes,locals,held,all\}=await outgoingCount\(board,go\);/);
 });
 test('a board whose list could not be read does not tell the person to put a file back, since that cannot send it', () => {
