@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {states} from './support/surfaces';
+import {tourSteps} from '../src/workspace/onboarding';
 
 /* 0.3-L4 ②: the surfaces drawn outside main.ts are made of the parts, their layout is a screen sheet under src/ui, and the old rules are gone. */
 const parts:Record<string,string[]>={
@@ -32,3 +33,12 @@ test('their layout is a screen sheet under src/ui, and the old rules for them ar
   assert.match(readFileSync(new URL('../index.html',import.meta.url),'utf8'),/<div id="toast" class="ui-toast-stack" role="status" aria-live="polite">/,'the toast stack keeps its place and its live region');
 });
 
+test('the tour points at things the board has, and its words are about the board',()=>{
+  const tour=states.tourFirst()+states.tourLast();
+  assert.doesNotMatch(tour,/독에/);
+  for(const language of ['en','ko'] as const){
+    const steps=tourSteps(language);
+    assert.ok(!steps.some(s=>s.target==='.topbar-search'),'no step points at the search the top bar no longer has');
+    assert.ok(steps.some(s=>s.target==='.panel-search'));
+  }
+});
