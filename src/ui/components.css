@@ -33,7 +33,7 @@
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
 .ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab,
-.ui-menu, .ui-strip, .ui-option, .ui-check {
+.ui-menu, .ui-strip, .ui-option, .ui-check, .ui-ws, .ui-board-card, .ui-empty, .ui-pagebar {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -57,7 +57,8 @@
 /* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
-.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus, .ui-menu-item:focus-visible, .ui-menu-item.is-focus,
+.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus, .ui-menu-item:focus-visible, .ui-menu-item.is-focus, .ui-ws:focus-visible, .ui-ws.is-focus,
+.ui-board-card-thumb:focus-visible, .ui-board-card-thumb.is-focus,
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
@@ -475,6 +476,61 @@
 .ui-check-help { grid-column: 2; margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
 .ui-check.ui-check-boxed { padding: var(--ui-space-4); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); }
 
+/* ── Home: workspace picker, board cards, empty state; the page-alone bar; colour swatch and range (0.3-L3) ── */
+.ui-avatar.ui-avatar-accent { background: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-ws {
+  appearance: none; cursor: default; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; height: var(--ui-control-md); padding: 0 var(--ui-space-2);
+  border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold);
+}
+.ui-ws-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-ws > .ui-icon { color: var(--ui-text-2); }
+.ui-ws:hover:not(:disabled), .ui-ws.is-hover { background: var(--ui-bg-hover); }
+.ui-ws:active:not(:disabled), .ui-ws.is-pressed { background: var(--ui-bg-active); }
+.ui-ws:disabled, .ui-ws.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* A board on the home grid: the picture opens it, the name and counts, who changed it last and when. */
+.ui-board-card { position: relative; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; color: var(--ui-text-1); }
+.ui-board-card-thumb {
+  appearance: none; cursor: default; margin: 0; padding: 0; font-family: inherit;
+  position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
+  border-radius: var(--ui-radius-2); border: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-page);
+  transition: border-color var(--ui-dur-fast) var(--ui-ease);
+}
+.ui-board-card-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.ui-board-card-thumb:hover, .ui-board-card-thumb.is-hover { border-color: var(--ui-text-3); }
+.ui-board-card-thumb > .ui-pill { position: absolute; left: var(--ui-space-2); top: var(--ui-space-2); }
+.ui-board-card-actions { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); display: flex; gap: var(--ui-space-1); opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease); }
+.ui-board-card:hover .ui-board-card-actions, .ui-board-card:focus-within .ui-board-card-actions, .ui-board-card.is-hover .ui-board-card-actions, .ui-board-card-actions.is-pinned { opacity: 1; }
+.ui-board-card-actions > .ui-icon-btn { background: var(--ui-bg-raised); }
+.ui-board-card-head { display: flex; align-items: baseline; gap: var(--ui-space-2); }
+.ui-board-card-name { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
+.ui-board-card-counts { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); white-space: nowrap; }
+.ui-board-card-by { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-board-card-by > .ui-avatar { width: var(--ui-icon-14); height: var(--ui-icon-14); }
+.ui-board-card-when { color: var(--ui-text-3); }
+.ui-board-card-changed { margin-left: auto; color: var(--ui-agent-text); font-weight: var(--ui-w-medium); }
+
+.ui-empty { display: flex; flex-direction: column; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-7) var(--ui-space-5); text-align: center; color: var(--ui-text-1); }
+.ui-empty > .ui-icon { width: var(--ui-icon-20); height: var(--ui-icon-20); color: var(--ui-text-2); }
+.ui-empty-art { display: block; width: calc(var(--ui-space-7) * 2 + var(--ui-space-4)); height: auto; }
+.ui-empty-title { margin: 0; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-empty-text { margin: 0; max-width: calc(var(--ui-space-7) * 8); color: var(--ui-text-2); }
+.ui-empty-actions { display: flex; gap: var(--ui-space-2); margin-top: var(--ui-space-2); }
+
+/* The bar over one page shown alone: back, where it came from, its name and size, then its actions. */
+.ui-pagebar { display: flex; align-items: center; gap: var(--ui-space-2); min-height: calc(var(--ui-control-lg) + var(--ui-space-1)); padding: 0 var(--ui-space-3) 0 var(--ui-space-2); background: var(--ui-bg-panel); color: var(--ui-text-1); border-bottom: var(--ui-hairline) solid var(--ui-line); white-space: nowrap; }
+.ui-pagebar-from { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-pagebar-slash { color: var(--ui-text-3); }
+.ui-pagebar-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-pagebar-size { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); color: var(--ui-text-3); }
+.ui-pagebar-push { margin-left: auto; }
+
+/* A colour field's swatch (inside a label beside the hex) and a range on the accent. */
+.ui-swatch { display: inline-block; flex-shrink: 0; width: var(--ui-icon-16); height: var(--ui-icon-16); border-radius: var(--ui-radius-1); box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-swatch-edge); }
+.ui-range { display: block; width: 100%; margin: 0; accent-color: var(--ui-accent); }
+.ui-range:disabled { opacity: var(--ui-disabled-opacity); }
+
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }
 .ui-composer:hover:not(:focus-within), .ui-composer.is-hover { border-color: var(--ui-text-3); }
@@ -513,5 +569,5 @@
 
 /* ── Reduced motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after { transition: none; }
+  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after, .ui-board-card-thumb, .ui-board-card-actions { transition: none; }
 }

@@ -444,6 +444,48 @@
         </div>
       </div>
     </div>
+
+    <!-- l3:D -->
+    <h3 class="ui-gallery-h3">홈 · 작업공간 고르기 · 사이드바 항목(수) · 보드 카드(미리보기, 이름, 메타, 더 보기, 즐겨찾기) · 격자·목록 전환 · 빈 상태</h3>
+    <div class="ui-gallery-home">
+      <nav class="ui-gallery-home-side" aria-label="홈">
+        <button class="ui-ws"><span class="ui-avatar ui-avatar-accent">개</span><span class="ui-ws-name">개인 작업공간</span><i data-lucide="chevrons-up-down" class="ui-icon ui-icon-sm"></i></button>
+        <div class="ui-gallery-list ui-gallery-gap">
+          <button class="ui-row is-on" aria-current="page"><i data-lucide="layout-grid" class="ui-icon ui-icon-sm"></i>전체 보드<span class="ui-row-meta">6</span></button>
+          <button class="ui-row"><i data-lucide="star" class="ui-icon ui-icon-sm"></i>즐겨찾기<span class="ui-row-meta">2</span></button>
+          <button class="ui-row is-hover"><i data-lucide="archive" class="ui-icon ui-icon-sm"></i>보관함<span class="ui-row-meta">0</span></button>
+        </div>
+        <div class="ui-gallery-stack ui-gallery-gap">
+          <button class="ui-ws is-hover"><span class="ui-avatar ui-avatar-accent">팀</span><span class="ui-ws-name">호버</span><i data-lucide="chevrons-up-down" class="ui-icon ui-icon-sm"></i></button>
+          <button class="ui-ws is-focus"><span class="ui-avatar ui-avatar-accent">팀</span><span class="ui-ws-name">포커스</span><i data-lucide="chevrons-up-down" class="ui-icon ui-icon-sm"></i></button>
+          <button class="ui-ws" disabled><span class="ui-avatar ui-avatar-accent">팀</span><span class="ui-ws-name">비활성</span><i data-lucide="chevrons-up-down" class="ui-icon ui-icon-sm"></i></button>
+        </div>
+      </nav>
+      <div class="ui-gallery-home-main">
+        <div class="ui-gallery-row ui-gallery-wide">
+          <div class="ui-seg" role="group" aria-label="보기"><button class="ui-seg-item" aria-pressed="true" aria-label="격자"><i data-lucide="layout-grid" class="ui-icon ui-icon-sm"></i></button><button class="ui-seg-item" aria-pressed="false" aria-label="목록"><i data-lucide="list" class="ui-icon ui-icon-sm"></i></button></div>
+          <span class="ui-gallery-note">격자 · 목록 전환은 세그먼트(아이콘)로.</span>
+        </div>
+        <div class="ui-gallery-cards ui-gallery-gap">
+          <article class="ui-board-card "><button class="ui-board-card-thumb " aria-label="봄 컬렉션 검수 보드 열기"><img src="/brand/cutouts/review.png" alt=""><span class="ui-pill ui-pill-agent"><span class="ui-dot ui-dot-agent"></span>고치는 중</span></button><div class="ui-board-card-actions"><button class="ui-icon-btn" aria-label="즐겨찾기"><i data-lucide="star" class="ui-icon ui-icon-sm"></i></button><button class="ui-icon-btn" aria-label="더 보기"><i data-lucide="ellipsis" class="ui-icon ui-icon-sm"></i></button></div><div class="ui-board-card-head"><h3 class="ui-board-card-name">봄 컬렉션 검수 보드</h3><span class="ui-board-card-counts">페이지 2 · 그림 1 · 영상 1</span></div><div class="ui-board-card-by"><span class="ui-avatar ui-avatar-agent"></span>Claude Code<span class="ui-board-card-when">방금</span><span class="ui-board-card-changed">변경 1개</span></div></article>
+          <article class="ui-board-card is-hover"><button class="ui-board-card-thumb is-hover" aria-label="빛공방 랜딩 (호버: 더 보기가 나옴) 열기"><img src="/brand/cutouts/paper-dove.png" alt=""></button><div class="ui-board-card-actions"><button class="ui-icon-btn" aria-label="즐겨찾기"><i data-lucide="star" class="ui-icon ui-icon-sm"></i></button><button class="ui-icon-btn" aria-label="더 보기"><i data-lucide="ellipsis" class="ui-icon ui-icon-sm"></i></button></div><div class="ui-board-card-head"><h3 class="ui-board-card-name">빛공방 랜딩 (호버: 더 보기가 나옴)</h3><span class="ui-board-card-counts">페이지 3 · 영상 1</span></div><div class="ui-board-card-by"><span class="ui-avatar"></span>나<span class="ui-board-card-when">어제</span></div></article>
+          <article class="ui-board-card "><button class="ui-board-card-thumb is-focus" aria-label="Aphrodite 다운로드 페이지 (포커스) 열기"><img src="/brand/cutouts/aphrodite.png" alt=""></button><div class="ui-board-card-actions"><button class="ui-icon-btn" aria-label="즐겨찾기"><i data-lucide="star" class="ui-icon ui-icon-sm"></i></button><button class="ui-icon-btn" aria-label="더 보기"><i data-lucide="ellipsis" class="ui-icon ui-icon-sm"></i></button></div><div class="ui-board-card-head"><h3 class="ui-board-card-name">Aphrodite 다운로드 페이지 (포커스)</h3><span class="ui-board-card-counts">페이지 2 · 그림 3</span></div><div class="ui-board-card-by"><span class="ui-avatar ui-avatar-agent"></span>Codex<span class="ui-board-card-when">11월 21일</span></div></article>
+        </div>
+        <div class="ui-card ui-gallery-gap">
+          <div class="ui-empty"><img class="ui-empty-art" src="/brand/cutouts/paper-dove.png" alt=""><h3 class="ui-empty-title">아직 보드가 없습니다</h3><p class="ui-empty-text">새 보드를 만들거나, 받은 .aph 파일을 가져오세요. 에이전트가 만든 페이지도 여기에 올라옵니다.</p><div class="ui-empty-actions"><button class="ui-btn ui-btn-secondary ui-btn-md"><i data-lucide="upload" class="ui-icon ui-icon-sm"></i>가져오기</button><button class="ui-btn ui-btn-primary ui-btn-md"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i>새 보드</button></div></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="ui-gallery-h3">페이지만 보기의 위 줄 · 폼(색 칸, 범위)</h3>
+    <div class="ui-card ui-gallery-card">
+      <div class="ui-pagebar"><button class="ui-icon-btn" aria-label="보드로"><i data-lucide="arrow-left" class="ui-icon ui-icon-sm"></i></button><span class="ui-pagebar-from">봄 컬렉션 검수 보드</span><span class="ui-pagebar-slash" aria-hidden="true">/</span><h2 class="ui-pagebar-title">11월 4주 제품 브리핑</h2><span class="ui-pagebar-size">1200 × 900</span><span class="ui-pagebar-push"></span><button class="ui-btn ui-btn-primary ui-btn-md"><i data-lucide="download" class="ui-icon ui-icon-sm"></i>HTML로 내보내기</button></div>
+    </div>
+    <div class="ui-gallery-grid ui-gallery-gap">
+      <div><label class="ui-label" for="g-color">강조색</label><label class="ui-input"><span class="ui-swatch" style="background: #a37a22"></span><input id="g-color" class="ui-gallery-bare" value="#A37A22" aria-label="강조색 16진수"></label></div>
+      <div><label class="ui-label" for="g-range">모서리</label><input type="range" id="g-range" class="ui-range" min="0" max="24" value="8"></div>
+      <div><label class="ui-label" for="g-range2">비활성 범위</label><input type="range" id="g-range2" class="ui-range" min="0" max="24" value="12" disabled></div>
+    </div>
     <!-- l3:end -->
   </section>
 
@@ -451,11 +493,11 @@
 </div>
 
 <script type="module">
-  import {createIcons, Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
+  import {createIcons, ChevronsUpDown, Star, Ellipsis, List, ArrowLeft, Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
   import {primitives, pairs, resolve} from '/src/ui/tokens.ts';
   import {contrastRatio} from '/src/design/contrast.ts';
 
-  createIcons({icons: {Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
+  createIcons({icons: {ChevronsUpDown, Star, Ellipsis, List, ArrowLeft, Pencil, Copy, Archive, FolderOpen, Share, Unplug, FolderX, CircleAlert, X, Package, HardDrive, Download, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
 
   const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
   const swatch = name => el('i', {style: `background: var(--ui-${name})`});

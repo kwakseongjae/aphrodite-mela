@@ -71,3 +71,8 @@
 .ui-gallery-sheet > img { object-fit: contain; object-position: center; }
 .ui-gallery-fab { position: absolute; right: var(--ui-space-4); bottom: var(--ui-space-4); }
 .ui-gallery-two-span { grid-column: span 2; }
+.ui-gallery-home { display: grid; grid-template-columns: calc(var(--ui-space-7) * 5) minmax(0, 1fr); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); overflow: hidden; }
+.ui-gallery-home-side { padding: var(--ui-space-3); background: var(--ui-bg-app); border-right: var(--ui-hairline) solid var(--ui-line); }
+.ui-gallery-home-main { padding: var(--ui-space-5); background: var(--ui-bg-panel); }
+.ui-gallery-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ui-space-5); }
+.ui-gallery-bare { flex: 1; min-width: 0; border: 0; outline: none; background: none; font: inherit; color: inherit; }

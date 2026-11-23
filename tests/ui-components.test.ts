@@ -91,7 +91,7 @@ const focusable:Record<string,'self'|'within'|'switch'>={
   'ui-select':'within','ui-composer':'within',
   // The checkbox under the track (or the box) takes focus; the track (or the box) draws it.
   'ui-switch-track':'switch','ui-check-box':'switch',
-  'ui-menu-item':'self','ui-option':'within',
+  'ui-menu-item':'self','ui-option':'within','ui-ws':'self','ui-board-card-thumb':'self',
 };
 
 /** For a part drawn beside a hidden input: the label it sits in, and the input before it. */
@@ -179,7 +179,7 @@ const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
   'ui-btn':[{states:['disabled']}],'ui-icon-btn':[{states:['disabled']}],'ui-chip':[{states:['disabled']}],'ui-seg-item':[{states:['disabled']}],
   'ui-tab':[{states:['disabled']}],'ui-attach':[{states:['disabled']}],'ui-send':[{states:['disabled']}],'ui-input':[{states:['disabled']}],'ui-textarea':[{states:['disabled']}],
   'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],'ui-fab':[{states:['disabled']}],'ui-menu-item':[{states:['disabled']},{classes:['is-disabled']}],
-  'ui-option':[{states:[hasFlag('> .ui-option-input:disabled')]},{classes:['is-disabled']}],
+  'ui-option':[{states:[hasFlag('> .ui-option-input:disabled')]},{classes:['is-disabled']}],'ui-ws':[{states:['disabled']}],
   'ui-select':[{states:[hasFlag('> select:disabled')]},{classes:['is-disabled']}],
 };
 export function litWhileDisabled(css:string){
