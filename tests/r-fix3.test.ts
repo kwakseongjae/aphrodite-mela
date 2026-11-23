@@ -141,3 +141,20 @@ test('deleting a workspace puts back only what is still where it moved it, and e
 test('the browser build puts in what is being typed before it decides whether to warn', () => {
   assert.match(main, /window\.addEventListener\('beforeunload',e=>\{saveTyping\(\);if\(!lastSaved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
 });
+
+/* 3: the target a batch names reaches the batch's own check as it was sent, so a target that is not an id is refused, not
+   dropped; and the tool says "selection" is only for a write without base_revision, as the guide does. */
+import {parseAgentCommand} from '../src/agent/bridge.ts';
+import {parseBatch} from '../src/agent/ops.ts';
+import {mcpTools} from '../src/agent/commands.mjs';
+test('a page_id that is not an id is refused as sent, and the tool tells "selection" apart with base_revision', () => {
+  for (const page_id of [42, 'x'.repeat(201)]) {
+    const parsed = parseAgentCommand('apply', {reason: 'r', base_revision: 'r2:1:2:3', page_id, ops: [{op: 'page', name: 'New'}, {op: 'add', component_kind: 'hero'}]});
+    assert.ok('command' in parsed, JSON.stringify(parsed));
+    const c = (parsed as {command: {ops?: unknown[]; patch?: unknown[]; pageId?: unknown; reason?: unknown; baseRevision?: unknown}}).command;
+    const batch = parseBatch({ops: c.ops, patch: c.patch, page_id: c.pageId, reason: c.reason, base_revision: c.baseRevision});
+    assert.ok('error' in batch && /page_id/.test(batch.error), `${String(page_id).slice(0, 12)}: refused, not dropped`);
+  }
+  const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
+  for (const said of apply.match(/[^."]*\\"selection\\"[^."]*/g) ?? []) assert.match(said, /base_revision/, said);
+});

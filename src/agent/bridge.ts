@@ -22,7 +22,7 @@ export type AgentCommand=
   |{kind:'connect'}
   |{kind:'ui';action:'command'|'click'|'type'|'key';payload:Record<string,unknown>}
   |{kind:'components'}
-  |{kind:'apply';ops?:unknown[];patch?:unknown[];pageId?:string;reason?:unknown;baseRevision?:unknown}
+  |{kind:'apply';ops?:unknown[];patch?:unknown[];pageId?:unknown;reason?:unknown;baseRevision?:unknown}
   |{kind:'changes';since?:number|string;includeView?:boolean;limit?:number}
   |{kind:'act';action:string;data:Record<string,string>;reason?:string}
   |{kind:'click';selector:string}
@@ -117,8 +117,9 @@ export function parseAgentCommand(kind:unknown,payload:unknown):{command:AgentCo
       if(p.ops!==undefined&&!Array.isArray(p.ops))return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
       if(p.patch!==undefined&&!Array.isArray(p.patch))return {error:'apply "patch" must be a list of ops, as aphrodite_get_changes returns them'};
       if(p.ops===undefined&&p.patch===undefined)return {error:'apply needs "ops": [{"op":"add","component_kind":"hero"}]'};
-      const pageId=str(p.page_id??p.pageId,200);
-      return {command:{kind:'apply',...(p.ops!==undefined?{ops:p.ops as unknown[]}:{}),...(p.patch!==undefined?{patch:p.patch as unknown[]}:{}),...(pageId?{pageId}:{}),reason:p.reason,baseRevision:p.base_revision??p.baseRevision}};
+      // The target goes on as it was sent, for parseBatch to judge (0.3-R fix 3 #3): one that is not an id is refused there, never dropped.
+      const pageId=p.page_id??p.pageId;
+      return {command:{kind:'apply',...(p.ops!==undefined?{ops:p.ops as unknown[]}:{}),...(p.patch!==undefined?{patch:p.patch as unknown[]}:{}),...(pageId!==undefined?{pageId}:{}),reason:p.reason,baseRevision:p.base_revision??p.baseRevision}};
     }
     case 'changes':{
       // since: a sequence number from an earlier reply, or a revision string. Query strings arrive as text.
