@@ -1,3 +1,4 @@
+// @ts-nocheck: run inside a checkout of an older version, beside its own src (see below), not checked with this one.
 /*
  * How tests/fixtures/library-*.json were made (0.3-R fix 1 #8): run inside a checkout of the version named, so that version's
  * own code writes the library and its own reader says which boards are approved.
