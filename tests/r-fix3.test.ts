@@ -202,3 +202,10 @@ test('an open overtaken by another answers the agent with a 409 and the board th
   assert.match(open, /if\(screen!=='home'\)\{d\.outcome=\{error:[^}]*status:409,open:\{project_id:project\.id,name:project\.name\}\};return;\}/);
   assert.match(main, /case 'act':await actViaButton\(c\.action,c\.data,d\);if\(d\.outcome\)return d\.outcome;/);
 });
+
+/* 15 (in one process): a batch whose placing throws still lets go of the files it staged. */
+test('the staged files are let go of in a finally, whatever the placing does', () => {
+  const apply = body('async function applyBatch(');
+  assert.match(apply, /let answer:Record<string,unknown>\|undefined;\n\s*try\{answer=\(\(\): Record<string,unknown>=>\{/);
+  assert.match(apply, /\}finally\{await frameHost\.releaseMedia\(staged,answer\?\.ok===true\)\.catch\(\(\)=>\{\}\);\}\n\s*return answer;/);
+});

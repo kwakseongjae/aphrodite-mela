@@ -1997,7 +1997,8 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   }
   // The files the batch staged are kept only if it lands, at this one place, whichever way it ends (0.3-R fix 2 #20).
   const staged=Object.values(media).map(m=>m.src.slice('media:'.length));
-  const answer=((): Record<string,unknown>=>{
+  let answer:Record<string,unknown>|undefined;
+  try{answer=((): Record<string,unknown>=>{
     // Copying took a moment: the project and the door are asked again before anything moves.
     if(Object.keys(media).length){
       if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
@@ -2029,8 +2030,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     }
     // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
     return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
-  })();
-  await frameHost.releaseMedia(staged,answer.ok===true).catch(()=>{});
+  })();}finally{await frameHost.releaseMedia(staged,answer?.ok===true).catch(()=>{});}
   return answer;
 }
 

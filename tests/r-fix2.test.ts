@@ -201,7 +201,7 @@ test('the files a batch copies are staged, and one that fails partway lets go of
   assert.deepEqual(released, [[[sha(1), sha(2)], false]], 'both are let go of, the one that could not be measured too');
   const body = main.slice(main.indexOf('async function applyBatch('), main.indexOf('\n}\n', main.indexOf('async function applyBatch(')));
   assert.match(body, /preflightBatch\(project,held,selected,r=>libraryRefusal\(library,project,r\.project,/, 'the library is asked before the copy');
-  assert.match(body, /await frameHost\.releaseMedia\(staged,answer\.ok===true\)/, 'one place lets go of the files, keeping them only when the batch landed');
+  assert.match(body, /await frameHost\.releaseMedia\(staged,answer\??\.ok===true\)/, 'one place lets go of the files, keeping them only when the batch landed');
   const drop = main.slice(main.indexOf('async function putMedia('), main.indexOf('\n}\n', main.indexOf('async function putMedia(')));
   assert.ok(drop.indexOf('preflightBatch(project,') > 0 && drop.indexOf('preflightBatch(project,') < drop.indexOf('frameHost.put('), 'a drop or a paste asks the library before a file is kept too');
 });
