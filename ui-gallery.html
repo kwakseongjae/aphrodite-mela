@@ -280,15 +280,68 @@
     </div>
   </section>
 
+  <!-- ── 0.3-L3: 화면을 옮길 때 쓸 부품 ───────────────────── -->
+  <section class="ui-gallery-sec" id="l3">
+    <div class="ui-gallery-sec-head"><h2>화면을 옮길 때 쓸 부품</h2><p>0.3-L3에서 더한 부품입니다(L4가 옛 화면을 이 부품으로 옮깁니다). 방향 A(종이 · 잉크 · 금색)의 시안 <span class="ui-mono">0.3-D2/app/preview-*.html</span>에서 출발했고, 위와 같은 규칙(토큰만, 범위, 포커스 고리, 비활성, 움직임 줄이기)을 따릅니다.</p></div>
+
+    <!-- l3:A -->
+    <h3 class="ui-gallery-h3">옆 패널 · 목록 머리 · 검색 줄 · 목록 줄(썸네일, 꼬리표, 끌기)</h3>
+    <div class="ui-gallery-grid">
+      <aside class="ui-side ui-gallery-side" aria-label="보드">
+        <div class="ui-side-head">
+          <button class="ui-icon-btn ui-icon-btn-md" aria-label="홈으로"><img class="ui-gallery-apple" src="/brand/apple-mark.png" alt=""></button>
+          <div class="ui-side-title"><h2 class="ui-side-name">봄 컬렉션 검수 보드</h2><span class="ui-side-sub"><i data-lucide="check" class="ui-icon ui-icon-xs"></i>이 Mac에 저장됨 · 방금</span></div>
+          <button class="ui-icon-btn" aria-label="패널 접기"><i data-lucide="panel-left-close" class="ui-icon ui-icon-sm"></i></button>
+        </div>
+        <div class="ui-side-body">
+          <button class="ui-search ui-gallery-gap"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">페이지·명령 찾기</span><span class="ui-kbd">⌘K</span></button>
+          <div class="ui-list-head"><h3 class="ui-list-title">이 보드</h3><span class="ui-list-count">4</span><button class="ui-icon-btn" aria-label="올리기"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i></button></div>
+          <div class="ui-gallery-list">
+            <button class="ui-row ui-row-md is-on"><span class="ui-row-thumb"><img src="/brand/cutouts/review.png" alt=""></span><span class="ui-row-name">11월 4주 제품 브리핑</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md"><span class="ui-row-thumb"><img src="/brand/cutouts/paper-dove.png" alt=""></span><span class="ui-row-name">봄 컬렉션 랜딩 초안</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-hover"><span class="ui-row-thumb"><i data-lucide="image" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">다운로드 페이지.png</span><span class="ui-row-meta ui-mono">PNG</span></button>
+            <button class="ui-row ui-row-md is-selected"><span class="ui-row-thumb"><i data-lucide="film" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">빛공방 촬영본.mp4</span><span class="ui-row-meta ui-mono">0:24</span></button>
+          </div>
+        </div>
+        <p class="ui-side-foot"><i data-lucide="upload" class="ui-icon ui-icon-xs"></i>파일을 끌어다 놓으면 이 보드에 올라갑니다</p>
+      </aside>
+      <div>
+        <div class="ui-card ui-gallery-card">
+          <div class="ui-gallery-list ui-gallery-pad">
+            <button class="ui-row ui-row-md"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">기본</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <div class="ui-drop-line" role="presentation"></div>
+            <button class="ui-row ui-row-md is-hover"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">호버</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-pressed"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">눌림</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-on"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">지금 보는 페이지</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-selected"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">사람이 고른 페이지</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-dragging"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">끌고 있는 줄</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md is-focus"><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">키보드로 온 줄</span><span class="ui-row-meta ui-mono">HTML</span></button>
+            <button class="ui-row ui-row-md" disabled><span class="ui-row-thumb"><i data-lucide="file-code" class="ui-icon ui-icon-xs"></i></span><span class="ui-row-name">비활성</span><span class="ui-row-meta ui-mono">HTML</span></button>
+          </div>
+        </div>
+        <p class="ui-gallery-note">끌기: 끌고 있는 줄은 떠오르고(<span class="ui-mono">.is-dragging</span>), 놓일 자리는 파란 줄(<span class="ui-mono">ui-drop-line</span>)로 보입니다.</p>
+      </div>
+      <div class="ui-gallery-stack">
+        <button class="ui-search"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">기본</span><span class="ui-kbd">⌘K</span></button>
+        <button class="ui-search is-hover"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">호버</span><span class="ui-kbd">⌘K</span></button>
+        <button class="ui-search is-pressed"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">눌림</span><span class="ui-kbd">⌘K</span></button>
+        <button class="ui-search is-focus"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">포커스</span><span class="ui-kbd">⌘K</span></button>
+        <button class="ui-search" disabled><i data-lucide="search" class="ui-icon ui-icon-sm"></i><span class="ui-search-text">비활성</span><span class="ui-kbd">⌘K</span></button>
+        <div class="ui-card"><div class="ui-list-head ui-gallery-pad-x"><h3 class="ui-list-title">이 보드</h3><span class="ui-list-count">12</span><button class="ui-icon-btn" aria-label="올리기"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i></button></div></div>
+      </div>
+    </div>
+    <!-- l3:end -->
+  </section>
+
   <footer class="ui-gallery-foot">Aphrodite 0.3-F2 · 글꼴 Pretendard Variable (SIL OFL 1.1) · 아이콘 Lucide (ISC)</footer>
 </div>
 
 <script type="module">
-  import {createIcons, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
+  import {createIcons, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
   import {primitives, pairs, resolve} from '/src/ui/tokens.ts';
   import {contrastRatio} from '/src/design/contrast.ts';
 
-  createIcons({icons: {Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
+  createIcons({icons: {PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
 
   const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
   const swatch = name => el('i', {style: `background: var(--ui-${name})`});

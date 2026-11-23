@@ -278,6 +278,8 @@
 | `--ui-composer-lg-min-h` | `152px` |
 | `--ui-modal-w` | `420px` |
 | `--ui-modal-w-lg` | `600px` |
+| `--ui-thumb-w` | `28px` |
+| `--ui-thumb-h` | `20px` |
 | `--ui-disabled-opacity` | `0.4` |
 | `--ui-danger-hover` | `brightness(0.92)` |
 | `--ui-danger-press` | `brightness(0.84)` |

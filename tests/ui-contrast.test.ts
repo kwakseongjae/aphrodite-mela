@@ -15,7 +15,7 @@ const css=shipped.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n');
  *
  * Meta: the rules whose text may be held to 3:1, because it is a placeholder or meta that repeats
  * something said elsewhere (a count, a shortcut, a time): those that style a placeholder, .ui-caps,
- * .ui-kbd, .ui-tab-count or .ui-row-meta. Anything else a person reads is text, at 4.5.
+ * .ui-kbd, .ui-tab-count, .ui-row-meta or .ui-side-sub. Anything else a person reads is text, at 4.5.
  * Fills: elements whose colour is the graphic itself. The switch knob is not read: its position, not its
  * colour against the track, tells on from off. On, it takes on-accent, so it stays visible on the ink track
  * in the dark theme too (on-accent on accent is a listed pair).
@@ -25,9 +25,9 @@ const css=shipped.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n');
 const policy:DrawPolicy={
   solid:role=>!!resolve('light',role)&&!!resolve('dark',role),
   colours:Object.keys(themes.light),
-  meta:rule=>/\.ui-(caps|kbd|tab-count|row-meta)$|::placeholder$/.test(rule),
-  fills:(target,host)=>target.classes.has('ui-switch-track')||target.classes.has('ui-dot')||(target.element==='after'&&!!host?.classes.has('ui-tab')),
-  silent:target=>['ui-switch-input','ui-switch-track','ui-dot','ui-toolbar-sep','ui-scrim'].some(k=>target.classes.has(k)),
+  meta:rule=>/\.ui-(caps|kbd|tab-count|row-meta|side-sub)$|::placeholder$/.test(rule),
+  fills:(target,host)=>target.classes.has('ui-switch-track')||target.classes.has('ui-dot')||target.classes.has('ui-drop-line')||(target.element==='after'&&!!host?.classes.has('ui-tab')),
+  silent:target=>['ui-switch-input','ui-switch-track','ui-dot','ui-toolbar-sep','ui-scrim','ui-drop-line'].some(k=>target.classes.has(k)),
   decorative:['line'],
 };
 
@@ -82,7 +82,7 @@ test('text-3 writes only meta, disabled controls and icons, in these rules',()=>
   const writers=rules(css).filter(r=>/var\(--ui-text-3\)/.test(r.decls.color?.value??'')).map(r=>r.selector);
   for(const s of writers)assert.ok(policy.meta(s)||/:disabled|\.is-disabled/.test(s)||/\.ui-icon$/.test(s),s+' writes text in text-3, which only meta, a disabled control or an icon may');
   assert.deepEqual(writers,['.ui-caps','.ui-kbd','.ui-input::placeholder','.ui-textarea::placeholder','.ui-input:disabled','.ui-input.is-disabled','.ui-textarea:disabled','.ui-textarea.is-disabled',
-    '.ui-select.is-disabled','.ui-select:has(> select:disabled)','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
+    '.ui-select.is-disabled','.ui-select:has(> select:disabled)','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-side-sub','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
 });
 
 test('the ratios are the ones the approved direction showed',()=>{

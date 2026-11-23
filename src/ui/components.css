@@ -32,7 +32,7 @@
 /* Parts carry their own type, so one dropped into an older screen still reads as itself. */
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
-.ui-composer, .ui-attach, .ui-send, .ui-toolbar {
+.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -56,7 +56,7 @@
 /* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
-.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus,
+.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus,
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
@@ -286,7 +286,7 @@
 .ui-row.is-selected > .ui-row-meta, .ui-row[aria-selected="true"] > .ui-row-meta { color: var(--ui-text-2); }
 .ui-row.is-agent > .ui-row-meta { color: var(--ui-agent-text); }
 .ui-row:disabled, .ui-row.is-disabled { opacity: var(--ui-disabled-opacity); }
-.ui-row-meta { margin-left: auto; font-size: var(--ui-text-11); color: var(--ui-text-3); }
+.ui-row-meta { margin-left: auto; font-size: var(--ui-text-11); font-variant-numeric: tabular-nums; color: var(--ui-text-3); }
 
 .ui-card { background: var(--ui-bg-panel); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); }
 
@@ -300,6 +300,43 @@
 .ui-connect-found { display: flex; gap: var(--ui-space-3); padding: var(--ui-space-3); border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); }
 .ui-connect-found > .ui-icon { color: var(--ui-text-2); margin-top: calc(var(--ui-space-1) / 2); }
 .ui-connect-actions { display: flex; align-items: center; gap: var(--ui-space-2); }
+
+/* ── Side panel, list head, search row (0.3-L3) ────────────────── */
+.ui-side { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--ui-bg-panel); color: var(--ui-text-1); border-right: var(--ui-hairline) solid var(--ui-line); }
+.ui-side.ui-side-end { border-right: 0; border-left: var(--ui-hairline) solid var(--ui-line); }
+.ui-side-head { display: flex; align-items: center; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-2) 0 var(--ui-space-3); }
+.ui-side-title { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.ui-side-name { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-side-sub { display: inline-flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-3); }
+.ui-side-sub > .ui-icon { color: var(--ui-ok-text); }
+.ui-side-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ui-space-2) var(--ui-space-2); }
+.ui-side-foot { display: flex; align-items: flex-start; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-4) var(--ui-space-4); border-top: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
+
+.ui-list-head { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-md); padding: var(--ui-space-4) 0 var(--ui-space-1) var(--ui-space-2); }
+.ui-list-title { margin: 0; font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); color: var(--ui-text-2); }
+.ui-list-count { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; color: var(--ui-mark); }
+.ui-list-head > .ui-icon-btn { margin-left: auto; }
+
+/* Opens the command palette: a button that reads like a field. Its label is text, so text-2. */
+.ui-search {
+  appearance: none; cursor: default; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; height: var(--ui-control-sm); padding: 0 var(--ui-space-1) 0 var(--ui-space-2);
+  border: 0; border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); color: var(--ui-text-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap;
+}
+.ui-search > .ui-icon { color: var(--ui-text-2); }
+.ui-search-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-search:hover:not(:disabled), .ui-search.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
+.ui-search:active:not(:disabled), .ui-search.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
+.ui-search:disabled, .ui-search.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* Row extras: a thumbnail on the left, a name that ellipsises, a row being dragged and the line where it lands. */
+.ui-row.ui-row-md { min-height: var(--ui-control-md); gap: var(--ui-space-3); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
+.ui-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-row-thumb { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--ui-thumb-w); height: var(--ui-thumb-h); overflow: hidden; border-radius: calc(var(--ui-radius-1) / 2); background: var(--ui-bg-sunken); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-line); }
+.ui-row-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.ui-row.is-dragging { background: var(--ui-bg-raised); box-shadow: var(--ui-shadow-panel); }
+.ui-row.is-dragging:focus-visible, .ui-row.is-dragging.is-focus { box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-panel); }
+.ui-drop-line { height: var(--ui-ring); margin: calc(var(--ui-ring) / -2) var(--ui-space-2); border-radius: var(--ui-ring); background: var(--ui-select); }
 
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }

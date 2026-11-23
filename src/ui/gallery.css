@@ -59,3 +59,8 @@
 .ui-gallery-list { padding: 0 var(--ui-space-2) var(--ui-space-2); display: flex; flex-direction: column; gap: calc(var(--ui-space-1) / 2); }
 .ui-gallery-card { overflow: hidden; }
 .ui-gallery-foot { margin-top: var(--ui-space-6); text-align: center; font-size: var(--ui-text-12); color: var(--ui-text-3); }
+.ui-gallery-side { height: calc(var(--ui-control-lg) * 12); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); overflow: hidden; }
+.ui-gallery-apple { width: var(--ui-icon-20); height: var(--ui-icon-20); }
+.ui-gallery-gap { margin-top: var(--ui-space-4); }
+.ui-gallery-pad { padding: var(--ui-space-2); }
+.ui-gallery-pad-x { padding-left: var(--ui-space-3); padding-right: var(--ui-space-2); padding-top: var(--ui-space-2); }
