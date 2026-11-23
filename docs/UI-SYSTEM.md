@@ -1,6 +1,6 @@
 # 앱 디자인 시스템 (UI-SYSTEM)
 
-앱 자체의 모양(색, 글자, 간격, 모서리, 그림자, 조작 높이)과 부품을 한 곳에서 정하는 방법. 0.3-F2에서 들였고, 기존 화면에는 아직 입히지 않았다(F3 ~ F5에서 화면마다 옮긴다). 근거 시안: `lab/review-board/proposals/0.3-F/`(`tokens.css`, `base.css`, `06-system.html`).
+앱 자체의 모양(색, 글자, 간격, 모서리, 그림자, 조작 높이)과 부품을 한 곳에서 정하는 방법. 0.3-F2에서 들였고, 0.3-L3에서 색을 오너가 고른 방향 A(종이 · 잉크 · 금색, 11/23)로 바꾸고 화면을 옮길 때 쓸 부품을 더했다. 옛 화면은 아직 이 시스템을 쓰지 않는다(L4에서 화면마다 옮긴다). 근거 시안: 단계와 첫 부품은 `lab/review-board/proposals/0.3-F/`(`tokens.css`, `base.css`, `06-system.html`), 색과 새 부품은 `lab/review-board/proposals/0.3-D2/app/`(`tokens-a.css`, `preview.css`, `preview-*.html`, `contrast.md`).
 
 캔버스 위의 디자인(사용자의 페이지)은 이 시스템의 대상이 아니다. 그것은 `src/design/`과 `page.css`가 맡는다.
 
@@ -8,11 +8,11 @@
 
 | 파일 | 하는 일 |
 |---|---|
-| `src/ui/tokens.ts` | **원천.** 원값(중립 12단계, 녹색 · 파랑 · 금색 · 의미색), 단계(글자 6 · 굵기 3 · 간격 7 · 모서리 · 조작 높이 · 아이콘 · 움직임), 밝은 판 · 어두운 판의 역할, 대비를 볼 글자 · 바탕 짝 |
+| `src/ui/tokens.ts` | **원천.** 원값(밝은 판 `n-*` · 어두운 판 `d-*` 중립 12단계씩, 보드 바닥, 잉크, 파랑, 금색, 의미색. 녹색은 성공 `ok-*`에만), 단계(글자 6 · 굵기 3 · 간격 7 · 모서리 · 조작 높이 · 아이콘 · 움직임), 밝은 판 · 어두운 판의 역할, 대비를 볼 글자 · 바탕 짝 |
 | `scripts/build-ui-tokens.mjs` | 원천을 `src/ui/tokens.css`와 이 문서의 토큰 표로 옮긴다: `node scripts/build-ui-tokens.mjs` |
 | `src/ui/tokens.css` | **생성물.** 손으로 고치지 않는다. 모든 이름은 `--ui-` 접두사. `:root`(밝은 판), `[data-theme="dark"]`, Mac이 어두운 모드일 때(`prefers-color-scheme`, `data-theme="light"`가 아니면) |
 | `src/ui/components.css` | 부품. 클래스는 모두 `ui-` 접두사, 값은 토큰만 |
-| `public/fonts/PretendardVariable.woff2` | 앱의 글꼴. 앱에 들어 있고 네트워크에서 받지 않는다(OFL, `public/fonts/LICENSE.txt`) |
+| `public/fonts/PretendardVariable.woff2`, `GeistMonoVariable.woff2` | 앱의 글꼴(본문 Pretendard, 고정폭 Geist Mono). 앱에 들어 있고 네트워크에서 받지 않는다(둘 다 OFL: `LICENSE.txt`, `GeistMono-OFL.txt`. 받은 곳과 판은 `SOURCES.txt`) |
 | `ui-gallery.html` + `src/ui/gallery.css` | 견본 페이지(개발용). `npm run dev` 뒤 `/ui-gallery.html`, `#light` · `#dark`로 판을 고른다. 앱 묶음에는 들어가지 않는다 |
 
 `index.html`이 `tokens.css` → `components.css` 순서로 불러온다. 앱 코드는 `tokens.ts`를 import하지 않는다.
@@ -25,7 +25,7 @@
   - **범위.** 선택자가 꾸미는 대상(마지막 덩어리)이 `.ui-` 클래스를 갖거나 `.ui-` 조상 안에 있어야 한다. `:has()` · `:not()` · `:is()` 안의 `.ui-`나 `~` · `+` 왼쪽의 `.ui-`는 세지 않는다(`body:has(.ui-modal)`, `.ui-modal ~ #app` 금지).
   - **포커스 고리.** 포커스를 받는 부품마다 시트가 주는 모든 상태(켜짐 · 선택 · 눌림 · 호버, 하나씩과 한꺼번에)에서 이기는 `box-shadow`에 `--ui-focus`가 남고, 강제 색 모드를 위한 투명 `outline`이 있다.
   - 비활성 부품은 호버 · 눌림에 바뀌지 않는다. `<select disabled>`를 담은 `ui-select`는 비활성으로 보인다. 움직임 줄이기에서는 전환이 모두 멈춘다.
-  - 한글 `keep-all`. 글꼴은 앱 안의 파일이고 이름이 `Pretendard Variable`(디자인이 쓰는 `Pretendard`와 겹치지 않게). 견본은 빌드 입력이 아니다.
+  - 한글 `keep-all`. 글꼴은 앱 안의 파일이고 이름이 `Pretendard Variable`, `Geist Mono Variable`(디자인이 쓰는 `Pretendard`, `Geist Mono`와 겹치지 않게). 고정폭 뒤에는 한글을 위해 Pretendard가 선다. 녹색 또는 녹색 기운의 값(OKLCH 색조 115–180)은 `ok-*` 말고는 없다(`tests/ui-tokens.test.ts`). 견본은 빌드 입력이 아니다.
 - `tests/ui-contrast.test.ts`: 부품이 **실제로 그리는** 조합을 시트에서 뽑는다(상태마다 이기는 글자색과 그 뒤의 바탕, 테두리와 그 바깥, 채움과 그 뒤). 목록에 없거나 그려지는 방식보다 낮은 기준으로 적힌 조합이 있으면 실패한다. 글자 4.5, 그래픽 3, 메타 3(아래).
 - `tests/ui-ratchet.test.ts`: 옛 CSS의 색 수 · 글자 크기 수는 늘 수 없고, 같은 수에서 하나를 새것으로 바꿔도 실패한다(아래 래칫).
 
@@ -34,7 +34,7 @@
 ## 새 화면을 만들 때
 
 1. **토큰만 쓴다.** 색과 크기는 `var(--ui-…)`. 원값을 쓰고 싶으면 먼저 `tokens.ts`에 역할을 더하고(이름이 뜻을 말하게), 대비 짝을 적는다.
-2. **색에는 뜻이 있다.** 녹색(`accent`) = 주 동작 하나, 파랑(`select`) = 사람의 선택과 포커스, 금색(`agent`) = 에이전트가 하는 일, 의미색(`ok` · `warn` · `danger`) = 상태. 장식으로 쓰지 않는다. 한 화면에 녹색 주 버튼은 하나.
+2. **색에는 뜻이 있다.** 잉크(`accent`) = 주 동작 하나, 파랑(`select`) = 사람의 선택과 포커스, 금색(`agent`) = 에이전트가 하는 일(수 같은 작은 표식은 `mark`), 의미색(`ok` · `warn` · `danger`) = 상태. 녹색은 성공(`ok`)에만. 장식으로 쓰지 않는다. 한 화면에 잉크 주 버튼은 하나.
 3. **부품부터 찾는다.** 아래 목록에 있으면 그 클래스를 쓰고, 없으면 `components.css`에 `ui-` 부품으로 더한 뒤 견본에 상태를 모두 올린다(기본 · 호버 · 눌림 · 비활성 · 포커스).
 4. **글자는 6단계(11 · 12 · 13 · 15 · 20 · 28), 굵기 3개, 기본 13.** `text-3`은 자리 표시 · 비활성 · 되풀이하는 메타에만. 읽고 행동해야 하는 글은 `text-2` 이상.
 5. **누르는 것은 28 이상, 키보드로 닿고 고리가 보인다.** 판은 `data-theme`로만 바꾸고, 화면 루트에 `ui-root`를 둔다(글꼴, `keep-all`, `color-scheme`).
@@ -67,29 +67,54 @@
 | 카드 | `ui-card` | |
 | 연결 카드 | `ui-connect` > `ui-connect-head`(`ui-connect-mark`, `ui-connect-name`), `ui-connect-desc`, `ui-connect-found`, `ui-connect-actions` | `.is-connected` |
 | 요청 입력창 | `ui-composer` > `ui-composer-input`(textarea) + `ui-composer-foot`(`ui-attach`, `ui-composer-push`, `ui-working`, `ui-send`) | `ui-composer-lg`, `ui-composer-compact` |
-| 도구 막대 | `ui-toolbar` > `ui-icon-btn` + `ui-toolbar-sep` | |
+| 도구 막대 | `ui-toolbar` > `ui-icon-btn` + `ui-toolbar-sep` (+ 배율은 `ui-btn ui-btn-quiet`) | `ui-toolbar-float` 보드 아래 가운데에 떠 있는 것 |
+
+0.3-L3에서 더한 부품(L4가 옛 화면을 옮길 때 쓴다. 출발점은 `0.3-D2/app/preview.css`):
+
+| 부품 | 클래스 | 변형 · 상태 |
+|---|---|---|
+| 옆 패널 | `ui-side` > `ui-side-head`(`ui-side-title` > `ui-side-name` + `ui-side-sub`, 접기는 `ui-icon-btn`) + `ui-side-body` + `ui-side-foot` | `ui-side-end` 오른쪽 패널 |
+| 목록 머리 | `ui-list-head` > `ui-list-title` + `ui-list-count`(금색 수) + `ui-icon-btn` | |
+| 검색 줄 | `ui-search` > `ui-icon` + `ui-search-text` + `ui-kbd` | 팔레트를 여는 단추. 호버 · 눌림 · 포커스 · 비활성 |
+| 목록 줄 더하기 | `ui-row` + `ui-row-thumb`(왼쪽 그림) · `ui-row-name` · `ui-row-meta ui-mono`(종류) | `ui-row-md` 32, `.is-dragging` 끌고 있는 줄, 놓일 자리 `ui-drop-line` |
+| 보드 바닥 | `ui-floor` | 점 무늬(`canvas-dot`, `canvas-dot-size`, `canvas-dot-gap`) |
+| 틀 | `ui-frame` > `ui-frame-head`(`ui-icon`, `ui-frame-name`, `ui-frame-size`, `ui-pill-agent`, 눈 `ui-icon-btn`) + `ui-frame-sheet`(`bg-page`) | `.is-selected` 이름이 파랑, `.is-agent` 금색 테두리. 색은 `.ui-floor` 아래에서만 정한다 |
+| 선택 테두리 | `ui-selection` > `ui-handle` × 4 | `ui-handle-nw` · `-ne` · `-sw` · `-se` |
+| 도움말 단추 | `ui-fab` | 둥근 32, 떠 있음 |
+| 메뉴 | `ui-menu` > `ui-menu-item`(+ `ui-menu-key`) + `ui-menu-sep` | `.is-danger`, 호버 · 눌림 · 포커스 · 비활성 |
+| 위 줄(띠) | `ui-strip` > `ui-dot` · `ui-strip-strong` · `ui-strip-changes` · `ui-strip-push` · `ui-btn` | `ui-strip-agent` 에이전트 모드, `-warn` 경고, `-danger` 폴더 없음 |
+| 알림 더하기 | `ui-toast` (+ `ui-icon`, 되돌리기는 안의 `ui-btn`) | `ui-toast-error` |
+| 모달 머리 | `ui-modal-head` > `ui-modal-heading`(`ui-modal-kicker` 작은 표지, `ui-modal-title` 20, `ui-modal-text`) + 닫기 `ui-icon-btn` | `ui-modal-md` 560, 발 `ui-modal-foot-plain` + `ui-modal-foot-note`, 본문 `ui-modal-stack` |
+| 확인 창(위험) | `ui-modal` + `ui-modal-foot`의 `ui-btn-danger` | |
+| 선택지 카드 | `label.ui-option` > `input.ui-option-input[type=radio]` + `ui-option-radio` + `ui-option-icon` + (`ui-option-name` > `ui-option-ext`, `ui-option-why`) + `ui-option-sub` | `.is-on` 또는 `:checked`, 호버 · 포커스 · 비활성 |
+| 체크 줄 | `label.ui-check` > `input.ui-check-input` + `ui-check-box` > `ui-icon`(check) + `ui-check-label` + `ui-check-help` | `ui-check-boxed` 가라앉은 상자, 호버 · 켜짐 · 포커스 · 비활성 |
+| 작업공간 고르기 | `ui-ws` > `ui-avatar ui-avatar-accent` + `ui-ws-name` + `ui-icon` | 호버 · 눌림 · 포커스 · 비활성 |
+| 사이드바 항목 | `ui-row` + `ui-row-meta`(수, 고정폭 숫자) | |
+| 보드 카드 | `ui-board-card` > `ui-board-card-thumb`(단추, `ui-pill`) + `ui-board-card-actions`(즐겨찾기 · 더 보기 `ui-icon-btn`) + `ui-board-card-head`(`-name`, `-counts`) + `ui-board-card-by`(`ui-avatar`, `-when`, `-changed`) | 호버 · 포커스에 더 보기가 보인다, `.is-pinned` |
+| 격자 · 목록 전환 | `ui-seg` + 아이콘 `ui-seg-item` | |
+| 빈 상태 | `ui-empty` > `ui-empty-art` 또는 `ui-icon`, `ui-empty-title`, `ui-empty-text`, `ui-empty-actions` | |
+| 페이지만 보기의 위 줄 | `ui-pagebar` > 뒤로 `ui-icon-btn` + `ui-pagebar-from` + `ui-pagebar-slash` + `ui-pagebar-title` + `ui-pagebar-size` + `ui-pagebar-push` + 단추 | |
+| 색 칸 · 범위 | `ui-swatch`(`label.ui-input` 안, 바탕은 그 색), `ui-range` | 범위는 비활성 |
 
 ## 알려진 한계 (오너가 정할 것)
 
-- **`text-3`(밝은 판 3.52:1)는 글자 기준 4.5에 못 미친다.** 승인된 시안대로 두고, 자리 표시와 되풀이하는 메타(`ui-row-meta`, `ui-tab-count`, `ui-kbd`, `ui-caps`)에만 3:1로 쓴다. 그 밖에 `text-3` 글자를 쓰는 곳은 비활성 부품(WCAG가 대비를 묻지 않는다)과 아이콘뿐이고, 시험이 그 규칙들을 목록으로 고정한다. 시안에서 `text-3`이던 고르지 않은 탭 글자는 사람이 읽고 누르는 글이라 `text-2`로 올렸다.
-- **불 켜진 줄의 메타는 `text-2`.** 시안의 `text-3`은 현재 줄(`bg-active`)에서 2.86 / 2.38, 호버 · 선택 줄에서 3.19 / 3.12로 3:1을 못 지키거나 겨우 넘었다. 호버 · 선택 줄에서는 4.93 · 4.82(밝은 판)로 글자 기준도 넘고, 현재 · 눌린 줄에서는 4.41 / 3.75로 메타 기준 3을 넘는다.
+- **`text-3`은 가장 흐린 단계라 메타에만 쓴다.** 방향 A에서는 패널 · 사이드바 · 가라앉은 바탕 · 호버 위에서 4.5를 넘지만(밝은 판 5.77 · 5.43 · 4.93 · 4.93), `bg-active` 위에서는 4.28 / 4.17이다. 자리 표시와 되풀이하는 메타(`ui-row-meta`, `ui-tab-count`, `ui-kbd`, `ui-caps`, `ui-side-sub`, 틀 크기, 메뉴 단축키, 파일 확장자, 보드 카드의 때, 페이지 막대의 경로 구분과 크기), 비활성 부품, 아이콘만 `text-3`을 쓰고, 시험이 그 규칙들을 목록으로 고정한다. 고르지 않은 탭 글자, 검색 줄의 글, 옆 패널 발의 안내처럼 사람이 읽고 누르는 글은 `text-2`.
+- **불 켜진 줄의 메타는 `text-2`.** `text-3`은 현재 · 눌린 줄(`bg-active`)에서 4.5에 못 미치므로, 줄과 메뉴 항목은 불이 켜지면 메타 · 단축키를 `text-2`로 올린다(`bg-active` 위 5.14 / 6.23, 글자 기준으로 고정). 0.3-F에서 이어받은 "지금 줄" 꼬리표의 미달은 이렇게 없어졌고, `text-3`/`bg-active`는 대비 목록에 없어서 그리면 시험이 실패한다.
 - **입력 오류 테두리는 새 역할 `danger-line`.** 밝은 판은 그대로(`danger-600`, 5.68), 어두운 판은 `danger-300`(2.83 → 6.19). `danger`는 흰 글자를 얹는 위험 버튼의 바탕이라 바꾸지 않았다.
 
-### 기준에 못 미치는 조합 (`tokens.ts`의 `short`, 셋)
+### 기준에 못 미치는 조합 (`tokens.ts`의 `short`, 하나)
 
 | 조합 | 밝은 판 | 어두운 판 | 쓰는 곳 | 상태 |
 |---|---:|---:|---|---|
-| `accent` on `bg-panel` | 6.52 | **2.46** | 켜진 스위치, 연결 카드 테두리, 강조 점 | 대표님 승인(11/18). 손잡이 위치와 "연결됨" 알약이 함께 알린다 |
-| `accent-hover` on `bg-panel` | 8.12 | **1.98** | 마우스를 올린 켜진 스위치 | 승인 범위에 드는지 보드에서 여쭌다 |
-| `line-strong` on `bg-panel` | **1.47** | **1.92** | 입력 칸 · 글 상자 · 선택 상자 · 요청 입력창 테두리, 꺼진 스위치 막대, 칩 · 보조 버튼 · 연결 카드 테두리 | 보드에서 여쭌다. 3:1로 올리면 시안보다 테두리가 진해진다 |
+| `line-strong` on `bg-panel` | **1.70** | **1.78** | 입력 칸 · 글 상자 · 선택 상자 · 요청 입력창 테두리, 꺼진 스위치 막대, 칩 · 보조 버튼 · 연결 카드 테두리 | 보드에서 여쭌다. 3:1로 올리면 시안보다 테두리가 진해진다 |
 
-입력 칸 테두리와 꺼진 스위치 막대는 같은 색 조합이라 목록에서 한 줄이다. 셋 다 그래픽이고, 글자에는 예외가 없다. 시험은 조합마다 지금 그리는 규칙을 목록으로 고정해서, 새 부품이 같은 조합을 그리면 실패한다. 고쳐지면 그 표시를 지우라고 알린다.
+그래픽이고, 글자에는 예외가 없다. 시험은 이 조합을 지금 그리는 규칙을 목록으로 고정해서, 새 부품이 같은 조합을 그리면 실패한다. 그래서 0.3-L3의 새 부품은 이 조합을 쓰지 않는다: 선택지 카드의 테두리는 `line`(장식), 동그라미 · 체크 상자 테두리는 새 역할 `edge-control`(5.77 / 3.49). 0.3-F의 어두운 판 녹색 채움 예외 둘(`accent` 2.46, `accent-hover` 1.98)은 강조가 잉크가 되면서 없어졌다(16.05 / 14.36, 11.58 / 16.51).
 
 ### 아직 검사하지 못하는 것
 
 - **대비:** `color-mix()`로 만든 색(알림 안 버튼의 호버), `filter`(위험 버튼의 호버 · 눌림), `box-shadow`로 그린 것(고리, 에이전트 점의 테두리), 스위치 손잡이와 막대 사이, 반투명 `scrim`. 뒤에 아무 바탕도 없는 부품은 `bg-panel` 위에서만 읽는다(`bg-app` · `bg-raised` · `bg-sunken` 위에 놓인 경우는 그 바탕을 시트가 말할 때만). 견본 시트(`gallery.css`)는 앱에 실리지 않아 읽지 않는다.
 - **읽는 장치:** `@media` 안의 규칙은 조건이 하나씩 참일 때를 따로 읽는다(둘 이상이 함께 참인 경우는 보지 않는다). `@media` · `@supports` · `@container` · `@font-face` · `@keyframes` 밖의 at-rule(`@layer`, `@import`)과 중첩 규칙은 읽지 못해 실패한다. `:has()`는 쓴 그대로 비교한다. 형제의 순서는 보지 않는다. 부품 안의 자식은 한 단계만 붙여 본다. 이름이 부품을 닮았지만 한 덩어리에 같이 쓰이지 않는 변형(`ui-btn-primary` 등)과 `ui-icon-btn`은 `tests/support/css.ts`에 이름으로 적혀 있다. 새 변형이 그렇게 생기면 거기에 더한다.
-- **판:** 토큰은 Mac의 어두운 모드나 `data-theme`를 따르지만, 앱의 판은 앱 자신의 설정(Paper / Midnight)이고 아무도 `data-theme`를 정하지 않는다. Mac이 어두운 모드면 `--ui-` 역할은 어두운 판이 되지만 옛 화면은 밝은 판 그대로다(F3의 첫 일).
+- **판:** 토큰은 `data-theme`와 Mac의 어두운 모드를 따른다. 앱은 `index.html`의 `<html data-theme="light">`로 밝은 판에 고정되어 있고(`tests/app-theme.test.ts`가 지킨다), 실행 중에 바꾸는 코드는 없다. 그래서 Mac이 어두운 모드여도 앱의 `--ui-` 역할은 밝은 판이고, 어두운 판은 견본(`#dark`)에서만 보인다. 앱의 Paper / Midnight 설정은 홈에만 닿고 `data-theme`를 바꾸지 않는다(L4에서 잇는다).
 - **옛 시트가 부품에 닿는 것:** `style.css`의 전역 규칙(`button:hover`의 `filter`, `button:disabled`의 `opacity`, `:root`의 12px)이 새 부품에 닿는다. 견본 페이지는 그 시트를 불러오지 않아 보이지 않는다(F3).
 - **래칫:** `.css` 파일만 센다. `.ts` 안에 쓴 CSS와 `style=""`, `font: var(…)`, `url(data:…)` 안의 색은 세지 않는다.
 
