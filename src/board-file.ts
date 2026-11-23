@@ -126,7 +126,14 @@ export function readZip(bytes: Uint8Array, mediaBytes: number): {names: string[]
     seen.add(name.toLowerCase());
     if (madeBy === 3 && (mode & 0o170000) === 0o120000) refuse(`${name} is a link`);
     // A folder's own entry holds nothing; one that does is not a folder.
-    if (FOLDERS.includes(name)) { if (size !== 0 || packed > 2) refuse(`${name} is a folder with something in it`); continue; }
+    // A folder's own entry is held to what every entry is (0.3-R): not encrypted, packed as a board file packs, no CRC for
+    // nothing, and its header where the directory says, naming it.
+    if (FOLDERS.includes(name)) {
+      if (size !== 0 || packed > 2) refuse(`${name} is a folder with something in it`);
+      if (flags & 1 || (method !== 0 && method !== 8) || disk || crc !== 0) refuse(`${name} is not a folder a board file holds`);
+      if (local + 30 + name.length > dirAt || u32(local) !== 0x04034b50 || u16(local + 26) !== name.length || String.fromCharCode(...bytes.subarray(local + 30, local + 30 + name.length)) !== name) refuse(`${name} does not match its directory`);
+      continue;
+    }
     const cap = entryCap(name, mediaBytes);
     if (cap === undefined) refuse(`${name.slice(0, 80)} is not something a board file holds`);
     if (flags & 1) refuse(`${name} is encrypted`);
