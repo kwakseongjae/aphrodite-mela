@@ -74,3 +74,42 @@ test('a drop sets aside the files it cannot take before it asks the library, and
   assert.match(put, /if\(project\.pages\.length\+kept\.length>MAX_PAGES\)/, 'the page count is of what it takes');
   assert.match(put, /preflightBatch\(project,\{ops:kept\.map\(/);
 });
+
+/* 12: what an import gives back is the project read from the very text it checked, so what is saved and what opens agree;
+   a board file's reader tidies its history the same way before it reads the board again. */
+import {importedProject} from '../src/workspace/library.ts';
+import {readBoardFile} from '../src/board-file.ts';
+import {MAX_PROJECT, parseProject} from '../src/model.ts';
+import {emptyLedger, record} from '../src/ledger/ledger.ts';
+import {zipSync, strToU8, strFromU8} from 'fflate';
+const history = () => { const p = initialProject(), next = {...JSON.parse(JSON.stringify(p)), brief: 'Changed'} as Project, ledger = emptyLedger(); record(ledger, p, next, {author: {kind: 'person', name: 'D'}, source: 'editor:change'}); return ledger; };
+test('a project file whose history leaves no room is given back as the text it was checked as, and opens', () => {
+  const p = initialProject(); delete p.ledger;
+  for (let n = 0; ; n++) { const left = MAX_PROJECT - 30 - JSON.stringify(p).length; if (left <= 0) break; const page = {id: 'pad' + n, name: 'Pad', blocks: [], kind: 'html', html: ''}; p.pages.push(page as never); page.html = 'x'.repeat(Math.max(0, Math.min(1_900_000, MAX_PROJECT - 30 - JSON.stringify(p).length))); }
+  const got = importedProject(JSON.stringify({...p, ledger: history()}), {version: 1, entries: []});
+  assert.ok(JSON.stringify(got).length <= MAX_PROJECT, `${JSON.stringify(got).length}`);
+  assert.doesNotThrow(() => parseProject(JSON.stringify(got)), 'and it opens');
+});
+test('a board file whose words fit but whose history leaves no room once read is read without that history, not refused', async () => {
+  const p = initialProject(); delete p.ledger;
+  const board: Record<string, unknown> = {...JSON.parse(JSON.stringify(p)), aphroditeBoardFile: 1};
+  const files: Record<string, Uint8Array> = {};
+  const pages = board.pages as Record<string, unknown>[];
+  // Quotes take one character in a page's file and two in the board's JSON, so the board is near the cap only once read.
+  const each = 1_900_000, room = (MAX_PROJECT - 40 - JSON.stringify(board).length);
+  let left = room;
+  for (let n = 0; left > 200; n++) { const quotes = Math.min(each, Math.floor((left - 60) / 2)); pages.push({id: 'q' + n, name: 'Q', blocks: [], kind: 'html'}); left -= 2 * quotes + JSON.stringify(pages.at(-1)).length + 12; files[`pages/${String(pages.length).padStart(4, '0')}.html`] = strToU8('"'.repeat(quotes)); }
+  // Made exact: the board as read is a few characters under the cap, too few for even an empty history.
+  const quotesOf = (i: number) => strFromU8(files[`pages/${String(i + 1).padStart(4, '0')}.html`] ?? new Uint8Array());
+  const read = () => { const {aphroditeBoardFile: _, ...design} = board; return JSON.stringify({...design, pages: pages.map((page, i) => page.kind === 'html' && i > 0 ? {...page, html: quotesOf(i)} : page)}).length; };
+  let short = MAX_PROJECT - 8 - read();
+  if (short % 2) { board.brief = String(board.brief) + 'x'; short--; }
+  const last = pages.length - 1;
+  files[`pages/${String(last + 1).padStart(4, '0')}.html`] = strToU8(quotesOf(last) + '"'.repeat(short / 2));
+  assert.equal(read(), MAX_PROJECT - 8);
+  files['board.json'] = strToU8(JSON.stringify(board));
+  files['ledger/changes.json'] = strToU8(JSON.stringify(history()));
+  const got = await readBoardFile(zipSync(files), {maxBytes: 500 * 1024 * 1024, put: async () => { throw new Error('nothing to place'); }});
+  assert.ok(JSON.stringify(got.project).length <= MAX_PROJECT);
+  assert.doesNotThrow(() => parseProject(JSON.stringify(got.project)));
+});

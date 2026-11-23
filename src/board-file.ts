@@ -350,7 +350,8 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     project = parseProject(JSON.stringify(raw));
     const ledger = history ? readLedger(history) : undefined;
     if (ledger) { project.ledger = ledger; fitSaved(project); }
-    project = parseProject(JSON.stringify(project));
+    // Read again from the text it would be written as (0.3-R fix 3 #12): a history with no room left goes, not the board.
+    project = parseProject(savedText(project));
     project.id = uid();
   } catch (error) { refuse(`board.json: ${error instanceof Error ? error.message : String(error)}`); }
   delete project!.approvedFingerprint;
@@ -359,8 +360,10 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   // A list that would be cut is no list: such a board is refused, never sent on with files it named and did not carry (0.3-R fix 2 #13).
   if ((project!.leftOut?.length ?? 0) > MAX_LEFT_OUT) refuse(`it names ${project!.leftOut!.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}`);
   // Held to the cap as it is written, its new id and that list in it (0.3-R fix 2 #19): a board that does not fit is refused here, before a file is placed.
-  const length = savedText(project!).length;
+  const saved = savedText(project!), length = saved.length;
   if (length > MAX_PROJECT) refuse(`board.json: with the id it is given here${project!.leftOut ? ' and the files it came without listed' : ''} the board would be ${length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}`);
+  // The board given back is read from that text, so what is saved and what opens agree (0.3-R fix 3 #12).
+  project = parseProject(saved);
   return {
     project: project!, files: verified.length, left, pictures,
     place: async () => {

@@ -169,9 +169,10 @@ export function importedProject(raw:string,library:Library):Project{
   // Never cut (0.3-R fix 2 #13): a file past the cut would go out with the board.
   const unique=[...new Set(named)];if(unique.length>MAX_LEFT_OUT)throw new Error(`This project file names ${unique.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}, so it is not imported.`);
   if(unique.length)project.leftOut=unique;else delete project.leftOut;
-  const length=savedText(project).length;
-  if(length>MAX_PROJECT)throw new Error(`With the files it names listed, this project would be ${length.toLocaleString('en')} characters; a project holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
-  return project;
+  const text=savedText(project);
+  if(text.length>MAX_PROJECT)throw new Error(`With the files it names listed, this project would be ${text.length.toLocaleString('en')} characters; a project holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
+  // What is given back is read from the very text that was checked, so what is saved and what opens agree (0.3-R fix 3 #12).
+  return parseProject(text);
 }
 /**
  * The board to open by its id as the library has it now, in the workspace it is in now (0.3-P3-fix4): a received board
