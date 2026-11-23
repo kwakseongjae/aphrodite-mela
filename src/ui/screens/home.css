@@ -1,0 +1,124 @@
+/*
+ * Home (0.3-L4): where the parts go on the home screen. Colour, type and every control come from the
+ * parts in components.css; this sheet only places them, and styles the few names main.ts writes into
+ * home by itself (the side tab, the agent's note, the card and star animations).
+ */
+.ui-home { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: var(--ui-home-side-w) minmax(0, 1fr); overflow: hidden; }
+.ui-home[data-sidebar="collapsed"] { grid-template-columns: minmax(0, 1fr); }
+.ui-home[data-sidebar="collapsed"] > .ui-home-side { display: none; }
+
+/* The sidebar: brand, workspace, sections, the one picture, and the switch, storage and settings at the foot. */
+.ui-home-side { min-height: 0; padding-top: var(--ui-space-4); background: var(--ui-bg-app); }
+.ui-home-brand { display: flex; align-items: center; gap: var(--ui-space-2); padding: 0 var(--ui-space-2) var(--ui-space-4) var(--ui-space-3); }
+.ui-home-brand > a { display: inline-flex; align-items: center; gap: var(--ui-space-2); margin-right: auto; color: var(--ui-text-1); text-decoration: none; }
+.ui-home-brand > a > img { width: var(--ui-control-sm); height: var(--ui-control-sm); object-fit: contain; }
+.ui-home-brand > a > svg { width: auto; height: var(--ui-space-5); }
+.ui-home-brand > .ui-icon-btn { opacity: 0; }
+.ui-home-side:hover .ui-home-brand > .ui-icon-btn, .ui-home-brand > .ui-icon-btn:focus-visible { opacity: 1; }
+.ui-home-side > .folio-ws, .ui-home-side > .ui-ws { margin: 0 var(--ui-space-2) var(--ui-space-3); }
+.ui-home-side > .ui-ws { width: auto; }
+/* Initials can be two letters: the chip widens rather than spill. */
+.ui-home .ui-ws > .ui-avatar, .ui-home .ws-menu .ui-avatar { width: auto; min-width: var(--ui-avatar); padding: 0 calc(var(--ui-space-1) / 2); }
+.ui-home-nav { display: flex; flex-direction: column; gap: calc(var(--ui-space-1) / 2); padding: 0 var(--ui-space-2); }
+.ui-home-art { margin-top: auto; padding: var(--ui-space-5) var(--ui-space-4) var(--ui-space-4); }
+.ui-home-art > img { display: block; width: calc(var(--ui-space-7) * 2 + var(--ui-space-4)); height: auto; }
+.ui-home-foot { flex-direction: column; align-items: stretch; gap: var(--ui-space-3); padding: var(--ui-space-3) var(--ui-space-3) var(--ui-space-3); }
+.ui-switch.ui-home-agent { align-items: flex-start; gap: var(--ui-space-3); width: 100%; padding: 0 var(--ui-space-1); }
+.ui-switch.ui-home-agent > .ui-switch-track { margin-top: calc(var(--ui-space-1) / 2); }
+.ui-home-agent-text { display: flex; flex-direction: column; gap: calc(var(--ui-space-1) / 2); min-width: 0; }
+.ui-home-agent-text > b { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
+.ui-home-agent-text > span, .ui-home-agent-text > small { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
+.ui-home-agent-text > .folio-toggle-left { color: var(--ui-agent-text); }
+.ui-switch.ui-home-agent[aria-checked="true"] .ui-home-agent-off, .ui-switch.ui-home-agent[aria-checked="false"] .ui-home-agent-on { display: none; }
+.ui-home-storage { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
+.ui-home-storage > .ui-dot { width: var(--ui-dot-sm); height: var(--ui-dot-sm); }
+.ui-home-tools { display: flex; align-items: center; gap: var(--ui-space-1); padding-top: var(--ui-space-2); border-top: var(--ui-hairline) solid var(--ui-line); }
+.ui-home-tools > .folio-lang { margin-right: auto; }
+.ui-home-tools > details { position: relative; }
+.ui-home-tools .ui-menu { position: absolute; bottom: calc(100% + var(--ui-space-1)); left: 0; z-index: 40; }
+
+/* Menus main.ts places by the pointer or under their button (placeCardMenu, placeWorkspaceMenu). */
+.ui-home .folio-ws > .ui-menu, .ui-home .folio-more > .ui-menu { position: fixed; z-index: 40; }
+.ui-home .ws-menu-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-home-menu-group { display: flex; flex-direction: column; }
+
+/* The side tab: main.ts makes it with only its old name when the sidebar folds, so it carries its whole look here. */
+.ui-home > .folio-side-tab {
+  position: absolute; top: var(--ui-space-3); left: var(--ui-space-3); z-index: 10;
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-sm); height: var(--ui-control-sm); padding: 0;
+  border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-1); background: var(--ui-bg-raised); color: var(--ui-text-2);
+}
+.ui-home > .folio-side-tab:hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
+.ui-home > .folio-side-tab:focus-visible { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+
+/* The main column: the heading row and the boards. */
+.ui-home-main { min-width: 0; min-height: 0; overflow-y: auto; background: var(--ui-bg-panel); }
+.ui-home-col { display: flex; flex-direction: column; gap: var(--ui-space-5); max-width: var(--ui-content-max); margin: 0 auto; padding: var(--ui-space-6) var(--ui-space-7) var(--ui-space-7); }
+.ui-home .ui-heading-title > span { margin-left: var(--ui-space-2); font-size: var(--ui-text-15); line-height: var(--ui-lh-15); letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--ui-mark); }
+/* The search gives way first when the row is narrow (1100 wide, English), down to three controls wide. */
+.ui-home .ui-heading > .folio-search { flex: 0 1 auto; min-width: calc(var(--ui-control-lg) * 3); margin-left: auto; }
+.ui-home .ui-heading > .ui-heading-title, .ui-home .ui-heading > .ui-btn, .ui-home .ui-heading > .ui-seg { flex-shrink: 0; white-space: nowrap; }
+.ui-home-banner-actions { display: flex; gap: var(--ui-space-2); margin: var(--ui-space-2) 0 0; }
+.ui-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ui-card-min-w), 1fr)); gap: var(--ui-space-5); }
+.ui-home-grid > .ui-empty { grid-column: 1 / -1; border: var(--ui-hairline) dashed var(--ui-line); border-radius: var(--ui-radius-3); }
+
+/* A board with no picture yet: its own colours, its name set large. */
+.ui-home-type { display: flex; flex-direction: column; justify-content: center; gap: var(--ui-space-2); height: 100%; padding: var(--ui-space-5); text-align: left; }
+.ui-home-type > small { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); letter-spacing: var(--ui-track-caps); text-transform: uppercase; opacity: 0.7; }
+.ui-home-type > strong { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: var(--ui-text-20); line-height: var(--ui-lh-20); font-weight: var(--ui-w-semibold); letter-spacing: var(--ui-track-20); }
+.ui-home-lines { display: grid; grid-template-columns: 1fr 2fr 2fr; gap: var(--ui-space-1); margin-top: var(--ui-space-2); }
+.ui-home-lines > i { height: calc(var(--ui-space-1) / 2); }
+.ui-home-lines > i + i { opacity: 0.15; }
+.ui-home .folio-star { fill: none; stroke: currentColor; stroke-width: var(--ui-icon-stroke); stroke-linejoin: round; }
+.ui-home .folio-pin[aria-pressed="true"] > .folio-star { fill: currentColor; }
+
+/* The list: one row a board, its actions at the end. */
+.ui-home-grid.folio-grid-list { display: flex; flex-direction: column; gap: 0; }
+.ui-home-row { display: flex; align-items: center; gap: var(--ui-space-2); border-bottom: var(--ui-hairline) solid var(--ui-line); }
+.ui-home-row > .ui-row { flex: 1 1 auto; min-width: 0; min-height: calc(var(--ui-control-lg) + var(--ui-space-4)); }
+.ui-home-row .ui-row-thumb { width: calc(var(--ui-thumb-w) * 2); height: calc(var(--ui-thumb-h) * 2); }
+.ui-home-row .ui-row-thumb > i { width: 50%; height: calc(var(--ui-space-1) / 2); }
+.ui-home-row .ui-row-name { margin: 0; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
+.ui-home-row-counts { font-size: var(--ui-text-12); color: var(--ui-text-2); white-space: nowrap; }
+.ui-home-row .ui-board-card-by { justify-content: flex-end; width: var(--ui-card-min-w); }
+.ui-home-row-actions { display: flex; gap: var(--ui-space-1); padding-right: var(--ui-space-1); }
+
+/* What main.ts adds for a moment: a card arriving, a card leaving for the archive, a star filling. */
+@keyframes ui-home-enter { from { opacity: 0; transform: translateY(var(--ui-space-2)); } }
+@keyframes ui-home-leave { to { opacity: 0; transform: scale(0.96); } }
+@keyframes ui-home-pop { 50% { transform: scale(1.25); } }
+.ui-home .folio-card-enter { animation: ui-home-enter var(--ui-dur) var(--ui-ease); }
+.ui-home .folio-card-leave { animation: ui-home-leave var(--ui-dur) var(--ui-ease) forwards; }
+.ui-home .folio-star-pop > .folio-star { animation: ui-home-pop var(--ui-dur) var(--ui-ease); }
+@media (prefers-reduced-motion: reduce) {
+  .ui-home .folio-card-enter, .ui-home .folio-card-leave, .ui-home .folio-star-pop > .folio-star { animation: none; }
+}
+
+/* The dialogs home opens (src/workspace/home-dialogs.ts, workspaceFormHtml): their bodies, inside the old frame. */
+.ui-home-form { display: flex; flex-direction: column; gap: var(--ui-space-4); font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
+.ui-home-form-text { margin: 0; color: var(--ui-text-2); }
+.ui-home-form-foot { display: flex; justify-content: flex-end; gap: var(--ui-space-2); }
+.ui-home-form .ui-label > .ui-input { width: 100%; margin-top: var(--ui-space-1); font-weight: var(--ui-w-regular); }
+.ui-home-form .ui-help { margin: 0; }
+.ui-home-form fieldset { display: flex; flex-direction: column; gap: var(--ui-space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
+.ui-home-form legend { margin: 0 0 var(--ui-space-1); padding: 0; }
+.ui-home-form .ws-form-head { display: flex; align-items: flex-end; gap: var(--ui-space-3); }
+.ui-home-form .ws-name-field { flex: 1 1 auto; margin: 0; }
+.ui-home-form .ws-avatar-lg { width: var(--ui-control-lg); height: var(--ui-control-lg); border-radius: var(--ui-radius-2); font-size: var(--ui-text-15); background-size: cover; background-position: center; }
+.ui-home-form .ws-pick-row { display: grid; grid-template-columns: calc(var(--ui-space-7) + var(--ui-space-4)) minmax(0, 1fr); align-items: center; gap: var(--ui-space-3); }
+.ui-home-form .ws-pick-label { font-size: var(--ui-text-12); color: var(--ui-text-2); }
+.ui-home-form .ws-swatches, .ui-home-form .ws-emoji-grid, .ui-home-form .ws-avatar-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-1); }
+.ui-home-form .ws-swatch { appearance: none; width: var(--ui-control-sm); height: var(--ui-control-sm); margin: 0; padding: 0; border: 0; border-radius: var(--ui-radius-pill); box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-swatch-edge); cursor: default; }
+.ui-home-form .ws-swatch[aria-pressed="true"] { box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-raised), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-text-1); }
+.ui-home-form .ws-swatch:focus-visible, .ui-home-form .ws-custom-color:focus-within { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-raised), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+.ui-home-form .ws-custom-color { position: relative; }
+.ui-home-form .ws-custom-color > input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
+.ui-home-form .ws-emoji { font-size: var(--ui-text-15); }
+.ui-home-form .ws-emoji-custom { width: calc(var(--ui-control-lg) * 2); }
+.ui-home-form .ws-danger { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ui-space-1); padding-top: var(--ui-space-3); border-top: var(--ui-hairline) solid var(--ui-line); }
+.ui-home-form .ws-delete { padding: 0; color: var(--ui-danger-text); }
+.ui-home-path { display: flex; align-items: center; gap: var(--ui-space-2); padding: var(--ui-space-2) var(--ui-space-2) var(--ui-space-2) var(--ui-space-3); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); }
+.ui-home-path > code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-12); }
+.ui-home-facts { display: flex; flex-direction: column; gap: var(--ui-space-2); margin: 0; padding: 0; list-style: none; }
+.ui-home-facts > li { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-home-facts b { font-weight: var(--ui-w-medium); color: var(--ui-text-1); }

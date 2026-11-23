@@ -29,7 +29,6 @@ const pins:Record<string,{colours:number,sizes:number,set:string}>={
   'editor/pointer-editor.css':{colours:8,sizes:2,set:'d18413dc'},
   'reference.css':{colours:22,sizes:7,set:'2d3a2d22'},
   'style.css':{colours:302,sizes:24,set:'98728077'},
-  'workspace/home.css':{colours:81,sizes:29,set:'52a2afe2'},
   'workspace/vault.css':{colours:3,sizes:3,set:'dda54f2f'},
 };
 

@@ -1,6 +1,6 @@
 # 앱 디자인 시스템 (UI-SYSTEM)
 
-앱 자체의 모양(색, 글자, 간격, 모서리, 그림자, 조작 높이)과 부품을 한 곳에서 정하는 방법. 0.3-F2에서 들였고, 0.3-L3에서 색을 오너가 고른 방향 A(종이 · 잉크 · 금색, 11/23)로 바꾸고 화면을 옮길 때 쓸 부품을 더했다. 옛 화면은 아직 이 시스템을 쓰지 않는다(L4에서 화면마다 옮긴다). 근거 시안: 단계와 첫 부품은 `lab/review-board/proposals/0.3-F/`(`tokens.css`, `base.css`, `06-system.html`), 색과 새 부품은 `lab/review-board/proposals/0.3-D2/app/`(`tokens-a.css`, `preview.css`, `preview-*.html`, `contrast.md`).
+앱 자체의 모양(색, 글자, 간격, 모서리, 그림자, 조작 높이)과 부품을 한 곳에서 정하는 방법. 0.3-F2에서 들였고, 0.3-L3에서 색을 오너가 고른 방향 A(종이 · 잉크 · 금색, 11/23)로 바꾸고 화면을 옮길 때 쓸 부품을 더했다. 옛 화면은 L4에서 화면마다 옮긴다(홈은 0.3-L4 ①에서 옮겼다). 근거 시안: 단계와 첫 부품은 `lab/review-board/proposals/0.3-F/`(`tokens.css`, `base.css`, `06-system.html`), 색과 새 부품은 `lab/review-board/proposals/0.3-D2/app/`(`tokens-a.css`, `preview.css`, `preview-*.html`, `contrast.md`).
 
 캔버스 위의 디자인(사용자의 페이지)은 이 시스템의 대상이 아니다. 그것은 `src/design/`과 `page.css`가 맡는다.
 
@@ -35,7 +35,7 @@
 
 1. **토큰만 쓴다.** 색과 크기는 `var(--ui-…)`. 원값을 쓰고 싶으면 먼저 `tokens.ts`에 역할을 더하고(이름이 뜻을 말하게), 대비 짝을 적는다.
 2. **색에는 뜻이 있다.** 잉크(`accent`) = 주 동작 하나, 파랑(`select`) = 사람의 선택과 포커스, 금색(`agent`) = 에이전트가 하는 일(수 같은 작은 표식은 `mark`), 의미색(`ok` · `warn` · `danger`) = 상태. 녹색은 성공(`ok`)에만. 장식으로 쓰지 않는다. 한 화면에 잉크 주 버튼은 하나.
-3. **부품부터 찾는다.** 아래 목록에 있으면 그 클래스를 쓰고, 없으면 `components.css`에 `ui-` 부품으로 더한 뒤 견본에 상태를 모두 올린다(기본 · 호버 · 눌림 · 비활성 · 포커스).
+3. **부품부터 찾는다.** 아래 목록에 있으면 그 클래스를 쓰고, 없으면 `components.css`에 `ui-` 부품으로 더한 뒤 견본에 상태를 모두 올린다(기본 · 호버 · 눌림 · 비활성 · 포커스). 화면만의 배치(격자, 사이드바 폭, 기둥 너비)는 `src/ui/screens/<화면>.css`에 둔다(홈: `src/ui/screens/home.css`). 같은 시험(원값 0, 범위, 포커스, 대비)을 받고, 부품을 숨겨 두지 않는다.
 4. **글자는 6단계(11 · 12 · 13 · 15 · 20 · 28), 굵기 3개, 기본 13.** `text-3`은 자리 표시 · 비활성 · 되풀이하는 메타에만. 읽고 행동해야 하는 글은 `text-2` 이상.
 5. **누르는 것은 28 이상, 키보드로 닿고 고리가 보인다.** 판은 `data-theme`로만 바꾸고, 화면 루트에 `ui-root`를 둔다(글꼴, `keep-all`, `color-scheme`).
 
@@ -54,16 +54,16 @@
 | 입력 | `ui-label`, `ui-input`, `ui-help` | `ui-input-sm`, `.is-error` · `aria-invalid`, `.is-error`인 `ui-help` |
 | 글 상자 | `ui-textarea` | |
 | 선택 | `ui-select` > `select` + `ui-icon` | `ui-select-sm`, `ui-select-quiet` |
-| 스위치 | `ui-switch` > `input.ui-switch-input[role=switch]` + `ui-switch-track` | |
+| 스위치 | `ui-switch` > `input.ui-switch-input[role=switch]` + `ui-switch-track` | 단추 하나로: `button.ui-switch[role=switch][aria-checked]` > `ui-switch-track`(누름에 답한 뒤에만 바뀌어야 할 때) |
 | 세그먼트 | `ui-seg` > `ui-seg-item` | `ui-seg-md`, `ui-seg-block` |
 | 탭 | `ui-tabs` > `ui-tab` (+ `ui-tab-count`) | |
 | 칩 | `ui-chip` | `ui-chip-sm`, `ui-chip-dashed`, `.is-on` |
-| 상태 알약 · 점 · 아바타 | `ui-pill`, `ui-dot`, `ui-avatar` | `-ok` · `-warn` · `-danger` · `-agent` · `-select` · `-accent` |
-| 띠 | `ui-banner` > `ui-icon` + `ui-banner-body`(`ui-banner-title`, `ui-banner-text`) | `ui-banner-ok` · `-warn` · `-danger` · `-agent` |
+| 상태 알약 · 점 · 아바타 | `ui-pill`, `ui-dot`, `ui-avatar` | `-ok` · `-warn` · `-danger` · `-agent` · `-select` · `-accent` (점은 `-ok` · `-warn` · `-agent` · `-select` · `-accent`) |
+| 띠 | `ui-banner` > `ui-icon` + `ui-banner-body`(`ui-banner-title`, `ui-banner-text`) + `ui-banner-actions` | `ui-banner-ok` · `-warn` · `-danger` · `-agent` |
 | 알림 | `ui-toast` | |
 | 모달 | `ui-scrim` > `ui-modal` > `ui-modal-body`(`ui-modal-title`, `ui-modal-text`) + `ui-modal-foot` | `ui-modal-lg` |
 | 패널 머리 | `ui-panel-head` > `ui-panel-title` + `ui-icon-btn` | |
-| 목록 줄 | `ui-row` (+ `ui-row-meta`) | `.is-on` 현재, `.is-selected` 사람의 선택, `.is-agent` 에이전트 |
+| 목록 줄 | `ui-row` (+ `ui-row-meta`) | `.is-on` · `aria-current` · `aria-pressed` 현재, `.is-selected` 사람의 선택, `.is-agent` 에이전트 |
 | 카드 | `ui-card` | |
 | 연결 카드 | `ui-connect` > `ui-connect-head`(`ui-connect-mark`, `ui-connect-name`), `ui-connect-desc`, `ui-connect-found`, `ui-connect-actions` | `.is-connected` |
 | 요청 입력창 | `ui-composer` > `ui-composer-input`(textarea) + `ui-composer-foot`(`ui-attach`, `ui-composer-push`, `ui-working`, `ui-send`) | `ui-composer-lg`, `ui-composer-compact` |
@@ -119,7 +119,7 @@
 
 - **대비:** `color-mix()`로 만든 색(알림 안 버튼의 호버), `filter`(위험 버튼의 호버 · 눌림), `box-shadow`로 그린 것(고리, 에이전트 점의 테두리), 스위치 손잡이와 막대 사이, 반투명 `scrim`. 뒤에 아무 바탕도 없는 부품은 `bg-panel` 위에서만 읽는다(`bg-app` · `bg-raised` · `bg-sunken` 위에 놓인 경우는 그 바탕을 시트가 말할 때만). 견본 시트(`gallery.css`)는 앱에 실리지 않아 읽지 않는다.
 - **읽는 장치:** `@media` 안의 규칙은 조건이 하나씩 참일 때를 따로 읽는다(둘 이상이 함께 참인 경우는 보지 않는다). `@media` · `@supports` · `@container` · `@font-face` · `@keyframes` 밖의 at-rule(`@layer`, `@import`)과 중첩 규칙은 읽지 못해 실패한다. `:has()`는 쓴 그대로 비교한다. 형제의 순서는 보지 않는다. 부품 안의 자식은 한 단계만 붙여 본다. 이름이 부품을 닮았지만 한 덩어리에 같이 쓰이지 않는 변형(`ui-btn-primary` 등)과 `ui-icon-btn`은 `tests/support/css.ts`에 이름으로 적혀 있다. 새 변형이 그렇게 생기면 거기에 더한다.
-- **판:** 토큰은 `data-theme`와 Mac의 어두운 모드를 따른다. 앱은 `index.html`의 `<html data-theme="light">`로 밝은 판에 고정되어 있고(`tests/app-theme.test.ts`가 지킨다), 실행 중에 바꾸는 코드는 없다. 그래서 Mac이 어두운 모드여도 앱의 `--ui-` 역할은 밝은 판이고, 어두운 판은 견본(`#dark`)에서만 보인다. 앱의 Paper / Midnight 설정은 홈에만 닿고 `data-theme`를 바꾸지 않는다(L4에서 잇는다).
+- **판:** 토큰은 `data-theme`와 Mac의 어두운 모드를 따른다. 앱은 `index.html`의 `<html data-theme="light">`로 밝은 판에 고정되어 있고(`tests/app-theme.test.ts`가 지킨다). 앱의 Paper / Midnight 설정은 홈의 뿌리 요소(`.ui-home`)에 `data-theme`를 정한다(0.3-L4): 홈 안의 `--ui-` 역할이 그 판으로 바뀐다. 홈에서 여는 창과 위의 띠는 홈 밖(`#modal-root`, `#banners`)에 있어서 밝은 판 그대로다. 앱 전체의 판은 L5의 일이다.
 - **옛 시트가 부품에 닿는 것:** `style.css`의 전역 규칙(`button:hover`의 `filter`, `button:disabled`의 `opacity`, `:root`의 12px)이 새 부품에 닿는다. 견본 페이지는 그 시트를 불러오지 않아 보이지 않는다(F3).
 - **래칫:** `.css` 파일만 센다. `.ts` 안에 쓴 CSS와 `style=""`, `font: var(…)`, `url(data:…)` 안의 색은 세지 않는다.
 
@@ -131,7 +131,6 @@
 |---|---:|---:|
 | `style.css` | 341 | 32 |
 | `design/component-explorer.css` | 92 | 15 |
-| `workspace/home.css` | 82 | 29 |
 | `design/studio.css` | 29 | 11 |
 | `reference.css` | 22 | 7 |
 | `agent/agent.css` | 10 | 2 |
@@ -311,6 +310,9 @@
 | `--ui-modal-w-md` | `560px` |
 | `--ui-modal-w-lg` | `600px` |
 | `--ui-strip-h` | `36px` |
+| `--ui-home-side-w` | `232px` |
+| `--ui-content-max` | `1080px` |
+| `--ui-card-min-w` | `240px` |
 | `--ui-thumb-w` | `28px` |
 | `--ui-thumb-h` | `20px` |
 | `--ui-handle` | `7px` |

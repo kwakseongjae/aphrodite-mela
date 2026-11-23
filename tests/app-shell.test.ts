@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 const style=readFileSync(new URL('../src/style.css',import.meta.url),'utf8');
-const home=readFileSync(new URL('../src/workspace/home.css',import.meta.url),'utf8');
+const home=readFileSync(new URL('../src/ui/screens/home.css',import.meta.url),'utf8');
 
 /** Every rule written for exactly this selector, base and overrides alike. */
 const rules=(css:string,selector:string):string[]=>
-  [...css.matchAll(new RegExp(`(?:^|[,{}])\\s*${selector.replace('.','\\.')}\\{([^}]*)\\}`,'gm'))].map(m=>m[1]);
+  [...css.matchAll(new RegExp(`(?:^|[,{}])\\s*${selector.replace('.','\\.')}\\s*\\{([^}]*)\\}`,'gm'))].map(m=>m[1]);
 
 /**
  * `#app` is a flex column, and it stacks banners above whatever screen is open — the agent
@@ -19,7 +19,7 @@ const rules=(css:string,selector:string):string[]=>
  * screenshots before anyone noticed, because every capture cropped the banner away.
  */
 test('a top-level screen takes the room left in the column, not the whole viewport',()=>{
-  for(const [name,found] of [['.studio',rules(style,'.studio')],['.folio-home',rules(home,'.folio-home')]] as const){
+  for(const [name,found] of [['.studio',rules(style,'.studio')],['.ui-home',rules(home,'.ui-home')]] as const){
     assert.ok(found.length,`${name} has a rule`);
     for(const body of found)
       assert.doesNotMatch(body,/height:\s*(?:100vh|100dvh)/,`${name} claims the viewport, so a banner above it pushes its bottom off screen`);

@@ -136,6 +136,9 @@
             <label class="ui-switch is-hover"><input type="checkbox" role="switch" class="ui-switch-input"><span class="ui-switch-track"></span>호버</label>
             <label class="ui-switch is-focus"><input type="checkbox" role="switch" class="ui-switch-input" checked><span class="ui-switch-track"></span>포커스</label>
             <label class="ui-switch"><input type="checkbox" role="switch" class="ui-switch-input" checked disabled><span class="ui-switch-track"></span>비활성</label>
+        <button type="button" class="ui-switch" role="switch" aria-checked="true"><span class="ui-switch-track"></span>단추 · 켜짐</button>
+        <button type="button" class="ui-switch" role="switch" aria-checked="false"><span class="ui-switch-track"></span>단추 · 꺼짐</button>
+        <button type="button" class="ui-switch" role="switch" aria-checked="true" disabled><span class="ui-switch-track"></span>단추 · 비활성</button>
           </div>
           <div class="ui-seg" role="group" aria-label="방향">
             <button class="ui-seg-item" aria-pressed="true"><i data-lucide="arrow-right" class="ui-icon ui-icon-xs"></i>가로</button>
@@ -178,7 +181,7 @@
             <span class="ui-pill">Plus · Pro 구독</span>
           </div>
           <div class="ui-gallery-row">
-            <span class="ui-dot"></span><span class="ui-dot ui-dot-ok"></span><span class="ui-dot ui-dot-agent"></span><span class="ui-dot ui-dot-select"></span><span class="ui-dot ui-dot-accent"></span>
+            <span class="ui-dot"></span><span class="ui-dot ui-dot-ok"></span><span class="ui-dot ui-dot-warn"></span><span class="ui-dot ui-dot-agent"></span><span class="ui-dot ui-dot-select"></span><span class="ui-dot ui-dot-accent"></span>
             <span class="ui-avatar ui-avatar-agent">C</span><span class="ui-avatar">나</span>
           </div>
         </div>
@@ -192,6 +195,7 @@
       <div class="ui-banner ui-banner-danger"><i data-lucide="circle-x" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">Claude Code를 찾을 수 없습니다.</p><p class="ui-banner-text">터미널에서 지웠거나 옮겼을 수 있습니다. 다시 찾거나 앱 안에서 로그인하세요.</p></div><button class="ui-btn ui-btn-secondary ui-btn-small-text">다시 찾기</button></div>
       <div class="ui-banner ui-banner-agent"><i data-lucide="loader-circle" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">Claude가 이 페이지를 고치는 중입니다.</p><p class="ui-banner-text">그동안 손으로 고친 것도 함께 기록됩니다. 멈추면 지금까지의 변경은 남습니다.</p></div><button class="ui-btn ui-btn-secondary ui-btn-small-text"><i data-lucide="square" class="ui-icon ui-icon-xs"></i>멈춤</button></div>
       <div class="ui-banner"><i data-lucide="file-text" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">보통 띠</p><p class="ui-banner-text">상태가 아닌 안내는 바탕색 없이 가라앉은 바탕에.</p></div></div>
+      <div class="ui-banner ui-banner-warn"><i data-lucide="folder-x" class="ui-icon ui-icon-sm"></i><div class="ui-banner-body"><p class="ui-banner-title">저장 폴더가 있던 자리에 없습니다.</p><p class="ui-banner-text">아무것도 지워지지 않았습니다.</p></div><div class="ui-banner-actions"><button class="ui-btn ui-btn-secondary">다시 확인</button><button class="ui-btn ui-btn-quiet">새로 시작</button></div></div>
     </div>
     <div class="ui-gallery-row" style="margin-top: var(--ui-space-4)"><div class="ui-toast" role="status">변경 3개를 되돌렸습니다<button class="ui-btn ui-btn-quiet ui-btn-small-text">다시 적용</button></div></div>
 
@@ -454,6 +458,7 @@
         <button class="ui-ws"><span class="ui-avatar ui-avatar-accent">개</span><span class="ui-ws-name">개인 작업공간</span><i data-lucide="chevrons-up-down" class="ui-icon ui-icon-sm"></i></button>
         <div class="ui-gallery-list ui-gallery-gap">
           <button class="ui-row is-on" aria-current="page"><i data-lucide="layout-grid" class="ui-icon ui-icon-sm"></i>전체 보드<span class="ui-row-meta">6</span></button>
+          <button class="ui-row" aria-pressed="true"><i data-lucide="star" class="ui-icon ui-icon-sm"></i>눌린 항목(aria-pressed)<span class="ui-row-meta">2</span></button>
           <button class="ui-row"><i data-lucide="star" class="ui-icon ui-icon-sm"></i>즐겨찾기<span class="ui-row-meta">2</span></button>
           <button class="ui-row is-hover"><i data-lucide="archive" class="ui-icon ui-icon-sm"></i>보관함<span class="ui-row-meta">0</span></button>
         </div>

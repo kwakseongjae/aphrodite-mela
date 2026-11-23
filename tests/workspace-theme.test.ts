@@ -6,9 +6,14 @@ import {workspaceHome,projectCards} from '../src/workspace/home';
 import {readFileSync} from 'node:fs';
 test('preview tokens remain project-owned in both home themes',()=>{
  const p=initialProject();p.system.background='#fffaf0';p.system.foreground='#203040';p.system.accent='#cc8800';p.pages[0].blocks=[];const library={version:1 as const,entries:[entryFor(p)]};const before=JSON.stringify(library);
- for(const night of [false,true]){const html=workspaceHome(library,'recent','','',night);assert.ok(html.includes('--preview-paper:#fffaf0;--preview-ink:#203040;--preview-accent:#cc8800'));assert.equal(html.includes('folio-night'),night);}
- assert.equal(JSON.stringify(library),before);const cards=projectCards(library,'recent','');assert.match(cards,/1 page <b>/);assert.match(cards,/<a href="#" class="folio-open"/);assert.doesNotMatch(cards,/<button class="folio-open"/);
+ for(const night of [false,true]){const html=workspaceHome(library,'recent','','',night);assert.ok(html.includes('--preview-paper:#fffaf0;--preview-ink:#203040;--preview-accent:#cc8800'));assert.match(html,night?/^<div [^>]*data-theme="dark"/:/^<div [^>]*data-theme="light"/);}
+ assert.equal(JSON.stringify(library),before);const cards=projectCards(library,'recent','');assert.match(cards,/1 page · /);assert.match(cards,/<a href="#" class="folio-open ui-board-card-thumb"/);assert.doesNotMatch(cards,/<button class="folio-open/);
 });
-test('WebKit preview glyphs use preview ink, independent of button foreground',()=>{
- const css=readFileSync('src/workspace/home.css','utf8');assert.match(css,/-webkit-text-fill-color:var\(--preview-ink\)/);assert.match(css,/appearance:none/);assert.match(css,/\.folio-home \.folio-info h3\{color:var\(--ink\)/);
+/* The midnight home is the dark theme; a board's preview keeps the board's own ink in either, and nothing in the screen sheet paints over it. */
+test('preview glyphs use the board ink, whatever the theme',()=>{
+ const p=initialProject();p.system.background='#fffaf0';p.system.foreground='#203040';p.pages[0].blocks=[];
+ const cards=projectCards({version:1,entries:[entryFor(p)]},'recent','');
+ assert.match(cards,/class="folio-open ui-board-card-thumb"[^>]*style="[^"]*background:#fffaf0;color:#203040"/);
+ const css=readFileSync('src/ui/screens/home.css','utf8');
+ for(const rule of css.match(/\.ui-home-type[^{]*\{[^}]*\}/g)??[])assert.doesNotMatch(rule.split('{')[1],/(?:^|;|\s)color:/,rule);
 });

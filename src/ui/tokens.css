@@ -108,6 +108,9 @@
   --ui-modal-w-md: 560px;
   --ui-modal-w-lg: 600px;
   --ui-strip-h: 36px;
+  --ui-home-side-w: 232px;
+  --ui-content-max: 1080px;
+  --ui-card-min-w: 240px;
   --ui-thumb-w: 28px;
   --ui-thumb-h: 20px;
   --ui-handle: 7px;
