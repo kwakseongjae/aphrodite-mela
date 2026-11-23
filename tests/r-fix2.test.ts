@@ -208,8 +208,9 @@ test('the files a batch copies are staged, and one that fails partway lets go of
 /* 21: the copies frames in this window show are named on each write, so the desktop never clears one under a frame. */
 test('a frame\'s copy is written with the names of the copies the window\'s frames show now', () => {
   const page = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
-  assert.match(page, /for \(const f of shown\.keys\(\)\) if \(!f\.isConnected\) shown\.delete\(f\);/, 'only frames still in the window');
-  assert.match(page, /native\.invoke<string>\('free_page_write', \{page, key, html: doc, shown: \[\.\.\.new Set\(shown\.values\(\)\)\]\}\)/);
+  assert.match(page, /const live = new Set\(\[\.\.\.shown\]\.filter\(\(\[f\]\) => f !== frame && f\.isConnected\)\.map\(\(\[, name\]\) => name\)\);/, 'the frames in the window now: one taken out for a moment keeps its place in the list for when it is back');
+  assert.match(page, /if \(shown\.size > 1024\) for \(const f of shown\.keys\(\)\) if \(!f\.isConnected\) shown\.delete\(f\);/, 'a frame not in the window is forgotten only when the list has grown long');
+  assert.match(page, /native\.invoke<string>\('free_page_write', \{page, key, html: doc, shown: \[\.\.\.live\]\}\)/);
   assert.match(readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8'), /pub fn free_page_write\(app: AppHandle, page: String, key: String, html: String, shown: Option<Vec<String>>\)/);
 });
 

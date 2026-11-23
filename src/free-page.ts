@@ -502,9 +502,11 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     // reaches this Mac later changes the document, and so the copy.
     load: async (frame, page, _key, doc) => {
       const key = contentKey(doc);
-      shown.delete(frame);
-      for (const f of shown.keys()) if (!f.isConnected) shown.delete(f);
-      const path = await native.invoke<string>('free_page_write', {page, key, html: doc, shown: [...new Set(shown.values())]});
+      // Named by the frames in the window now; one taken out for a moment keeps its entry for when it is back, and only a
+      // list grown long lets go of the frames not in the window.
+      if (shown.size > 1024) for (const f of shown.keys()) if (!f.isConnected) shown.delete(f);
+      const live = new Set([...shown].filter(([f]) => f !== frame && f.isConnected).map(([, name]) => name));
+      const path = await native.invoke<string>('free_page_write', {page, key, html: doc, shown: [...live]});
       shown.set(frame, `${page}~${key}.html`);
       frame.src = native.fileSrc(path);
     },
