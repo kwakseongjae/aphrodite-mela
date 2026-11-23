@@ -386,9 +386,11 @@ export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
     baseRevision = str(p.base_revision, 100);
     if (!baseRevision) return {error: 'base_revision must be the revision string from aphrodite_get_contract or aphrodite_get_changes.'};
   }
+  // Either half sent in any other shape refuses the whole batch, before anything is read of the other (0.3-R): one half is never run alone.
+  if (p.patch !== undefined && !Array.isArray(p.patch)) return {error: 'patch must be a list of ops, as aphrodite_get_changes returns them.'};
+  if (p.ops !== undefined && !Array.isArray(p.ops)) return {error: 'ops must be a list of operations: "ops": [{"op": "add", "component_kind": "hero"}].'};
   const hasOps = Array.isArray(p.ops) && p.ops.length > 0, hasPatch = Array.isArray(p.patch) && p.patch.length > 0;
   if (!hasOps && !hasPatch) {
-    if (p.patch !== undefined && !Array.isArray(p.patch)) return {error: 'patch must be a list of ops, as aphrodite_get_changes returns them.'};
     return {error: missingField('ops', '"ops": [{"op": "add", "component_kind": "hero"}]') + ' (Or "patch", for ops taken from aphrodite_get_changes.)'};
   }
   let ops: Op[] = [], pageId: string | undefined;
