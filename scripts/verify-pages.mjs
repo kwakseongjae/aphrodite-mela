@@ -1722,6 +1722,26 @@ check('two closes asked while the write is held are one: refused, the person is 
   await sleep(5_200);
 });
 
+/* 0.3-R fix 2 #15: a write that never ends, and the person chooses to stay: the editor takes input again. */
+check('a close whose write never ends asks in bounded time, and when the person stays the editor takes input again', async () => {
+  await sleep(5_200);
+  const closed = await evaluate('window.__closed ?? 0');
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
+  try {
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked', 150);
+    assert.match(await evaluate('window.__asked[0]'), /did not finish|끝나지/, 'and told the save did not finish');
+    await sleep(300);
+    assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'the editor takes input again');
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'and the window stayed');
+    const typed = await typeIntoTitle(' 머무름');
+    assert.ok((await titleOf(typed) ?? '').endsWith(' 머무름'), 'what the person types goes in');
+  } finally { await evaluate('window.aphroditeHoldWrites(false), window.confirm = window.__confirm, true'); }
+  await evaluate('document.activeElement?.blur?.(), true');
+  await sleep(5_200);
+});
+
 /* 0.3-P3-fix2 #3, fix4: a board file whose library write fails takes out only that board and leaves the files it placed: what else changed in the library meanwhile stays. */
 check('a board file whose library write fails where it is stored comes out alone, the picture it placed new left named by no board, and a change made meanwhile on the open board stays', async () => {
   const here = (await agent('contract', {})).project.project_id;

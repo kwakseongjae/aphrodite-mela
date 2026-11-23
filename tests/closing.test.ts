@@ -85,3 +85,24 @@ test('the desktop handler prevents every close it does not let through, and lets
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   assert.match(main, /await closer\.request\(async\(\)=>\{closing=true;try\{await getCurrentWindow\(\)\.destroy\(\);\}catch\(error\)\{closing=false;throw error;\}\}\);/);
 });
+
+/* 0.3-R fix 2 #15: a file that could not be kept is asked about again, inside the same question. */
+test('keeping a file that fails is asked about again, not an error out of the close', async () => {
+  const answers: CloseAnswer[] = ['save-file', 'cancel'];
+  const asked: unknown[] = [];
+  let destroyed = 0;
+  const closer = windowCloser(async () => { throw new Error('the last write did not land'); }, async error => { asked.push(error); return answers.shift() ?? 'cancel'; }, async () => { throw new Error('the disk said no'); }, 1_000);
+  await closer.request(async () => { destroyed++; });
+  assert.equal(asked.length, 2);
+  assert.match(String(asked[1]), /the disk said no/);
+  assert.equal(destroyed, 0);
+});
+test('the close waits for the save a bounded time inside its own turn, so Stay leaves an editor that takes input', async () => {
+  const {readFileSync} = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const at = main.indexOf('function closeWindow(');
+  const body = main.slice(at, main.indexOf('\n', at));
+  assert.match(body, /return turn\(async\(\)=>\{/, 'its own turn');
+  for (const wait of ['flushDisk()', 'heldWrites']) assert.ok(body.includes(`within(${wait},SAVE_LIMIT)`), `${wait}, bounded`);
+  assert.doesNotMatch(body, /await flushDisk\(\)|await heldWrites/, 'nothing waited for without a bound');
+});

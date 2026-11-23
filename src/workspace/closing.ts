@@ -22,7 +22,9 @@ export function windowCloser(close:(destroy:()=>Promise<void>)=>Promise<void>,as
             const answer=await ask(why);
             if(answer==='cancel')return;
             if(answer==='discard'){await destroy();return;}
-            if(await keep()){await destroy();return;}
+            // A file that could not be kept is asked about again, inside this question (0.3-R fix 2 #15).
+            let kept=false;try{kept=await keep();}catch(error){why=error;continue;}
+            if(kept){await destroy();return;}
             why=new Error('the board was not saved as a file');
           }
         }

@@ -106,7 +106,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
-import {windowCloser,type CloseAnswer} from './workspace/closing';
+import {windowCloser,SAVE_LIMIT,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -488,7 +488,11 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
  * is written, and only then does the window go. If the write did not land or the window cannot go, the editor takes
  * input again and the error comes back to the one closing.
  */
-function closeWindow(destroy:()=>Promise<void>){return leave(async()=>{if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
+/** Whether `p` settled, either way, within `ms`. */
+function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
+/* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
+   from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
+function closeWindow(destroy:()=>Promise<void>){return turn(async()=>{const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -510,7 +514,7 @@ async function askClose(error:unknown):Promise<CloseAnswer>{
  * Keeping the board as a file writes it elsewhere than the store, so it still works: the open board in the editor, and
  * off it, with no board open, every project as Home's backup saves them.
  */
-const closer=windowCloser(closeWindow,askClose,async()=>{if(screen!=='editor')return await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');saveTyping();return await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');});
+const closer=windowCloser(closeWindow,askClose,async()=>{if(screen!=='editor')return await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');saveTyping();return await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');},3*SAVE_LIMIT+5_000);
 async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
