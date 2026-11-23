@@ -177,6 +177,20 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
 }
 
 /**
+ * A batch run once ahead with a stand-in for each file media_add would copy (0.3-R): what will be refused anyway (a full
+ * board, a page that is not there, a bad op anywhere in it) is refused before a file is copied. What only the copy can
+ * tell (the file itself, its size) is found after, and a file copied for a batch that then fails stays, named by no
+ * board, as a board file's do (src/main.ts placeReadBoard). Undefined when the batch would land.
+ */
+export function preflightBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string): Extract<BatchResult, {ok: false}> | undefined {
+  if (!batch.ops.some(o => o.op === 'media_add')) return undefined;
+  const standIn: Record<number, PageMedia> = {};
+  for (const [i, op] of batch.ops.entries()) if (op.op === 'media_add') standIn[i] = {src: `media:${'0'.repeat(64)}`, mime: 'image/png', width: 1, height: 1};
+  const result = runBatch(project, batch, selected, standIn);
+  return result.ok ? undefined : result;
+}
+
+/**
  * A batch: the ops in order, then the patch. All of it lands or none of it does. The ledger is left
  * on the project passed in; the caller carries it over.
  */

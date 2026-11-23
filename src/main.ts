@@ -65,7 +65,7 @@ import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
-import {runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
+import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
@@ -1923,6 +1923,11 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   // files lands at once, as it always did.
   const withFiles=batch.ops.some(o=>o.op==='media_add');
   const held:Batch=heldBatch(batch,project);
+  // A batch that will be refused anyway, or an agent the door no longer lets in, copies no file (0.3-R).
+  if(withFiles){
+    const ahead=preflightBatch(project,held,selected);if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
+    const shut=stillAllowed();if(shut)return {...shut,applied:0};
+  }
   const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
   if('error' in imported)return {...imported,part:'ops',applied:0};
   const {media}=imported;
