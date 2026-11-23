@@ -90,6 +90,28 @@ check('deleting a workspace whose list cannot be stored keeps the workspace and 
   assert.equal(await evaluate('!!document.querySelector("#app")'), true, 'the app is back');
 });
 
+/* 0.3-R ⑤ (P3 check6): the projects move first, to a workspace that stays. A library the browser will not store changes
+   nothing; a list it will not store, with a library it then will not store either, leaves every project in a workspace
+   that is there. */
+check('deleting a workspace whose library cannot be stored changes nothing; one whose list and then library cannot be stored strands no project', async () => {
+  const other = await otherId();
+  const stored = () => evaluate(`({where: JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => (e.workspaceId ?? 'default') + ':' + e.project.name).sort(), workspaces: JSON.parse(localStorage.getItem('aphrodite-workspaces-v1')).workspaces.map(w => w.id).sort()})`);
+  const before = await stored();
+  const refuse = keys => evaluate(`(() => { const set = Storage.prototype.setItem; let n = 0; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { const rule = ${JSON.stringify(keys)}[k]; if (rule !== undefined && (rule === 'always' || n++ >= rule)) throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
+  await refuse({'aphrodite-project-library-v1': 'always'});
+  try { await clickData('ws-delete-confirm', {id: other}); await sleep(800); } finally { await evaluate('window.__restoreSetItem(), true'); }
+  assert.deepEqual(await stored(), before, 'a library refused: nothing changed');
+  // The library is stored once (the move), then refused (putting it back); the list is refused.
+  await refuse({'aphrodite-workspaces-v1': 'always', 'aphrodite-project-library-v1': 1});
+  try { await clickData('ws-delete-confirm', {id: other}); await sleep(800); } finally { await evaluate('window.__restoreSetItem(), true'); }
+  await evaluate('location.reload(), true');
+  await sleep(2_500);
+  const after = await stored();
+  assert.deepEqual(after.workspaces, before.workspaces, 'the workspace is still there');
+  assert.ok(after.where.every(w => after.workspaces.includes(w.split(':')[0]) || w.startsWith('default:')), `every project is in a workspace that is there: ${JSON.stringify(after)}`);
+  assert.equal(after.where.length, before.where.length, 'and none is lost');
+});
+
 /* Deleting a workspace is the one place a project changes hands. Nothing may be lost in it. */
 check('deleting a workspace hands its projects to a sibling rather than dropping them', async () => {
   const other = await otherId();

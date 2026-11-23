@@ -140,3 +140,15 @@ test('writing the workspaces says whether they were stored', () => {
   assert.equal(writeWorkspaces({setItem: () => {}}, book), true);
   assert.equal(writeWorkspaces({setItem: () => { throw new Error('quota'); }}, book), false);
 });
+
+/* 0.3-R ⑤ (P3 check6): on the desktop a library write is refused after it is queued, so deleting a workspace waits for
+   it before it stores the list or says it is done; and the projects move first, to a workspace that stays. */
+test('deleting a workspace moves its projects first and waits for that write before the list goes', async () => {
+  const {readFileSync} = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const start = main.indexOf("case 'ws-delete-confirm':");
+  const body = main.slice(start, main.indexOf("case '", start + 30));
+  const moved = body.indexOf('saveLibrary(moveEntries(library,id,movedTo));await flushDisk();'), listed = body.indexOf('saveWorkspaces(book)');
+  assert.ok(moved > 0 && listed > moved, 'the move, waited for, comes before the list');
+  assert.ok(body.indexOf('toast(`‘') > listed, 'and only then is it said to be done');
+});
