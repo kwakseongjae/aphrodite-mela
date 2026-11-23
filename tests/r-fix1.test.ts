@@ -100,3 +100,21 @@ test('over random histories, undoing every change gives back the design the appr
     assert.equal(isApproved(cur), true, `run ${run}: approved again`);
   }
 });
+
+/* 5: Home's open is Home's; a board opened from Home opens in its own workspace; a handler that waited writes only to the
+   board it began on. */
+import {actionScreen} from '../src/editor/screens.ts';
+test('opening a board from a card is Home\'s, and opens it in the workspace it is in', () => {
+  assert.equal(actionScreen('hub-open'), 'home');
+  assert.match(caseOf('hub-open') + main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 600), /const ws=entry\.workspaceId\?\?DEFAULT_WORKSPACE_ID;if\(ws!==workspaces\.activeId\)\{saveWorkspaces\(setActiveWorkspace\(workspaces,ws\)\)/);
+});
+test('every handler that waits before it writes asks whether its board is still open, the board\'s id and not only its design', () => {
+  assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id;return \(\)=>\{if\(screen==='editor'&&project\.id===id\)return true;/);
+  for (const name of ['block-image', 'upload-reference']) assert.match(caseOf(name), /await readImage\(file\); if \(!here\(\)\) return; commit\(/, name);
+  const omd = main.slice(main.indexOf("case 'apply-omd':"), main.indexOf("case 'omd-issue':"));
+  assert.ok(omd.indexOf('if(!here())break;') > omd.indexOf('await verifyReference('), 'apply-omd, after its fetch');
+  const md = main.slice(main.indexOf("case 'import-md':"), main.indexOf("case 'import-md':") + 400);
+  assert.match(md, /const text = await file\.text\(\);\n\s*if \(!here\(\)\) return;/);
+  assert.match(main, /archive\.handle\(act,el,pickFile,src=>\{if\(!here\(\)\)return;/);
+  assert.match(main, /vibePending\.board!==project\.id/);
+});

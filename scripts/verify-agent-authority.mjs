@@ -468,6 +468,8 @@ check('off the editor no board is open: a rename on Home stays, and nothing an a
   await sleep(5_200);
   const refused = await agent('act', {action: 'hub-delete-confirm', data: {id}}, 'claude-code');
   assert.equal(refused.status, 409, `Home's delete is not run from the editor: ${JSON.stringify(refused)}`);
+  // 0.3-R fix 1 #5: nor Home's open, which would switch boards under the person.
+  assert.equal((await agent('act', {action: 'hub-open', data: {id}}, 'claude-code')).status, 409, 'Home\'s open is not run from the editor');
   assert.ok(await stored(), 'the board is still in the library');
   await personPresses('home');
   await waitFor(() => evaluate('document.querySelector("#app").dataset.screen === "home"'), 'Home');

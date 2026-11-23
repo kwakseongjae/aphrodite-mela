@@ -321,7 +321,7 @@ let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrod
 function saveWorkspaces(next:WorkspaceBook){if(!writeWorkspaces(localStorage,next))throw new Error(ui('The workspaces could not be stored, so nothing changed.','작업 공간을 저장하지 못해 아무것도 바꾸지 않았습니다.'));workspaces=next;}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
-let vibeImage='',vibePending:{plan:VibePlan;revision:string}|null=null;
+let vibeImage='',vibePending:{plan:VibePlan;board:string;revision:string}|null=null;
 let vibeFormDraft:FormData|null=null;
 
 let night=false;try{night=localStorage.getItem('aphrodite-paper-theme')==='night';}catch{}
@@ -1313,6 +1313,8 @@ function compareModal() {
   comparisonObserver = new ResizeObserver(entries => entries.forEach(entry => { const frame = entry.target.querySelector<HTMLElement>(':scope > iframe,:scope > .native-page-preview'); if(frame)frame.style.transform = `scale(${entry.contentRect.width / 1000})`; }));
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
+/** Whether the board a handler began on is still the one open, asked just before a late write; says so when not. */
+function sameBoard():()=>boolean{const id=project.id;return ()=>{if(screen==='editor'&&project.id===id)return true;toast(ui('The board changed while this waited, so nothing was changed.','기다리는 사이 보드가 바뀌어 아무것도 바꾸지 않았습니다.'));return false;};}
 /**
  * `given` is who pressed: the person's own input, or the agent whose command pressed it
  * (src/agent/dispatch.ts). It is read here, before the first await, and every edit this action makes —
@@ -1331,12 +1333,14 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
+  // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
+  const here=sameBoard();
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
      editor's business, not the archive's. */
   if(act&&await updates.handle(act))return;
-  if(act&&await archive.handle(act,el,pickFile,src=>{commit(()=>{project.reference=src;},d,'edit.reference');referenceModal();}))return;
+  if(act&&await archive.handle(act,el,pickFile,src=>{if(!here())return;commit(()=>{project.reference=src;},d,'edit.reference');referenceModal();}))return;
   switch (act) {
     case 'language-settings':showModal(ui('Language / 언어','Language / 언어'),ui('Interface and content are separate preferences.','앱 조작 언어와 콘텐츠 언어는 별개의 설정입니다.'),languageSettingsHtml(uiLanguage,screen==='editor'?(project.contentLanguage??'en'):undefined));break;
     case 'vault-open': vaultProjectId=el.dataset.id||project.id;vaultState=undefined;await showVault();break;
@@ -1376,7 +1380,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       try{saveWorkspaces(book);}catch(error){try{saveLibrary(kept);await flushDisk();}catch{}throw error;}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
-    case 'hub-open': {const id=el.dataset.id;await leave(()=>{const entry=library.entries.find(e=>e.project.id===id);if(entry){saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}});break;}
+    case 'hub-open': {const id=el.dataset.id;await leave(()=>{const entry=library.entries.find(e=>e.project.id===id);if(entry){
+      // It opens in the workspace it is in, so the next save does not move it to the one that was open (0.3-R fix 1 #5).
+      const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
+      saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}});break;}
     case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
     case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});hubRefresh();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
@@ -1453,7 +1460,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const before=fingerprint(project),id=el.dataset.source!;
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
-      if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
+      if(!here())break;if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
       commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
     }
     case 'omd-issue': {
@@ -1471,7 +1478,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if(values){const next=modalRoot.querySelector<HTMLFormElement>('#vibe-form')!;for(const name of ['pack','language'])(next.elements.namedItem(name) as HTMLSelectElement).value=String(values.get(name));for(const name of ['copy','images','replace'])(next.elements.namedItem(name) as HTMLInputElement).checked=values.has(name);}
     });break;
     case 'apply-vibe': {
-      if(!vibePending||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
+      if(!vibePending||vibePending.board!==project.id||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
       const plan=vibePending.plan;
       commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
       recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false},d);
@@ -1553,7 +1560,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const assign=(image:string)=>{const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
       if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
     }
-    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
+    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
     case 'reference': referenceModal(); break;
     case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
     case 'analyze-reference': {
@@ -1587,10 +1594,11 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
       candidatePages = []; closeModal(); toast(ui('Direction added · Edit any component · Undo available','방향을 추가했습니다 · 컴포넌트를 편집하세요 · 실행 취소 가능')); break;
     }
-    case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); commit(() => { project.reference = image; }, d, 'edit.reference'); referenceModal(); }); break;
+    case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { project.reference = image; }, d, 'edit.reference'); referenceModal(); }); break;
     case 'remove-reference': commit(() => { delete project.reference; }, d, 'edit.reference'); referenceModal(); break;
     case 'import-md': pickFile('.md,.json,text/markdown,text/plain,application/json', async file => {
       const text = await file.text();
+      if (!here()) return;
       // A design system arrives either as the document a person wrote or as the graph a tool emits.
       if (/\.json$/i.test(file.name)) {
         const read = importDesignGraph(JSON.parse(text));
@@ -1821,7 +1829,7 @@ document.addEventListener('submit', async e => {
     if(!data.has('copy')&&!data.has('images')){toast('채울 항목을 선택하세요.');return;}
     const language=data.get('language');if(language!=='en'&&language!=='ko')throw new Error('Unsupported content language');
     const plan=planVibe(currentPage(project).blocks,String(data.get('pack')),{copy:data.has('copy'),images:data.has('images'),replace:data.has('replace'),image:vibeImage,language,brandName:project.name});
-    vibePending={plan,revision:fingerprint(project)};
+    vibePending={plan,board:project.id,revision:fingerprint(project)};
     const unsupportedNames=[...new Set(plan.unsupported.map(id=>catalog.find(c=>c.kind===currentPage(project).blocks.find(b=>b.id===id)?.kind)?.name).filter((n):n is string=>!!n))];
     showModal(ui('Review Get Vibe changes','Get Vibe 변경 검토'),ui('Not applied yet. Review before applying.','아직 적용되지 않았습니다. 확인 후 적용하세요.'),vibePreviewHtml(plan,uiLanguage,unsupportedNames,data.has('replace')),true);return;
   }
