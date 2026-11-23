@@ -15,7 +15,7 @@ const css=shipped.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n');
  *
  * Meta: the rules whose text may be held to 3:1, because it is a placeholder or meta that repeats
  * something said elsewhere (a count, a shortcut, a time): those that style a placeholder, .ui-caps,
- * .ui-kbd, .ui-tab-count, .ui-row-meta, .ui-side-sub, .ui-frame-size, .ui-menu-key, .ui-option-ext, .ui-board-card-when, .ui-pagebar-slash or .ui-pagebar-size. Anything else a person reads is text, at 4.5.
+ * .ui-kbd, .ui-tab-count, .ui-row-meta, .ui-side-sub, .ui-frame-size, .ui-menu-key, .ui-option-ext, .ui-board-card-when, .ui-pagebar-slash, .ui-pagebar-size or .ui-popover-step. Anything else a person reads is text, at 4.5.
  * Fills: elements whose colour is the graphic itself. The switch knob is not read: its position, not its
  * colour against the track, tells on from off. On, it takes on-accent, so it stays visible on the ink track
  * in the dark theme too (on-accent on accent is a listed pair).
@@ -26,9 +26,9 @@ const css=shipped.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n');
 const policy:DrawPolicy={
   solid:role=>!!resolve('light',role)&&!!resolve('dark',role),
   colours:Object.keys(themes.light),
-  meta:rule=>/\.ui-(caps|kbd|tab-count|row-meta|side-sub|frame-size|menu-key|option-ext|board-card-when|pagebar-slash|pagebar-size)$|::placeholder$/.test(rule),
-  fills:(target,host)=>target.classes.has('ui-switch-track')||target.classes.has('ui-dot')||target.classes.has('ui-drop-line')||(target.element==='after'&&!!host?.classes.has('ui-tab')),
-  silent:target=>['img','iframe','video'].includes(target.tag??'')||['ui-switch-input','ui-switch-track','ui-dot','ui-toolbar-sep','ui-scrim','ui-drop-line','ui-frame-sheet','ui-selection','ui-handle','ui-menu-sep','ui-option-radio','ui-check-box','ui-board-card-thumb','ui-swatch'].some(k=>target.classes.has(k)),
+  meta:rule=>/\.ui-(caps|kbd|tab-count|row-meta|side-sub|frame-size|menu-key|option-ext|board-card-when|pagebar-slash|pagebar-size|popover-step)$|::placeholder$/.test(rule),
+  fills:(target,host)=>target.classes.has('ui-switch-track')||target.classes.has('ui-dot')||target.classes.has('ui-drop-line')||target.classes.has('ui-progress-bar')||(target.element==='after'&&!!host?.classes.has('ui-tab')),
+  silent:target=>['img','iframe','video'].includes(target.tag??'')||['ui-switch-input','ui-switch-track','ui-dot','ui-toolbar-sep','ui-scrim','ui-drop-line','ui-frame-sheet','ui-selection','ui-handle','ui-menu-sep','ui-option-radio','ui-check-box','ui-board-card-thumb','ui-swatch','ui-progress-bar'].some(k=>target.classes.has(k)),
   decorative:['line'],
 };
 
@@ -83,7 +83,7 @@ test('text-3 writes only meta, disabled controls and icons, in these rules',()=>
   const writers=rules(css).filter(r=>/var\(--ui-text-3\)/.test(r.decls.color?.value??'')).map(r=>r.selector);
   for(const s of writers)assert.ok(policy.meta(s)||/:disabled|\.is-disabled/.test(s)||/\.ui-icon$/.test(s),s+' writes text in text-3, which only meta, a disabled control or an icon may');
   assert.deepEqual(writers,['.ui-caps','.ui-kbd','.ui-input::placeholder','.ui-textarea::placeholder','.ui-input:disabled','.ui-input.is-disabled','.ui-textarea:disabled','.ui-textarea.is-disabled',
-    '.ui-select.is-disabled','.ui-select:has(> select:disabled)','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-side-sub','.ui-floor .ui-frame-size','.ui-menu-key','.ui-option-ext','.ui-board-card-when','.ui-pagebar-slash','.ui-pagebar-size','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
+    '.ui-select.is-disabled','.ui-select:has(> select:disabled)','.ui-select > .ui-icon','.ui-tab-count','.ui-row-meta','.ui-side-sub','.ui-floor .ui-frame-size','.ui-menu-key','.ui-option-ext','.ui-board-card-when','.ui-pagebar-slash','.ui-pagebar-size','.ui-input > input::placeholder','.ui-input > .ui-icon','.ui-input:has(> input:disabled)','.ui-popover-step','.ui-composer-input::placeholder','.ui-send:disabled','.ui-send.is-disabled']);
 });
 
 test('the ratios are the ones the approved direction showed',()=>{

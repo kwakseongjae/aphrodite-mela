@@ -153,6 +153,27 @@ test('the cascade reader picks the declaration a browser would',()=>{
   assert.equal(value(sheet,[el(['a'])],'t',['@media (m)']),'1');
 });
 
+/**
+ * What L4 needs to move the screens over (docs/research/2026-11-23-screen-inventory.md, the shared and free-board
+ * surfaces): one part for each, so a screen is moved by markup and never by a new rule beside it.
+ */
+const forScreens=['ui-side','ui-side-head','ui-side-foot','ui-list-head','ui-list-count','ui-search','ui-row-thumb','ui-drop-line',
+  'ui-floor','ui-frame','ui-frame-head','ui-frame-sheet','ui-selection','ui-handle','ui-toolbar-float','ui-fab',
+  'ui-menu','ui-menu-item','ui-menu-key','ui-menu-sep','ui-menu-label','ui-strip','ui-toast-error','ui-modal-head','ui-modal-kicker',
+  'ui-option','ui-check','ui-ws','ui-avatar-accent','ui-board-card','ui-empty','ui-pagebar','ui-swatch','ui-range',
+  // Inventory rows 4 (tour card), 5 (home title and search field), 26 (palette groups) and 29 (update card).
+  'ui-popover','ui-heading','ui-heading-count','ui-progress','ui-progress-bar'];
+test('every part the screens to move need is in the sheet',()=>{
+  const drawn=new Set(rules(system).flatMap(r=>[...r.selector.matchAll(/\.(ui-[\w-]+)/g)].map(m=>m[1])));
+  assert.deepEqual(forScreens.filter(k=>!drawn.has(k)),[]);
+});
+
+test('a field box can hold an icon or a swatch beside its own input, and draws focus and disabled from it',()=>{
+  const all=rules(system);
+  assert.equal(value(all,[el(['ui-input'],['focus-within'])],'border-color')??value(all,[el(['ui-input'],['focus-within'])],'border'),'var(--ui-focus)');
+  assert.equal(value(all,[el(['ui-input'],[hasFlag('> input:disabled')])],'background'),'var(--ui-bg-sunken)');
+});
+
 test('every focusable part is in the sheet',()=>{
   const every=scenarios(rules(system));
   for(const part of Object.keys(focusable))assert.ok(every.some(c=>c.at(-1)!.classes.has(part)),'.'+part+' is not drawn: take it off the focusable list');

@@ -484,9 +484,54 @@
       <div class="ui-pagebar"><button class="ui-icon-btn" aria-label="보드로"><i data-lucide="arrow-left" class="ui-icon ui-icon-sm"></i></button><span class="ui-pagebar-from">봄 컬렉션 검수 보드</span><span class="ui-pagebar-slash" aria-hidden="true">/</span><h2 class="ui-pagebar-title">11월 4주 제품 브리핑</h2><span class="ui-pagebar-size">1200 × 900</span><span class="ui-pagebar-push"></span><button class="ui-btn ui-btn-primary ui-btn-md"><i data-lucide="download" class="ui-icon ui-icon-sm"></i>HTML로 내보내기</button></div>
     </div>
     <div class="ui-gallery-grid ui-gallery-gap">
-      <div><label class="ui-label" for="g-color">강조색</label><label class="ui-input"><span class="ui-swatch" style="background: #a37a22"></span><input id="g-color" class="ui-gallery-bare" value="#A37A22" aria-label="강조색 16진수"></label></div>
+      <div><label class="ui-label" for="g-color">강조색</label><label class="ui-input"><span class="ui-swatch" style="background: #a37a22"></span><input id="g-color" value="#A37A22" aria-label="강조색 16진수"></label></div>
       <div><label class="ui-label" for="g-range">모서리</label><input type="range" id="g-range" class="ui-range" min="0" max="24" value="8"></div>
       <div><label class="ui-label" for="g-range2">비활성 범위</label><input type="range" id="g-range2" class="ui-range" min="0" max="24" value="12" disabled></div>
+    </div>
+
+    <!-- l3:E -->
+    <h3 class="ui-gallery-h3">화면 머리(홈) · 아이콘이 든 입력 칸 · 명령 팔레트(묶음 이름) · 둘러보기 카드 · 진행 막대(업데이트 카드)</h3>
+    <div class="ui-card ui-gallery-pad-lg">
+      <div class="ui-heading"><h2 class="ui-heading-title">보드</h2><span class="ui-heading-count">6</span>
+        <label class="ui-input ui-input-sunken"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><input placeholder="보드 찾기" aria-label="보드 찾기"></label>
+        <div class="ui-seg" role="group" aria-label="보기"><button class="ui-seg-item" aria-pressed="true" aria-label="격자"><i data-lucide="layout-grid" class="ui-icon ui-icon-sm"></i></button><button class="ui-seg-item" aria-pressed="false" aria-label="목록"><i data-lucide="list" class="ui-icon ui-icon-sm"></i></button></div>
+        <button class="ui-btn ui-btn-secondary"><i data-lucide="upload" class="ui-icon ui-icon-sm"></i>가져오기</button><button class="ui-btn ui-btn-primary"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i>새 보드</button>
+      </div>
+    </div>
+    <div class="ui-gallery-grid ui-gallery-gap">
+      <div class="ui-gallery-stack">
+        <label class="ui-input"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><input placeholder="기본 · 아이콘과 입력" aria-label="기본"></label>
+        <label class="ui-input is-focus"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><input value="포커스(안의 입력이 받으면 칸이 그린다)" aria-label="포커스"></label>
+        <label class="ui-input"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><input value="비활성" aria-label="비활성" disabled></label>
+        <label class="ui-input"><span class="ui-swatch" style="background: #2f7a4a"></span><input value="#2F7A4A" aria-label="색"></label>
+        <div class="ui-card ui-gallery-pad-lg">
+          <p class="ui-modal-text ui-gallery-flush">Aphrodite 0.3.1을 내려받는 중 · 68%</p>
+          <div class="ui-progress ui-gallery-gap" role="progressbar" aria-valuenow="68" aria-valuemin="0" aria-valuemax="100"><div class="ui-progress-bar" style="width: 68%"></div></div>
+          <div class="ui-gallery-row ui-gallery-gap"><button class="ui-btn ui-btn-quiet">나중에</button><button class="ui-btn ui-btn-primary" disabled>다시 시작</button></div>
+        </div>
+      </div>
+      <div class="ui-gallery-stage">
+        <div class="ui-modal" role="dialog" aria-label="명령">
+          <div class="ui-modal-body ui-gallery-pad-sm">
+            <label class="ui-input ui-input-sunken"><i data-lucide="search" class="ui-icon ui-icon-sm"></i><input placeholder="페이지·명령 찾기" aria-label="찾기"></label>
+            <div class="ui-menu ui-gallery-flat" role="listbox">
+              <p class="ui-menu-label">페이지</p>
+              <button class="ui-menu-item is-hover" role="option"><i data-lucide="file-code" class="ui-icon ui-icon-sm"></i>11월 4주 제품 브리핑<span class="ui-menu-key">HTML</span></button>
+              <button class="ui-menu-item" role="option"><i data-lucide="file-code" class="ui-icon ui-icon-sm"></i>봄 컬렉션 랜딩 초안<span class="ui-menu-key">HTML</span></button>
+              <p class="ui-menu-label">명령</p>
+              <button class="ui-menu-item" role="option"><i data-lucide="download" class="ui-icon ui-icon-sm"></i>내보내기<span class="ui-menu-key">⌘E</span></button>
+              <button class="ui-menu-item" role="option"><i data-lucide="eye" class="ui-icon ui-icon-sm"></i>이 페이지만 크게<span class="ui-menu-key">⌘↵</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ui-gallery-stack">
+        <div class="ui-popover" role="dialog" aria-labelledby="g-tour">
+          <h3 class="ui-popover-title" id="g-tour">페이지는 여기에 모입니다</h3>
+          <p class="ui-popover-text">에이전트가 올린 페이지와 끌어다 놓은 그림이 이 목록에 쌓입니다. 누르면 보드에서 그 자리로 갑니다.</p>
+          <div class="ui-popover-foot"><span class="ui-popover-step">2 / 4</span><button class="ui-btn ui-btn-quiet">건너뛰기</button><button class="ui-btn ui-btn-primary">다음</button></div>
+        </div>
+      </div>
     </div>
     <!-- l3:end -->
   </section>

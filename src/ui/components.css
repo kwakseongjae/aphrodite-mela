@@ -33,7 +33,7 @@
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
 .ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab,
-.ui-menu, .ui-strip, .ui-option, .ui-check, .ui-ws, .ui-board-card, .ui-empty, .ui-pagebar {
+.ui-menu, .ui-strip, .ui-option, .ui-check, .ui-ws, .ui-board-card, .ui-empty, .ui-pagebar, .ui-popover, .ui-heading {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -72,7 +72,7 @@
   box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-press);
 }
 /* Fields draw focus on their own edge: the box is already a boundary. */
-.ui-input:focus-visible, .ui-input.is-focus, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
+.ui-input:focus-visible, .ui-input.is-focus, .ui-input:focus-within, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
   outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus);
 }
 .ui-composer:focus-within, .ui-composer.is-focus { outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus), var(--ui-shadow-panel); }
@@ -531,6 +531,29 @@
 .ui-range { display: block; width: 100%; margin: 0; accent-color: var(--ui-accent); }
 .ui-range:disabled { opacity: var(--ui-disabled-opacity); }
 
+/* ── Inventory gaps: a field box with its own input, menu group labels, a pointer card, a screen heading, progress (0.3-L3) ── */
+/* A label.ui-input can hold an icon or a swatch and its own <input>: the box draws focus and disabled for it. */
+.ui-input > input { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0; outline: none; background: none; font: inherit; color: inherit; }
+.ui-input > input::placeholder { color: var(--ui-text-3); opacity: 1; }
+.ui-input > .ui-icon { color: var(--ui-text-3); }
+.ui-input.ui-input-sunken { background: var(--ui-bg-sunken); border-color: transparent; }
+.ui-input:has(> input:disabled) { background: var(--ui-bg-sunken); color: var(--ui-text-3); }
+.ui-menu-label { margin: 0; padding: var(--ui-space-2) var(--ui-space-2) var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); color: var(--ui-text-2); }
+/* A card that points at something on the screen (the editor tour): title, text, step count and its buttons. */
+.ui-popover { display: flex; flex-direction: column; gap: var(--ui-space-2); width: calc(var(--ui-control-lg) * 7); padding: var(--ui-space-4); background: var(--ui-bg-raised); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-window); }
+.ui-popover-title { margin: 0; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
+.ui-popover-text { margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-popover-foot { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-1); }
+.ui-popover-step { margin-right: auto; font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-variant-numeric: tabular-nums; color: var(--ui-text-3); }
+/* A screen's heading row (the home): a large title, its gold count, then the actions, over a rule. */
+.ui-heading { display: flex; align-items: center; gap: var(--ui-space-2); padding-bottom: var(--ui-space-5); border-bottom: var(--ui-hairline) solid var(--ui-line); color: var(--ui-text-1); }
+.ui-heading-title { margin: 0 var(--ui-space-2) 0 0; font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); }
+.ui-heading-count { align-self: flex-end; margin-right: auto; margin-bottom: calc(var(--ui-space-1) / 2); font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; color: var(--ui-mark); }
+.ui-heading > .ui-input { width: calc(var(--ui-control-lg) * 6); height: var(--ui-control-sm); font-size: var(--ui-text-12); }
+/* Progress (the update card): the fill is the graphic, on a sunken track. */
+.ui-progress { position: relative; height: var(--ui-space-1); overflow: hidden; border-radius: var(--ui-radius-pill); background: var(--ui-bg-active); }
+.ui-progress-bar { height: 100%; border-radius: var(--ui-radius-pill); background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease); }
+
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }
 .ui-composer:hover:not(:focus-within), .ui-composer.is-hover { border-color: var(--ui-text-3); }
@@ -569,5 +592,5 @@
 
 /* ── Reduced motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after, .ui-board-card-thumb, .ui-board-card-actions { transition: none; }
+  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after, .ui-board-card-thumb, .ui-board-card-actions, .ui-progress-bar { transition: none; }
 }

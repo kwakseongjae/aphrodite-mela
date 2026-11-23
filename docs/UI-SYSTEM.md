@@ -95,6 +95,11 @@
 | 빈 상태 | `ui-empty` > `ui-empty-art` 또는 `ui-icon`, `ui-empty-title`, `ui-empty-text`, `ui-empty-actions` | |
 | 페이지만 보기의 위 줄 | `ui-pagebar` > 뒤로 `ui-icon-btn` + `ui-pagebar-from` + `ui-pagebar-slash` + `ui-pagebar-title` + `ui-pagebar-size` + `ui-pagebar-push` + 단추 | |
 | 색 칸 · 범위 | `ui-swatch`(`label.ui-input` 안, 바탕은 그 색), `ui-range` | 범위는 비활성 |
+| 아이콘 · 견본이 든 입력 칸 | `label.ui-input` > `ui-icon` 또는 `ui-swatch` + `input` | `ui-input-sunken`(검색 칸), 안의 입력이 포커스 · 비활성이면 칸이 그린다 |
+| 명령 팔레트 | `ui-modal` > `ui-input` + `ui-menu`(`ui-menu-label` 묶음 이름, `ui-menu-item`, `ui-menu-key`) | |
+| 둘러보기 카드 | `ui-popover` > `ui-popover-title`, `ui-popover-text`, `ui-popover-foot`(`ui-popover-step`, 단추) | 화살표 없이 가리키는 곳 옆에 둔다 |
+| 화면 머리 | `ui-heading` > `ui-heading-title`(28) + `ui-heading-count`(금색 수) + 입력 칸 · 단추 | |
+| 진행 막대 | `ui-progress` > `ui-progress-bar`(너비로 진행) | 업데이트 카드 |
 
 ## 알려진 한계 (오너가 정할 것)
 
