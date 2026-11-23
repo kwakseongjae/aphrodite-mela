@@ -109,7 +109,8 @@ test('opening a board from a card is Home\'s, and opens it in the workspace it i
   assert.match(caseOf('hub-open') + main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 600), /const ws=entry\.workspaceId\?\?DEFAULT_WORKSPACE_ID;if\(ws!==workspaces\.activeId\)\{saveWorkspaces\(setActiveWorkspace\(workspaces,ws\)\)/);
 });
 test('every handler that waits before it writes asks whether its board is still open, the board\'s id and not only its design', () => {
-  assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id;return \(\)=>\{if\(screen==='editor'&&project\.id===id\)return true;/);
+  // fix 2 #5 narrows it to the opening the handler began in.
+  assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id,session=editSession;return \(\)=>\{if\(screen==='editor'&&project\.id===id&&editSession===session\)return true;/);
   for (const name of ['block-image', 'upload-reference']) assert.match(caseOf(name), /await readImage\(file\); if \(!here\(\)\) return; commit\(/, name);
   const omd = main.slice(main.indexOf("case 'apply-omd':"), main.indexOf("case 'omd-issue':"));
   assert.ok(omd.indexOf('if(!here())break;') > omd.indexOf('await verifyReference('), 'apply-omd, after its fetch');

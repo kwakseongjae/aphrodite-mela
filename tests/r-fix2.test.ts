@@ -55,3 +55,15 @@ test('an agent\'s render draws a page without the files the board came without; 
   assert.doesNotMatch(await renderDocument(page, outgoing(p, host).host as never), /data:image\/png;base64,AAAA/, 'an agent\'s picture of it does not');
   assert.match(main, /'render_free_page',\{html:await renderDocument\(page,outgoing\(project,frameHost\)\.host\)/);
 });
+
+/* 5: an open that waited behind another runs only if Home is still where it was asked; a handler that waited writes only
+   within the opening of the board it began in. */
+test('queued opens and late handlers keep to the screen and the opening they began in', () => {
+  assert.match(main, /function openProject\(next:Project\)\{editSession\+\+;/);
+  assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id,session=editSession;return \(\)=>\{if\(screen==='editor'&&project\.id===id&&editSession===session\)return true;/);
+  const open = main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 400);
+  assert.match(open, /await leave\(\(\)=>\{\n[^\n]*\n\s*if\(screen!=='home'\)return;/);
+  const demo = main.slice(main.indexOf("case 'demo-reference':"), main.indexOf('\n', main.indexOf("case 'demo-reference':")));
+  assert.ok(demo.indexOf('if (!here()) break;') > demo.indexOf('await readImage('), 'the sample reference, after its fetch');
+  assert.match(main, /const assign=\(image:string\)=>\{if\(!here\(\)\)return;/, 'a collection picture');
+});

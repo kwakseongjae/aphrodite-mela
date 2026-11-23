@@ -557,7 +557,9 @@ function showReadBoard(read:ReadBoard,notes:string[]){
   openProject(open.project);
   toast(notes.length?ui('Board opened as a new board · ','새 보드로 열었습니다 · ')+notes.join(' · '):ui('Board opened as a new board · nothing in it was approved here','새 보드로 열었습니다 · 여기서 승인된 것은 없습니다'));
 }
-function openProject(next:Project){if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+/** Counts boards opened: a handler that waited writes only within the opening it began in (0.3-R fix 2 #5), not the same board opened again. */
+let editSession=0;
+function openProject(next:Project){editSession++;if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
  * src/ledger/patch.ts), recorded in the ledger under `d` — who made it, through what, and why — and
@@ -1324,7 +1326,7 @@ function compareModal() {
   modalRoot.querySelectorAll('.direction-preview').forEach(el => comparisonObserver!.observe(el));
 }
 /** Whether the board a handler began on is still the one open, asked just before a late write; says so when not. */
-function sameBoard():()=>boolean{const id=project.id;return ()=>{if(screen==='editor'&&project.id===id)return true;toast(ui('The board changed while this waited, so nothing was changed.','기다리는 사이 보드가 바뀌어 아무것도 바꾸지 않았습니다.'));return false;};}
+function sameBoard():()=>boolean{const id=project.id,session=editSession;return ()=>{if(screen==='editor'&&project.id===id&&editSession===session)return true;toast(ui('The board changed while this waited, so nothing was changed.','기다리는 사이 보드가 바뀌어 아무것도 바꾸지 않았습니다.'));return false;};}
 /**
  * `given` is who pressed: the person's own input, or the agent whose command pressed it
  * (src/agent/dispatch.ts). It is read here, before the first await, and every edit this action makes —
@@ -1392,7 +1394,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       try{saveWorkspaces(book);}catch(error){try{saveLibrary(kept);await flushDisk();}catch{}throw error;}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
-    case 'hub-open': {const id=el.dataset.id;await leave(()=>{const entry=library.entries.find(e=>e.project.id===id);if(entry){
+    case 'hub-open': {const id=el.dataset.id;await leave(()=>{
+      // Asked again in its turn (0.3-R fix 2 #5): an open that waited behind another runs only if Home is still where it was asked.
+      if(screen!=='home')return;
+      const entry=library.entries.find(e=>e.project.id===id);if(entry){
       // It opens in the workspace it is in, so the next save does not move it to the one that was open (0.3-R fix 1 #5).
       const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
       saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}});break;}
@@ -1569,12 +1574,12 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
       if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
       const projectId=project.id,blockId=b.id;
-      const assign=(image:string)=>{const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
+      const assign=(image:string)=>{if(!here())return;const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
       if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
     }
     case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
     case 'reference': referenceModal(); break;
-    case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
+    case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); if (!here()) break; commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
     case 'analyze-reference': {
       if (!project.reference) break;
       const source = project.reference, generation = ++analysisGeneration;
