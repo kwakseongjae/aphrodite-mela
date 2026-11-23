@@ -49,7 +49,8 @@ import {vibeLanguageFormHtml as vibeFormHtml,localizedVibePreviewHtml as vibePre
 import {readUiLanguage,detectUiLanguage,saveUiLanguage,isLanguage,setContentLanguage,languageSettingsHtml,controlText,type Language} from './i18n';
 import {verifyReference,referenceIssue,referenceSources} from './design/bridge';
 import './design/studio.css';
-import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen,readTidied} from './workspace/library';
+import {readLibrary,upsertProject,cloneProject,importedProject,visibleEntries,moveEntries,moveEntry,workspaceCounts,LIBRARY_KEY,LEGACY_KEY,type Library,type LibraryFilter,markOpened,libraryRefusal,rememberSaved,writeLibraryText,LIBRARY_LIMIT_BYTES,BROWSER_LIBRARY_ESTIMATE,boardToOpen,readTidied,libraryText} from './workspace/library';
+import {clip,halfPairIn} from './text';
 import {readWorkspaces,writeWorkspaces,createWorkspace,renameWorkspace,setWorkspaceAvatar,setActiveWorkspace,deleteWorkspace,avatarStyle,avatarContent,DEFAULT_WORKSPACE_ID,WORKSPACE_COLORS,type Workspace,type WorkspaceAvatar,type WorkspaceBook} from './workspace/workspaces';
 import {workspaceFormHtml} from './workspace/workspace-ui';
 import {semanticTokens,resolveTokens,type SemanticToken} from './design/tokens';
@@ -428,7 +429,7 @@ function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now())
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
- const raw=JSON.stringify(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
+ const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
 function persist() { if(screen!=='editor')return; try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue){lastSaved=true;closer.saved();} } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
@@ -1795,9 +1796,9 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=name.slice(0,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=clip(name,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
-      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=name.slice(0,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
@@ -1935,6 +1936,8 @@ const agentLook={
  */
 async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefined,surface:AgentSurface):Promise<Record<string,unknown>>{
   if(!isAgentSurface(surface))return {error:'an agent arrives on loopback, mcp or inApp'};
+  // Half of a surrogate pair on its own is refused on its value, wherever in the command it is (0.3-R): the desktop cannot save it.
+  const half=halfPairIn({kind,payload,caller});if(half)return {error:`${half} holds half of a surrogate pair on its own, which cannot be saved. Write the whole character, or leave it out.`,status:400};
   const parsed=parseAgentCommand(kind,payload);
   if('error' in parsed)return {error:parsed.error};
   const c:AgentCommand=parsed.command;

@@ -11,6 +11,7 @@
  * code path forgets to commit, and the source name says which kind of path to go and fix.
  */
 import {dropStaleApproval, isApproved, parseProject, type Project} from '../model';
+import {mendHalfPairs} from '../text';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject, type PatchOp} from './patch';
 import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
@@ -41,6 +42,12 @@ function noted(reason: string | undefined): string {
   const given = reason?.trim().slice(0, MAX_REASON - APPROVAL_CLEARED.length - 3).trim();
   return given ? `${given} · ${APPROVAL_CLEARED}` : APPROVAL_CLEARED;
 }
+/** Mends half pairs (src/text.ts) in the board itself, the design and not its ledger, which records what was mended. */
+function mendDesign(project: Project): void {
+  const ledger = project.ledger;
+  delete project.ledger;
+  try { mendHalfPairs(project); } finally { if (ledger) project.ledger = ledger; }
+}
 const writesApproval = (ops: PatchOp[]) => ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint');
 
 export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
@@ -64,6 +71,7 @@ function ledgerOf(project: Project) {
 function reconcile(project: Project, history: History): Project {
   if (history.last) {
     // Nobody can say whose the drift was, so it brings no approval: the clearing is part of the drift recorded.
+    mendDesign(project);
     const cleared = settleApproval(project, history.last, UNKNOWN);
     const drift = diffProject(history.last, designOf(project));
     if (drift.length) {
@@ -82,6 +90,8 @@ export function begin(project: Project, history: History): Project {
 
 /** Call after an edit. Records it and makes it the next thing undo takes back; null when nothing changed. */
 export function end(project: Project, before: Project, meta: {author: Author; source: string; reason?: string}, history: History): Change | null {
+  // Half a pair on its own (the person's typing, a cut) is mended before it is recorded or saved (src/text.ts).
+  mendDesign(project);
   const cleared = settleApproval(project, before, meta.author);
   const done = record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta);
   if (!done) return null;
@@ -101,6 +111,7 @@ export function end(project: Project, before: Project, meta: {author: Author; so
 export function changeAside(project: Project, change: (project: Project) => void, meta: {author: Author; source: string; reason?: string}): Change | null {
   const before = clone(project);
   change(project);
+  mendDesign(project);
   const cleared = settleApproval(project, before, meta.author);
   return record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta)?.change ?? null;
 }
@@ -148,6 +159,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   if (author.kind !== 'person' && !entry.cleared && writesApproval(ops)) throw new HumanOnlyStep();
   const current = designOf(project);
   const next = applyPatch(current, ops);
+  mendDesign(next);
   const cleared = settleApproval(next, current, author, true);
   if (check) {
     try { check(next); }

@@ -1,5 +1,5 @@
 import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
-import {halfPairIn} from '../text';
+import {halfPairIn,clip} from '../text';
 import {fitSaved} from '../ledger/ledger';
 import {LEDGER_RESERVE,readLedger} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
@@ -96,7 +96,19 @@ export function libraryRefusal(library:Library,before:Project,after:Project,{lim
   if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
   return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
 }
-export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,JSON.stringify(library));}
+/** JSON.stringify writes half a pair on its own as an escape, and a backslash typed as text as two: one with an odd run of backslashes before it is such an escape. */
+const LONE_ESCAPE=/(^|[^\\])(\\\\)*\\ud[89a-f][0-9a-f]{2}/i;
+/**
+ * The library as it is saved, refused while it still holds half of a surrogate pair on its own (0.3-R): the desktop's save
+ * would refuse it after it was queued, and a refused write holds up every write after it. Nothing is written, and the
+ * not-saved warning says so; what makes one is mended where a change is recorded (src/ledger/session.ts).
+ */
+export function libraryText(library:Library):string{
+  const raw=JSON.stringify(library);
+  if(LONE_ESCAPE.test(raw))throw new Error(`${halfPairIn(library)??'the library'} holds half of a surrogate pair on its own, which this Mac cannot save.`);
+  return raw;
+}
+export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,libraryText(library));}
 /** The library, already serialized, in one atomic localStorage write: quota errors cannot leave a half-written index. */
 export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
@@ -133,7 +145,7 @@ export function boardToOpen(library:Library,id:string):{project:Project;workspac
   return entry&&{project:entry.project,workspaceId:entry.workspaceId??DEFAULT_WORKSPACE_ID};
 }
 export function cloneProject(project:Project):Project{
-  const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;
+  const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=clip(`${copy.name} copy`,100);delete copy.approvedFingerprint;return copy;
 }
 export type LibraryFilter='recent'|'pinned'|'archived';
 /** Most recently opened first; entries never opened fall back to their last save. */

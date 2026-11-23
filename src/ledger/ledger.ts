@@ -15,6 +15,7 @@
 import {agentRevision, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
 import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+import {clip, wholeText} from '../text';
 export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
 /** `cleared`: the change cleared the approval as the system does (src/ledger/session.ts), and wrote none of its own. */
@@ -48,14 +49,15 @@ export type ChangeMeta = {author: Author; source: string; reason?: string; undoe
 export function record(ledger: Ledger, before: Project, after: Project, meta: ChangeMeta, ops = diffProject(before, after)): {change: Change; undo: UndoEntry} | null {
   if (!ops.length) return null;
   const seq = ledger.seq + 1;
-  const reason = meta.reason?.trim().slice(0, MAX_REASON);
+  // Cut on whole characters and mended: what is recorded is saved, and the save takes no half of a pair (src/text.ts).
+  const reason = meta.reason === undefined ? undefined : clip(wholeText(meta.reason.trim()), MAX_REASON);
   const change: Change = {
     id: meta.id ?? crypto.randomUUID(),
     ...(ledger.changes.length ? {parent: ledger.changes[ledger.changes.length - 1].id} : {}),
     seq,
     at: meta.at ?? new Date().toISOString(),
-    author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},
-    source: meta.source.slice(0, 80),
+    author: {kind: meta.author.kind, name: clip(wholeText(meta.author.name), 100)},
+    source: clip(wholeText(meta.source), 80),
     ...(reason ? {reason} : {}),
     ops: slim(forSaving(ops)),
     anchors: anchored(ops),

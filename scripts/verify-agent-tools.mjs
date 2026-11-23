@@ -243,6 +243,22 @@ check('a revision read before the person resized a frame is refused (409, nothin
   assert.equal(last.revision, sent.revision, 'and so does the ledger');
 });
 
+/* 0.3-R ③: the desktop cannot save half of a surrogate pair on its own, and a refused write holds up every write after it. */
+check('an agent\'s text holding half of a surrogate pair is refused on its value, wherever it is, and nothing changes', async () => {
+  const {seq} = await agent('changes', {limit: 1});
+  for (const [kind, payload] of [
+    ['apply', {reason: WHY, patch: [{op: 'set', on: 'project', field: 'brief', value: 'a \ud800 b'}]}],
+    ['apply', {reason: 'Why \udc00', ops: [{op: 'add', component_kind: 'hero'}]}],
+    ['edit', {reason: WHY, field: 'title', text: 'x\ud83d'}],
+    ['system', {reason: WHY, tokens: {accent: '#123456'}, name: 'Half \ud800'}],
+  ]) {
+    const r = await agent(kind, payload);
+    assert.equal(r.status, 400, `${kind}: ${JSON.stringify(r).slice(0, 200)}`);
+    assert.match(r.error, /half of a surrogate pair/);
+  }
+  assert.equal((await agent('changes', {limit: 1})).seq, seq, 'nothing changed');
+});
+
 check('reading needs no door, writing does', async () => {
   await pressDoor('agent-disconnect');
   await sleep(200);
