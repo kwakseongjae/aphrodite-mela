@@ -55,7 +55,10 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
   let raw=JSON.stringify(project);
-  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);}
+  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);
+    // A design that leaves no room even for an empty history (0.3-R) is saved without one: the history in memory keeps its
+    // number and the undo its steps, and a board opened again starts its history from nothing, as one never edited does.
+    if(raw.length>MAX_PROJECT&&!project.ledger.changes.length)raw=JSON.stringify({...project,ledger:undefined});}
   const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
 }

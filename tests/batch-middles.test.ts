@@ -54,3 +54,37 @@ test('applyBatch asks the preflight, and the door, before it copies a file', asy
   assert.ok(body.indexOf('preflightBatch(project,held,selected)') > 0 && body.indexOf('preflightBatch(project,held,selected)') < copy, 'the preflight comes first');
   assert.ok(body.indexOf('stillAllowed()') < copy, 'and so does the door');
 });
+
+import {MAX_PROJECT} from '../src/model.ts';
+import {parseProject as readBack} from '../src/model.ts';
+import {designOf, emptyLedger} from '../src/ledger/ledger.ts';
+import {begin, end, newHistory} from '../src/ledger/session.ts';
+import {upsertProject} from '../src/workspace/library.ts';
+
+/* Codex P3 Part B, the place P1 fixed three times: a design that fits on its own must save and open again, whatever
+   history it has, down to a design of exactly the cap. Every k from 0 to the empty history's frame and one past it. */
+test('a design at MAX_PROJECT − k, for every k from 0 to the empty history\'s size + 1, saves after a same-length edit and opens again', () => {
+  const p = initialProject();
+  p.pages = Array.from({length: 11}, (_, i) => ({id: `free-${i}`, name: `Page ${i}`, blocks: [], kind: 'html' as const, html: 'a'}));
+  p.activePageId = 'free-0';
+  const length = (q: Project) => JSON.stringify(designOf(q)).length;
+  let room = MAX_PROJECT - length(p);
+  for (const page of p.pages.slice(1)) { const add = Math.min(room, 1_999_000); page.html += 'b'.repeat(add); room -= add; }
+  const base = room;
+  const SEQ = 123456;
+  const frame = `,"ledger":{"seq":${SEQ + 1},"changes":[]}`.length;
+  for (let k = 0; k <= frame + 1; k++) {
+    const q: Project = {...p, pages: p.pages.map((page, i) => i ? page : {...page, html: 'a'.repeat(base + 1 - k)})};
+    assert.equal(length(q), MAX_PROJECT - k, `k = ${k}`);
+    q.ledger = {...emptyLedger(), seq: SEQ};
+    const history = newHistory(q), before = begin(q, history);
+    q.pages = q.pages.map((page, i) => i ? page : {...page, html: 'c'.repeat(page.html!.length)});
+    end(q, before, {author: {kind: 'person', name: 'you'}, source: 'editor:change'}, history);
+    const stored = upsertProject({version: 1, entries: []}, q).entries[0].project;
+    const raw = JSON.stringify(stored);
+    assert.ok(raw.length <= MAX_PROJECT, `k = ${k}: ${raw.length} characters saved`);
+    const opened = readBack(raw);
+    assert.equal(opened.pages[0].html, q.pages[0].html, `k = ${k}: the edit is saved and opens again`);
+    assert.equal(q.ledger.seq, SEQ + 1, `k = ${k}: the sequence in memory carries on`);
+  }
+});
