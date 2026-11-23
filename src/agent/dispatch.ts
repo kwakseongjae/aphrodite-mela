@@ -26,7 +26,8 @@ import {UNKNOWN, type Author} from '../ledger/types';
 import {commandById, type Surface} from './commands.mjs';
 
 export type AgentSurface = Exclude<Surface, 'ui'>;
-export type Dispatch = {author: Author; surface: Surface; reason?: string; baseRevision?: string};
+/** `outcome`: what a screen action says back to the agent that pressed it when it did not do what was asked (0.3-R fix 3 #17). */
+export type Dispatch = {author: Author; surface: Surface; reason?: string; baseRevision?: string; outcome?: Record<string, unknown>};
 
 export const PERSON: Author = {kind: 'person', name: 'you'};
 export const agentSurfaces: readonly AgentSurface[] = ['loopback', 'mcp', 'inApp'];

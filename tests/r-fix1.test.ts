@@ -106,7 +106,7 @@ test('over random histories, undoing every change gives back the design the appr
 import {actionScreen} from '../src/editor/screens.ts';
 test('opening a board from a card is Home\'s, and opens it in the workspace it is in', () => {
   assert.equal(actionScreen('hub-open'), 'home');
-  assert.match(caseOf('hub-open') + main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 600), /const ws=entry\.workspaceId\?\?DEFAULT_WORKSPACE_ID;if\(ws!==workspaces\.activeId\)\{saveWorkspaces\(setActiveWorkspace\(workspaces,ws\)\)/);
+  assert.match(caseOf('hub-open') + main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 900), /const ws=entry\.workspaceId\?\?DEFAULT_WORKSPACE_ID;if\(ws!==workspaces\.activeId\)\{saveWorkspaces\(setActiveWorkspace\(workspaces,ws\)\)/);
 });
 test('every handler that waits before it writes asks whether its board is still open, the board\'s id and not only its design', () => {
   // fix 2 #5 narrows it to the opening the handler began in.

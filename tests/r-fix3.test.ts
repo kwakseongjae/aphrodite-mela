@@ -195,3 +195,10 @@ test('a clearing with no room in the history is kept in the library\'s entry, an
   values.set(LIBRARY_KEY, JSON.stringify({...read, entries: [{...entry, clearedApproval: 'not a time'}]}));
   assert.throws(() => readLibrary(store as never));
 });
+
+/* 17: an open that waited and found another board open says so to the agent that asked: a 409 and the board that is open. */
+test('an open overtaken by another answers the agent with a 409 and the board that is open', () => {
+  const open = main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 700);
+  assert.match(open, /if\(screen!=='home'\)\{d\.outcome=\{error:[^}]*status:409,open:\{project_id:project\.id,name:project\.name\}\};return;\}/);
+  assert.match(main, /case 'act':await actViaButton\(c\.action,c\.data,d\);if\(d\.outcome\)return d\.outcome;/);
+});

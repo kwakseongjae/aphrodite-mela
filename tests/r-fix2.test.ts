@@ -62,7 +62,7 @@ test('queued opens and late handlers keep to the screen and the opening they beg
   assert.match(main, /function openProject\(next:Project\)\{editSession\+\+;/);
   assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id,session=editSession;return \(\)=>\{if\(screen==='editor'&&project\.id===id&&editSession===session\)return true;/);
   const open = main.slice(main.indexOf("case 'hub-open':"), main.indexOf("case 'hub-open':") + 400);
-  assert.match(open, /await leave\(\(\)=>\{\n[^\n]*\n\s*if\(screen!=='home'\)return;/);
+  assert.match(open, /await leave\(\(\)=>\{\n[^\n]*\n\s*if\(screen!=='home'\)(?:return;|\{d\.outcome=)/);
   const demo = main.slice(main.indexOf("case 'demo-reference':"), main.indexOf('\n', main.indexOf("case 'demo-reference':")));
   assert.ok(demo.indexOf('if (!here()) break;') > demo.indexOf('await readImage('), 'the sample reference, after its fetch');
   assert.match(main, /const assign=\(image:string\)=>\{if\(!here\(\)\)return;/, 'a collection picture');

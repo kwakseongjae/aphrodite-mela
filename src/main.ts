@@ -1416,7 +1416,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
     case 'hub-open': {const id=el.dataset.id;await leave(()=>{
       // Asked again in its turn (0.3-R fix 2 #5): an open that waited behind another runs only if Home is still where it was asked.
-      if(screen!=='home')return;
+      if(screen!=='home'){d.outcome={error:'another board was opened while this open waited its turn, so it was not opened. Read the contract to see the board that is open.',status:409,open:{project_id:project.id,name:project.name}};return;}
       const entry=library.entries.find(e=>e.project.id===id);if(entry){
       // It opens in the workspace it is in, so the next save does not move it to the one that was open (0.3-R fix 1 #5).
       const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
@@ -2130,7 +2130,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
          waits before it commits — an agent's click used to be recorded as the person's for exactly that.
          So does every event the browser fires while one is sent: the trusted submit of a submit button
          the agent clicked. `type` moves focus before it sends, so a field the person leaves saves as theirs. */
-      case 'act':await actViaButton(c.action,c.data,d);recordRun('agent:act',{action:c.action,data:c.data},d);break;
+      case 'act':await actViaButton(c.action,c.data,d);if(d.outcome)return d.outcome;recordRun('agent:act',{action:c.action,data:c.data},d);break;
       case 'click':{const el=document.querySelector<HTMLElement>(c.selector);if(!el)return {error:`no element matches ${c.selector}`};if(!(el as HTMLButtonElement).disabled)send(el,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),d);recordRun('agent:click',{selector:c.selector},d);break;}
       case 'type':{const el=document.querySelector<HTMLElement>(c.selector);if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el instanceof HTMLSelectElement))return {error:`no input matches ${c.selector}`};el.focus();el.value=c.text;send(el,new Event('input',{bubbles:true}),d);send(el,new Event('change',{bubbles:true}),d);if(c.submit&&el.form?.reportValidity())send(el.form,new SubmitEvent('submit',{bubbles:true,cancelable:true}),d);recordRun('agent:type',{selector:c.selector,length:c.text.length},d);break;}
       case 'key':{const init={key:c.key,code:c.code??keyCodeFor(c.key),metaKey:!!c.meta,shiftKey:!!c.shift,ctrlKey:!!c.ctrl,altKey:!!c.alt,bubbles:true,cancelable:true};send(document.body,new KeyboardEvent('keydown',init),d);send(document.body,new KeyboardEvent('keyup',init),d);recordRun('agent:key',{key:c.key},d);break;}
