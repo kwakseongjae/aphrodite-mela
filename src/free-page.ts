@@ -333,7 +333,9 @@ export type FrameHost = {
   /** Keeps a file the person put on the board, under the hash of its bytes. */
   put(file: Blob): Promise<StoredMedia>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
-  importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
+  importFile(ask: {path?: string; libraryId?: string; project?: string; stage?: boolean}): Promise<StoredMedia>;
+  /** Lets go of the files a batch staged (0.3-R fix 2 #20): kept when it landed; when it was refused, removed if it was the first to bring them and nothing has taken them since. */
+  releaseMedia(shas: string[], keep: boolean): Promise<void>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
   mediaUrl(sha: string): Promise<string | undefined>;
   /** How long the address frameMedia would give is, without reading the file; undefined when it would give none. */
@@ -431,6 +433,7 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
       return {sha, mime, bytes: file.size};
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
+    releaseMedia: async () => {},
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
     stat: async sha => { const blob = await read(sha); return blob ? {mime: blob.type, bytes: blob.size} : undefined; },
     read: async sha => { const blob = await read(sha); return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined; },
@@ -485,7 +488,8 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       for (let at = 0; at < file.size; at += PIECE) await native.invoke('board_media_chunk', new Uint8Array(await file.slice(at, at + PIECE).arrayBuffer()), {headers: {'upload-id': id}});
       return native.invoke<StoredMedia>('board_media_finish', {id});
     },
-    importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
+    importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null, stage: ask.stage ?? false}),
+    releaseMedia: async (shas, keep) => { if (shas.length) await native.invoke('board_media_release', {shas, keep}); },
     mediaUrl: where,
     // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,

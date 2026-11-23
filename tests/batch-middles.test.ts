@@ -51,7 +51,7 @@ test('applyBatch asks the preflight, and the door, before it copies a file', asy
   const start = main.indexOf('async function applyBatch(');
   const body = main.slice(start, main.indexOf('\n}\n', start));
   const copy = body.indexOf('await importMedia(');
-  assert.ok(body.indexOf('preflightBatch(project,held,selected)') > 0 && body.indexOf('preflightBatch(project,held,selected)') < copy, 'the preflight comes first');
+  assert.ok(body.indexOf('preflightBatch(project,held,selected,') > 0 && body.indexOf('preflightBatch(project,held,selected,') < copy, 'the preflight comes first');
   assert.ok(body.indexOf('stillAllowed()') < copy, 'and so does the door');
 });
 

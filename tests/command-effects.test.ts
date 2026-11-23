@@ -45,7 +45,7 @@ const INTERNAL_COMMANDS=[
   'page_wall_status',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
-  'board_media_begin','board_media_chunk','board_media_finish',
+  'board_media_begin','board_media_chunk','board_media_finish','board_media_release',
 ];
 /**
  * Tauri commands that read a file outside the app's own folders, at a path an agent names (0.3-P2-fix1):

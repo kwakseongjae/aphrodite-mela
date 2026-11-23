@@ -123,7 +123,7 @@ test('a board whose list could not be read does not tell the person to put a fil
 /* 19: what a read or an import adds after the cap was checked (an approval in today's form, a clearing recorded, the list of
    files a board came without) is held to the cap on the text that is written: the history gives way, the approval and the
    list are kept whole. */
-import {emptyLedger, record} from '../src/ledger/ledger.ts';
+import {emptyLedger, record, designOf} from '../src/ledger/ledger.ts';
 import {APPROVAL_CLEARED} from '../src/ledger/types.ts';
 import {readLibrary, LIBRARY_KEY} from '../src/workspace/library.ts';
 import {MAX_PROJECT} from '../src/model.ts';
@@ -167,4 +167,40 @@ test('a library read that records a stale approval\'s clearing holds the board t
   assert.equal(got.approvedFingerprint, undefined);
   assert.equal(got.ledger?.changes.at(-1)?.reason, APPROVAL_CLEARED, 'the clearing is recorded');
   assert.ok(JSON.stringify(got).length <= MAX_PROJECT, `${JSON.stringify(got).length} characters`);
+});
+
+/* 20: a media batch is held to the library's cap before a file is copied, on a stand-in no shorter than any real file's entry;
+   what can be known only from the bytes is known after the copy, so the files a batch copied are staged until it lands, and a
+   batch refused after the copy lets go of the ones it was the first to bring. */
+import {preflightBatch, runBatch, importMedia} from '../src/agent/apply.ts';
+test('a media batch past the library\'s cap is refused before a file is copied, and the stand-in is no shorter than a real entry', () => {
+  const batch = {ops: [{op: 'media_add' as const, library_id: '0123456789abcdef', name: 'Shot'}], patch: []};
+  let seen = 0;
+  const refused = (preflightBatch as unknown as (p: Project, b: unknown, s: string, fits?: (r: {project: Project; designChars: number}) => string | undefined) => {error: string} | undefined)(initialProject(), batch, '', r => { seen = JSON.stringify(designOf(r.project)).length; return 'the library is full'; });
+  assert.match(refused?.error ?? '', /the library is full/, 'the library is asked on the dry run');
+  for (const media of [
+    {src: `media:${sha(1)}`, mime: 'image/png', width: 1, height: 1},
+    {src: `media:${sha(2)}`, mime: 'image/jpeg', width: 20_000, height: 20_000},
+    {src: `media:${sha(3)}`, mime: 'video/webm', width: 240, height: 20_000, duration: 86_399.99},
+    {src: `media:${sha(4)}`, mime: 'video/webm', width: 19_999, height: 19_999, duration: 86_399.99},
+  ]) {
+    const real = runBatch(initialProject(), batch as never, '', {0: media});
+    assert.ok(real.ok);
+    assert.ok(JSON.stringify(designOf(real.project)).length <= seen, `${media.mime} ${media.width}x${media.height} is no longer than the stand-in`);
+  }
+});
+test('the files a batch copies are staged, and one that fails partway lets go of them; applyBatch lets go of them unless it lands', async () => {
+  const asked: {stage?: boolean}[] = [], released: [string[], boolean][] = [];
+  const host = {importFile: async (ask: {stage?: boolean}) => { asked.push(ask); return {sha: sha(asked.length), mime: 'image/png', bytes: 4}; }, mediaUrl: async () => 'blob:x', releaseMedia: async (shas: string[], keep: boolean) => { released.push([shas, keep]); }};
+  let n = 0;
+  const measure = async () => { if (++n === 2) throw new Error('it could not be read'); return {width: 1, height: 1}; };
+  const got = await importMedia([{op: 'media_add', library_id: '0123456789abcdef'}, {op: 'media_add', library_id: '0123456789abcdee'}] as never, 'inApp', host as never, 'p', measure);
+  assert.ok('error' in got);
+  assert.deepEqual(asked.map(a => a.stage), [true, true], 'each copy is staged');
+  assert.deepEqual(released, [[[sha(1), sha(2)], false]], 'both are let go of, the one that could not be measured too');
+  const body = main.slice(main.indexOf('async function applyBatch('), main.indexOf('\n}\n', main.indexOf('async function applyBatch(')));
+  assert.match(body, /preflightBatch\(project,held,selected,r=>libraryRefusal\(library,project,r\.project,/, 'the library is asked before the copy');
+  assert.match(body, /await frameHost\.releaseMedia\(staged,answer\.ok===true\)/, 'one place lets go of the files, keeping them only when the batch landed');
+  const drop = main.slice(main.indexOf('async function putMedia('), main.indexOf('\n}\n', main.indexOf('async function putMedia(')));
+  assert.ok(drop.indexOf('preflightBatch(project,') > 0 && drop.indexOf('preflightBatch(project,') < drop.indexOf('frameHost.put('), 'a drop or a paste asks the library before a file is kept too');
 });

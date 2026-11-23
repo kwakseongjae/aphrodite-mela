@@ -7,7 +7,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
 /// One file on a board holds at most this many bytes; past it, nothing is copied (src/free-page.ts holds the same number).
@@ -114,15 +116,41 @@ fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, 
     result
 }
 
-/// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is.
-fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64) -> Result<Stored, String> {
+/// Files an agent's batch was the first to bring into `board-media/`, by where they are, while the batch has not landed
+/// (0.3-R fix 2 #20). A batch that lands keeps them; one refused lets go of them (release). The same bytes coming in any
+/// other way take the file out of here, so it stays whatever the batch does.
+fn staged() -> &'static Mutex<HashSet<PathBuf>> {
+    static STAGED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    STAGED.get_or_init(Default::default)
+}
+
+/// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is. `stage` marks a
+/// file this move is the first to bring as staged; a file already there is taken out of the staged ones.
+fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, stage: bool) -> Result<Stored, String> {
     let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
+    let mut held = staged().lock().unwrap_or_else(|e| e.into_inner());
     if dest.exists() {
         let _ = fs::remove_file(incoming);
+        held.remove(&dest);
     } else {
         fs::rename(incoming, &dest).map_err(|e| e.to_string())?;
+        if stage {
+            held.insert(dest);
+        }
     }
     Ok(Stored { sha, mime: mime.to_string(), bytes })
+}
+
+/// Lets go of the files a batch staged: kept when it landed, removed when it was refused. Only a file still staged is
+/// removed, under the same lock a move takes, so a file anything else has brought in since stays.
+pub(crate) fn release(base: &Path, shas: &[String], keep: bool) {
+    let mut held = staged().lock().unwrap_or_else(|e| e.into_inner());
+    for sha in shas {
+        let Some(path) = media_file(base, sha) else { continue };
+        if held.remove(&path) && !keep {
+            let _ = fs::remove_file(&path);
+        }
+    }
 }
 
 /// Copies a file an agent names onto the board: a regular file, of a kind a board shows, within the cap.
@@ -131,6 +159,15 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64) -> 
 /// `reads` in src/agent/commands.mjs), and it can read this Mac's files already; what it gets here is
 /// a copy of a picture or a video, never anything else.
 pub(crate) fn store(base: &Path, from: &Path) -> Result<Stored, String> {
+    store_as(base, from, false)
+}
+
+/// As `store`, for an agent's batch: a file it is the first to bring is staged until the batch lands or is refused.
+pub(crate) fn store_staged(base: &Path, from: &Path) -> Result<Stored, String> {
+    store_as(base, from, true)
+}
+
+fn store_as(base: &Path, from: &Path, stage: bool) -> Result<Stored, String> {
     let from = &fs::canonicalize(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     let meta = fs::metadata(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     if !meta.is_file() {
@@ -142,7 +179,7 @@ pub(crate) fn store(base: &Path, from: &Path) -> Result<Stored, String> {
     let incoming = folder(base, UPLOADS)?.join(format!("{}.part", crate::agent::random_token()));
     let file = fs::File::open(from).map_err(|e| e.to_string())?;
     let (sha, mime, bytes) = copy_hashed(file, &incoming)?;
-    settle(base, &incoming, sha, mime, bytes)
+    settle(base, &incoming, sha, mime, bytes, stage)
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {
@@ -179,7 +216,7 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
     let result = copy_hashed(file, &hashed);
     let _ = fs::remove_file(&path);
     let (sha, mime, bytes) = result?;
-    settle(base, &hashed, sha, mime, bytes)
+    settle(base, &hashed, sha, mime, bytes, false)
 }
 
 /// Where a board's file is, when this Mac has it.
@@ -259,9 +296,10 @@ pub async fn board_media_finish(app: AppHandle, id: String) -> Result<Stored, St
     finish(&base(&app)?, &id)
 }
 
-/// An agent's media_add: a file on this Mac by its path, or a picture in the image library by its id.
+/// An agent's media_add: a file on this Mac by its path, or a picture in the image library by its id. `stage` holds a file
+/// it is the first to bring until the batch lands or is refused (board_media_release).
 #[tauri::command]
-pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id: Option<String>, project: Option<String>) -> Result<Stored, String> {
+pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id: Option<String>, project: Option<String>, stage: Option<bool>) -> Result<Stored, String> {
     let from = match (path, library_id) {
         (Some(path), None) => {
             let path = PathBuf::from(path);
@@ -273,7 +311,21 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
         (None, Some(id)) => crate::image_library::library_file(&app, &id, project.as_deref()).ok_or(format!("no image {id} in the library; take an id from aphrodite_list_images."))?,
         _ => return Err("name the file with path, or a library picture with library_id, not both.".into()),
     };
-    store(&base(&app)?, &from)
+    if stage.unwrap_or(false) {
+        store_staged(&base(&app)?, &from)
+    } else {
+        store(&base(&app)?, &from)
+    }
+}
+
+/// The files an agent's batch staged, kept when it landed and let go of when it was refused (0.3-R fix 2 #20).
+#[tauri::command]
+pub fn board_media_release(app: AppHandle, shas: Vec<String>, keep: bool) -> Result<(), String> {
+    if shas.len() > 64 {
+        return Err("a batch brings at most 64 files".into());
+    }
+    release(&base(&app)?, &shas, keep);
+    Ok(())
 }
 
 #[tauri::command]
@@ -433,5 +485,25 @@ mod tests {
         for (page, key) in [("../x", "ab"), ("p", "../x"), ("", "ab"), ("p", "")] {
             assert!(write_page(dir.path(), page, key, "x").is_err(), "{page} {key}");
         }
+    }
+    /* 0.3-R fix 2 #20: an agent's batch stages the files it copies. Refused, it lets go of only the ones it was the first to
+       bring and nothing has taken since; a file that was there already, or that anything else has put since, stays. */
+    #[test]
+    fn a_refused_batch_lets_go_only_of_the_files_it_was_first_to_bring() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
+        let (there, fresh, taken, kept) = (file("there.png", b"there"), file("fresh.png", b"fresh"), file("taken.png", b"taken"), file("kept.png", b"kept"));
+        let there = { store(dir.path(), &there).unwrap(); store_staged(dir.path(), &there).unwrap() };
+        let fresh = store_staged(dir.path(), &fresh).unwrap();
+        let taken_path = taken.clone();
+        let taken = store_staged(dir.path(), &taken).unwrap();
+        store(dir.path(), &taken_path).unwrap();
+        let kept = store_staged(dir.path(), &kept).unwrap();
+        release(dir.path(), &[kept.sha.clone()], true);
+        release(dir.path(), &[there.sha.clone(), fresh.sha.clone(), taken.sha.clone(), kept.sha.clone()], false);
+        assert!(media_file(dir.path(), &there.sha).is_some(), "a file that was there already stays");
+        assert!(media_file(dir.path(), &fresh.sha).is_none(), "the batch's own new file goes");
+        assert!(media_file(dir.path(), &taken.sha).is_some(), "a file something else put since stays");
+        assert!(media_file(dir.path(), &kept.sha).is_some(), "a file of a batch that landed stays");
     }
 }

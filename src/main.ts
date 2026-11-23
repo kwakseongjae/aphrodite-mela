@@ -271,6 +271,9 @@ function mediaSize(url:string,mime:string):Promise<{width:number;height:number;d
 async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
   const projectId=project.id;
   if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
+  // What the library holds is known before a file is kept (0.3-R fix 2 #20).
+  const ahead=preflightBatch(project,{ops:files.slice(0,12).map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
+  if(ahead){toast(ahead.error);return;}
   const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
   for(const file of files.slice(0,12)){
     const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);
@@ -1965,44 +1968,50 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   const held:Batch=heldBatch(batch,project);
   // A batch that will be refused anyway, or an agent the door no longer lets in, copies no file (0.3-R).
   if(withFiles){
-    const ahead=preflightBatch(project,held,selected);if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
+    const ahead=preflightBatch(project,held,selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
     const shut=stillAllowed();if(shut)return {...shut,applied:0};
   }
   const imported=withFiles?await importMedia(batch.ops,surface,frameHost,project.id,mediaSize):{media:{}};
   if('error' in imported)return {...imported,part:'ops',applied:0};
   const {media}=imported;
-  // Copying took a moment: the project and the door are asked again before anything moves.
-  if(Object.keys(media).length){
-    if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
-    const shut=stillAllowed();if(shut)return {...shut,applied:0};
-  }
-  let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined,before:Project|undefined;
-  commit(()=>{
-    // What the receipt compares against is read here too, once the person's typing is saved: their words are their own change, not the agent's.
-    before=JSON.parse(JSON.stringify(designOf(project))) as Project;
-    // The revision is read here, after the commit has saved what the person was typing: a batch written
-    // against the revision before their text is a batch written without it, and is refused.
-    stale=staleSince(d.baseRevision,'batch');
-    if(!stale&&Object.keys(media).length&&revisionInfo().revision!==revision)stale={error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
-    if(stale)return;
-    if(withFiles&&held.pageId&&!project.pages.some(p=>p.id===held.pageId)){stale={error:'the page this batch arrived on was removed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};return;}
-    const result=runBatch(project,held,selected,media);
-    if(!result.ok){failure=result;return;}
-    // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
-    const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
-    if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
-    created=result.created;
-    project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
-    carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));
-    selected=result.selected;
-  },d,'edit.apply',{source:'agent:apply'});
-  if(stale)return stale;
-  if(failure){
-    const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
-    return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
-  }
-  // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
-  return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
+  // The files the batch staged are kept only if it lands, at this one place, whichever way it ends (0.3-R fix 2 #20).
+  const staged=Object.values(media).map(m=>m.src.slice('media:'.length));
+  const answer=((): Record<string,unknown>=>{
+    // Copying took a moment: the project and the door are asked again before anything moves.
+    if(Object.keys(media).length){
+      if(screen!=='editor'||project.id!==projectId)return {error:'the project changed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};
+      const shut=stillAllowed();if(shut)return {...shut,applied:0};
+    }
+    let failure:Extract<BatchResult,{ok:false}>|undefined,created:string[]=[],stale:Record<string,unknown>|undefined,before:Project|undefined;
+    commit(()=>{
+      // What the receipt compares against is read here too, once the person's typing is saved: their words are their own change, not the agent's.
+      before=JSON.parse(JSON.stringify(designOf(project))) as Project;
+      // The revision is read here, after the commit has saved what the person was typing: a batch written
+      // against the revision before their text is a batch written without it, and is refused.
+      stale=staleSince(d.baseRevision,'batch');
+      if(!stale&&Object.keys(media).length&&revisionInfo().revision!==revision)stale={error:'the project changed while the files were copied, so nothing was placed. Read the changes and resend.',status:409,applied:0};
+      if(stale)return;
+      if(withFiles&&held.pageId&&!project.pages.some(p=>p.id===held.pageId)){stale={error:'the page this batch arrived on was removed while the files were copied, so nothing was placed. Read the contract again and resend.',status:409,applied:0};return;}
+      const result=runBatch(project,held,selected,media);
+      if(!result.ok){failure=result;return;}
+      // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
+      const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
+      if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
+      created=result.created;
+      project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
+      carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));
+      selected=result.selected;
+    },d,'edit.apply',{source:'agent:apply'});
+    if(stale)return stale;
+    if(failure){
+      const where=failure.index<0?failure.part:`${failure.part}[${failure.index}]`;
+      return {error:`${where}: ${failure.error}`,failed_at:failure.index,part:failure.part,applied:0};
+    }
+    // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
+    return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
+  })();
+  await frameHost.releaseMedia(staged,answer.ok===true).catch(()=>{});
+  return answer;
 }
 
 /** What an agent command would land on, read off the live screen for the gate (see reachedAction). */
