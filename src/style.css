@@ -173,6 +173,7 @@ button{transition:background .15s,color .15s}
 .block-tools svg{width:13px;height:13px}
 .block-tools>button:last-child:hover{color:#b26957;background:#f8eee7}
 .review-card{margin:19px 15px;background:linear-gradient(130deg,#eef3e4,#f5f7ee);border:1px solid #dfe7d2;border-radius:7px;padding:17px 14px;display:flex;align-items:center;flex-direction:column;text-align:center}
+.paper-review-art{display:block;object-fit:contain;margin:0 auto 8px;background:transparent}
 .review-symbol{width:31px;height:31px;background:#e4ecd8;border-radius:50%;display:grid;place-items:center;color:#83976b;margin-bottom:10px}
 .review-symbol svg{width:17px}
 .review-card>strong{font-family:Georgia,serif;font-size:15px;font-weight:400;color:#60704e}
