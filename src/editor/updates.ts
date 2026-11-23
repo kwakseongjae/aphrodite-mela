@@ -21,6 +21,8 @@ export type UpdateHost = {
   toast: (text: string) => void;
   /** Icons are drawn once the card's markup is in the document. */
   hydrateIcons: () => void;
+  /** Leaves the app the way closing the window does (0.3-R fix 2 #1): the board is saved first, and if it cannot be, the person is asked. */
+  leaving: (go: () => Promise<void>) => Promise<void>;
 };
 
 export type Updates = ReturnType<typeof createUpdates>;
@@ -95,7 +97,7 @@ export function createUpdates(host: UpdateHost) {
             break;
           }
           case 'update-relaunch': {
-            try{const {relaunch}=await import('@tauri-apps/plugin-process');await relaunch();}
+            try{await host.leaving(async()=>{const {relaunch}=await import('@tauri-apps/plugin-process');await relaunch();});}
             catch(error){host.toast(String(error));}
             break;
           }

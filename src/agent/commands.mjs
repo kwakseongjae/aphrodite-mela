@@ -1445,9 +1445,21 @@ export const commands = [
     ...plain,
     surfaces: UI,
     controls: [
-      action('update-install'), action('update-relaunch'), action('update-download'), action('update-open'), action('update-reveal'),
+      action('update-install'), action('update-download'), action('update-open'), action('update-reveal'),
       action('update-notes'), action('update-later'), action('update-dismiss'), action('update-never'), listener('update-check'),
     ],
+  },
+  {
+    /* Starting the app again reads the board on disk in place of the one on screen (0.3-R fix 2 #1): the person's alone,
+       and it saves first, as closing the window does. */
+    id: 'outside.relaunch',
+    label: {en: 'Restart into the new version', ko: '새 버전으로 다시 시작'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('update-relaunch')],
   },
   {
     /* The saved copy, an approved one included, put back over the board on screen (0.3-R fix 1): the person's alone. */

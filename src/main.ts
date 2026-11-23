@@ -344,6 +344,7 @@ const updates=createUpdates({
   ui,
   toast,
   hydrateIcons:()=>hydrateIcons(),
+  leaving:go=>closer.request(go),
 });
 const archive=createArchive({
   project:()=>project,
@@ -1348,6 +1349,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
      file picker, and somewhere to hand a promoted picture — putting one on the analysis slot is the
      editor's business, not the archive's. */
+  // Relaunching puts the board on disk in place of the one on screen (0.3-R fix 2 #1): the person's alone.
+  if(act==='update-relaunch'&&refusal(d,'outside.relaunch'))return;
   if(act&&await updates.handle(act))return;
   if(act&&await archive.handle(act,el,pickFile,src=>{if(!here())return;commit(()=>{project.reference=src;},d,'edit.reference');referenceModal();}))return;
   switch (act) {

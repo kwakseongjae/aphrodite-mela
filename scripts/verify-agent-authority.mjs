@@ -351,7 +351,7 @@ check('an allowed agent cannot send a page or the board as a file, open the file
   const page = made.created_pages[0].page_id;
   const state = async () => ({seq: (await agent('changes', {limit: 1, include_view: true}, 'claude-code')).seq, page: await evaluate('document.querySelector("#app").dataset.frame'), made: await evaluate('window.__made'), picker: await evaluate('!!document.querySelector("input[data-upload]")')});
   const before = await state();
-  for (const [action, data] of [['page-view-edit', {id: page}], ['page-view-edit', {id: 'missing'}], ['download-page-html', {}], ['download-board-file', {}], ['import-project', {}], ['disk-reload', {}]]) {
+  for (const [action, data] of [['page-view-edit', {id: page}], ['page-view-edit', {id: 'missing'}], ['download-page-html', {}], ['download-board-file', {}], ['import-project', {}], ['disk-reload', {}], ['update-relaunch', {}]]) {
     const r = await agent('act', {action, data}, 'claude-code');
     assert.equal(r.status, 403, `${action} ${JSON.stringify(data)}: ${JSON.stringify(r)}`);
     assert.match(r.error, /the person's to do/);
