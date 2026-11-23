@@ -1,0 +1,69 @@
+{
+ "colors": {
+  "gold": "#B48A32",
+  "ink": "#1f1e19",
+  "paper": "#f7f5ef"
+ },
+ "symbol": {
+  "box": 48,
+  "source": "v1b",
+  "bbox": [
+   4.722,
+   1.999,
+   43.278,
+   46
+  ],
+  "body": [
+   4.722,
+   12.67,
+   43.278,
+   46
+  ],
+  "move16": {
+   "dx": -1.5,
+   "dy": 1,
+   "min": 1,
+   "probes": {
+    "counter": 1,
+    "legR": 1,
+    "legL": 1,
+    "crossbar": 1
+   },
+   "at0": {
+    "counter": 0.57,
+    "legR": 1,
+    "legL": 1,
+    "crossbar": 0.85
+   }
+  }
+ },
+ "wordmark": {
+  "font": "Wanted Sans Variable, wght 800",
+  "text": "Aphrodite",
+  "trackingEm": -0.035,
+  "upm": 2048,
+  "capHeight": 1448,
+  "xHeight": 1032,
+  "kerning": "none between these letters (HarfBuzz, default features)",
+  "inkFontUnits": {
+   "left": 39.1996484546653,
+   "right": 9455.762285044675,
+   "bottom": -432,
+   "top": 1530.66845703125
+  }
+ },
+ "lockup": {
+  "rule": "apple body height 1.3c, centred between baseline and cap line; apple right edge to the A ink 0.45c; c = cap height",
+  "viewBox": [
+   4.222,
+   1.499,
+   217.822,
+   48.804
+  ],
+  "c": 25.638,
+  "fontScale": 0.017706,
+  "baselineY": 42.154,
+  "textX": 54.121,
+  "aspect": 4.5357
+ }
+}

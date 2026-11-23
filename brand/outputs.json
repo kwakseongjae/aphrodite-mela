@@ -1,0 +1,253 @@
+{
+ "public/brand/apple-mark.png": {
+  "from": {
+   "brand/symbol-gold.svg": "d8aca73c7d2059ff3de1f7baf9a61ca82d19fff3041afe20d94316cda79e58e0"
+  },
+  "sha256": "dc75846431477530f78b2039c0f366c88d5df6b39f9a987207a86d81f70fe8da",
+  "size": [
+   256,
+   256
+  ]
+ },
+ "site/assets/brand/app-icon.png": {
+  "from": {
+   "brand/app-icon-1024.png": "f1d131c2dbab07af2a259b87d5e32bf7225a373e434a3f598b33db6c804a39c8"
+  },
+  "sha256": "32020a34e2f21ca6090642ff70d2b224aacd1f12eba26cfb37fb1ae57fb444db",
+  "size": [
+   256,
+   256
+  ]
+ },
+ "src-tauri/icons/icon.icns": {
+  "from": {
+   "brand/app-icon-1024.png": "f1d131c2dbab07af2a259b87d5e32bf7225a373e434a3f598b33db6c804a39c8"
+  },
+  "sha256": "fca23ae623ba005dbfe405c2c7aae184cc1ca9aef8c1af13a520436c2beed7ea"
+ },
+ "src-tauri/icons/icon.ico": {
+  "from": {
+   "brand/app-icon-1024.png": "f1d131c2dbab07af2a259b87d5e32bf7225a373e434a3f598b33db6c804a39c8"
+  },
+  "sha256": "0b5fb84506e51d59db0f76d8d12483eacf341a19326e86ba34cf6382cafdc939"
+ },
+ "src-tauri/dmg/background.png": {
+  "from": {
+   "brand/dmg/background-base@2x.png": "da4eb004179be5989952c0fe36446a6f4bf867f3e96c7101df10e1f3755f99ec",
+   "brand/lockup.svg": "e0c867b94589481c985f45ff6fb57c9f98c2d56fde879b164790004cc1be8901"
+  },
+  "sha256": "0e182121a9fd915830dddc7955d9c216c00a700dec411f225c3a0f8a5ecf6eea",
+  "size": [
+   660,
+   400
+  ]
+ },
+ "src-tauri/dmg/background@2x.png": {
+  "from": {
+   "brand/dmg/background-base@2x.png": "da4eb004179be5989952c0fe36446a6f4bf867f3e96c7101df10e1f3755f99ec",
+   "brand/lockup.svg": "e0c867b94589481c985f45ff6fb57c9f98c2d56fde879b164790004cc1be8901"
+  },
+  "sha256": "a9e2660adab09632489f57007a9475794b8201482dda77514364c1ff718d6f36",
+  "size": [
+   1320,
+   800
+  ]
+ },
+ "src-tauri/dmg/background.tiff": {
+  "from": {
+   "brand/dmg/background-base@2x.png": "da4eb004179be5989952c0fe36446a6f4bf867f3e96c7101df10e1f3755f99ec",
+   "brand/lockup.svg": "e0c867b94589481c985f45ff6fb57c9f98c2d56fde879b164790004cc1be8901"
+  },
+  "sha256": "3fbb315a391f8741d7b57a074b11d1d3af9bc41e88f8bfb9c9f1ad2a940a5ec0"
+ },
+ "public/brand/app-icon-1024.png": {
+  "from": {
+   "brand/app-icon-1024.png": "f1d131c2dbab07af2a259b87d5e32bf7225a373e434a3f598b33db6c804a39c8"
+  },
+  "sha256": "f1d131c2dbab07af2a259b87d5e32bf7225a373e434a3f598b33db6c804a39c8",
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "site/assets/brand/favicon-16.png": {
+  "from": {
+   "brand/favicon-16.png": "6adcdfa51d374e6e2afb01cccc655978aa85ad20a9fcac805c4ed39fb21979e4"
+  },
+  "sha256": "6adcdfa51d374e6e2afb01cccc655978aa85ad20a9fcac805c4ed39fb21979e4",
+  "size": [
+   16,
+   16
+  ]
+ },
+ "site/assets/brand/favicon-32.png": {
+  "from": {
+   "brand/favicon-32.png": "c0830c3007cd962a2e0666c697ffac0c066603fa8ce6e3300eb3f3f8e9592e7a"
+  },
+  "sha256": "c0830c3007cd962a2e0666c697ffac0c066603fa8ce6e3300eb3f3f8e9592e7a",
+  "size": [
+   32,
+   32
+  ]
+ },
+ "site/assets/brand/apple-touch-icon-180.png": {
+  "from": {
+   "brand/apple-touch-icon-180.png": "aa967a6cd154dcb031db0cc09e3935f36c40f3570112fd2588c5ed6cb1e62c03"
+  },
+  "sha256": "aa967a6cd154dcb031db0cc09e3935f36c40f3570112fd2588c5ed6cb1e62c03",
+  "size": [
+   180,
+   180
+  ]
+ },
+ "src-tauri/icons/128x128.png": {
+  "from": {
+   "brand/icons/128x128.png": "c502a906def308f2432af20228bbe48855a940ad05a68c108e988d026f870f59"
+  },
+  "sha256": "c502a906def308f2432af20228bbe48855a940ad05a68c108e988d026f870f59",
+  "size": [
+   128,
+   128
+  ]
+ },
+ "src-tauri/icons/128x128@2x.png": {
+  "from": {
+   "brand/icons/128x128@2x.png": "bb56c107d8e4c084ddeb2ee1c712ba89b97114a641872f2fc73be64eaf022369"
+  },
+  "sha256": "bb56c107d8e4c084ddeb2ee1c712ba89b97114a641872f2fc73be64eaf022369",
+  "size": [
+   256,
+   256
+  ]
+ },
+ "src-tauri/icons/32x32.png": {
+  "from": {
+   "brand/icons/32x32.png": "3c14d1f50ea9e142602f4b9f5eee23337430dca7af5bb9cc349919b0d2af6174"
+  },
+  "sha256": "3c14d1f50ea9e142602f4b9f5eee23337430dca7af5bb9cc349919b0d2af6174",
+  "size": [
+   32,
+   32
+  ]
+ },
+ "src-tauri/icons/64x64.png": {
+  "from": {
+   "brand/icons/64x64.png": "b2d553782880145c93e108841022965d49de8c56cc2e988cd6e78d77a7f8d7ff"
+  },
+  "sha256": "b2d553782880145c93e108841022965d49de8c56cc2e988cd6e78d77a7f8d7ff",
+  "size": [
+   64,
+   64
+  ]
+ },
+ "src-tauri/icons/Square107x107Logo.png": {
+  "from": {
+   "brand/icons/Square107x107Logo.png": "722f2b3d4b16b5fd4c372dfcd4636b2db775130b6bb24852f940a55aee680b53"
+  },
+  "sha256": "722f2b3d4b16b5fd4c372dfcd4636b2db775130b6bb24852f940a55aee680b53",
+  "size": [
+   107,
+   107
+  ]
+ },
+ "src-tauri/icons/Square142x142Logo.png": {
+  "from": {
+   "brand/icons/Square142x142Logo.png": "f44ee998dc3393785a7978709c588fb10992625e42da6fb48535541d0b7fa5fa"
+  },
+  "sha256": "f44ee998dc3393785a7978709c588fb10992625e42da6fb48535541d0b7fa5fa",
+  "size": [
+   142,
+   142
+  ]
+ },
+ "src-tauri/icons/Square150x150Logo.png": {
+  "from": {
+   "brand/icons/Square150x150Logo.png": "98ae9507bdda00e7dc5a013a3aa09e9da4809d0fb25bf8bcfd9ab5ebed80b0d7"
+  },
+  "sha256": "98ae9507bdda00e7dc5a013a3aa09e9da4809d0fb25bf8bcfd9ab5ebed80b0d7",
+  "size": [
+   150,
+   150
+  ]
+ },
+ "src-tauri/icons/Square284x284Logo.png": {
+  "from": {
+   "brand/icons/Square284x284Logo.png": "914e0239d3cac6db6d86f7da3d057a77cdf03129eec7b3cad6301b3fc4d161e8"
+  },
+  "sha256": "914e0239d3cac6db6d86f7da3d057a77cdf03129eec7b3cad6301b3fc4d161e8",
+  "size": [
+   284,
+   284
+  ]
+ },
+ "src-tauri/icons/Square30x30Logo.png": {
+  "from": {
+   "brand/icons/Square30x30Logo.png": "44c3da5197804543ea7e0151d8d5ac9feb5b42abd83adf87fdbe1a52cab0af82"
+  },
+  "sha256": "44c3da5197804543ea7e0151d8d5ac9feb5b42abd83adf87fdbe1a52cab0af82",
+  "size": [
+   30,
+   30
+  ]
+ },
+ "src-tauri/icons/Square310x310Logo.png": {
+  "from": {
+   "brand/icons/Square310x310Logo.png": "6214ca504f7d4817cd259432f99cfb79dad85dc33cbfa89df21210a437164d9a"
+  },
+  "sha256": "6214ca504f7d4817cd259432f99cfb79dad85dc33cbfa89df21210a437164d9a",
+  "size": [
+   310,
+   310
+  ]
+ },
+ "src-tauri/icons/Square44x44Logo.png": {
+  "from": {
+   "brand/icons/Square44x44Logo.png": "e694805943c1d078b8dfb95937e5a1034f75e6f8cf0a01c3925927fb46f41888"
+  },
+  "sha256": "e694805943c1d078b8dfb95937e5a1034f75e6f8cf0a01c3925927fb46f41888",
+  "size": [
+   44,
+   44
+  ]
+ },
+ "src-tauri/icons/Square71x71Logo.png": {
+  "from": {
+   "brand/icons/Square71x71Logo.png": "3b976ed8e95e87b4a72a9553380612eaa9641487d88059e5852d0d12003e1b2e"
+  },
+  "sha256": "3b976ed8e95e87b4a72a9553380612eaa9641487d88059e5852d0d12003e1b2e",
+  "size": [
+   71,
+   71
+  ]
+ },
+ "src-tauri/icons/Square89x89Logo.png": {
+  "from": {
+   "brand/icons/Square89x89Logo.png": "7ed975fbe2f6f193dd66c582680497e374507072b5ed54a8b22de1707787b506"
+  },
+  "sha256": "7ed975fbe2f6f193dd66c582680497e374507072b5ed54a8b22de1707787b506",
+  "size": [
+   89,
+   89
+  ]
+ },
+ "src-tauri/icons/StoreLogo.png": {
+  "from": {
+   "brand/icons/StoreLogo.png": "d87f6567c547c13c92137d984c34f7cd848ec7f1b64412dafed960108ef66905"
+  },
+  "sha256": "d87f6567c547c13c92137d984c34f7cd848ec7f1b64412dafed960108ef66905",
+  "size": [
+   50,
+   50
+  ]
+ },
+ "src-tauri/icons/icon.png": {
+  "from": {
+   "brand/icons/icon.png": "afedc0b78b8bfde3757e5c2e27923ae3a75b61943a3f3f087d72f1e7e0d9cb44"
+  },
+  "sha256": "afedc0b78b8bfde3757e5c2e27923ae3a75b61943a3f3f087d72f1e7e0d9cb44",
+  "size": [
+   512,
+   512
+  ]
+ }
+}

@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "desktop:build": "tauri build --bundles app",
+    "brand": "node scripts/build-brand.mjs",
     "verify:authority": "node scripts/verify-agent-authority.mjs",
     "verify:tools": "node scripts/verify-agent-tools.mjs",
     "verify:demo": "node scripts/verify-computer-use.mjs",
