@@ -16,7 +16,7 @@ export function renameDialogHtml(language:Language,project:Pick<Project,'id'|'na
   return `<form id="hub-rename-form" class="ui-home-form"><input type="hidden" name="projectId" value="${esc(project.id)}"><label class="ui-label">${say(language,'Project name','프로젝트 이름')}<input class="ui-input" name="name" required maxlength="100" value="${esc(project.name)}"></label>${foot(`<button class="ui-btn ui-btn-primary ui-btn-md" type="submit">${say(language,'Rename project','프로젝트 이름 변경')}</button>`)}</form>`;
 }
 
-/** Keep it comes first, so the focus a dialog opens with lands on the answer that loses nothing. */
+/** The answer that loses nothing comes first. */
 export function deleteDialogHtml(language:Language,project:Pick<Project,'id'>){
   return `<div class="ui-home-form"><p class="ui-home-form-text">${say(language,'It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p>${foot(`<button class="ui-btn ui-btn-secondary ui-btn-md" type="button" data-action="close-modal">${say(language,'Keep it','그대로 두기')}</button>`,`<button class="ui-btn ui-btn-danger ui-btn-md" type="button" data-action="hub-delete-confirm" data-id="${esc(project.id)}">${icon('trash-2','ui-icon ui-icon-sm')}${say(language,'Delete project','프로젝트 삭제')}</button>`)}</div>`;
 }

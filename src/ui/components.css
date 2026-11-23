@@ -509,7 +509,7 @@ button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; backgroun
 .ui-board-card-thumb > .ui-pill { position: absolute; left: var(--ui-space-2); top: var(--ui-space-2); }
 .ui-board-card-actions { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); display: flex; gap: var(--ui-space-1); opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease); }
 .ui-board-card:hover .ui-board-card-actions, .ui-board-card:focus-within .ui-board-card-actions, .ui-board-card.is-hover .ui-board-card-actions, .ui-board-card-actions.is-pinned { opacity: 1; }
-.ui-board-card-actions > .ui-icon-btn { background: var(--ui-bg-raised); }
+.ui-board-card-actions > .ui-icon-btn, .ui-board-card-actions > details > .ui-icon-btn { background: var(--ui-bg-raised); }
 .ui-board-card-head { display: flex; align-items: baseline; gap: var(--ui-space-2); }
 .ui-board-card-name { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
 .ui-board-card-counts { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); white-space: nowrap; }

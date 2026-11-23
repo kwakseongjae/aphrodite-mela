@@ -8,7 +8,7 @@
 .ui-home[data-sidebar="collapsed"] > .ui-home-side { display: none; }
 
 /* The sidebar: brand, workspace, sections, the one picture, and the switch, storage and settings at the foot. */
-.ui-home-side { min-height: 0; overflow-y: auto; padding-top: var(--ui-space-4); background: var(--ui-bg-app); }
+.ui-home-side { min-height: 0; padding-top: var(--ui-space-4); background: var(--ui-bg-app); }
 .ui-home-brand { display: flex; align-items: center; gap: var(--ui-space-2); padding: 0 var(--ui-space-2) var(--ui-space-4) var(--ui-space-3); }
 .ui-home-brand > a { display: inline-flex; align-items: center; gap: var(--ui-space-2); margin-right: auto; color: var(--ui-text-1); text-decoration: none; }
 .ui-home-brand > a > img { width: var(--ui-control-sm); height: var(--ui-control-sm); object-fit: contain; }
@@ -36,7 +36,6 @@
 .ui-home-tools > .folio-lang { margin-right: auto; }
 .ui-home-tools > details { position: relative; }
 .ui-home-tools .ui-menu { position: absolute; bottom: calc(100% + var(--ui-space-1)); left: 0; z-index: 40; }
-.ui-home-tools > .folio-help > .ui-menu { left: auto; right: 0; }
 
 /* Menus main.ts places by the pointer or under their button (placeCardMenu, placeWorkspaceMenu). */
 .ui-home .folio-ws > .ui-menu, .ui-home .folio-more > .ui-menu { position: fixed; z-index: 40; }
@@ -55,9 +54,10 @@
 /* The main column: the heading row and the boards. */
 .ui-home-main { min-width: 0; min-height: 0; overflow-y: auto; background: var(--ui-bg-panel); }
 .ui-home-col { display: flex; flex-direction: column; gap: var(--ui-space-5); max-width: var(--ui-content-max); margin: 0 auto; padding: var(--ui-space-6) var(--ui-space-7) var(--ui-space-7); }
-.ui-home .ui-heading { flex-wrap: wrap; row-gap: var(--ui-space-3); }
 .ui-home .ui-heading-title > span { margin-left: var(--ui-space-2); font-size: var(--ui-text-15); line-height: var(--ui-lh-15); letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--ui-mark); }
-.ui-home .ui-heading > .folio-search { margin-left: auto; }
+/* The search gives way first when the row is narrow (1100 wide, English), down to three controls wide. */
+.ui-home .ui-heading > .folio-search { flex: 0 1 auto; min-width: calc(var(--ui-control-lg) * 3); margin-left: auto; }
+.ui-home .ui-heading > .ui-heading-title, .ui-home .ui-heading > .ui-btn, .ui-home .ui-heading > .ui-seg { flex-shrink: 0; white-space: nowrap; }
 .ui-home-banner-actions { display: flex; gap: var(--ui-space-2); margin: var(--ui-space-2) 0 0; }
 .ui-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ui-card-min-w), 1fr)); gap: var(--ui-space-5); }
 .ui-home-grid > .ui-empty { grid-column: 1 / -1; border: var(--ui-hairline) dashed var(--ui-line); border-radius: var(--ui-radius-3); }
