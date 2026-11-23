@@ -55,6 +55,10 @@ test('a step and a change aside from the editor are mended the same way', () => 
   const q = initialProject();
   changeAside(q, x => { x.name = `${'n'.repeat(99)}${emoji}`.slice(0, 100); }, {author: me, source: 'home:rename'});
   assert.ok(whole(q));
+  assert.equal(q.name, `${'n'.repeat(99)}\uFFFD`, 'the half the cut left is mended, in the board');
+  const renamed = q.ledger!.changes.at(-1)!;
+  assert.equal(renamed.source, 'home:rename');
+  assert.deepEqual(renamed.ops.find(op => op.op === 'set' && op.field === 'name'), {op: 'set', on: 'project', field: 'name', value: q.name}, 'and in the change recorded');
 });
 
 test('a reason, a name and a source cut to length in the ledger never split a pair', () => {

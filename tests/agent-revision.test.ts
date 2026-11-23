@@ -87,4 +87,8 @@ test('edit and system read the revision again once the commit has saved what the
   assert.match(main, /commit\(\(\)=>\{late=staleSince\(d\.baseRevision,'edit'\);if\(late\)return;/, 'edit');
   assert.match(main, /commit\(\(\)=>\{late=staleSince\(d\.baseRevision,'system'\);if\(late\)return;/, 'system');
   assert.match(main, /function revisionInfo\(\)\{return \{revision:agentRevision\(project\)/, 'and every reply names the agent revision');
+  // What the check does is shown with the app running: verify:tools sends edit and system with the revision read before the
+  // person typed and holds the 409 and the board unchanged (0.3-R fix 1 #12); this pins only where the check sits.
+  const tools = readFileSync(new URL('../scripts/verify-agent-tools.mjs', import.meta.url), 'utf8');
+  assert.match(tools, /edit and system sent with the revision read before the person typed are refused with a 409/);
 });

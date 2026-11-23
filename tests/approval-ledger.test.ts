@@ -68,8 +68,12 @@ test('Codex route 2: an agent\'s undo onto the approved content brings the conte
 
 test('an agent may undo its own edit on an approved board: the clearing that came with it is not a write of the approval', () => {
   const {p, h} = approved();
+  const title = p.pages[0].blocks[1].title;
   edit(p, h, x => { x.pages[0].blocks[1].title = 'Agent title'; }, bot, 'agent:apply', 'Try a title.');
-  assert.doesNotThrow(() => step(p, 'undo', h, bot));
+  const undone = step(p, 'undo', h, bot);
+  assert.ok(undone, 'the step was taken');
+  assert.equal(undone!.project.pages[0].blocks[1].title, title, 'and took the title back');
+  assert.equal(isApproved(undone!.project), false, 'a draft');
 });
 
 test('the person\'s own ⌘Z brings the approval back, whoever made the edit', () => {
