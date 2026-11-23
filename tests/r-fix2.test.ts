@@ -86,3 +86,35 @@ test('after a page the batch makes, its ops need no page_id, but the selection i
 test('the browser build warns before a tab with unsaved work is closed', () => {
   assert.match(main, /window\.addEventListener\('beforeunload',e=>\{if\(!lastSaved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
 });
+
+/* 18: an export that held a library picture back says to put it on the board again. A person doing that is enough: it
+   comes off the list (saved even when the board already showed it), and the notice counts from the lookup the export makes. */
+import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
+import * as bf from '../src/board-file.ts';
+test('doing what the notice says sends the picture: putting it back takes it off the list, and the notice counts what the export holds back', async () => {
+  const PIC = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7]), ID = bf.contentId(PIC);
+  const counted = (bf as unknown as Record<string, unknown>).outgoingCount as (p: Project, go: ReturnType<typeof outgoing>) => Promise<{count: number; bytes: number; locals: number; held: number; all: boolean}>;
+  assert.equal(typeof counted, 'function', 'board-file.ts exports outgoingCount');
+  const p = {...initialProject(), reference: `local:${ID}`, leftOut: [`local:${ID}`, sha(9)]} as Project;
+  const files = {stat: async (_: string) => undefined, read: async (_: string) => undefined};
+  const local = async (id: string) => id === ID ? {bytes: PIC, mime: 'image/png'} : undefined;
+  const store = {maxBytes: 1 << 20, put: async (blob: Blob) => ({sha: sha(blob.size), mime: blob.type, bytes: blob.size})};
+  const send = async () => { const go = outgoing(p, files, local); const out = await writeBoardFile(p, {...go.host, local: go.local}); return {go, pictures: (await readBoardFile(out.bytes, store)).pictures.length}; };
+  let sent = await send();
+  assert.equal(sent.pictures, 0, 'held back');
+  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 0, held: 1, all: false}, 'and the notice says one');
+  assert.equal(bf.carriedNow(p, [sha(8)]), false, 'a file not on the list changes nothing, so nothing is saved');
+  assert.equal(bf.carriedNow(p, [`local:${ID}`]), true, 'putting it back changes the list, so the board is saved though the design is the same');
+  assert.deepEqual(p.leftOut, [sha(9)]);
+  sent = await send();
+  assert.equal(sent.pictures, 1, 'and now it goes out');
+  assert.deepEqual(await counted(p, outgoing(p, files, local)), {count: 0, bytes: 0, locals: 1, held: 0, all: false});
+  const apply = main.slice(main.indexOf("case 'apply-local':"), main.indexOf("case '", main.indexOf("case 'apply-local':") + 20));
+  assert.match(apply, /if\(d\.author\.kind==='person'&&carriedNow\(project,\[src\]\)\)persist\(\);/, 'the person\'s press frees it and saves');
+  assert.equal((apply.match(/freed\(\);/g) ?? []).length, 2, 'whether it went on a section or became the reference');
+  assert.match(main, /function carriedSummary\(board:Project\):Promise<string>\{\n\s*const go=outgoing\(board,frameHost\);const \{count,bytes,locals,held,all\}=await outgoingCount\(board,go\);/);
+});
+test('a board whose list could not be read does not tell the person to put a file back, since that cannot send it', () => {
+  assert.match(main, /function withheldNote\(n:number,all=false\)/);
+  assert.match(main, /withheldNote\(go\.withheld\.size,go\.all\)/);
+});

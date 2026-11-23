@@ -209,9 +209,9 @@ export {filesNamed};
  * them; `withheld` is filled with those an export asked for, for it to say how many it left out. What the board shows
  * is not changed: the frames are given the host as it is.
  */
-export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Project, host: H, local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): {host: H; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; withheld: Set<string>} {
+export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Project, host: H, local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): {host: H; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; withheld: Set<string>; holds: (file: string) => boolean; all: boolean} {
   const without = new Set(project.leftOut ?? []), all = without.has(LEFT_OUT_ALL), withheld = new Set<string>();
-  const held = (file: string) => { if (!all && !without.has(file)) return false; withheld.add(file); return true; };
+  const holds = (file: string) => all || without.has(file), held = (file: string) => { if (!holds(file)) return false; withheld.add(file); return true; };
   // What a frame would draw is held back the same way, for a picture of the board that goes out (an agent's render, 0.3-R fix 2 #14).
   const drawn = host as H & Partial<Pick<FrameHost, 'frameCost' | 'frameMedia' | 'mediaUrl'>>;
   return {
@@ -220,14 +220,23 @@ export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Pr
       ...(drawn.frameMedia ? {frameMedia: async (sha: string) => held(sha) ? undefined : drawn.frameMedia!(sha)} : {}),
       ...(drawn.mediaUrl ? {mediaUrl: async (sha: string) => held(sha) ? undefined : drawn.mediaUrl!(sha)} : {})},
     ...(local ? {local: async (id: string) => held(`local:${id}`) ? undefined : local(id)} : {}),
-    withheld,
+    withheld, holds, all,
   };
 }
+/** What goes out with a board and what is held back, by the lookups its export makes (0.3-R fix 2 #18): the notice before an export counts from this. */
+export async function outgoingCount(board: Project, go: {host: Pick<FrameHost, 'stat'>; holds: (file: string) => boolean; all: boolean}): Promise<{count: number; bytes: number; locals: number; held: number; all: boolean}> {
+  let count = 0, bytes = 0, held = 0;
+  for (const sha of filesNamed(board)) { const file = await go.host.stat(sha); if (file) { count++; bytes += file.bytes; } else if (go.holds(sha)) held++; }
+  const locals = localRefsIn(board).filter(id => !go.holds(`local:${id}`)).length;
+  return {count, bytes, locals, held: held + localRefsIn(board).length - locals, all: go.all};
+}
 /** Files put on the board directly, by the person or an agent (a drop, a paste, media_add, a picture added to the library): they come off the list. */
-export function carriedNow(project: Project, files: string[]): void {
-  if (!project.leftOut || project.leftOut.includes(LEFT_OUT_ALL)) return;
+export function carriedNow(project: Project, files: string[]): boolean {
+  if (!project.leftOut || project.leftOut.includes(LEFT_OUT_ALL)) return false;
   const kept = project.leftOut.filter(f => !files.includes(f));
+  if (kept.length === project.leftOut.length) return false;
   if (kept.length) project.leftOut = kept; else delete project.leftOut;
+  return true;
 }
 
 /** What a board file was read into: the project, never yet saved anywhere, the files it carried and those left out and why. */
