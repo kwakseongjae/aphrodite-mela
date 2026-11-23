@@ -2060,7 +2060,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
          image, and an agent checking its own work would go and "fix" something that was never
          wrong. Fetch what the page points at and inline it, for this render only. */
       // A free page goes to the command that refuses it where the page wall does not hold (src-tauri/src/page_wall.rs may_render).
-      const png=isFreePage(page)?await invoke<string>('render_free_page',{html:await renderDocument(page,frameHost),width,height}):await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
+      const png=isFreePage(page)?await invoke<string>('render_free_page',{html:await renderDocument(page,outgoing(project,frameHost).host),width,height}):await invoke<string>('render_page',{html:await inlineAssets(pageHtml(project,page)),width,height});
       return {ok:true,page_id:page.id,width,height,mime:'image/png',png};
     }catch(error){return {error:String(error)};}
   }

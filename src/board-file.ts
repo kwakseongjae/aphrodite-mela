@@ -212,8 +212,13 @@ export {filesNamed};
 export function outgoing<H extends Pick<FrameHost, 'stat' | 'read'>>(project: Project, host: H, local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>): {host: H; local?: (id: string) => Promise<{bytes: Uint8Array; mime: string} | undefined>; withheld: Set<string>} {
   const without = new Set(project.leftOut ?? []), all = without.has(LEFT_OUT_ALL), withheld = new Set<string>();
   const held = (file: string) => { if (!all && !without.has(file)) return false; withheld.add(file); return true; };
+  // What a frame would draw is held back the same way, for a picture of the board that goes out (an agent's render, 0.3-R fix 2 #14).
+  const drawn = host as H & Partial<Pick<FrameHost, 'frameCost' | 'frameMedia' | 'mediaUrl'>>;
   return {
-    host: {...host, stat: async (sha: string) => held(sha) ? undefined : host.stat(sha), read: async (sha: string) => held(sha) ? undefined : host.read(sha)},
+    host: {...host, stat: async (sha: string) => held(sha) ? undefined : host.stat(sha), read: async (sha: string) => held(sha) ? undefined : host.read(sha),
+      ...(drawn.frameCost ? {frameCost: async (sha: string) => held(sha) ? undefined : drawn.frameCost!(sha)} : {}),
+      ...(drawn.frameMedia ? {frameMedia: async (sha: string) => held(sha) ? undefined : drawn.frameMedia!(sha)} : {}),
+      ...(drawn.mediaUrl ? {mediaUrl: async (sha: string) => held(sha) ? undefined : drawn.mediaUrl!(sha)} : {})},
     ...(local ? {local: async (id: string) => held(`local:${id}`) ? undefined : local(id)} : {}),
     withheld,
   };

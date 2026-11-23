@@ -43,3 +43,15 @@ test('a list a read cannot trust holds back every file of this Mac\'s, picture a
   const long = parseProject(JSON.stringify({...initialProject(), leftOut: Array.from({length: MAX_LEFT_OUT + 1}, (_, i) => sha(i))}));
   assert.deepEqual(long.leftOut, ['*'], 'a list longer than a board keeps is not cut: it holds back everything');
 });
+
+/* 14 (high): a picture of a page an agent asks for is drawn the way the page goes out: what the board came without is not in it. */
+import {renderDocument} from '../src/free-page.ts';
+test('an agent\'s render draws a page without the files the board came without; the person\'s frames still show them', async () => {
+  const mine = sha(42);
+  const p = {...initialProject(), leftOut: [mine]} as Project;
+  const host = {origins: [], stat: async (_: string) => ({mime: 'image/png', bytes: 4}), read: async (_: string) => new Uint8Array(4), frameCost: async (_: string) => 40, frameMedia: async (_: string) => 'data:image/png;base64,AAAA', mediaUrl: async (_: string) => 'blob:x'};
+  const page = {html: `<img src="media:${mine}">`};
+  assert.match(await renderDocument(page, host as never), /data:image\/png;base64,AAAA/, 'the board shows it where this Mac has it');
+  assert.doesNotMatch(await renderDocument(page, outgoing(p, host).host as never), /data:image\/png;base64,AAAA/, 'an agent\'s picture of it does not');
+  assert.match(main, /'render_free_page',\{html:await renderDocument\(page,outgoing\(project,frameHost\)\.host\)/);
+});
