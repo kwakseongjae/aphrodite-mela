@@ -54,16 +54,16 @@
 | 입력 | `ui-label`, `ui-input`, `ui-help` | `ui-input-sm`, `.is-error` · `aria-invalid`, `.is-error`인 `ui-help` |
 | 글 상자 | `ui-textarea` | |
 | 선택 | `ui-select` > `select` + `ui-icon` | `ui-select-sm`, `ui-select-quiet` |
-| 스위치 | `ui-switch` > `input.ui-switch-input[role=switch]` + `ui-switch-track` | |
+| 스위치 | `ui-switch` > `input.ui-switch-input[role=switch]` + `ui-switch-track` | 단추 하나로: `button.ui-switch[role=switch][aria-checked]` > `ui-switch-track`(누름에 답한 뒤에만 바뀌어야 할 때) |
 | 세그먼트 | `ui-seg` > `ui-seg-item` | `ui-seg-md`, `ui-seg-block` |
 | 탭 | `ui-tabs` > `ui-tab` (+ `ui-tab-count`) | |
 | 칩 | `ui-chip` | `ui-chip-sm`, `ui-chip-dashed`, `.is-on` |
-| 상태 알약 · 점 · 아바타 | `ui-pill`, `ui-dot`, `ui-avatar` | `-ok` · `-warn` · `-danger` · `-agent` · `-select` · `-accent` |
-| 띠 | `ui-banner` > `ui-icon` + `ui-banner-body`(`ui-banner-title`, `ui-banner-text`) | `ui-banner-ok` · `-warn` · `-danger` · `-agent` |
+| 상태 알약 · 점 · 아바타 | `ui-pill`, `ui-dot`, `ui-avatar` | `-ok` · `-warn` · `-danger` · `-agent` · `-select` · `-accent` (점은 `-ok` · `-warn` · `-agent` · `-select` · `-accent`) |
+| 띠 | `ui-banner` > `ui-icon` + `ui-banner-body`(`ui-banner-title`, `ui-banner-text`) + `ui-banner-actions` | `ui-banner-ok` · `-warn` · `-danger` · `-agent` |
 | 알림 | `ui-toast` | |
 | 모달 | `ui-scrim` > `ui-modal` > `ui-modal-body`(`ui-modal-title`, `ui-modal-text`) + `ui-modal-foot` | `ui-modal-lg` |
 | 패널 머리 | `ui-panel-head` > `ui-panel-title` + `ui-icon-btn` | |
-| 목록 줄 | `ui-row` (+ `ui-row-meta`) | `.is-on` 현재, `.is-selected` 사람의 선택, `.is-agent` 에이전트 |
+| 목록 줄 | `ui-row` (+ `ui-row-meta`) | `.is-on` · `aria-current` · `aria-pressed` 현재, `.is-selected` 사람의 선택, `.is-agent` 에이전트 |
 | 카드 | `ui-card` | |
 | 연결 카드 | `ui-connect` > `ui-connect-head`(`ui-connect-mark`, `ui-connect-name`), `ui-connect-desc`, `ui-connect-found`, `ui-connect-actions` | `.is-connected` |
 | 요청 입력창 | `ui-composer` > `ui-composer-input`(textarea) + `ui-composer-foot`(`ui-attach`, `ui-composer-push`, `ui-working`, `ui-send`) | `ui-composer-lg`, `ui-composer-compact` |
@@ -311,6 +311,9 @@
 | `--ui-modal-w-md` | `560px` |
 | `--ui-modal-w-lg` | `600px` |
 | `--ui-strip-h` | `36px` |
+| `--ui-home-side-w` | `232px` |
+| `--ui-content-max` | `1080px` |
+| `--ui-card-min-w` | `240px` |
 | `--ui-thumb-w` | `28px` |
 | `--ui-thumb-h` | `20px` |
 | `--ui-handle` | `7px` |

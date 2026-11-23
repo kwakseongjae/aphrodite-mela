@@ -59,7 +59,7 @@
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
 .ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus, .ui-menu-item:focus-visible, .ui-menu-item.is-focus, .ui-ws:focus-visible, .ui-ws.is-focus,
 .ui-board-card-thumb:focus-visible, .ui-board-card-thumb.is-focus,
-.ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
+.ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track, .ui-switch[role="switch"]:focus-visible > .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
 /* A state that draws its own shadow keeps it under the ring, rather than replacing the ring. */
@@ -109,6 +109,9 @@
   display: inline-flex; align-items: center; justify-content: center;
   width: var(--ui-control-sm); height: var(--ui-control-sm); border-radius: var(--ui-radius-1); color: var(--ui-text-2);
 }
+/* A menu's own button can be its <summary>: no disclosure triangle. */
+summary.ui-icon-btn, summary.ui-btn, summary.ui-ws { list-style: none; }
+.ui-icon-btn::-webkit-details-marker, .ui-btn::-webkit-details-marker, .ui-ws::-webkit-details-marker { display: none; }
 .ui-icon-btn:hover:not(:disabled), .ui-icon-btn.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
 .ui-icon-btn:active:not(:disabled), .ui-icon-btn.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
 .ui-icon-btn.ui-icon-btn-md { width: var(--ui-control-md); height: var(--ui-control-md); }
@@ -152,6 +155,8 @@
 
 /* Switch: a real checkbox under a drawn track. */
 .ui-switch { position: relative; display: inline-flex; align-items: center; gap: var(--ui-space-2); cursor: default; }
+/* A switch can also be one button (role="switch", aria-checked) when the press must be answered before it flips. */
+button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; }
 .ui-switch-input { position: absolute; opacity: 0; width: var(--ui-switch-w); height: var(--ui-switch-h); margin: 0; }
 .ui-switch-track {
   position: relative; width: var(--ui-switch-w); height: var(--ui-switch-h); flex-shrink: 0;
@@ -162,12 +167,12 @@
   width: var(--ui-switch-knob); height: var(--ui-switch-knob); border-radius: var(--ui-radius-pill); background: var(--ui-knob);
   box-shadow: var(--ui-shadow-knob); transition: transform var(--ui-dur) var(--ui-ease);
 }
-.ui-switch:hover .ui-switch-input:not(:disabled) + .ui-switch-track, .ui-switch.is-hover .ui-switch-track { background: var(--ui-text-3); }
-.ui-switch-input:checked + .ui-switch-track, .ui-switch.is-on .ui-switch-track { background: var(--ui-accent); }
-.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track, .ui-switch.is-on.is-hover .ui-switch-track { background: var(--ui-accent-hover); }
-.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); background: var(--ui-on-accent); }
-.ui-switch:active .ui-switch-input:not(:disabled) + .ui-switch-track::after, .ui-switch.is-pressed .ui-switch-track::after { box-shadow: var(--ui-shadow-knob), 0 0 0 var(--ui-ring) var(--ui-bg-hover); }
-.ui-switch:has(.ui-switch-input:disabled), .ui-switch.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-switch:hover .ui-switch-input:not(:disabled) + .ui-switch-track, .ui-switch.is-hover .ui-switch-track, .ui-switch[role="switch"]:hover:not(:disabled) > .ui-switch-track { background: var(--ui-text-3); }
+.ui-switch-input:checked + .ui-switch-track, .ui-switch.is-on .ui-switch-track, .ui-switch[aria-checked="true"] > .ui-switch-track { background: var(--ui-accent); }
+.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track, .ui-switch.is-on.is-hover .ui-switch-track, .ui-switch[aria-checked="true"]:hover:not(:disabled) > .ui-switch-track { background: var(--ui-accent-hover); }
+.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after, .ui-switch[aria-checked="true"] > .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); background: var(--ui-on-accent); }
+.ui-switch:active .ui-switch-input:not(:disabled) + .ui-switch-track::after, .ui-switch.is-pressed .ui-switch-track::after, .ui-switch[role="switch"]:active:not(:disabled) > .ui-switch-track::after { box-shadow: var(--ui-shadow-knob), 0 0 0 var(--ui-ring) var(--ui-bg-hover); }
+.ui-switch:has(.ui-switch-input:disabled), .ui-switch.is-disabled, .ui-switch:disabled { opacity: var(--ui-disabled-opacity); }
 
 /* Segmented */
 .ui-seg { display: inline-flex; padding: calc(var(--ui-space-1) / 2); gap: calc(var(--ui-space-1) / 2); background: var(--ui-bg-sunken); border-radius: var(--ui-radius-1); border: var(--ui-hairline) solid var(--ui-line); }
@@ -229,6 +234,7 @@
 
 .ui-dot { display: inline-block; width: var(--ui-dot); height: var(--ui-dot); border-radius: var(--ui-radius-pill); background: var(--ui-text-3); flex-shrink: 0; }
 .ui-dot.ui-dot-ok { background: var(--ui-ok-text); }
+.ui-dot.ui-dot-warn { background: var(--ui-warn-text); }
 .ui-dot.ui-dot-agent { background: var(--ui-agent); box-shadow: 0 0 0 var(--ui-ring) var(--ui-agent-soft); }
 .ui-dot.ui-dot-select { background: var(--ui-select); }
 .ui-dot.ui-dot-accent { background: var(--ui-accent); }
@@ -246,6 +252,7 @@
 .ui-banner > .ui-icon { margin-top: calc(var(--ui-space-1) / 2); color: var(--ui-text-2); }
 .ui-banner-body { flex: 1 1 auto; min-width: 0; }
 .ui-banner-title { margin: 0; font-weight: var(--ui-w-semibold); }
+.ui-banner-actions { display: flex; align-items: center; gap: var(--ui-space-2); flex-shrink: 0; }
 .ui-banner-text { margin: var(--ui-space-1) 0 0; color: var(--ui-text-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
 .ui-banner.ui-banner-ok { background: var(--ui-ok-soft); } .ui-banner.ui-banner-ok > .ui-icon { color: var(--ui-ok-text); }
 .ui-banner.ui-banner-warn { background: var(--ui-warn-soft); } .ui-banner.ui-banner-warn > .ui-icon { color: var(--ui-warn-text); }
@@ -270,7 +277,7 @@
 .ui-panel-title { margin: 0 auto 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
 
 .ui-row {
-  appearance: none; cursor: default; border: 0; background: none; width: 100%; text-align: left; font-family: inherit;
+  appearance: none; cursor: default; text-decoration: none; border: 0; background: none; width: 100%; text-align: left; font-family: inherit;
   display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
   border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13);
 }
@@ -278,13 +285,13 @@
 /* :where() keeps these at the weight of .ui-row:hover, so the current, selected and agent fills below still win. */
 .ui-row:hover:where(:not(:disabled):not(.is-disabled)), .ui-row.is-hover { background: var(--ui-bg-hover); }
 .ui-row:active:where(:not(:disabled):not(.is-disabled)), .ui-row.is-pressed { background: var(--ui-bg-active); }
-.ui-row.is-on, .ui-row[aria-current="true"], .ui-row[aria-current="page"] { background: var(--ui-bg-active); font-weight: var(--ui-w-medium); }
-.ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon { color: var(--ui-text-1); }
+.ui-row.is-on, .ui-row[aria-current="true"], .ui-row[aria-current="page"], .ui-row[aria-pressed="true"] { background: var(--ui-bg-active); font-weight: var(--ui-w-medium); }
+.ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon, .ui-row[aria-pressed="true"] > .ui-icon { color: var(--ui-text-1); }
 .ui-row.is-selected, .ui-row[aria-selected="true"] { background: var(--ui-select-soft); }
 .ui-row.is-agent { background: var(--ui-agent-soft); }
 /* Meta in a lit row moves up a step: text-3 does not keep 3:1 on the hover, pressed, current and selected fills. */
 .ui-row:hover:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-hover > .ui-row-meta, .ui-row:active:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-pressed > .ui-row-meta,
-.ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta,
+.ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta, .ui-row[aria-pressed="true"] > .ui-row-meta,
 .ui-row.is-selected > .ui-row-meta, .ui-row[aria-selected="true"] > .ui-row-meta { color: var(--ui-text-2); }
 .ui-row.is-agent > .ui-row-meta { color: var(--ui-agent-text); }
 .ui-row:disabled, .ui-row.is-disabled { opacity: var(--ui-disabled-opacity); }
@@ -390,8 +397,8 @@
 /* ── Menu, strip, toast error, modal head, option card, check row (0.3-L3) ── */
 .ui-menu { display: flex; flex-direction: column; min-width: calc(var(--ui-control-lg) * 5); padding: var(--ui-space-1); background: var(--ui-bg-raised); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-panel); }
 .ui-menu-item {
-  appearance: none; cursor: default; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
-  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
+  appearance: none; cursor: default; text-decoration: none; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--ui-space-2); width: 100%; min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
   border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); white-space: nowrap;
 }
 .ui-menu-item > .ui-icon { color: var(--ui-text-2); }
@@ -492,7 +499,7 @@
 /* A board on the home grid: the picture opens it, the name and counts, who changed it last and when. */
 .ui-board-card { position: relative; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; color: var(--ui-text-1); }
 .ui-board-card-thumb {
-  appearance: none; cursor: default; margin: 0; padding: 0; font-family: inherit;
+  appearance: none; cursor: default; text-decoration: none; margin: 0; padding: 0; font-family: inherit;
   position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
   border-radius: var(--ui-radius-2); border: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-page);
   transition: border-color var(--ui-dur-fast) var(--ui-ease);
