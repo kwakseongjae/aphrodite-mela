@@ -1,9 +1,9 @@
-import {parseProject,uid,MAX_PROJECT,MAX_LEFT_OUT,type Project} from '../model';
+import {dropStaleApproval,parseProject,uid,MAX_PROJECT,MAX_LEFT_OUT,type Project} from '../model';
 import {filesNamed} from '../free-page';
 import {localRefsIn} from '../design/local-images';
 import {halfPairIn,clip} from '../text';
-import {fitSaved} from '../ledger/ledger';
-import {LEDGER_RESERVE,readLedger} from '../ledger/types';
+import {designOf,emptyLedger,fitSaved,record} from '../ledger/ledger';
+import {APPROVAL_CLEARED,LEDGER_RESERVE,SYSTEM,readLedger} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
@@ -19,6 +19,15 @@ const tidied=new WeakSet<Library>();
  * the store holds what the screen shows (a Files sync compares the two and would otherwise call the board changed).
  */
 export const readTidied=(library:Library):boolean=>tidied.has(library);
+/**
+ * A stale fingerprint the library's edge dropped (a read, or a save of a board some path left it on) is recorded in that board's
+ * own ledger, by the system, as every other clearing is recorded with its change (0.3-R fix 1 #9).
+ */
+function noteCleared(project:Project,held:unknown):void{
+  if(typeof held!=='string'||project.approvedFingerprint!==undefined)return;
+  if(!project.ledger)project.ledger=emptyLedger();
+  record(project.ledger,{...designOf(project),approvedFingerprint:held},designOf(project),{author:SYSTEM,source:'library:tidy',reason:APPROVAL_CLEARED});
+}
 export function readLibrary(storage:LocalStore):Library{
   const raw=storage.getItem(LIBRARY_KEY);
   if(raw!==null){
@@ -30,7 +39,7 @@ export function readLibrary(storage:LocalStore):Library{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
-      const project=parseProject(JSON.stringify(e.project));
+      const project=parseProject(JSON.stringify(e.project));noteCleared(project,e.project?.approvedFingerprint);
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
       if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
       return {...e,project};
@@ -54,6 +63,8 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const existing=library.entries.find(e=>e.project.id===project.id);
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
+  // A board some path left on a stale fingerprint gives it up here, in memory and on disk alike, and the clearing is in its ledger.
+  const held=project.approvedFingerprint;if(dropStaleApproval(project))noteCleared(project,held);
   let raw=JSON.stringify(project);
   if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);
     // A design that leaves no room even for an empty history (0.3-R) is saved without one: the history in memory keeps its

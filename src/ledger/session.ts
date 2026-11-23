@@ -15,12 +15,9 @@ import {mendHalfPairs} from '../text';
 import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject, type PatchOp} from './patch';
 import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
+import {APPROVAL_CLEARED} from './types';
 
-/**
- * The note a change carries when the approval went with it (0.3-R): its content no longer matched the fingerprint, or
- * someone other than the person would have brought an approval the board did not have. Approving is the person's alone.
- */
-export const APPROVAL_CLEARED = 'Approval cleared: only the person brings an approval back.';
+export {APPROVAL_CLEARED} from './types';
 
 /**
  * Holds a board's approval to the rule where a change is recorded, on the board itself (not a copy): a fingerprint the

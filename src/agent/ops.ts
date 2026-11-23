@@ -411,10 +411,15 @@ export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
     const list = p.patch as unknown[];
     if (list.length > MAX_PATCH) return {error: `${list.length} patch ops is more than the ${MAX_PATCH} allowed in one call. Split it.`};
     for (const [index, raw] of list.entries()) {
+      // The clearing a recorded edit carried (0.3-R fix 1 #9) is the edit's to make again: left out here, it comes with the edit
+      // whenever the edit changes what was approved. Alone it would take an approval away, and is refused below as before.
+      const o = raw as Record<string, unknown> | null;
+      if (o && o.op === 'set' && o.on === 'project' && o.field === 'approvedFingerprint' && o.unset === true && o.value === undefined && list.some(other => other !== raw)) continue;
       const parsed = parsePatchOne(raw, index);
       if ('error' in parsed) return parsed;
       patch.push(parsed.op);
     }
+    if (!patch.length && !ops.length) return {error: 'patch only clears the approval. Approving a direction, and taking it back, is the person\'s decision, and no tool here can make it.'};
   }
   return {batch: {ops, patch, ...(pageId ? {pageId} : {}), reason, ...(baseRevision ? {baseRevision} : {})}};
 }

@@ -135,3 +135,33 @@ test('the live revision is known with nothing after it, and a frame moved since 
   assert.equal(changesSince(p.ledger, now, {moved: true} as never).changes.length, 1, 'but listed when what moved the revision is asked for');
   assert.match(main, /changesSince\(project\.ledger,baseRevision,\{limit:20,moved:true,current:now\}\)/, 'as a 409 asks');
 });
+
+/* 9: a clearing at the library's edge is in the board's ledger too; replaying a recorded edit whose clearing came with it works. */
+import {readLibrary as readLib, upsertProject as upsert, LIBRARY_KEY as KEY} from '../src/workspace/library.ts';
+test('a stale fingerprint dropped where a library is read or a board saved is recorded in that board\'s ledger, by the system', () => {
+  const p = initialProject(); p.approvedFingerprint = approvalPrint(p); p.brief = 'Changed behind the ledger';
+  const read = readLib({getItem: k => k === KEY ? JSON.stringify({version: 1, entries: [{project: p, createdAt: 'x', updatedAt: '2026-11-23T00:00:00.000Z', pinned: false, archived: false}].map(e => ({...e, createdAt: e.updatedAt}))}) : null, setItem: () => {}});
+  const last = read.entries[0].project.ledger?.changes.at(-1);
+  assert.ok(last, 'the read recorded it');
+  assert.equal(last!.author.name, 'system');
+  assert.match(last!.reason ?? '', /Approval cleared/);
+  assert.ok(last!.ops.some(op => op.op === 'set' && op.field === 'approvedFingerprint'));
+  const q = initialProject(); q.approvedFingerprint = approvalPrint(q); q.name = 'Changed too';
+  const saved = upsert({version: 1, entries: []}, q).entries[0].project;
+  assert.match(saved.ledger?.changes.at(-1)?.reason ?? '', /Approval cleared/, 'and so is a save');
+  assert.match(q.ledger?.changes.at(-1)?.reason ?? '', /Approval cleared/, 'in the board in memory as on disk');
+});
+test('a recorded edit replayed with the clearing it carried lands; the clearing alone, or an approval written, is still refused', () => {
+  const page = initialProject().pages[0].id;
+  const unset = {op: 'set', on: 'project', field: 'approvedFingerprint', unset: true};
+  const withEdit = parseBatch({reason: REASON, patch: [unset, {op: 'set', on: 'page', page_id: page, field: 'name', value: 'Renamed'}]});
+  assert.ok('batch' in withEdit, JSON.stringify(withEdit));
+  if ('batch' in withEdit) assert.ok(!withEdit.batch.patch.some(op => op.op === 'set' && op.field === 'approvedFingerprint'), 'the clearing is left to the edit, which makes it');
+  assert.ok('error' in parseBatch({reason: REASON, patch: [unset]}), 'alone it would take an approval away');
+  assert.ok('error' in parseBatch({reason: REASON, patch: [{op: 'set', on: 'project', field: 'approvedFingerprint', value: 'x'}, {op: 'set', on: 'page', page_id: page, field: 'name', value: 'R'}]}), 'a value is an approval written');
+});
+
+test('a patch of two clearings and nothing else is refused, not taken as an empty batch', () => {
+  const unset = {op: 'set', on: 'project', field: 'approvedFingerprint', unset: true};
+  assert.ok('error' in parseBatch({reason: REASON, patch: [unset, {...unset}]}));
+});
