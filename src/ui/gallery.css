@@ -64,3 +64,9 @@
 .ui-gallery-gap { margin-top: var(--ui-space-4); }
 .ui-gallery-pad { padding: var(--ui-space-2); }
 .ui-gallery-pad-x { padding-left: var(--ui-space-3); padding-right: var(--ui-space-2); padding-top: var(--ui-space-2); }
+.ui-gallery-floor { height: calc(var(--ui-control-lg) * 14); border-radius: var(--ui-radius-2); }
+.ui-gallery-frames { display: flex; gap: var(--ui-space-7); padding: calc(var(--ui-space-7) + var(--ui-space-2)) var(--ui-space-7) 0; }
+.ui-gallery-frame { margin: 0; width: calc(var(--ui-control-lg) * 9); }
+.ui-gallery-sheet { height: calc(var(--ui-control-lg) * 6); }
+.ui-gallery-sheet > img { object-fit: contain; object-position: center; }
+.ui-gallery-fab { position: absolute; right: var(--ui-space-4); bottom: var(--ui-space-4); }

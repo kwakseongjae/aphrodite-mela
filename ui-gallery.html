@@ -330,6 +330,38 @@
         <div class="ui-card"><div class="ui-list-head ui-gallery-pad-x"><h3 class="ui-list-title">이 보드</h3><span class="ui-list-count">12</span><button class="ui-icon-btn" aria-label="올리기"><i data-lucide="plus" class="ui-icon ui-icon-sm"></i></button></div></div>
       </div>
     </div>
+
+    <!-- l3:B -->
+    <h3 class="ui-gallery-h3">보드 · 바닥(점) · 틀과 틀 머리줄 · 선택 테두리와 손잡이 · 에이전트가 고친 틀 · 떠 있는 도구 막대 · 도움말 단추</h3>
+    <div class="ui-floor ui-gallery-floor">
+      <div class="ui-gallery-frames">
+        <figure class="ui-frame is-selected ui-gallery-frame">
+          <div class="ui-frame-head"><i data-lucide="file-code" class="ui-icon ui-icon-sm"></i><span class="ui-frame-name">11월 4주 제품 브리핑</span><span class="ui-frame-size">1200 × 900</span><button class="ui-icon-btn" aria-label="이 페이지만 크게"><i data-lucide="eye" class="ui-icon ui-icon-sm"></i></button></div>
+          <div class="ui-frame-sheet ui-gallery-sheet"><img src="/brand/cutouts/review.png" alt=""><span class="ui-selection"><i class="ui-handle ui-handle-nw"></i><i class="ui-handle ui-handle-ne"></i><i class="ui-handle ui-handle-sw"></i><i class="ui-handle ui-handle-se"></i></span></div>
+        </figure>
+        <figure class="ui-frame is-agent ui-gallery-frame">
+          <div class="ui-frame-head"><i data-lucide="file-code" class="ui-icon ui-icon-sm"></i><span class="ui-frame-name">봄 컬렉션 랜딩 초안</span><span class="ui-frame-size">1440 × 900</span><span class="ui-pill ui-pill-agent"><span class="ui-dot ui-dot-agent"></span>Claude Code가 고침</span><button class="ui-icon-btn" aria-label="이 페이지만 크게"><i data-lucide="eye" class="ui-icon ui-icon-sm"></i></button></div>
+          <div class="ui-frame-sheet ui-gallery-sheet"><img src="/brand/cutouts/paper-dove.png" alt=""></div>
+        </figure>
+        <figure class="ui-frame ui-gallery-frame">
+          <div class="ui-frame-head"><i data-lucide="image" class="ui-icon ui-icon-sm"></i><span class="ui-frame-name">다운로드 페이지.png</span><span class="ui-frame-size">1440 × 1000</span><button class="ui-icon-btn is-focus" aria-label="이 그림만 크게"><i data-lucide="eye" class="ui-icon ui-icon-sm"></i></button></div>
+          <div class="ui-frame-sheet ui-gallery-sheet"><img src="/brand/cutouts/aphrodite.png" alt=""></div>
+        </figure>
+      </div>
+      <div class="ui-toolbar ui-toolbar-float" role="toolbar" aria-label="도구">
+        <button class="ui-icon-btn is-on" aria-pressed="true" aria-label="선택"><i data-lucide="mouse-pointer-2" class="ui-icon"></i></button>
+        <button class="ui-icon-btn" aria-label="손"><i data-lucide="hand" class="ui-icon"></i></button>
+        <span class="ui-toolbar-sep"></span>
+        <button class="ui-btn ui-btn-quiet">30% <i data-lucide="chevron-down" class="ui-icon ui-icon-xs"></i></button>
+        <span class="ui-toolbar-sep"></span>
+        <button class="ui-icon-btn" aria-label="미리보기"><i data-lucide="play" class="ui-icon"></i></button>
+      </div>
+      <button class="ui-fab ui-gallery-fab" aria-label="도움말"><i data-lucide="circle-help" class="ui-icon"></i></button>
+    </div>
+    <div class="ui-gallery-row ui-gallery-wide ui-gallery-gap">
+      <span class="ui-gallery-row"><button class="ui-fab" aria-label="기본"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-hover" aria-label="호버"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-pressed" aria-label="눌림"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab is-focus" aria-label="포커스"><i data-lucide="circle-help" class="ui-icon"></i></button><button class="ui-fab" disabled aria-label="비활성"><i data-lucide="circle-help" class="ui-icon"></i></button></span>
+      <span class="ui-gallery-note">도움말 단추: 기본 · 호버 · 눌림 · 포커스 · 비활성. 틀의 눈 단추(셋째 틀)는 포커스.</span>
+    </div>
     <!-- l3:end -->
   </section>
 
@@ -337,11 +369,11 @@
 </div>
 
 <script type="module">
-  import {createIcons, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
+  import {createIcons, Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2} from 'lucide';
   import {primitives, pairs, resolve} from '/src/ui/tokens.ts';
   import {contrastRatio} from '/src/design/contrast.ts';
 
-  createIcons({icons: {PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
+  createIcons({icons: {Eye, CircleHelp, PanelLeftClose, Upload, Film, FileCode, Play, Trash2, ChevronDown, ArrowRight, ArrowDown, LayoutGrid, LayoutTemplate, FileText, Plus, Check, CircleCheck, TriangleAlert, CircleX, LoaderCircle, Square, Search, LayoutPanelTop, Folder, CircleUserRound, Paperclip, ArrowUp, MousePointer2, Hand, Frame, Image, Type, Undo2, Redo2}, attrs: {'aria-hidden': 'true'}});
 
   const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
   const swatch = name => el('i', {style: `background: var(--ui-${name})`});

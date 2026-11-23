@@ -49,7 +49,7 @@ export const scale={
   'switch-w':'32px','switch-h':'18px','switch-knob':'14px','dot':'8px','dot-sm':'6px','avatar':'20px',
   'composer-min-h':'112px','composer-sm-min-h':'64px','composer-lg-min-h':'152px',
   'modal-w':'420px','modal-w-lg':'600px',
-  'thumb-w':'28px','thumb-h':'20px',
+  'thumb-w':'28px','thumb-h':'20px','handle':'7px','canvas-dot-size':'0.8px','canvas-dot-gap':'16px',
   'disabled-opacity':'0.4','danger-hover':'brightness(0.92)','danger-press':'brightness(0.84)',
   ease:'cubic-bezier(.2, 0, 0, 1)','dur-fast':'120ms',dur:'200ms',
 } as const;
@@ -57,7 +57,7 @@ export const scale={
 type Roles=Record<string,string>;
 const light:Roles={
   'color-scheme':'light',
-  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-canvas':'{floor-light}','canvas-dot':'rgb(33 31 25 / 0.16)',
+  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-page':'{white}','bg-canvas':'{floor-light}','canvas-dot':'rgb(33 31 25 / 0.16)',
   'bg-hover':'{n-100}','bg-active':'{n-200}','bg-inverse':'{n-900}','line':'{n-200}','line-strong':'{n-300}','edge-control':'{n-500}',
   'text-1':'{n-900}','text-2':'{n-600}','text-3':'{n-500}','text-inverse':'{n-50}',
   accent:'{n-900}','accent-hover':'{ink-hover-light}','accent-pressed':'{ink-hover-light}','accent-soft':'{ink-soft-light}','accent-text':'{n-900}','on-accent':'{n-50}',
@@ -77,7 +77,7 @@ const light:Roles={
 };
 const dark:Roles={
   'color-scheme':'dark',
-  'bg-app':'{d-50}','bg-panel':'{d-100}','bg-raised':'{d-200}','bg-sunken':'{d-0}','bg-canvas':'{floor-dark}','canvas-dot':'rgb(243 239 227 / 0.14)',
+  'bg-app':'{d-50}','bg-panel':'{d-100}','bg-raised':'{d-200}','bg-sunken':'{d-0}','bg-page':'{white}','bg-canvas':'{floor-dark}','canvas-dot':'rgb(243 239 227 / 0.14)',
   'bg-hover':'{d-300}','bg-active':'{d-400}','bg-inverse':'{d-950}','line':'{d-400}','line-strong':'{d-500}','edge-control':'{d-600}',
   'text-1':'{d-950}','text-2':'{d-800}','text-3':'{d-700}','text-inverse':'{d-50}',
   accent:'{d-950}','accent-hover':'{white}','accent-pressed':'{white}','accent-soft':'{ink-soft-dark}','accent-text':'{d-950}','on-accent':'{d-50}',
@@ -163,7 +163,13 @@ export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:P
   {fg:'agent',bg:'bg-panel',min:3,use:'에이전트 점 (그래픽)'},
   {fg:'agent-text',bg:'bg-panel',min:4.5,use:'에이전트 상태 글자'},
   {fg:'agent-text',bg:'agent-soft',min:4.5,use:'에이전트 알약'},
-  {fg:'mark',bg:'bg-panel',min:4.5,use:'목록 머리의 수'},  {fg:'ok-text',bg:'bg-panel',min:4.5,use:'성공 점, 성공 글자'},
+  {fg:'mark',bg:'bg-panel',min:4.5,use:'목록 머리의 수'},
+  {fg:'text-1',bg:'bg-canvas',min:4.5,use:'보드 위 틀 이름'},
+  {fg:'text-2',bg:'bg-canvas',min:4.5,use:'보드 위 틀 머리줄, 그 아이콘과 눈 단추'},
+  {fg:'text-3',bg:'bg-canvas',min:4.5,use:'보드 위 틀 크기(되풀이하는 메타)'},
+  {fg:'select-text',bg:'bg-canvas',min:4.5,use:'선택된 틀의 이름'},
+  {fg:'select',bg:'bg-page',min:3,use:'선택 테두리와 손잡이, 페이지 위 (그래픽, 시트가 읽지 못해 손으로 적음)'},
+  {fg:'agent',bg:'bg-canvas',min:3,use:'에이전트가 고친 틀의 금색 테두리 (그래픽, outline이라 손으로 적음)'},  {fg:'ok-text',bg:'bg-panel',min:4.5,use:'성공 점, 성공 글자'},
   {fg:'ok-text',bg:'ok-soft',min:4.5,use:'성공 알약'},
   {fg:'warn-text',bg:'warn-soft',min:4.5,use:'주의 알약'},
   {fg:'danger-text',bg:'danger-soft',min:4.5,use:'위험 알약, 오류 설명'},

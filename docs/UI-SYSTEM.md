@@ -122,6 +122,7 @@
 | `--ui-bg-panel` | `{n-0}` #FDFCF8 | `{d-100}` #201F1A |
 | `--ui-bg-raised` | `{n-0}` #FDFCF8 | `{d-200}` #25241E |
 | `--ui-bg-sunken` | `{n-100}` #EEEAE0 | `{d-0}` #131210 |
+| `--ui-bg-page` | `{white}` #FFFFFF | `{white}` #FFFFFF |
 | `--ui-bg-canvas` | `{floor-light}` #EFEBE1 | `{floor-dark}` #22211C |
 | `--ui-canvas-dot` | `rgb(33 31 25 / 0.16)` | `rgb(243 239 227 / 0.14)` |
 | `--ui-bg-hover` | `{n-100}` #EEEAE0 | `{d-300}` #2B2A23 |
@@ -280,6 +281,9 @@
 | `--ui-modal-w-lg` | `600px` |
 | `--ui-thumb-w` | `28px` |
 | `--ui-thumb-h` | `20px` |
+| `--ui-handle` | `7px` |
+| `--ui-canvas-dot-size` | `0.8px` |
+| `--ui-canvas-dot-gap` | `16px` |
 | `--ui-disabled-opacity` | `0.4` |
 | `--ui-danger-hover` | `brightness(0.92)` |
 | `--ui-danger-press` | `brightness(0.84)` |

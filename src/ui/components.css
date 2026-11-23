@@ -32,7 +32,7 @@
 /* Parts carry their own type, so one dropped into an older screen still reads as itself. */
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
-.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search {
+.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -56,7 +56,7 @@
 /* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
-.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus,
+.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus,
 .ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
@@ -337,6 +337,53 @@
 .ui-row.is-dragging { background: var(--ui-bg-raised); box-shadow: var(--ui-shadow-panel); }
 .ui-row.is-dragging:focus-visible, .ui-row.is-dragging.is-focus { box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-panel); }
 .ui-drop-line { height: var(--ui-ring); margin: calc(var(--ui-ring) / -2) var(--ui-space-2); border-radius: var(--ui-ring); background: var(--ui-select); }
+
+/* ── Board: floor, frames, selection, floating toolbar, help (0.3-L3) ── */
+/* The floor is the board's ground: a flat colour with a dot grid on top, kept apart so the colour is a token the contrast test can read. */
+.ui-floor {
+  position: relative; overflow: hidden; color: var(--ui-text-1); background-color: var(--ui-bg-canvas);
+  background-image: radial-gradient(circle, var(--ui-canvas-dot) var(--ui-canvas-dot-size), transparent calc(var(--ui-canvas-dot-size) + var(--ui-hairline) / 2));
+  background-size: var(--ui-canvas-dot-gap) var(--ui-canvas-dot-gap);
+}
+/* A frame on the floor: its head line, then the sheet the person's page or picture is drawn in. Colours are set under .ui-floor, the surface they sit on. */
+.ui-frame { position: relative; display: flex; flex-direction: column; gap: var(--ui-space-1); }
+.ui-frame-head { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-sm); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-floor .ui-frame-head { color: var(--ui-text-2); }
+.ui-floor .ui-frame-head > .ui-icon { color: var(--ui-text-2); }
+.ui-frame-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--ui-w-medium); }
+.ui-floor .ui-frame-name { color: var(--ui-text-1); }
+.ui-frame-size { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); font-variant-numeric: tabular-nums; }
+.ui-floor .ui-frame-size { color: var(--ui-text-3); }
+.ui-frame-head > .ui-pill { height: calc(var(--ui-avatar) - var(--ui-space-1)); }
+.ui-frame-head > .ui-icon-btn { margin-left: auto; margin-right: calc(var(--ui-space-2) * -1); }
+.ui-floor .ui-frame-head > .ui-icon-btn { color: var(--ui-text-2); }
+.ui-floor .ui-frame.is-selected .ui-frame-head > .ui-icon { color: var(--ui-select); }
+.ui-floor .ui-frame.is-selected .ui-frame-name { color: var(--ui-select-text); }
+.ui-frame-sheet { position: relative; background: var(--ui-bg-page); box-shadow: var(--ui-shadow-frame); }
+.ui-frame-sheet > img, .ui-frame-sheet > iframe, .ui-frame-sheet > video { display: block; width: 100%; height: 100%; border: 0; object-fit: cover; object-position: top left; }
+/* The agent changed this frame: a gold edge just outside the sheet (outline, so the contrast pair agent / bg-canvas is listed by hand). */
+.ui-frame.is-agent > .ui-frame-sheet { outline: var(--ui-ring) solid var(--ui-agent); outline-offset: var(--ui-ring); }
+/* The person's selection: a blue edge on the sheet and four handles. */
+.ui-selection { position: absolute; inset: calc(var(--ui-hairline) * -1); border: var(--ui-hairline) solid var(--ui-select); pointer-events: none; }
+.ui-handle { position: absolute; width: var(--ui-handle); height: var(--ui-handle); background: var(--ui-bg-page); border: var(--ui-hairline) solid var(--ui-select); }
+.ui-handle.ui-handle-nw { left: calc(var(--ui-handle) / -2); top: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-ne { right: calc(var(--ui-handle) / -2); top: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-sw { left: calc(var(--ui-handle) / -2); bottom: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-se { right: calc(var(--ui-handle) / -2); bottom: calc(var(--ui-handle) / -2); }
+
+/* The toolbar floats at the bottom centre of the board; a quiet button in it shows the zoom. */
+.ui-toolbar.ui-toolbar-float { position: absolute; left: 50%; bottom: var(--ui-space-4); transform: translateX(-50%); z-index: 1; }
+.ui-toolbar > .ui-btn { height: var(--ui-control-md); padding: 0 var(--ui-space-2); gap: var(--ui-space-1); font-size: var(--ui-text-12); font-variant-numeric: tabular-nums; }
+
+/* The round help button in a corner of the board. */
+.ui-fab {
+  appearance: none; cursor: default; margin: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md);
+  border-radius: var(--ui-radius-pill); border: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-raised); color: var(--ui-text-2); box-shadow: var(--ui-shadow-panel);
+}
+.ui-fab:hover:not(:disabled), .ui-fab.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
+.ui-fab:active:not(:disabled), .ui-fab.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
+.ui-fab:disabled, .ui-fab.is-disabled { opacity: var(--ui-disabled-opacity); }
 
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }

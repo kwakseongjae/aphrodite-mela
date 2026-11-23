@@ -85,7 +85,7 @@ test('Korean text breaks between words, never inside one',()=>{
  */
 const focusable:Record<string,'self'|'within'|'switch'>={
   'ui-btn':'self','ui-icon-btn':'self','ui-chip':'self','ui-seg-item':'self','ui-tab':'self','ui-row':'self','ui-attach':'self','ui-send':'self',
-  'ui-search':'self',
+  'ui-search':'self','ui-fab':'self',
   'ui-input':'self','ui-textarea':'self',
   // A box around a native field takes focus from inside it.
   'ui-select':'within','ui-composer':'within',
@@ -174,7 +174,7 @@ test('the ring check sees a state rule that replaces the ring',()=>{
 const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
   'ui-btn':[{states:['disabled']}],'ui-icon-btn':[{states:['disabled']}],'ui-chip':[{states:['disabled']}],'ui-seg-item':[{states:['disabled']}],
   'ui-tab':[{states:['disabled']}],'ui-attach':[{states:['disabled']}],'ui-send':[{states:['disabled']}],'ui-input':[{states:['disabled']}],'ui-textarea':[{states:['disabled']}],
-  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],
+  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],'ui-fab':[{states:['disabled']}],
   'ui-select':[{states:[hasFlag('> select:disabled')]},{classes:['is-disabled']}],
 };
 export function litWhileDisabled(css:string){
