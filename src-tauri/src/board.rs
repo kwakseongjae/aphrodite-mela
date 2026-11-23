@@ -7,7 +7,6 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
@@ -120,38 +119,59 @@ fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, 
     result
 }
 
-/// Files an agent's batch was the first to bring into `board-media/`, by where they are, while the batch has not landed
-/// (0.3-R fix 2 #20). A batch that lands keeps them; one refused lets go of them (release). The same bytes coming in any
-/// other way take the file out of here, so it stays whatever the batch does.
-fn staged() -> &'static Mutex<HashSet<PathBuf>> {
-    static STAGED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    STAGED.get_or_init(Default::default)
+/// This process's own name for what it keeps apart from another Aphrodite on this Mac (0.3-R fix 3 #14, #15): its pid and a
+/// random part, so a pid the system gives again never names it.
+pub(crate) fn session() -> &'static str {
+    static SESSION: OnceLock<String> = OnceLock::new();
+    SESSION.get_or_init(|| format!("{}-{}", std::process::id(), &crate::agent::random_token()[..12]))
 }
 
-/// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is. `stage` marks a
-/// file this move is the first to bring as staged; a file already there is taken out of the staged ones.
-fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, stage: bool) -> Result<Stored, String> {
+/// Moving a file into `board-media/` and letting go of a staged one take this lock, between the processes of this Mac too
+/// (0.3-R fix 3 #15), so a file another one has taken since is never removed under it.
+fn settling(base: &Path) -> Result<(std::sync::MutexGuard<'static, ()>, fs::File), String> {
+    static IN_PROCESS: Mutex<()> = Mutex::new(());
+    let guard = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
+    let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(folder(base, MEDIA)?.join(".settle.lock")).map_err(|e| e.to_string())?;
+    fs2::FileExt::lock_exclusive(&file).map_err(|e| e.to_string())?;
+    Ok((guard, file))
+}
+
+/// Where a file an agent's batch was the first to bring is marked as staged, with the session that staged it (0.3-R fix 2 #20,
+/// fix 3 #15). The same bytes coming in any other way, from any process, take the mark away, so the file stays.
+fn mark(base: &Path, dest: &Path) -> Result<PathBuf, String> {
+    Ok(base.join(UPLOADS).join("staged").join(dest.file_name().ok_or("no file name")?))
+}
+
+/// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is. `stage` names the
+/// session staging a file this move is the first to bring; a file already there loses any mark, whoever made it.
+fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, stage: Option<&str>) -> Result<Stored, String> {
     let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
-    let mut held = staged().lock().unwrap_or_else(|e| e.into_inner());
+    let _held = settling(base)?;
     if dest.exists() {
         let _ = fs::remove_file(incoming);
-        held.remove(&dest);
+        let _ = fs::remove_file(mark(base, &dest)?);
     } else {
         fs::rename(incoming, &dest).map_err(|e| e.to_string())?;
-        if stage {
-            held.insert(dest);
+        if let Some(session) = stage {
+            let marked = mark(base, &dest)?;
+            fs::create_dir_all(marked.parent().ok_or("no folder")?).and_then(|_| fs::write(&marked, session)).map_err(|e| e.to_string())?;
         }
     }
     Ok(Stored { sha, mime: mime.to_string(), bytes })
 }
 
-/// Lets go of the files a batch staged: kept when it landed, removed when it was refused. Only a file still staged is
-/// removed, under the same lock a move takes, so a file anything else has brought in since stays.
-pub(crate) fn release(base: &Path, shas: &[String], keep: bool) {
-    let mut held = staged().lock().unwrap_or_else(|e| e.into_inner());
+/// Lets go of the files a batch of `session` staged: kept when it landed, removed when it was refused. Only a file still
+/// marked by that session is removed, under the lock every move takes, so a file anything else has brought in since stays.
+pub(crate) fn release(base: &Path, shas: &[String], keep: bool, session: &str) {
+    let Ok(_held) = settling(base) else { return };
     for sha in shas {
         let Some(path) = media_file(base, sha) else { continue };
-        if held.remove(&path) && !keep {
+        let Ok(marked) = mark(base, &path) else { continue };
+        if fs::read_to_string(&marked).ok().as_deref() != Some(session) {
+            continue;
+        }
+        let _ = fs::remove_file(&marked);
+        if !keep {
             let _ = fs::remove_file(&path);
         }
     }
@@ -163,15 +183,15 @@ pub(crate) fn release(base: &Path, shas: &[String], keep: bool) {
 /// `reads` in src/agent/commands.mjs), and it can read this Mac's files already; what it gets here is
 /// a copy of a picture or a video, never anything else.
 pub(crate) fn store(base: &Path, from: &Path) -> Result<Stored, String> {
-    store_as(base, from, false)
+    store_as(base, from, None)
 }
 
 /// As `store`, for an agent's batch: a file it is the first to bring is staged until the batch lands or is refused.
-pub(crate) fn store_staged(base: &Path, from: &Path) -> Result<Stored, String> {
-    store_as(base, from, true)
+pub(crate) fn store_staged(base: &Path, from: &Path, session: &str) -> Result<Stored, String> {
+    store_as(base, from, Some(session))
 }
 
-fn store_as(base: &Path, from: &Path, stage: bool) -> Result<Stored, String> {
+fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, String> {
     let from = &fs::canonicalize(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     let meta = fs::metadata(from).map_err(|_| format!("there is no file at {}.", from.display()))?;
     if !meta.is_file() {
@@ -220,7 +240,7 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
     let result = copy_hashed(file, &hashed);
     let _ = fs::remove_file(&path);
     let (sha, mime, bytes) = result?;
-    settle(base, &hashed, sha, mime, bytes, false)
+    settle(base, &hashed, sha, mime, bytes, None)
 }
 
 /// Where a board's file is, when this Mac has it.
@@ -245,18 +265,81 @@ pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
+/// The folder this process's frames load their copies from, under `free-pages/` (0.3-R fix 3 #14): its own, so no other
+/// Aphrodite on this Mac sweeps it, held by a lock for as long as this process runs. It is made under a name a reap passes
+/// over and then given its own name, so no reap finds it unlocked.
+pub(crate) fn own_frames(pages: &Path, session: &str) -> Result<(PathBuf, fs::File), String> {
+    fs::create_dir_all(pages).map_err(|e| e.to_string())?;
+    let making = pages.join(format!(".{session}.new"));
+    fs::create_dir_all(&making).map_err(|e| e.to_string())?;
+    let owner = fs::OpenOptions::new().create(true).truncate(false).write(true).open(making.join(".owner")).map_err(|e| e.to_string())?;
+    fs2::FileExt::try_lock_exclusive(&owner).map_err(|e| e.to_string())?;
+    let dir = pages.join(session);
+    fs::rename(&making, &dir).map_err(|e| e.to_string())?;
+    Ok((dir, owner))
+}
+
+/// Takes away the folders whose process has ended: one whose lock can be taken has no owner, whatever pid the system has given
+/// since (the lock goes with the process, not with its number). A folder still being made, or one that cannot be asked, stays
+/// until it has been left for PAGE_KEPT; a copy of the old single folder goes once no frame has used it for PAGE_KEPT.
+pub(crate) fn reap(pages: &Path, own: &Path) {
+    let Ok(entries) = fs::read_dir(pages) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == own {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let idle = meta.modified().ok().and_then(|at| now.duration_since(at).ok()).unwrap_or_default();
+        if !meta.is_dir() {
+            if idle > PAGE_KEPT {
+                let _ = fs::remove_file(&path);
+            }
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let ended = !name.starts_with('.')
+            && fs::OpenOptions::new().write(true).open(path.join(".owner")).is_ok_and(|owner| fs2::FileExt::try_lock_exclusive(&owner).is_ok());
+        if ended || idle > PAGE_KEPT && name.starts_with('.') {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// This process's frames folder in `base`, made, locked and the ended ones reaped on first use.
+fn frames(base: &Path) -> Result<PathBuf, String> {
+    static FRAMES: Mutex<Vec<(PathBuf, PathBuf, fs::File)>> = Mutex::new(Vec::new());
+    let mut known = FRAMES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, dir, _)) = known.iter().find(|(b, _, _)| b == base) {
+        return Ok(dir.clone());
+    }
+    let pages = folder(base, PAGES)?;
+    let (dir, owner) = own_frames(&pages, session())?;
+    reap(&pages, &dir);
+    known.push((base.to_path_buf(), dir.clone(), owner));
+    Ok(dir)
+}
+
 /// Writes the copy a frame loads (publish), as a write naming no frame that shows a copy: what the tests write.
 #[cfg(test)]
 pub(crate) fn write_page(base: &Path, page: &str, key: &str, html: &str) -> Result<PathBuf, String> {
-    publish(base, page, key, html, &[], PAGES_BOUND)
+    publish_in(&frames(base)?, page, key, html, &[], PAGES_BOUND)
+}
+
+/// Writes the copy a frame loads, in this process's own folder.
+pub(crate) fn publish(base: &Path, page: &str, key: &str, html: &str, shown: &[String], bound: u64) -> Result<PathBuf, String> {
+    publish_in(&frames(base)?, page, key, html, shown, bound)
 }
 
 /// Writes the copy a frame loads, named for this version of the page, through a temporary file of its own. A copy a frame
 /// writes or opens again is made new. Then the folder is swept, every page id in it (0.3-R fix 2 #21): the copy just written
 /// and every copy a frame in the window shows (`shown`, by file name) stay; another is cleared once no frame has written or
 /// opened it for PAGE_KEPT (0.3-R), so a late write from a frame of an older version, on this board or another, never takes
-/// away a copy a frame is opening; and past `bound` bytes the oldest of the rest not used within PAGE_FRESH go first.
-pub(crate) fn publish(base: &Path, page: &str, key: &str, html: &str, shown: &[String], bound: u64) -> Result<PathBuf, String> {
+/// away a copy a frame is opening; and past `bound` bytes the oldest of the rest not used within PAGE_FRESH go first. One
+/// write and its sweep at a time (0.3-R fix 3 #14), so a copy found there is still there when it is made new.
+pub(crate) fn publish_in(dir: &Path, page: &str, key: &str, html: &str, shown: &[String], bound: u64) -> Result<PathBuf, String> {
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
     if page.is_empty() || page.len() > 200 || !page.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return Err("invalid page id".into());
     }
@@ -266,7 +349,7 @@ pub(crate) fn publish(base: &Path, page: &str, key: &str, html: &str, shown: &[S
     if html.len() > 8_000_000 {
         return Err("that page is too large to draw".into());
     }
-    let dir = folder(base, PAGES)?;
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let name = format!("{page}~{key}.html");
     let dest = dir.join(&name);
     let now = std::time::SystemTime::now();
@@ -279,7 +362,7 @@ pub(crate) fn publish(base: &Path, page: &str, key: &str, html: &str, shown: &[S
             return Err(e.to_string());
         }
     }
-    sweep(&dir, &name, shown, now, bound);
+    sweep(dir, &name, shown, now, bound);
     Ok(dest)
 }
 
@@ -292,6 +375,9 @@ fn sweep(dir: &Path, written: &str, shown: &[String], now: std::time::SystemTime
             continue;
         }
         let other = entry.file_name().to_string_lossy().to_string();
+        if other == ".owner" {
+            continue;
+        }
         let idle = meta.modified().ok().and_then(|at| now.duration_since(at).ok()).unwrap_or_default();
         if other == written || shown.iter().any(|s| *s == other) {
             total += meta.len();
@@ -352,7 +438,7 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
         _ => return Err("name the file with path, or a library picture with library_id, not both.".into()),
     };
     if stage.unwrap_or(false) {
-        store_staged(&base(&app)?, &from)
+        store_staged(&base(&app)?, &from, session())
     } else {
         store(&base(&app)?, &from)
     }
@@ -364,7 +450,7 @@ pub fn board_media_release(app: AppHandle, shas: Vec<String>, keep: bool) -> Res
     if shas.len() > 64 {
         return Err("a batch brings at most 64 files".into());
     }
-    release(&base(&app)?, &shas, keep);
+    release(&base(&app)?, &shas, keep, session());
     Ok(())
 }
 
@@ -526,7 +612,7 @@ mod tests {
         write_page(dir.path(), "page-10", "ef56", "<p>other</p>").unwrap();
         assert!(!one.exists());
         assert_eq!(fs::read_to_string(&two).unwrap(), "<p>two</p>");
-        assert!(dir.path().join(PAGES).join("page-10~ef56.html").exists(), "another page's copy stays");
+        assert!(frames(dir.path()).unwrap().join("page-10~ef56.html").exists(), "another page's copy stays");
         for (page, key) in [("../x", "ab"), ("p", "../x"), ("", "ab"), ("p", "")] {
             assert!(write_page(dir.path(), page, key, "x").is_err(), "{page} {key}");
         }
@@ -538,14 +624,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
         let (there, fresh, taken, kept) = (file("there.png", b"there"), file("fresh.png", b"fresh"), file("taken.png", b"taken"), file("kept.png", b"kept"));
-        let there = { store(dir.path(), &there).unwrap(); store_staged(dir.path(), &there).unwrap() };
-        let fresh = store_staged(dir.path(), &fresh).unwrap();
+        let there = { store(dir.path(), &there).unwrap(); store_staged(dir.path(), &there, "a").unwrap() };
+        let fresh = store_staged(dir.path(), &fresh, "a").unwrap();
         let taken_path = taken.clone();
-        let taken = store_staged(dir.path(), &taken).unwrap();
+        let taken = store_staged(dir.path(), &taken, "a").unwrap();
         store(dir.path(), &taken_path).unwrap();
-        let kept = store_staged(dir.path(), &kept).unwrap();
-        release(dir.path(), &[kept.sha.clone()], true);
-        release(dir.path(), &[there.sha.clone(), fresh.sha.clone(), taken.sha.clone(), kept.sha.clone()], false);
+        let kept = store_staged(dir.path(), &kept, "a").unwrap();
+        release(dir.path(), &[kept.sha.clone()], true, "a");
+        release(dir.path(), &[there.sha.clone(), fresh.sha.clone(), taken.sha.clone(), kept.sha.clone()], false, "a");
         assert!(media_file(dir.path(), &there.sha).is_some(), "a file that was there already stays");
         assert!(media_file(dir.path(), &fresh.sha).is_none(), "the batch's own new file goes");
         assert!(media_file(dir.path(), &taken.sha).is_some(), "a file something else put since stays");
@@ -574,9 +660,50 @@ mod tests {
         assert!(names[0].exists(), "the oldest is shown, so it stays");
         assert!(!names[1].exists() && !names[2].exists(), "the oldest not shown go until the folder fits");
         assert!(names[3].exists());
-        let total: u64 = fs::read_dir(dir.path().join(PAGES)).unwrap().flatten().map(|e| e.metadata().unwrap().len()).sum();
+        let total: u64 = fs::read_dir(frames(dir.path()).unwrap()).unwrap().flatten().filter(|e| e.file_name() != ".owner").map(|e| e.metadata().unwrap().len()).sum();
         assert!(total <= 450, "{total}");
-        fs::create_dir(dir.path().join(PAGES).join(".page-5~f6.html.tmp")).unwrap();
+        fs::create_dir(frames(dir.path()).unwrap().join(".page-5~f6.html.tmp")).unwrap();
         assert!(write_page(dir.path(), "page-5", "f6", "<p>a temporary name of its own</p>").is_ok(), "a write does not share its temporary file");
+    }
+    /* 0.3-R fix 3 #15: a file one Aphrodite staged and another has since brought in, from its own process, is not removed when
+       the first one's batch is refused; a session lets go only of what it marked itself. */
+    #[test]
+    fn a_file_another_process_took_stays_when_the_batch_that_staged_it_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
+        let (shared, alone) = (file("shared.png", b"shared"), file("alone.png", b"alone"));
+        let shared_path = shared.clone();
+        let shared = store_staged(dir.path(), &shared, "a").unwrap();
+        store(dir.path(), &shared_path).unwrap();
+        release(dir.path(), &[shared.sha.clone()], false, "a");
+        assert!(media_file(dir.path(), &shared.sha).is_some(), "the other one took it, so it stays");
+        let alone = store_staged(dir.path(), &alone, "a").unwrap();
+        release(dir.path(), &[alone.sha.clone()], false, "b");
+        assert!(media_file(dir.path(), &alone.sha).is_some(), "another session's refusal does not touch it");
+        release(dir.path(), &[alone.sha.clone()], false, "a");
+        assert!(media_file(dir.path(), &alone.sha).is_none(), "its own refusal does");
+    }
+
+    /* 0.3-R fix 3 #14: each Aphrodite keeps the copies its frames load in a folder of its own, held by a lock for as long as
+       it runs. Another one's write never sweeps it; a folder whose owner has ended goes at the next start, whatever pid the
+       system has given since, since the lock goes with the process and not with its number. */
+    #[test]
+    fn each_process_sweeps_only_its_own_copies_and_a_folder_whose_owner_ended_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = dir.path().join(PAGES);
+        let long_ago = std::time::SystemTime::now() - PAGE_KEPT - std::time::Duration::from_secs(60);
+        let (mine, _mine) = own_frames(&pages, "111-aaaa").unwrap();
+        let (theirs, owner) = own_frames(&pages, "222-bbbb").unwrap();
+        let open = publish_in(&theirs, "page-1", "ab12", "<p>theirs, open an hour</p>", &[], PAGES_BOUND).unwrap();
+        fs::File::options().append(true).open(&open).unwrap().set_modified(long_ago).unwrap();
+        publish_in(&mine, "page-2", "cd34", "<p>mine</p>", &[], PAGES_BOUND).unwrap();
+        assert!(open.exists(), "another one's copy is never swept by this one's write");
+        reap(&pages, &mine);
+        assert!(open.exists(), "nor reaped while its owner runs");
+        let (again, _again) = own_frames(&pages, "222-cccc").unwrap();
+        drop(owner);
+        reap(&pages, &again);
+        assert!(!theirs.exists(), "a folder whose owner ended goes, though a process with the same pid runs");
+        assert!(mine.exists() && again.exists());
     }
 }
