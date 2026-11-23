@@ -1324,6 +1324,8 @@ export const commands = [
     controls: [
       action('save-project'), action('disk-backup'), action('save-design'), action('save-omd-issue'), action('assembly-brief'),
       action('assembly-log'), action('proposal-export'), action('hub-backup'), action('hub-recovery'), action('vault-download'), action('vault-export'),
+      /* The person's answer to a close that could not save (0.3-R ⑤): keep the board as a file, then close. */
+      listener('close-keep'),
     ],
   },
   {

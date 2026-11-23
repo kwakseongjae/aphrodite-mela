@@ -1680,27 +1680,38 @@ check('closing the window is a leaving: nothing can be typed while its write is 
   await sleep(5_200);
 });
 
-/* 0.3-P3-fix5 #1: closes are one at a time. Two asked while the write is held are one close: its save is refused, so the
-   window stays and says so, and Save project file still keeps the board; a close asked once that is on the screen goes. */
-check('two closes asked while the write is held are one: refused, the window stays and says so, Save project file still works, and a close asked after it closes', async () => {
+/* 0.3-P3-fix5 #1, 0.3-R ⑤: closes are one at a time, and a close that cannot save asks the person (the browser build with
+   confirm(), the desktop in the system's own dialog): staying keeps the window, keeping the board as a file saves it and
+   closes, closing without saving closes. Nothing else closes it unsaved: not a second close, not a warning painted. */
+check('two closes asked while the write is held are one: refused, the person is asked once; staying keeps the window, Save project file still works, keeping a file closes, and closing without saving closes', async () => {
   await sleep(5_200);
   const closed = await evaluate('window.__closed ?? 0');
   await typeIntoTitle(' 닫기 실패');
+  const save = await downloads();
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
   await evaluate(`(() => { const set = Storage.prototype.setItem; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { if (k === 'aphrodite-project-library-v1') throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
   try {
     await evaluate('window.aphroditeHoldWrites(true), true');
     await evaluate('window.aphroditeCloseWindow(), window.aphroditeCloseWindow(), true');
     await sleep(400);
     await evaluate('window.aphroditeHoldWrites(false), true');
-    await waitFor(() => evaluate(`/Could not save before closing|종료 전 저장에 실패/.test(document.querySelector('#toast').textContent)`), 'the warning');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked');
     await sleep(1_000);
-    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'the window stays: neither close went unsaved');
-    const save = await downloads();
+    assert.equal(await evaluate('window.__asked.length'), 2, 'asked once for the two closes (a question, then which way)');
+    assert.match(await evaluate('window.__asked[0]'), /could not be saved before closing|종료 전에 이 보드를 저장하지 못했습니다/);
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'they stayed: the window stays');
     const kept = await save('save-project');
     assert.ok(Buffer.from(kept.bytes).toString('utf8').includes(' 닫기 실패'), 'Save project file keeps the board as it is on screen');
+    const files = await evaluate('window.__downloads.length');
+    await evaluate('window.__answers = [true], true');
     await evaluate('window.aphroditeCloseWindow(), true');
-    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 1, 'the close asked after the warning to go');
-  } finally { await evaluate('window.__restoreSetItem(), true'); }
+    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 1, 'the close that keeps a file to go');
+    assert.ok((await evaluate('window.__downloads.length')) > files, 'the board was kept as a file before the window went');
+    assert.ok(Buffer.from((await evaluate('window.__downloads.at(-1)')).b64, 'base64').toString('utf8').includes(' 닫기 실패'), 'the board as it is on screen');
+    await evaluate('window.__answers = [false, true], true');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 2, 'close without saving to go');
+  } finally { await evaluate('window.__restoreSetItem(), window.confirm = window.__confirm, true'); }
   // The store takes writes again; what was typed lands with the next save, so the checks after start from a saved board.
   await sleep(5_200);
   await typeIntoTitle(' 다시 저장');

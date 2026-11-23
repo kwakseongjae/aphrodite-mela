@@ -99,6 +99,8 @@ const LISTENERS:Record<string,{file:string;marker:string}>={
   'opened':{file:'main.ts',marker:"tauriListen('aphrodite-opened'"},
   // A board file dropped on the board (0.3-P3-fix3 #7): the person's import, on the import row.
   'board-drop':{file:'main.ts',marker:"for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board)))"},
+  // 0.3-R ⑤: a close that could not save asks the person, and their "keep as a file" saves the board before the window goes.
+  'close-keep':{file:'main.ts',marker:"const closer=windowCloser(closeWindow,askClose,"},
 };
 /** Helpers that are the app's own saving, run by every edit rather than by any one command. */
 const EXEMPT:Record<string,string>={
