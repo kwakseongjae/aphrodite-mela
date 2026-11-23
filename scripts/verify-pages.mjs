@@ -1736,6 +1736,8 @@ check('a close whose write never ends asks in bounded time, and when the person 
     assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'the editor takes input again');
     assert.equal(await evaluate('window.__closed ?? 0'), closed, 'and the window stayed');
     const typed = await typeIntoTitle(' 머무름');
+    // A field's words go into the board when it lets go of the keys, as the person's change.
+    await evaluate('document.activeElement?.blur?.(), true'); await sleep(300);
     assert.ok((await titleOf(typed) ?? '').endsWith(' 머무름'), 'what the person types goes in');
   } finally { await evaluate('window.aphroditeHoldWrites(false), window.confirm = window.__confirm, true'); }
   await evaluate('document.activeElement?.blur?.(), true');
