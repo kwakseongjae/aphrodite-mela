@@ -62,7 +62,7 @@ test('the page reaches no host outside the list', () => {
     /^https:\/\/cdn\.jsdelivr\.net(\/gh\/orioncactus\/pretendard@v1\.3\.9\/dist\/web\/variable\/pretendardvariable-dynamic-subset\.min\.css)?$/,
     /^https:\/\/github\.com\/kwakseongjae\/aphrodite-mela(\.git|\/releases|\/issues|\/blob\/main\/THIRD_PARTY_NOTICES\.md)?\/?$/,
     /^https:\/\/github\.com\/$/, /^https:\/\/api\.github\.com\/repos\/$/,
-    /^https:\/\/kwakseongjae\.github\.io\/aphrodite-mela\/assets\/og\.png$/,
+    /^https:\/\/kwakseongjae\.github\.io\/aphrodite-mela\/preview\/assets\/og\.png$/,
   ];
   const urls = [...(html + js + css).matchAll(/https?:\/\/[^\s"'<>)]+/g)].map(m => m[0].replace(/&amp;/g, '&'));
   assert.ok(urls.length > 0);
@@ -162,6 +162,12 @@ for (const l of ['ko', 'en'] as const) test(`the ${l === 'ko' ? 'Korean' : 'Engl
 
 test('the line under the first picture waits for a real screen', () => {
   assert.ok(!Object.values(COPY!).some(v => /Claude Code가 만들었어요/.test(v.ko)));
+});
+
+test('the preview page shares its own picture, not the landing’s', () => {
+  assert.match(html, /<meta property="og:image" content="https:\/\/kwakseongjae\.github\.io\/aphrodite-mela\/preview\/assets\/og\.png">/);
+  assert.ok(existsSync(new URL('../site/preview/assets/og.png', import.meta.url)));
+  assert.ok(existsSync(new URL('../site/assets/og.png', import.meta.url)));
 });
 
 test('no visible words go untranslated except names, commands and the year', () => {
