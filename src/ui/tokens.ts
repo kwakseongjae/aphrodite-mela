@@ -1,7 +1,8 @@
 /**
  * The app's own look: the one source for its colours, type, space, shape and control sizes.
  *
- * Values come from the approved direction (lab/review-board/proposals/0.3-F/tokens.css). This file is
+ * Values come from the approved direction: the scale from 0.3-F (lab/review-board/proposals/0.3-F/tokens.css), the colours from
+ * 0.3-D2 direction A, paper and ink, which the owner picked on 11/23 (lab/review-board/proposals/0.3-D2/app/tokens-a.css). This file is
  * not imported by the app; `scripts/build-ui-tokens.mjs` renders it to `src/ui/tokens.css` and to the
  * token table in `docs/UI-SYSTEM.md`, and tests/ui-tokens.test.ts refuses a stylesheet or a table that
  * no longer matches it. Every emitted name is `--ui-` prefixed so nothing an existing screen or a
@@ -12,16 +13,23 @@
  * another token and renders as `var(--ui-name)`.
  */
 
-/** Neutral ramp: OKLCH hue 150 (toward the Aphrodite green), chroma 0.0015–0.008. */
+/**
+ * Neutral ramps: warm paper, OKLCH hue 85 (direction A, 0.3-D2). Light runs n-0 (paper) to n-950 (ink);
+ * dark has its own ramp, d-0 (deepest) to d-950 (light ink), because its surfaces sit closer together.
+ * Green is success only (ok-*): the accent is ink, the agent gold, the person's selection blue.
+ */
 export const primitives={
-  'n-0':'#FDFEFD','n-50':'#F8FAF8','n-100':'#F1F3F1','n-200':'#E4E7E4','n-300':'#D1D5D1','n-400':'#A9AEAA',
-  'n-500':'#848985','n-600':'#666A66','n-700':'#4A4E4B','n-800':'#323532','n-900':'#1E211F','n-950':'#131614',
-  'green-600':'#2A583C','green-500':'#356748','green-300':'#7FBB93','green-soft-light':'#E6F4EA','green-soft-dark':'#1D3124',
-  'blue-500':'#1A6FE1','blue-soft-light':'#E6F1FF','blue-soft-dark':'#1C314E',
-  'gold-600':'#8A6419','gold-500':'#B48A32','gold-300':'#D0A348','gold-soft-light':'#FBEFD6','gold-soft-dark':'#382C15',
-  'ok-600':'#267543','ok-300':'#72C78B','ok-soft-light':'#E2F6E6','ok-soft-dark':'#1B3422',
-  'warn-600':'#955E11','warn-300':'#E8B45E','warn-soft-light':'#FFF0D4','warn-soft-dark':'#402C12',
-  'danger-600':'#BA362E','danger-300':'#F07F77','danger-soft-light':'#FFEAE8','danger-soft-dark':'#4A2321',
+  'n-0':'#FDFCF8','n-50':'#F7F5EF','n-100':'#EEEAE0','n-200':'#DFDBD0','n-300':'#C9C4B6','n-400':'#A29D8F',
+  'n-500':'#67645A','n-600':'#5B584E','n-700':'#46433A','n-800':'#302E27','n-900':'#211F19','n-950':'#15140F',
+  'd-0':'#131210','d-50':'#1B1A16','d-100':'#201F1A','d-200':'#25241E','d-300':'#2B2A23','d-400':'#36342C',
+  'd-500':'#4A473D','d-600':'#77736A','d-700':'#9B9584','d-800':'#BDB7A6','d-900':'#DCD7C9','d-950':'#F3EFE3',
+  'floor-light':'#EFEBE1','floor-dark':'#22211C',
+  'ink-hover-light':'#3A372E','ink-soft-light':'#E6E0D1','ink-soft-dark':'#2F2D26',
+  'blue-600':'#155AB8','blue-500':'#1A6FE1','blue-300':'#7DADF3','blue-soft-light':'#E6F1FF','blue-soft-dark':'#1C314E',
+  'gold-600':'#82601A','gold-500':'#A37A22','gold-400':'#D8B55A','gold-300':'#DCBD6A','gold-soft-light':'#F6ECD3','gold-soft-dark':'#3A3018',
+  'ok-600':'#2F7A4A','ok-300':'#7CC395','ok-soft-light':'#E4F2E8','ok-soft-dark':'#1B3422',
+  'warn-600':'#955E11','warn-300':'#E8B45E','warn-soft-light':'#FBEFD8','warn-soft-dark':'#402C12',
+  'danger-600':'#BA362E','danger-300':'#F07F77','danger-soft-light':'#FCEBE8','danger-soft-dark':'#4A2321',
   white:'#FFFFFF',
 } as const;
 
@@ -48,18 +56,19 @@ export const scale={
 type Roles=Record<string,string>;
 const light:Roles={
   'color-scheme':'light',
-  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-canvas':'{n-100}','canvas-dot':'{n-300}',
-  'bg-hover':'{n-100}','bg-active':'{n-200}','bg-inverse':'{n-900}','line':'{n-200}','line-strong':'{n-300}',
+  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-canvas':'{floor-light}','canvas-dot':'rgb(33 31 25 / 0.16)',
+  'bg-hover':'{n-100}','bg-active':'{n-200}','bg-inverse':'{n-900}','line':'{n-200}','line-strong':'{n-300}','edge-control':'{n-500}',
   'text-1':'{n-900}','text-2':'{n-600}','text-3':'{n-500}','text-inverse':'{n-50}',
-  accent:'{green-500}','accent-hover':'{green-600}','accent-pressed':'{green-600}','accent-soft':'{green-soft-light}','accent-text':'{green-500}','on-accent':'{n-0}',
-  select:'{blue-500}','select-soft':'{blue-soft-light}','on-select':'{white}',
-  agent:'{gold-500}','agent-soft':'{gold-soft-light}','agent-text':'{gold-600}','on-agent':'{n-950}',
+  accent:'{n-900}','accent-hover':'{ink-hover-light}','accent-pressed':'{ink-hover-light}','accent-soft':'{ink-soft-light}','accent-text':'{n-900}','on-accent':'{n-50}',
+  select:'{blue-500}','select-soft':'{blue-soft-light}','select-text':'{blue-600}','on-select':'{white}',
+  agent:'{gold-500}','agent-soft':'{gold-soft-light}','agent-text':'{gold-600}','on-agent':'{n-950}','mark':'{gold-600}',
   'ok-text':'{ok-600}','ok-soft':'{ok-soft-light}','warn-text':'{warn-600}','warn-soft':'{warn-soft-light}',
   danger:'{danger-600}','danger-soft':'{danger-soft-light}','danger-text':'{danger-600}','danger-line':'{danger-600}','on-danger':'{white}',
   focus:'{blue-500}','knob':'{n-0}',
-  scrim:'rgb(19 22 20 / 0.32)',
-  'shadow-panel':'0 1px 2px rgb(19 22 20 / 0.06), 0 4px 12px rgb(19 22 20 / 0.06)',
-  'shadow-window':'0 2px 6px rgb(19 22 20 / 0.08), 0 16px 40px rgb(19 22 20 / 0.14)',
+  scrim:'rgb(33 31 25 / 0.28)',
+  'shadow-panel':'0 1px 2px rgb(33 31 25 / 0.06), 0 4px 12px rgb(33 31 25 / 0.06)',
+  'shadow-window':'0 2px 6px rgb(33 31 25 / 0.08), 0 20px 48px rgb(33 31 25 / 0.16)',
+  'shadow-frame':'0 0 0 1px rgb(33 31 25 / 0.06), 0 2px 8px rgb(33 31 25 / 0.07)',
   'shadow-press':'inset 0 1px 4px rgb(0 0 0 / 0.18)',
   'shadow-knob':'0 1px 2px rgb(0 0 0 / 0.2)',
   'shadow-seg':'0 0 0 1px {line}, 0 1px 2px rgb(0 0 0 / 0.06)',
@@ -67,18 +76,19 @@ const light:Roles={
 };
 const dark:Roles={
   'color-scheme':'dark',
-  'bg-app':'{n-950}','bg-panel':'{n-900}','bg-raised':'{n-800}','bg-sunken':'{n-950}','bg-canvas':'{n-950}','canvas-dot':'{n-800}',
-  'bg-hover':'{n-800}','bg-active':'{n-700}','bg-inverse':'{n-50}','line':'{n-800}','line-strong':'{n-700}',
-  'text-1':'{n-50}','text-2':'{n-400}','text-3':'{n-500}','text-inverse':'{n-900}',
-  accent:'{green-500}','accent-hover':'{green-600}','accent-pressed':'{green-600}','accent-soft':'{green-soft-dark}','accent-text':'{green-300}','on-accent':'{n-0}',
-  select:'{blue-500}','select-soft':'{blue-soft-dark}','on-select':'{white}',
-  agent:'{gold-500}','agent-soft':'{gold-soft-dark}','agent-text':'{gold-300}','on-agent':'{n-950}',
+  'bg-app':'{d-50}','bg-panel':'{d-100}','bg-raised':'{d-200}','bg-sunken':'{d-0}','bg-canvas':'{floor-dark}','canvas-dot':'rgb(243 239 227 / 0.14)',
+  'bg-hover':'{d-300}','bg-active':'{d-400}','bg-inverse':'{d-950}','line':'{d-400}','line-strong':'{d-500}','edge-control':'{d-600}',
+  'text-1':'{d-950}','text-2':'{d-800}','text-3':'{d-700}','text-inverse':'{d-50}',
+  accent:'{d-950}','accent-hover':'{white}','accent-pressed':'{white}','accent-soft':'{ink-soft-dark}','accent-text':'{d-950}','on-accent':'{d-50}',
+  select:'{blue-500}','select-soft':'{blue-soft-dark}','select-text':'{blue-300}','on-select':'{white}',
+  agent:'{gold-400}','agent-soft':'{gold-soft-dark}','agent-text':'{gold-300}','on-agent':'{n-950}','mark':'{gold-300}',
   'ok-text':'{ok-300}','ok-soft':'{ok-soft-dark}','warn-text':'{warn-300}','warn-soft':'{warn-soft-dark}',
   danger:'{danger-600}','danger-soft':'{danger-soft-dark}','danger-text':'{danger-300}','danger-line':'{danger-300}','on-danger':'{white}',
   focus:'{blue-500}','knob':'{n-0}',
-  scrim:'rgb(0 0 0 / 0.5)',
-  'shadow-panel':'0 0 0 1px rgb(255 255 255 / 0.04), 0 4px 16px rgb(0 0 0 / 0.36)',
-  'shadow-window':'0 0 0 1px rgb(255 255 255 / 0.06), 0 20px 48px rgb(0 0 0 / 0.5)',
+  scrim:'rgb(0 0 0 / 0.56)',
+  'shadow-panel':'0 0 0 1px rgb(255 255 255 / 0.05), 0 4px 16px rgb(0 0 0 / 0.4)',
+  'shadow-window':'0 0 0 1px rgb(255 255 255 / 0.07), 0 24px 56px rgb(0 0 0 / 0.55)',
+  'shadow-frame':'0 0 0 1px rgb(255 255 255 / 0.07), 0 2px 12px rgb(0 0 0 / 0.45)',
   'shadow-press':'inset 0 1px 4px rgb(0 0 0 / 0.3)',
   'shadow-knob':'0 1px 2px rgb(0 0 0 / 0.4)',
   'shadow-seg':'0 0 0 1px {line-strong}, 0 1px 2px rgb(0 0 0 / 0.3)',
@@ -117,15 +127,15 @@ export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:P
   {fg:'text-2',bg:'bg-sunken',min:4.5,use:'입력 칸 안, 썸네일 바탕'},
   {fg:'text-2',bg:'bg-app',min:4.5,use:'사이드바'},
   {fg:'text-2',bg:'bg-hover',min:4.5,use:'마우스를 올린 줄의 메타, 눌린 세그먼트, 칩의 아이콘'},
-  {fg:'text-2',bg:'bg-active',min:3,meta:true,use:'현재 줄 · 눌린 줄의 메타(되풀이하는 메타만), 눌린 칩 · 줄의 아이콘 (그래픽)'},
+  {fg:'text-2',bg:'bg-active',min:4.5,use:'현재 줄 · 눌린 줄의 메타와 꼬리표, 눌린 칩 · 줄의 아이콘'},
   {fg:'text-2',bg:'select-soft',min:4.5,use:'선택한 줄의 메타와 아이콘'},
   {fg:'text-2',bg:'ok-soft',min:4.5,use:'성공 띠 설명'},
   {fg:'text-2',bg:'warn-soft',min:4.5,use:'주의 띠 설명'},
   {fg:'text-2',bg:'danger-soft',min:4.5,use:'위험 띠 설명'},
   {fg:'text-2',bg:'agent-soft',min:4.5,use:'에이전트 띠 설명'},
-  {fg:'text-3',bg:'bg-panel',min:3,meta:true,use:'자리 표시, 되풀이하는 메타, 선택 상자 화살표 · 점 · 호버 테두리 (그래픽)'},
-  {fg:'text-3',bg:'bg-hover',min:3,use:'마우스를 올린 조용한 선택 상자의 화살표 (그래픽)'},
-  {fg:'text-3',bg:'bg-sunken',min:3,use:'알약 안의 점 (그래픽)'},
+  {fg:'text-3',bg:'bg-panel',min:4.5,use:'자리 표시, 되풀이하는 메타, 선택 상자 화살표 · 점 · 호버 테두리'},
+  {fg:'text-3',bg:'bg-hover',min:4.5,use:'마우스를 올린 조용한 선택 상자의 화살표'},
+  {fg:'text-3',bg:'bg-sunken',min:4.5,use:'알약 안의 점'},
   {fg:'text-3',bg:'ok-soft',min:3,use:'성공 알약 안의 점 (그래픽)'},
   {fg:'text-3',bg:'warn-soft',min:3,use:'주의 알약 안의 점 (그래픽)'},
   {fg:'text-3',bg:'danger-soft',min:3,use:'위험 알약 안의 점 (그래픽)'},
@@ -145,8 +155,8 @@ export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:P
   {fg:'line-strong',bg:'bg-panel',min:3,use:'입력 칸 · 글 상자 · 선택 상자 · 요청 입력창 테두리, 꺼진 스위치 막대, 칩 · 보조 버튼 · 연결 카드 테두리 (그래픽)',short:{
     light:'승인된 시안의 값(1.47:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알리고, 칩 · 보조 버튼 · 연결 카드는 글자가 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.',
     dark:'승인된 시안의 값(1.92:1). 칸 안의 이름표 · 자리 표시와 스위치 손잡이의 자리가 함께 알리고, 칩 · 보조 버튼 · 연결 카드는 글자가 알린다. 대표님이 승인한 예외가 아니다: 3:1로 올릴지 보드에서 여쭌다.'}},
-  {fg:'accent',bg:'bg-panel',min:3,use:'켜진 스위치, 연결된 카드 테두리, 강조 점 (그래픽)',short:{dark:'대표님이 11/18에 승인한 예외(어두운 판 녹색 채움). 시안은 흰 글자 6.52:1을 지키려고 두 판에 같은 녹색을 쓴다. 스위치의 손잡이 위치와 연결 카드의 "연결됨" 알약이 상태를 함께 알린다. F3에서 다시 본다.'}},
-  {fg:'accent-hover',bg:'bg-panel',min:3,use:'마우스를 올린 켜진 스위치 (그래픽)',short:{dark:'어두운 판 녹색 채움(11/18 승인)에 마우스를 올린 색(1.98:1). 승인이 이 색까지 덮는지는 보드에서 여쭌다. 손잡이 위치가 상태를 함께 알린다.'}},
+  {fg:'accent',bg:'bg-panel',min:3,use:'켜진 스위치, 연결된 카드 테두리, 강조 점 (그래픽)'},
+  {fg:'accent-hover',bg:'bg-panel',min:3,use:'마우스를 올린 켜진 스위치 (그래픽)'},
   {fg:'on-agent',bg:'agent',min:4.5,use:'에이전트 이름표'},
   {fg:'agent',bg:'bg-panel',min:3,use:'에이전트 점 (그래픽)'},
   {fg:'agent-text',bg:'bg-panel',min:4.5,use:'에이전트 상태 글자'},

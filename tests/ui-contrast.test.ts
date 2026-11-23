@@ -16,8 +16,9 @@ const css=shipped.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n');
  * Meta: the rules whose text may be held to 3:1, because it is a placeholder or meta that repeats
  * something said elsewhere (a count, a shortcut, a time): those that style a placeholder, .ui-caps,
  * .ui-kbd, .ui-tab-count or .ui-row-meta. Anything else a person reads is text, at 4.5.
- * Fills: elements whose colour is the graphic itself. The switch knob is not read: it is the same light
- * colour in both themes, and its position, not its colour against the track, tells on from off.
+ * Fills: elements whose colour is the graphic itself. The switch knob is not read: its position, not its
+ * colour against the track, tells on from off. On, it takes on-accent, so it stays visible on the ink track
+ * in the dark theme too (on-accent on accent is a listed pair).
  * Decorative: --ui-line separates things already told apart by fill, text or position (dividers, the edge
  * of a card or a segmented control), so it is never read; it is never a text colour either (tested below).
  */
@@ -60,22 +61,22 @@ for(const theme of Object.keys(themes) as Theme[]){
   });
 }
 
-test('three pairs are let off their minimum, all graphics: one the owner approved, two the board asks about',()=>{
-  // Approved by the owner on 11/18: the dark theme's green fill (accent). Not approved, asked on the board:
-  // the input border and off switch track (one pair, line-strong on bg-panel) and the green fill's hover.
+test('one pair is let off its minimum, a graphic the board asks about',()=>{
+  // Not approved, asked on the board: the input border and off switch track (one pair, line-strong on bg-panel).
+  // The dark theme's green fill and its hover (approved 11/18) went with the green: the ink accent reads in both themes.
   const let_off=pairs.filter(p=>p.short);
-  assert.deepEqual(let_off.map(p=>p.fg+'/'+p.bg),['line-strong/bg-panel','accent/bg-panel','accent-hover/bg-panel'],'a new exception needs the owner, not a test edit');
+  assert.deepEqual(let_off.map(p=>p.fg+'/'+p.bg),['line-strong/bg-panel'],'a new exception needs the owner, not a test edit');
   for(const p of let_off){assert.equal(p.min,3,'text has no exceptions');assert.equal(p.meta,undefined,'an exception is never read as text');}
   // A pair let off is let off only where it is drawn today: a new part drawing it needs the owner too.
   const drawers=(fg:string,bg:string)=>drawn(css,policy).pairs.filter(d=>d.fg===fg&&d.bg===bg).flatMap(d=>d.rules).sort();
   assert.deepEqual(drawers('line-strong','bg-panel'),['.ui-btn-secondary','.ui-chip','.ui-composer','.ui-connect','.ui-input','.ui-select','.ui-switch-track','.ui-textarea']);
-  assert.deepEqual(drawers('accent','bg-panel'),['.ui-connect.is-connected','.ui-dot.ui-dot-accent','.ui-switch-input:checked + .ui-switch-track','.ui-switch.is-on .ui-switch-track']);
-  assert.deepEqual(drawers('accent-hover','bg-panel'),['.ui-switch.is-on.is-hover .ui-switch-track','.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track']);
 });
 
 /**
- * text-3 reaches 3:1, not 4.5, so it writes only meta (a placeholder, a count, a shortcut, a row's
- * repeated detail), a disabled control (WCAG exempts it) or an icon. These are the rules that do.
+ * text-3 is the quietest step. With direction A it reaches 4.5 on the panel, the sidebar, the sunken and the
+ * hover fills, but not on bg-active (4.28 / 4.17), which is why a lit row moves its meta up to text-2. It
+ * still writes only meta (a placeholder, a count, a shortcut, a row's repeated detail), a disabled control
+ * or an icon, so the steps keep their order. These are the rules that do.
  */
 test('text-3 writes only meta, disabled controls and icons, in these rules',()=>{
   const writers=rules(css).filter(r=>/var\(--ui-text-3\)/.test(r.decls.color?.value??'')).map(r=>r.selector);
@@ -85,16 +86,18 @@ test('text-3 writes only meta, disabled controls and icons, in these rules',()=>
 });
 
 test('the ratios are the ones the approved direction showed',()=>{
-  // Read off lab/review-board/proposals/0.3-F/shots/06-system-*.png: the resolver agrees with the sheet.
+  // Read off lab/review-board/proposals/0.3-D2/app/contrast.md (direction A, picked 11/23): the resolver agrees with it.
+  // Its dark rows for bg-hover and bg-active are a step off the stylesheet it sits beside, so they are not pinned here.
   const seen=(theme:Theme,fg:string,bg:string)=>Number(contrastRatio(resolve(theme,fg)!,resolve(theme,bg)!).toFixed(2));
-  assert.equal(seen('light','text-1','bg-panel'),16.07);
-  assert.equal(seen('light','text-2','bg-panel'),5.44);
-  assert.equal(seen('light','text-3','bg-panel'),3.52);
+  assert.equal(seen('light','text-1','bg-panel'),16.05);
+  assert.equal(seen('light','text-2','bg-panel'),6.93);
+  assert.equal(seen('light','text-3','bg-panel'),5.77);
   assert.equal(seen('light','on-select','select'),4.77);
-  assert.equal(seen('light','agent-text','agent-soft'),4.70);
-  assert.equal(seen('dark','text-1','bg-panel'),15.49);
-  assert.equal(seen('dark','text-3','bg-panel'),4.56);
-  assert.equal(seen('dark','select','bg-canvas'),3.82);
+  assert.equal(seen('light','agent-text','agent-soft'),4.91);
+  assert.equal(seen('light','select','bg-canvas'),4.00);
+  assert.equal(seen('dark','text-1','bg-panel'),14.36);
+  assert.equal(seen('dark','text-3','bg-panel'),5.52);
+  assert.equal(seen('dark','select','bg-canvas'),3.38);
 });
 
 test('every colour pair a part draws is in the list, at the strength it is drawn',()=>{

@@ -156,7 +156,7 @@
 .ui-switch:hover .ui-switch-input:not(:disabled) + .ui-switch-track, .ui-switch.is-hover .ui-switch-track { background: var(--ui-text-3); }
 .ui-switch-input:checked + .ui-switch-track, .ui-switch.is-on .ui-switch-track { background: var(--ui-accent); }
 .ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track, .ui-switch.is-on.is-hover .ui-switch-track { background: var(--ui-accent-hover); }
-.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); }
+.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); background: var(--ui-on-accent); }
 .ui-switch:active .ui-switch-input:not(:disabled) + .ui-switch-track::after, .ui-switch.is-pressed .ui-switch-track::after { box-shadow: var(--ui-shadow-knob), 0 0 0 var(--ui-ring) var(--ui-bg-hover); }
 .ui-switch:has(.ui-switch-input:disabled), .ui-switch.is-disabled { opacity: var(--ui-disabled-opacity); }
 
