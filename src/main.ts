@@ -1171,7 +1171,7 @@ let exportChoice:ExportChoice={scripts:false,videos:'beside'};
 function pageExportHtml(page:Page){return `<div class="export-page" data-export-page><strong>${ui('This page as one HTML file','이 페이지를 HTML 파일 하나로')}</strong>${page.kind==='html'?`<label class="check-option"><input type="checkbox" data-export-scripts ${exportChoice.scripts?'checked':''}>${ui('Include the page’s scripts','페이지의 스크립트 포함')}</label>${exportChoice.scripts?`<p class="export-page-note" role="note">${ui(`Its scripts will run in the browser of whoever opens the file, where this app cannot keep them in. To hand it over running, send the board as a .${BOARD_FILE.extension} file.`,`받는 사람의 브라우저에서 스크립트가 그대로 돌고, 거기에는 이 앱의 벽이 없습니다. 움직이는 그대로 건네려면 보드를 .${BOARD_FILE.extension} 파일로 보내세요.`)}</p>`:''}`:''}${page.kind==='html'&&!exportChoice.scripts?`<p class="export-page-quiet" data-export-cleaned>${ui('Without its scripts it also goes without its forms\' addresses, frames inside it, formulas written in MathML, and links to its other pages.','스크립트 없이 보내면 폼이 보내는 주소, 안에 띄운 틀, MathML로 쓴 수식, 다른 페이지로 가는 링크도 빠집니다.')}</p>`:''}<div class="export-page-videos" data-export-videos hidden><label class="check-option"><input type="radio" name="export-videos" value="beside" ${exportChoice.videos==='beside'?'checked':''}>${ui('Videos beside it, as files in a .zip','영상은 옆에 파일로 (.zip)')}</label><label class="check-option"><input type="radio" name="export-videos" value="out" ${exportChoice.videos==='out'?'checked':''}>${ui('Leave the videos out','영상은 빼기')}</label></div><button class="secondary-button" data-action="download-page-html">${icon('download')}<span>${ui('Download this page','이 페이지 내려받기')}</span></button></div>`;}
 /** The export dialog as a way in opens it: the scripts left out again, whichever way that is (0.3-P3-fix1). */
 /** What an approve button was drawn over: the design, the page and whether it was approved. Approving writes only when it is still that (0.2.5 H2). */
-function shownState(){return `${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
+function shownState(){return `${project.id}|${fingerprint(project)}|${project.activePageId}|${isApproved(project)}`;}
 /** The files an export of `board` carries, counted and measured as it would send them, and how many it holds back (0.3-R ④). */
 async function carriedSummary(board:Project):Promise<string>{
   const go=outgoing(board,frameHost);let count=0,bytes=0;
@@ -1742,6 +1742,8 @@ document.addEventListener('change', e => {
     review.querySelector('strong')!.textContent = ui('Like where this is going?','이 방향으로 갈까요?');
     review.querySelector('p')!.textContent = '화면을 확인하고 디자인 방향을 확정하세요.';
     const approve = review.querySelector('button')!; approve.className = 'approve-button'; approve.innerHTML = icon('check') + `<span>${control('Approve direction')}</span>`;
+    // The card shows the board as the canvas now does, so the person's next press approves this (0.3-R fix 1 #4).
+    approve.dataset.shown = shownState();
     }
     syncStateAttributes();
     hydrateIcons();

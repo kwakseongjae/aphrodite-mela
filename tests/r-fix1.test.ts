@@ -16,3 +16,12 @@ test('reloading from disk is the person\'s alone: an agent\'s command is refused
   assert.equal(commandById['outside.disk-reload'].author, 'person-only');
   assert.match(caseOf('disk-reload'), /case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(\);/);
 });
+
+/* 4: what an approve button was drawn over names the board, and the review card follows the canvas when an edit redraws only
+   the canvas, so the person's first press after it approves. */
+test('an approve button holds the board it was drawn for, and the card takes the canvas\'s state when a field edit redraws only the canvas', () => {
+  assert.match(main, /function shownState\(\)\{return `\$\{project\.id\}\|\$\{fingerprint\(project\)\}\|/);
+  const at = main.indexOf("const review = document.querySelector('.review-card');");
+  const block = main.slice(at, main.indexOf('syncStateAttributes();', at));
+  assert.match(block, /approve\.dataset\.shown = shownState\(\);/);
+});

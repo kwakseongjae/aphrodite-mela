@@ -446,6 +446,19 @@ check('the export window\'s Approve now approves only the board it showed (0.2.5
   await key('Escape', 'Escape', 27);
 });
 
+/* 0.3-R fix 1 #4: an edit in the inspector redraws the canvas alone; the card follows it, so the person's first press approves. */
+check('right after the person edits a title, Approve direction approves with one press', async () => {
+  const id = await evaluate(`document.querySelector('.space-frame.active [data-block-id]').dataset.blockId`);
+  await personPresses('select', {id}); await sleep(400);
+  assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
+  await send('Input.insertText', {text: ' edited'});
+  await evaluate('document.activeElement.blur(), true');
+  await sleep(300);
+  assert.equal(await approval(), 'draft');
+  await pressOn('.review-card [data-action="approve"]');
+  assert.equal(await approval(), 'approved', 'one press');
+});
+
 check('off the editor no board is open: a rename on Home stays, and nothing an agent does writes the copy left in memory back', async () => {
   assert.equal(await approval(), 'approved');
   const contract = await agent('contract', {}, 'claude-code');
