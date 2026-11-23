@@ -2,7 +2,8 @@ Fonts shipped with the app: where each file came from, and which version it is.
 Neither is fetched over the network; src/ui/components.css declares them from /fonts/.
 
 PretendardVariable.woff2
-  Pretendard Variable, by Kil Hyung-jin. https://github.com/orioncactus/pretendard
+  Pretendard Variable, by Kil Hyung-jin. https://github.com/orioncactus/pretendard (the address in its licence).
+  Added in 0e0d1c5 (2026-11-18), which did not record the release it came from.
   Licence: SIL Open Font License 1.1, LICENSE.txt.
   sha256 9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4
 
