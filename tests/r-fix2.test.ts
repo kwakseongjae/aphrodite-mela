@@ -124,7 +124,7 @@ test('a board whose list could not be read does not tell the person to put a fil
    files a board came without) is held to the cap on the text that is written: the history gives way, the approval and the
    list are kept whole. */
 import {emptyLedger, record, designOf} from '../src/ledger/ledger.ts';
-import {APPROVAL_CLEARED} from '../src/ledger/types.ts';
+import {APPROVAL_CLEARED, SYSTEM} from '../src/ledger/types.ts';
 import {readLibrary, LIBRARY_KEY} from '../src/workspace/library.ts';
 import {MAX_PROJECT} from '../src/model.ts';
 /** A board `under` characters under the cap with its history, naming `refs` files, its history `changes` big edits long. */
@@ -211,4 +211,16 @@ test('a frame\'s copy is written with the names of the copies the window\'s fram
   assert.match(page, /for \(const f of shown\.keys\(\)\) if \(!f\.isConnected\) shown\.delete\(f\);/, 'only frames still in the window');
   assert.match(page, /native\.invoke<string>\('free_page_write', \{page, key, html: doc, shown: \[\.\.\.new Set\(shown\.values\(\)\)\]\}\)/);
   assert.match(readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8'), /pub fn free_page_write\(app: AppHandle, page: String, key: String, html: String, shown: Option<Vec<String>>\)/);
+});
+
+/* 9 (low): the single-project form before the library drops a stale approval with the clearing in the board's own ledger too. */
+import {LEGACY_KEY} from '../src/workspace/library.ts';
+test('moving the single-project form into the library records the clearing of a stale approval', () => {
+  const p = {...initialProject(), approvedFingerprint: 'stale'};
+  const values = new Map<string, string>([[LEGACY_KEY, JSON.stringify(p)]]);
+  const read = readLibrary({getItem: (k: string) => values.get(k) ?? null, setItem: () => {}} as never);
+  const got = read.entries[0].project;
+  assert.equal(got.approvedFingerprint, undefined);
+  assert.equal(got.ledger?.changes.at(-1)?.reason, APPROVAL_CLEARED);
+  assert.deepEqual(got.ledger?.changes.at(-1)?.author, SYSTEM, 'by the system');
 });

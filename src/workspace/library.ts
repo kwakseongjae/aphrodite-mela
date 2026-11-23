@@ -49,7 +49,10 @@ export function readLibrary(storage:LocalStore):Library{
   }
   const legacy=storage.getItem(LEGACY_KEY);
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
-  return {version:1,entries:legacy?[entryFor(parseProject(legacy))]:[]};
+  if(legacy===null)return {version:1,entries:[]};
+  // A stale approval it held is dropped with the clearing in its ledger, as a library read records one (0.3-R fix 2 #9).
+  const project=parseProject(legacy);noteCleared(project,(JSON.parse(legacy) as {approvedFingerprint?:unknown}).approvedFingerprint);
+  return {version:1,entries:[entryFor(project)]};
 }
 export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=savedText(project)):ProjectEntry{
   const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
