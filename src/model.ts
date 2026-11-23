@@ -35,6 +35,10 @@ export const uid = () => crypto.randomUUID();
 /** How many pages (and media items) a project holds, and how long a page's name may be. */
 export const MAX_PAGES = 30;
 export const MAX_PAGE_NAME = 100;
+/** What a page has (the Page type): a read keeps these and nothing else, an agent may put in nothing else. */
+export const PAGE_KEYS: ReadonlySet<string> = new Set(['id', 'name', 'blocks', 'referenceEvidence', 'vibeReceipt', 'proposal', 'kind', 'html', 'media']);
+/** What a block has (the Block type): an agent may put in nothing else. */
+export const BLOCK_KEYS: ReadonlySet<string> = new Set(['id', 'kind', 'title', 'text', 'label', 'image', 'filled', 'variant', 'eyebrow', 'description', 'itemImages', 'options', 'provider', 'theme', 'parentId', 'layout']);
 /** How many files a board may be marked as having come without (0.3-R ④). */
 export const MAX_LEFT_OUT = 10_000;
 export const systems: DesignSystem[] = [
@@ -161,6 +165,8 @@ export function parseProject(raw: string): Project {
   for (const page of p.pages) {
     if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, MAX_PAGE_NAME) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
     ids.add(page.id);
+    // A page keeps what a page has and nothing else (0.3-R fix 1 #3): a change's record sees every field it keeps, so an undo gives back exactly what was approved.
+    for (const key of Object.keys(page)) if (!PAGE_KEYS.has(key)) delete (page as Record<string, unknown>)[key];
     const shape = pageShapeProblem(page);
     if (shape) throw new Error(`페이지 형식이 올바르지 않습니다: ${shape}.`);
     if(page.proposal!==undefined&&(!validId(page.proposal.fromPageId)||!str(page.proposal.label,100)||!['reference-direction','vibe','agent'].includes(page.proposal.kind)))throw new Error('페이지 제안 형식이 올바르지 않습니다.');

@@ -37,3 +37,66 @@ for (const name of ['library-v0.2.4.json', 'library-main-374480b.json']) test(`a
   const read = readLibrary({getItem: k => k === LIBRARY_KEY ? frozen.library : null, setItem: () => {}});
   for (const e of read.entries) assert.equal(isApproved(e.project), frozen.approved[e.project.id], e.project.id);
 });
+
+/* 3: a page or a block an agent puts in carries only what a page or a block has; and whatever a read keeps, a change can
+   record, so the person's undo brings back exactly the board they approved. */
+import {parseBatch} from '../src/agent/ops.ts';
+import {initialProject, approvalPrint, parseProject, fingerprint, type Project} from '../src/model.ts';
+import {begin, end, newHistory, step} from '../src/ledger/session.ts';
+const REASON = 'Replacing a page.';
+test('a page or block an agent inserts with a property no page or block has is refused, naming it', () => {
+  const p = initialProject(), page = p.pages[0];
+  for (const [patch, name] of [
+    [[{op: 'insert_page', index: 1, page: {id: 'extra', name: 'X', blocks: [], sneaky: 1}}], 'sneaky'],
+    [[{op: 'insert_block', page_id: page.id, index: 0, block: {...page.blocks[0], id: 'nb', hidden: true}}], 'hidden'],
+    [[{op: 'insert_page', index: 1, page: {id: 'extra', name: 'X', blocks: [{...page.blocks[0], id: 'nb2', hidden: true}]}}], 'hidden'],
+    [[{op: 'set', on: 'page', page_id: page.id, field: 'sneaky', value: 1}], 'sneaky'],
+  ] as const) {
+    const got = parseBatch({reason: REASON, patch});
+    assert.ok('error' in got, JSON.stringify(patch));
+    assert.match((got as {error: string}).error, new RegExp(name));
+  }
+});
+test('a page read keeps only what a page has, so the record of a change sees everything an approval sees', () => {
+  const p = initialProject() as Project & {pages: (Project['pages'][number] & {sneaky?: number})[]};
+  p.pages[0].sneaky = 1;
+  const read = parseProject(JSON.stringify(p)) as typeof p;
+  assert.equal(read.pages[0].sneaky, undefined);
+  // An approved board, a same-id page replaced with an extra property behind the agent door, and the person's undo.
+  const q = initialProject(); q.approvedFingerprint = approvalPrint(q);
+  const h = newHistory(q), before = begin(q, h);
+  const replaced = parseProject(JSON.stringify({...q, pages: [{...q.pages[0], sneaky: 1}]}));
+  Object.assign(q, {pages: replaced.pages}); delete q.approvedFingerprint;
+  end(q, before, {author: {kind: 'agent', name: 'bot'}, source: 'agent:apply', reason: 'x'}, h);
+  const undone = step(q, 'undo', h, {kind: 'person', name: 'you'})!.project;
+  assert.equal(fingerprint(undone), fingerprint(before), 'the undo gives back the design approved');
+  assert.equal(isApproved(undone), true, 'and the approval with it');
+});
+
+test('over random histories, undoing every change gives back the design the approval was made on, approval and all', () => {
+  let seed = 7;
+  const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  for (let run = 0; run < 40; run++) {
+    const p = initialProject(); p.approvedFingerprint = approvalPrint(p);
+    const start = fingerprint(p), h = newHistory(p);
+    const steps = 1 + rand(8);
+    for (let i = 0; i < steps; i++) {
+      const before = begin(p, h), kind = rand(5);
+      // Each change as the app would leave it: the board read again (what a batch's result is).
+      const next = JSON.parse(JSON.stringify(p)) as Project & Record<string, unknown>;
+      if (kind === 0) next.pages[0].name = 'Page ' + rand(100);
+      else if (kind === 1 && next.pages[0].blocks.length) next.pages[0].blocks[rand(next.pages[0].blocks.length)].title = 'T' + rand(100);
+      else if (kind === 2 && next.pages.length < 5) next.pages.push({id: 'p' + run + '-' + i, name: 'New', blocks: [], sneaky: rand(9)} as never);
+      else if (kind === 3 && next.pages.length > 1) next.pages.pop();
+      else if (kind === 4) (next.pages[rand(next.pages.length)] as unknown as Record<string, unknown>).sneaky = rand(9);
+      const read = parseProject(JSON.stringify(next));
+      for (const k of Object.keys(p) as (keyof Project)[]) if (k !== 'ledger') delete p[k];
+      Object.assign(p, {...read, ledger: p.ledger});
+      end(p, before, {author: {kind: 'agent', name: 'bot'}, source: 'agent:apply', reason: 'r'}, h);
+    }
+    let cur: Project = p;
+    for (let i = 0; i < steps; i++) { const s = step(cur, 'undo', h, {kind: 'person', name: 'you'}); if (s) cur = s.project; }
+    assert.equal(fingerprint(cur), start, `run ${run}`);
+    assert.equal(isApproved(cur), true, `run ${run}: approved again`);
+  }
+});

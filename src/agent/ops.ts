@@ -16,7 +16,9 @@ import {framePresets, type FramePreset} from '../editor/space';
 import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
 import {MAX_PAGE_HTML} from '../free-page';
-import {MAX_PAGE_NAME} from '../model';
+import {MAX_PAGE_NAME, PAGE_KEYS, BLOCK_KEYS} from '../model';
+/** The first key of `value` that `known` does not name, or undefined. */
+const unknownKeys = (value: Record<string, unknown>, known: ReadonlySet<string>) => Object.keys(value).find(k => !known.has(k));
 
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace' | 'media_add';
 export type Op =
@@ -315,7 +317,7 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
       if (on === 'system') return {op: {op: 'set', on: 'system', field, ...tail}};
       const page = id('page_id');
       if (typeof page !== 'string') return page;
-      if (on === 'page') return {op: {op: 'set', on: 'page', page_id: page, field: field as never, ...tail}};
+      if (on === 'page') { if (!PAGE_KEYS.has(field) || field === 'id' || field === 'blocks') return {error: `${where} sets "${field}", which is not a page field an op sets.`}; return {op: {op: 'set', on: 'page', page_id: page, field: field as never, ...tail}}; }
       const block = id('block_id');
       if (typeof block !== 'string') return block;
       return {op: {op: 'set', on: 'block', page_id: page, block_id: block, field, ...tail}};
@@ -323,6 +325,8 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
     case 'insert_page': {
       const index = position(), page = object('page'), err = bad(index, page);
       if (err) return err;
+      const extra = unknownKeys(page as Record<string, unknown>, PAGE_KEYS) ?? (Array.isArray((page as {blocks?: unknown}).blocks) ? ((page as {blocks: unknown[]}).blocks).map(b => b && typeof b === 'object' ? unknownKeys(b as Record<string, unknown>, BLOCK_KEYS) : undefined).find(Boolean) : undefined);
+      if (extra) return {error: `${where} carries "${extra}", which no page or component has. Send only what aphrodite_get_changes shows a page holding.`};
       return {op: {op: 'insert_page', index: index as number, page: page as never}};
     }
     case 'remove_page': {
@@ -337,6 +341,8 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
     case 'insert_block': {
       const page = id('page_id'), index = position(), block = object('block'), err = bad(page, index, block);
       if (err) return err;
+      const extra = unknownKeys(block as Record<string, unknown>, BLOCK_KEYS);
+      if (extra) return {error: `${where}.block carries "${extra}", which no component has. Send only what aphrodite_get_changes shows a component holding.`};
       return {op: {op: 'insert_block', page_id: page as string, index: index as number, block: block as never}};
     }
     case 'remove_block': {
