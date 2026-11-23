@@ -186,7 +186,8 @@ test('a media batch past the library\'s cap is refused before a file is copied, 
   ]) {
     const real = runBatch(initialProject(), batch as never, '', {0: media});
     assert.ok(real.ok);
-    assert.ok(JSON.stringify(designOf(real.project)).length <= seen, `${media.mime} ${media.width}x${media.height} is no longer than the stand-in`);
+    // 0.3-R fix 3 #13: the stand-in is the shortest an entry can be, so only a batch that cannot fit is refused before the copy.
+    assert.ok(JSON.stringify(designOf(real.project)).length >= seen, `${media.mime} ${media.width}x${media.height} is no shorter than the stand-in`);
   }
 });
 test('the files a batch copies are staged, and one that fails partway lets go of them; applyBatch lets go of them unless it lands', async () => {

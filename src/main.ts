@@ -270,14 +270,16 @@ function mediaSize(url:string,mime:string):Promise<{width:number;height:number;d
  */
 async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'media:drop'|'media:paste'){
   const projectId=project.id;
-  if(project.pages.length+files.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
+  // What is not a picture or a video it can take is set aside first, so the rest is counted alone (0.3-R fix 3 #13).
+  const kept:File[]=[];
+  for(const file of files.slice(0,12)){const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);if(refused)toast(refused);else kept.push(file);}
+  if(!kept.length)return;
+  if(project.pages.length+kept.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
   // What the library holds is known before a file is kept (0.3-R fix 2 #20).
-  const ahead=preflightBatch(project,{ops:files.slice(0,12).map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
+  const ahead=preflightBatch(project,{ops:kept.map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
   if(ahead){toast(ahead.error);return;}
   const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
-  for(const file of files.slice(0,12)){
-    const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);
-    if(refused){toast(refused);continue;}
+  for(const file of kept){
     try{
       const stored=await frameHost.put(file),url=await frameHost.mediaUrl(stored.sha);
       if(!url)throw new Error(ui('it was not kept','보관되지 않았습니다'));

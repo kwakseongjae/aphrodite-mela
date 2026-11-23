@@ -185,10 +185,11 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
  */
 export function preflightBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, fits?: (result: Extract<BatchResult, {ok: true}>) => string | undefined): Extract<BatchResult, {ok: false}> | undefined {
   if (!batch.ops.some(o => o.op === 'media_add')) return undefined;
-  // The stand-in is no shorter than a real file's entry (src/main.ts mediaSize: at most 20,000 a side, a day of video to the
-  // hundredth), so a batch the dry run lets through is not then refused for its length once the files are in (0.3-R fix 2 #20).
+  // The stand-in is the shortest entry a file can have (a one-pixel picture), so only a batch that could not fit whatever the
+  // files are is refused before they are copied (0.3-R fix 3 #13); the exact entry is measured once they are in, before the
+  // staged files are kept (src/main.ts applyBatch).
   const standIn: Record<number, PageMedia> = {};
-  for (const [i, op] of batch.ops.entries()) if (op.op === 'media_add') standIn[i] = {src: `media:${'0'.repeat(64)}`, mime: 'video/webm', width: 19_999, height: 19_999, duration: 86_399.99};
+  for (const [i, op] of batch.ops.entries()) if (op.op === 'media_add') standIn[i] = {src: `media:${'0'.repeat(64)}`, mime: 'image/png', width: 1, height: 1};
   const result = runBatch(project, batch, selected, standIn);
   if (!result.ok) return result;
   // What the library holds is known before a file is copied, and asked here.

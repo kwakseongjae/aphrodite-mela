@@ -65,3 +65,12 @@ test('leaving the board waits for the save a bounded time, and a close behind it
   assert.doesNotMatch(leave, /await flushDisk\(\)|await heldWrites/, 'nothing waited for without a bound');
   assert.match(main, /function closeWindow\(destroy:\(\)=>Promise<void>,answered:\(\)=>boolean=\(\)=>false\)\{return turn\(async\(\)=>\{if\(answered\(\)\)return;/);
 });
+
+/* 13: before a file is copied, only a batch that could not fit even with the shortest entry a file can have is refused; the
+   exact entry is measured before the staged files are kept. A drop sets aside what is not a picture or video first. */
+test('a drop sets aside the files it cannot take before it asks the library, and counts only the rest', () => {
+  const put = body('async function putMedia(');
+  assert.ok(put.indexOf('mediaRefusal(') > 0 && put.indexOf('mediaRefusal(') < put.indexOf('preflightBatch('), 'refusals first');
+  assert.match(put, /if\(project\.pages\.length\+kept\.length>MAX_PAGES\)/, 'the page count is of what it takes');
+  assert.match(put, /preflightBatch\(project,\{ops:kept\.map\(/);
+});
