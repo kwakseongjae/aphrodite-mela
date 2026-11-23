@@ -7,7 +7,8 @@ import {boardFileBytes, readBoardFile, writeBoardFile, readZip, readOpenLink, op
 import {sizeOf} from '../src/ledger/types';
 import {upsertProject} from '../src/workspace/library';
 import {ensureSpace} from '../src/editor/space';
-import {readdirSync, statSync} from 'node:fs';
+import {existsSync, readdirSync, statSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {initialProject, isApproved, fingerprint, parseProject, uid, type Project} from '../src/model';
@@ -489,7 +490,13 @@ test('the board file is named in one place, and nothing else spells its extensio
   const spelled = new RegExp(`\\.${BOARD_FILE.extension}(?![\\w.\\-:/!=]|\\s*[!=]==?)`, 'i');
   const skip = new Set(['node_modules', 'generated', 'vendor', 'target', 'bin', 'icons', 'dmg', 'dist', '.git', 'lab']);
   const found: string[] = [];
-  const walk = (dir: string) => { for (const name of readdirSync(dir)) { const path = join(dir, name); if (skip.has(name)) continue; if (statSync(path).isDirectory()) walk(path); else if (/\.(ts|mjs|mts|js|rs|json|md|html|css|plist)$/.test(name)) { const rel = path.slice(root.length); if (rel === 'src-tauri/board-file.json' || rel === 'src-tauri/tauri.conf.json' || rel === 'package-lock.json') continue; readFileSync(path, 'utf8').split('\n').forEach((line, i) => { if (spelled.test(line)) found.push(`${rel}:${i + 1}`); }); } } };
-  for (const dir of ['src', 'src-tauri', 'scripts', 'tests', 'mcp', 'docs']) walk(join(root, dir));
+  const look = (rel: string) => { const name = rel.split('/').pop()!; if (!/\.(ts|mjs|mts|js|rs|json|md|html|css|plist)$/.test(name) || rel === 'src-tauri/board-file.json' || rel === 'src-tauri/tauri.conf.json' || rel === 'package-lock.json') return; readFileSync(join(root, rel), 'utf8').split('\n').forEach((line, i) => { if (spelled.test(line)) found.push(`${rel}:${i + 1}`); }); };
+  const walk = (dir: string) => { for (const name of readdirSync(dir)) { const path = join(dir, name); if (skip.has(name)) continue; if (statSync(path).isDirectory()) walk(path); else look(path.slice(root.length)); } };
+  const dirs = ['src', 'src-tauri', 'scripts', 'tests', 'mcp', 'docs'];
+  // The files git keeps, so plans and notes a checkout holds untracked are not read; where git cannot be asked, every file is walked.
+  let tracked: string[] | undefined;
+  try { tracked = execFileSync('git', ['ls-files', '-z', '--', ...dirs], {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).split('\0').filter(Boolean); } catch { tracked = undefined; }
+  if (tracked) { for (const rel of tracked) if (!rel.split('/').some(part => skip.has(part)) && existsSync(join(root, rel))) look(rel); }
+  else for (const dir of dirs) walk(join(root, dir));
   assert.deepEqual(found, []);
 });
