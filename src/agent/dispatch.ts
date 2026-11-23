@@ -12,6 +12,10 @@
  * - A `ui` Dispatch comes only from a trusted event. `personAt` makes it from `e.isTrusted` and keeps
  *   a note of it; `refusal` turns away one it did not make, so code cannot claim to be the person.
  *
+ * A tool that drives the screen itself (computer use, the accessibility API) makes trusted events, so its press cannot be
+ * told from the person's: what this guards is the app's own agent connection (MCP, the loopback bridge, the in-app
+ * agent), whose commands always carry their agent (0.2.5 M4).
+ *
  * `isTrusted` alone does not say the person did it. The browser fires some events itself, as trusted,
  * because of something code did: the `submit` for a click on a submit button, the `input` and `change`
  * for a click on a checkbox. So an event sent with `send` makes everything that arrives while it is

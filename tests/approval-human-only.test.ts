@@ -246,3 +246,11 @@ test('the ledger\'s patch, accepted back through apply_edits, cannot set the app
   const unset=parseBatch({reason:'Replaying a change.',patch:[{op:'set',on:'project',field:'approvedFingerprint',unset:true}]});
   assert.ok('error' in unset,'nor can a patch clear it');
 });
+
+/* 0.3-R (0.2.5 check6): off the editor no board is open, and an agent's reads do not read out the board left in memory. */
+test('on Home an agent reads no revision and no references kept for the board left in memory',()=>{
+  assert.match(main,/function agentState\(who=''\)\{return \{ok:true,\.\.\.\(screen==='editor'\?revisionInfo\(\):\{\}\),/,'state names no revision on Home');
+  const start=main.indexOf("case 'references':{");
+  const body=main.slice(start,main.indexOf("case 'taste':",start));
+  assert.match(body,/archive\.entries\(\)\.filter\(r=>screen==='editor'\|\|r\.scope!=='project'\)/,'references kept for one board are read only while it is open');
+});
