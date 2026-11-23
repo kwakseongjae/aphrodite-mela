@@ -64,7 +64,7 @@ export async function cleanerMatrix(tmp, {only} = {}) {
     // 2. Each cleaned file opened in WebKit, then each control, so a control's late request falls in no cleaned file's window.
     for (const [variant, list] of [['C', opened], ['S', names.filter(n => existsSync(join(files, n + '.S.html')))]]) {
       const starts = {};
-      for (const o of await run({mode: 'open', wait: 1.2, dir: files, held: HELD, pages: list.map(n => ({id: n, file: join(files, `${n}.${variant}.html`)}))})) {
+      for (const o of await run({mode: 'open', wait: 1.2, dir: files, held: variant === 'S' ? 'document.documentElement.outerHTML' : HELD, pages: list.map(n => ({id: n, file: join(files, `${n}.${variant}.html`)}))})) {
         if (o.start !== undefined) starts[o.start] = o.t;
         else if (o.id !== undefined) { let read = {}; try { read = JSON.parse(o.read); } catch { read = {err: o.read}; } windows.push({engine: 'webkit', variant, name: o.id, t0: starts[o.id], t1: o.t, href: read.href, held: read.held, navs: (o.navs ?? []).filter(x => !/^(main|sub):(file:|about:)/.test(x))}); }
       }
@@ -100,6 +100,11 @@ export async function cleanerMatrix(tmp, {only} = {}) {
       w.reached = w.http.length + w.tcp + (w.left ? 1 : 0) + w.navs.length;
     }
     const cleaned = windows.filter(w => w.variant === 'C');
+    // A control is read back as this WebKit parsed it. One whose input's id is nowhere in it had its probe dropped by the
+    // parser itself (an older one drops what a newer one keeps): it is named apart, not counted dead. One that still
+    // carries its id and reached nothing is dead, as is one that could not be read.
+    const marked = w => { const id = (w.name + '~' + w.variant).toLowerCase(); return typeof w.held !== 'string' || [id, id.replace(/[^a-z0-9~]/g, '').replace('~', '-v')].some(m => w.held.toLowerCase().includes(m)); };
+    const quietControls = windows.filter(w => w.variant === 'S' && !w.reached && !quiet.has(w.name));
     return {
       inputs: names.length, refused, unrecorded, noControl,
       // A name that hides one of the document's or a form's own is taken off the element, so the page received hides nothing either.
@@ -108,7 +113,8 @@ export async function cleanerMatrix(tmp, {only} = {}) {
       holding: cleaned.filter(w => w.held && (w.held.bad?.length || w.held.err || w.held.csp?.[0] !== 'head')).map(w => [w.engine, w.name, w.held]),
       unread: cleaned.filter(w => !w.held).map(w => [w.engine, w.name, w.href]),
       alive: windows.filter(w => w.variant === 'S' && w.reached).length,
-      dead: windows.filter(w => w.variant === 'S' && !w.reached && !quiet.has(w.name)).map(w => w.name),
+      dead: quietControls.filter(marked).map(w => w.name),
+      parsedAway: quietControls.filter(w => !marked(w)).map(w => w.name),
     };
   } finally { trap.close(); raw.close(); site.close(); }
 }

@@ -251,10 +251,11 @@ checks.push(['(numbers)', async () => {
 /* 0.3-P3-fix2 O-1, 12: a page sent without its scripts is cleaned in WebKit, as the desktop cleans it, then opened from
    disk in WebKit and in Chrome. None of the inputs (tests/support/clean-vectors.mjs and clean-vectors-2.mjs) reaches out
    or keeps anything that runs or loads, each keeps our policy first in its head, and none hides the document's names;
-   the same pages with their scripts reach out, each that a browser sets off on opening. */
+   the same pages with their scripts reach out, each that a browser sets off on opening, unless this WebKit's own parser
+   drops its probe, leaving no trace of its id: those are named in the numbers, not counted dead. */
 check('every page built to slip past the cleaner, cleaned in WebKit as the app cleans it, reaches nothing opened in WebKit or Chrome, while the same page with its scripts does', async () => {
   const got = await cleanerMatrix(join(tmpdir(), `aphrodite-wall-cleaner-${process.pid}`));
-  console.log(`       ${got.inputs} inputs; controls that reached out: ${got.alive}`);
+  console.log(`       ${got.inputs} inputs; controls that reached out: ${got.alive}; controls whose probe this WebKit's parser dropped: ${JSON.stringify(got.parsedAway)}`);
   assert.deepEqual(got.refused, [], 'every input is cleaned, none refused');
   assert.deepEqual(got.unrecorded, [], 'every file opened in WebKit came back with what it did');
   assert.deepEqual(got.noControl, [], 'every input\'s control came back from the cleaning, so none drops out unseen');
