@@ -264,10 +264,11 @@ button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; backgroun
 .ui-toast .ui-btn:hover:not(:disabled), .ui-toast .ui-btn.is-hover { background: color-mix(in srgb, var(--ui-text-inverse) 14%, transparent); color: var(--ui-text-inverse); }
 
 /* ── Modal ─────────────────────────────────────────────────────── */
-.ui-scrim { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--ui-space-6); background: var(--ui-scrim); }
-.ui-modal { width: var(--ui-modal-w); max-width: 100%; background: var(--ui-bg-raised); color: var(--ui-text-1); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-window); overflow: hidden; }
+.ui-scrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: var(--ui-space-6); background: var(--ui-scrim); }
+.ui-modal { display: flex; flex-direction: column; width: var(--ui-modal-w); max-width: 100%; max-height: 100%; background: var(--ui-bg-raised); color: var(--ui-text-1); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-window); overflow: hidden; }
 .ui-modal.ui-modal-lg { width: var(--ui-modal-w-lg); }
-.ui-modal-body { padding: var(--ui-space-5); }
+.ui-modal.ui-modal-xl { width: var(--ui-modal-w-xl); }
+.ui-modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ui-space-5); }
 .ui-modal-title { margin: 0; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
 .ui-modal-text { margin: var(--ui-space-2) 0 0; color: var(--ui-text-2); }
 .ui-modal-foot { display: flex; justify-content: flex-end; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-5); border-top: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-panel); }
@@ -433,7 +434,7 @@ button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; backgroun
 .ui-toast.ui-toast-error .ui-btn:hover:not(:disabled), .ui-toast.ui-toast-error .ui-btn.is-hover { background: color-mix(in srgb, var(--ui-on-danger) 16%, transparent); color: var(--ui-on-danger); }
 
 /* A modal's head: a small label, the title, a line under it, and the close button. */
-.ui-modal-head { display: flex; align-items: flex-start; gap: var(--ui-space-3); padding: var(--ui-space-5) var(--ui-space-4) var(--ui-space-4) var(--ui-space-5); }
+.ui-modal-head { flex-shrink: 0; display: flex; align-items: flex-start; gap: var(--ui-space-3); padding: var(--ui-space-5) var(--ui-space-4) var(--ui-space-4) var(--ui-space-5); }
 .ui-modal-heading { flex: 1 1 auto; min-width: 0; }
 .ui-modal-kicker { display: block; margin: 0 0 var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-medium); letter-spacing: var(--ui-track-caps); color: var(--ui-text-2); }
 .ui-modal-head .ui-modal-title { font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); }
@@ -443,6 +444,8 @@ button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; backgroun
 .ui-modal-body.ui-modal-stack { display: flex; flex-direction: column; gap: var(--ui-space-2); }
 .ui-modal.ui-modal-md { width: var(--ui-modal-w-md); }
 .ui-modal-foot.ui-modal-foot-plain { align-items: center; padding: var(--ui-space-5); border-top: 0; background: none; }
+/* A plain foot written inside the body ends it: the body's own padding is its edge. */
+.ui-modal-body .ui-modal-foot.ui-modal-foot-plain { padding: var(--ui-space-5) 0 0; }
 .ui-modal-foot-note { display: inline-flex; align-items: center; gap: var(--ui-space-1); margin-right: auto; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
 
 /* A choice drawn as a large row, picked like a radio (the export dialog). The real radio covers the card. */

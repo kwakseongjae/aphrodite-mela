@@ -84,7 +84,7 @@
 | 메뉴 | `ui-menu` > `ui-menu-item`(+ `ui-menu-key`) + `ui-menu-sep` | `.is-danger`, 호버 · 눌림 · 포커스 · 비활성 |
 | 위 줄(띠) | `ui-strip` > `ui-dot` · `ui-strip-strong` · `ui-strip-changes` · `ui-strip-push` · `ui-btn` | `ui-strip-agent` 에이전트 모드, `-warn` 경고, `-danger` 폴더 없음 |
 | 알림 더하기 | `ui-toast` (+ `ui-icon`, 되돌리기는 안의 `ui-btn`) | `ui-toast-error` |
-| 모달 머리 | `ui-modal-head` > `ui-modal-heading`(`ui-modal-kicker` 작은 표지, `ui-modal-title` 20, `ui-modal-text`) + 닫기 `ui-icon-btn` | `ui-modal-md` 560, 발 `ui-modal-foot-plain` + `ui-modal-foot-note`, 본문 `ui-modal-stack` |
+| 모달 머리 | `ui-modal-head` > `ui-modal-heading`(`ui-modal-kicker` 작은 표지, `ui-modal-title` 20, `ui-modal-text`) + 닫기 `ui-icon-btn` | 크기 셋: 기본 420(확인), `ui-modal-md` 560(보통), `ui-modal-xl` 960(넓은 것, 두 단 본문). 발 `ui-modal-foot-plain` + `ui-modal-foot-note`(본문 안에 쓰면 본문의 끝), 본문 `ui-modal-stack`. 본문이 길면 본문만 스크롤 |
 | 확인 창(위험) | `ui-modal` + `ui-modal-foot`의 `ui-btn-danger` | |
 | 선택지 카드 | `label.ui-option` > `input.ui-option-input[type=radio]` + `ui-option-radio` + `ui-option-icon` + (`ui-option-name` > `ui-option-ext`, `ui-option-why`) + `ui-option-sub` | `.is-on` 또는 `:checked`, 호버 · 포커스 · 비활성 |
 | 체크 줄 | `label.ui-check` > `input.ui-check-input` + `ui-check-box` > `ui-icon`(check) + `ui-check-label` + `ui-check-help` | `ui-check-boxed` 가라앉은 상자, 호버 · 켜짐 · 포커스 · 비활성 |
@@ -309,6 +309,7 @@
 | `--ui-modal-w` | `420px` |
 | `--ui-modal-w-md` | `560px` |
 | `--ui-modal-w-lg` | `600px` |
+| `--ui-modal-w-xl` | `960px` |
 | `--ui-strip-h` | `36px` |
 | `--ui-home-side-w` | `232px` |
 | `--ui-content-max` | `1080px` |

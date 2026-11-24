@@ -1,0 +1,38 @@
+/*
+ * The editor's shell drawn with the system (0.3-L4 ③): the dialogs' bodies that main.ts writes, starting with the
+ * request to edit and the export. The frame itself is the ui-modal part; this sheet only places what goes in it.
+ */
+
+/* The request to edit: who asks, what allowing means, and the two answers. */
+.ui-modal.ask-modal .ui-modal-title, .ui-modal.ask-modal .ui-modal-text { word-break: keep-all; }
+.ui-modal .ask-who { display: flex; align-items: center; gap: var(--ui-space-3); margin: 0 0 var(--ui-space-4); }
+.ui-modal .ask-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--ui-control-lg); height: var(--ui-control-lg); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); background: var(--ui-bg-panel); color: var(--ui-text-1); }
+.ui-modal .ask-who-name { display: block; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
+.ui-modal .ask-who-via { display: block; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-agent-text); }
+.ui-modal .ask-dialog { font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); }
+.ui-modal .ask-box { padding: var(--ui-space-4); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); }
+.ui-modal .ask-box-title { margin: 0 0 var(--ui-space-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-modal .ask-points { display: grid; gap: var(--ui-space-2); margin: 0; padding: 0; list-style: none; }
+.ui-modal .ask-points li { display: flex; align-items: flex-start; gap: var(--ui-space-2); word-break: keep-all; }
+.ui-modal .ask-points .ui-icon { flex-shrink: 0; margin-top: calc((var(--ui-lh-13) - var(--ui-icon-14)) / 2); color: var(--ui-text-2); }
+.ui-modal .ask-note { margin: var(--ui-space-4) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); word-break: keep-all; }
+.ui-modal .ask-raw { margin: var(--ui-space-2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-modal .ask-name { font-family: var(--ui-font-mono); color: var(--ui-text-1); word-break: break-all; }
+
+/* The export: where the direction stands, the handoff files to read, this page alone, and the three ways out. */
+.ui-modal .export-status { margin: 0 0 var(--ui-space-3); }
+.ui-modal .export-carried { margin: 0 0 var(--ui-space-3); }
+.ui-modal .export-tabs { padding: 0; }
+.ui-modal .export-code { max-height: calc(var(--ui-control-lg) * 5); margin: var(--ui-space-3) 0 0; padding: var(--ui-space-3) var(--ui-space-4); overflow: auto; border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); color: var(--ui-text-2); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); white-space: pre-wrap; word-break: break-word; }
+.ui-modal .export-page { display: grid; justify-items: start; gap: var(--ui-space-3); margin: var(--ui-space-4) 0 0; padding: var(--ui-space-4); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); }
+.ui-modal .export-page-title { font-weight: var(--ui-w-semibold); }
+.ui-modal .export-page-note { margin: 0; padding: var(--ui-space-2) var(--ui-space-3); border-radius: var(--ui-radius-1); background: var(--ui-danger-soft); color: var(--ui-danger-text); }
+.ui-modal .export-page-quiet { margin: 0; }
+.ui-modal .export-page-videos { display: grid; gap: var(--ui-space-2); justify-self: stretch; }
+.ui-modal .export-page-videos[hidden] { display: none; }
+.ui-modal .export-video-option { grid-template-columns: var(--ui-icon-16) minmax(0, 1fr); padding: var(--ui-space-3); }
+.ui-modal .export-video-option .ui-option-radio { margin-top: calc((var(--ui-lh-13) - var(--ui-icon-16)) / 2); }
+.ui-modal .export-contents { display: flex; flex-wrap: wrap; gap: var(--ui-space-2) var(--ui-space-4); margin: var(--ui-space-4) 0 0; }
+.ui-modal .export-contents > span { display: inline-flex; align-items: center; gap: var(--ui-space-1); }
+.ui-modal .export-fine { margin: var(--ui-space-2) 0 0; }
+.ui-modal .export-actions { flex-wrap: wrap; }

@@ -191,15 +191,6 @@ button{transition:background .15s,color .15s}
 .reference-upload>img{width:100%;height:100px;object-fit:cover}
 .reference-upload strong{font-size:10px;font-weight:400}
 .reference-upload>span{font-size:8px;color:var(--ui-text-3)}
-.modal-backdrop{position:fixed;inset:0;background:#2c38294d;backdrop-filter:blur(9px);z-index:50;display:flex;align-items:center;justify-content:center;padding:30px}
-.modal{background:#fbfcf7;border:1px solid #fff;border-radius:13px;width:570px;max-width:100%;max-height:90vh;box-shadow:0 30px 100px #1e2a2540;overflow:auto;animation:enter .2s ease-out;scrollbar-width:thin}
-.modal.wide{width:960px}
-.modal-heading{display:flex;align-items:flex-start;gap:15px;padding:27px 27px 22px;border-bottom:1px solid var(--border)}
-.modal-heading>div{flex:1}
-.modal-heading h2{font:28px/1.15 Georgia,serif;color:#3e5235;letter-spacing:-.8px;margin:10px 0}
-.modal-heading p{font-size:11px;line-height:1.7;color:#8c9980}
-.modal-heading>.icon-button{color:#91a080}
-.modal-content{padding:24px 27px 27px}
 .systems-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
 .system-option{display:block;text-align:left;background:var(--ui-bg-raised);border:1px solid var(--ui-line);border-radius:7px;padding:10px}
 .system-option.active{border-color:var(--ui-accent);box-shadow:0 0 0 1px var(--ui-accent)}
@@ -229,17 +220,6 @@ button{transition:background .15s,color .15s}
 .check-option strong{font-size:11px;font-weight:500;display:block}
 .check-option small{font-size:9px;display:block;color:var(--ui-text-2);margin-top:5px}
 .check-option:last-of-type{margin-bottom:24px}
-.export-status{display:flex;align-items:center;gap:8px;font-size:10px;color:#a18e60;background:#f4f0e6;padding:12px;border-radius:5px;margin-bottom:18px}
-.export-status.approved{color:#6f8c56;background:#eef3e7}
-.export-status>button{margin-left:auto;font-size:9px;text-decoration:underline}
-.export-tabs{display:flex;border-bottom:1px solid #e0e6d7;gap:23px}
-.export-tabs>button{font-size:10px;padding:10px 0;border-bottom:2px solid transparent;color:#8c9a7c}
-.export-tabs>button.active{border-color:#62824b;color:#4e6c3a}
-.export-code{background:#f1f4e9;padding:18px;border:1px solid #e0e7d6;border-radius:5px;white-space:pre-wrap;word-break:break-word;font:10px/1.8 Menlo,Consolas,monospace;color:#768866;max-height:320px;overflow:auto;margin:16px 0}
-.export-contents{display:flex;flex-wrap:wrap;gap:17px;color:#94a283;font-size:9px}
-.export-contents>span{display:flex;align-items:center;gap:5px}
-.export-contents svg{width:12px}
-.export-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:23px}
 .preview-frame{display:block;width:100%;height:64vh;border:1px solid #e0e5d8;border-radius:4px;background:#fff}
 .preview-frame.mobile{width:375px;max-width:100%;margin:auto}
 .project-menu-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid #e0e5d8;padding-top:20px;margin-top:22px}
@@ -304,12 +284,6 @@ button{transition:background .15s,color .15s}
   .workbench{height:850px;min-height:850px;padding:22px 12px 15px}
   .canvas-scroll{padding:23px 10px}
   .inspector{display:block}
-  .modal-backdrop{padding:12px}
-  .modal-heading{padding:22px 18px 17px}
-  .modal-heading h2{font-size:25px}
-  .modal-content{padding:20px 18px}
-  .export-actions{flex-wrap:wrap}
-  .export-contents{gap:10px}
   .fill-preview>div{padding:20px 12px}
 }
 .edit-field input,.edit-field textarea{color:var(--ui-text-1)}
@@ -320,7 +294,7 @@ button{transition:background .15s,color .15s}
 .system-card div>span{color:#79866c}
 .library-tabs>button,.section-label,.text-link{color:#78856b}
 .review-card>p{color:var(--ui-text-2)}
-.form-label,.modal-heading p{color:#728360}
+.form-label{color:#728360}
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
@@ -453,12 +427,6 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
 .frame-open{display:inline-flex;align-items:center;padding:var(--ui-space-1);border-radius:var(--ui-radius-1);color:var(--ui-text-2)}
 .frame-open:hover{background:var(--ui-bg-hover);color:var(--ui-text-1)}
 .frame-open svg{width:var(--ui-icon-14);height:var(--ui-icon-14)}
-.export-page{display:grid;justify-items:start;gap:var(--ui-space-2);margin:var(--ui-space-3) 0;padding:var(--ui-space-3) var(--ui-space-4);border:1px solid var(--ui-line);border-radius:var(--ui-radius-2);font-family:var(--ui-font-sans);line-height:var(--ui-lh-20)}
-.export-page .check-option{margin:0}
-.export-page-quiet{margin:0;color:var(--ui-text-2)}
-.export-page-videos{display:flex;flex-wrap:wrap;gap:var(--ui-space-4)}
-.export-page-videos[hidden]{display:none}
-.export-page-note{margin:0;padding:var(--ui-space-2) var(--ui-space-3);border-radius:var(--ui-radius-1);background:var(--ui-danger-soft);color:var(--ui-danger-text)}
 .board-unframed{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:var(--ui-space-2);padding:var(--ui-space-6);text-align:center;background:var(--ui-bg-sunken);color:var(--ui-text-2);font-family:var(--ui-font-sans);line-height:var(--ui-lh-20)}
 .board-unframed strong{color:var(--ui-text-1);font-weight:var(--ui-w-semibold)}
 .preview-free{position:relative}
@@ -513,9 +481,6 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
 .frame-proposal-actions button{font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid #e3c98a;background:#fff8e8;color:#6b4f12}
 .frame-proposal-actions button:hover{background:#fbf1d9}
 .frame-proposal-actions button:last-child{border-color:#dfe3d6;background:#fff;color:#7a7f70}
-.modal{overflow:hidden;display:flex;flex-direction:column}
-.modal-heading{flex-shrink:0;background:#fbfcf7}
-.modal-content{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#dce1d4 transparent}
 
 .danger-button{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:8px;background:#a3462b;color:#fff;font-size:13px}
 .danger-button:hover{background:#8b3a22}
@@ -685,19 +650,8 @@ img[data-local-missing="gone"]{outline:1px dashed #c9a75a;outline-offset:-2px}
 .connect-allowed code{font:12px ui-monospace,Menlo,monospace;color:#30402a}
 /* An agent asking to be let in: a dialog in the middle, answered once and then remembered. Restyled
    with the design-system parts in 0.3-F. */
-.modal.ask-modal{width:460px}
-.ask-modal .modal-heading h2{font-size:23px;line-height:1.3;letter-spacing:-.5px;word-break:keep-all}
-.ask-modal .modal-heading p,.ask-points li{word-break:keep-all}
-.ask-modal .modal-heading p{font-size:12px;line-height:1.7;color:#5d6c52}
-.ask-raw{margin:-6px 0 20px;font-size:11px;color:#8b977e}
-.ask-name{font:11px ui-monospace,Menlo,monospace;color:#5d6c52;word-break:break-all}
 .connect-allowed li>span{display:flex;align-items:baseline;gap:8px;min-width:0}
 .connect-allowed strong{font-size:12.5px;font-weight:600;color:#30402a}
-.ask-points{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:12px}
-.ask-points li{display:flex;gap:10px;font-size:12px;line-height:1.65;color:#5d6c52}
-.ask-points svg{width:15px;height:15px;flex-shrink:0;margin-top:2px;color:#7e9a63}
-.ask-actions{display:flex;justify-content:flex-end;gap:10px}
-.ask-actions button{min-width:88px;justify-content:center}
 /* The semantic half of the palette, folded away: six colours most projects never touch. */
 .token-group{border-top:1px solid var(--ui-line);margin-top:14px;padding-top:10px}
 .token-group>summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;font-size:11.5px;color:var(--ui-text-2);padding:4px 0}
