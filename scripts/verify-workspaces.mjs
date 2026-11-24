@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {evaluate, personClicks, personPresses, personSubmits, presses, send, close} =
+const {agent, evaluate, personClicks, personPresses, personSubmits, presses, send, close} =
   await openApp({port: 4193, cdp: 9344, profile: '/tmp/aphrodite-ws-check'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
@@ -219,6 +219,28 @@ check('a new frame is drawn, empty, and brings the section tools; deleting its l
   assert.equal(await evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`), 0, 'and came out');
   assert.ok((await drawn()).includes('Landing'), 'the frame stays when its last section is deleted');
   assert.equal((await sectionTools()).tabs, true);
+});
+
+/* 0.3-L4-3 fix 1: a new board's hidden page, from the board's side (src/editor/starter.ts). */
+const pressIn = async selector => {
+  const p = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+  await sleep(250);
+};
+const inView = id => evaluate(`(() => { const f = document.querySelector('.space-frame[data-page-id="${id}"]'), s = document.querySelector('#canvas-scroll'); if (!f || f.hidden) return false; const a = f.getBoundingClientRect(), b = s.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; })()`);
+const sideBySide = () => evaluate(`(() => { const r = [...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.getBoundingClientRect()); return r.length === 2 && (r[0].right <= r[1].left || r[1].right <= r[0].left); })()`);
+const newBoard = async name => {
+  await clickData('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name}), true);
+  await sleep(900); await clickData('tour-skip'); await sleep(300);
+};
+const BRIEFING = '<!doctype html><html><body><h1>Briefing</h1></body></html>';
+check('a page added to a new board takes the board\'s first place', async () => {
+  await newBoard('Placement board');
+  await clickData('add-page'); await sleep(300);
+  assert.equal(await personSubmits('#page-form', {name: 'About'}), true);
+  await sleep(700);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.style.left)`), ['0px']);
 });
 
 await runChecks(checks, close);

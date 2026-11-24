@@ -44,6 +44,15 @@ export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'spa
   for (const page of project.pages) if (isStarterPage(project, page)) delete frames[page.id];
   return {frames};
 }
+/** Where a new frame goes, whoever makes it: right of the frames the board shows, on their top row. */
+export function placeFrame(project: Pick<Project, 'pages' | 'starter' | 'space'>, preset: FramePreset, width?: number): FrameLayout {
+  return nextFramePosition(placementSpace(project), preset, width);
+}
+/** A frame for each page that has none yet (a page added, copied, drafted, a sample), placed as every new frame is. A frame a board already has stays where it is. */
+export function placeNewFrames(project: Pick<Project, 'pages' | 'starter' | 'space'>): void {
+  if (!project.space) return;
+  for (const page of project.pages) if (!project.space.frames[page.id]) project.space.frames[page.id] = placeFrame(project, 'desktop');
+}
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const box = (f: FrameLayout) => ({x: f.x, y: f.y, right: f.x + frameWidth(f), bottom: f.height === undefined ? Infinity : f.y + f.height});
 /**

@@ -68,7 +68,7 @@ import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
-import {isStarterPage,visiblePages,hasSectionPage,placementSpace,newBoard,shownPage,firstShown} from './editor/starter';
+import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
@@ -94,7 +94,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,nextFramePosition,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -613,7 +613,7 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
   if(d.author.kind!=='agent'&&from.startsWith('agent:'))throw new Error(`${from} is an agent's source`);
   if(updateUI)saveTyping();
   const before = begin(project,edits),pageBefore=project.activePageId;
-  change();ensureSpace(project);
+  change();placeNewFrames(project);ensureSpace(project);
   const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
   if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'},d); }
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
@@ -1870,7 +1870,7 @@ document.addEventListener('submit', async e => {
     toast(id?ui('Workspace updated','작업 공간을 업데이트했습니다'):`‘${name}’ · ${ui('workspace created','작업 공간을 만들었습니다')}`);
     return;
   }
-  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=nextFramePosition(placementSpace(project),preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
+  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
   if(form.id==='agent-mode-form'){startAgentMode(clip(String(data.get('operator')??''),100),clip(String(data.get('intent')??''),1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){

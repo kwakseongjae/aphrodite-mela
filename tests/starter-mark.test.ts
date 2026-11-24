@@ -12,7 +12,7 @@ import {runBatch} from '../src/agent/apply.ts';
 import {begin, end, newHistory, stepForScreen, type History} from '../src/ledger/session.ts';
 import {compact} from '../src/ledger/ledger.ts';
 import {ensureSpace} from '../src/editor/space.ts';
-import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown} from '../src/editor/starter.ts';
+import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames} from '../src/editor/starter.ts';
 import type {Author} from '../src/ledger/types.ts';
 import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
 import {cloneProject} from '../src/workspace/library.ts';
@@ -22,7 +22,7 @@ const AGENT: Author = {kind: 'agent', name: 'claude-code'};
 const PAGE = '<!doctype html><html><body><h1>Briefing</h1></body></html>';
 /** A change as commit() in main.ts makes it: begin, the change, the frames, end. */
 function edit(h: History, p: Project, change: (p: Project) => void, author = YOU): Project {
-  const before = begin(p, h); change(p); ensureSpace(p); end(p, before, {author, source: 'editor:change'}, h); return p;
+  const before = begin(p, h); change(p); placeNewFrames(p); ensureSpace(p); end(p, before, {author, source: 'editor:change'}, h); return p;
 }
 /** An agent's batch as applyBatch in main.ts runs it: the batch inside the change, its result in place of the board. */
 function apply(h: History, p: Project, payload: Record<string, unknown>): Project {
@@ -173,4 +173,14 @@ test('deleting a page opens the first page the board shows, not the hidden one',
   edit(h, p, q => { q.pages = q.pages.filter(x => x.id !== q.activePageId); q.activePageId = firstShown(q).id; });
   assert.equal(p.pages.find(x => x.id === p.activePageId)!.name, 'Two');
   assert.equal(p.starter, p.pages[0].id, 'opening another page leaves the hidden one hidden');
+});
+
+test('a page added, copied or drafted on a new board takes the board\'s first place, not one beside the hidden page', () => {
+  const h = newHistory(), p = opened(newBoard('Empty'));
+  edit(h, p, q => { const page = {id: 'about', name: 'About', blocks: [makeBlock('hero')]}; q.pages.push(page); q.activePageId = page.id; });
+  assert.deepEqual([p.space!.frames.about.x, p.space!.frames.about.y], [0, 0]);
+  edit(h, p, q => { q.pages.push({id: 'copy', name: 'About copy', blocks: [makeBlock('hero')]}); });
+  assert.ok(p.space!.frames.copy.x > 0, 'the next one goes beside the first');
+  assert.equal(p.starter, p.pages[0].id, 'the hidden page is still hidden, and still where it was');
+  assert.deepEqual([p.space!.frames[p.pages[0].id].x, p.space!.frames[p.pages[0].id].y], [0, 0]);
 });

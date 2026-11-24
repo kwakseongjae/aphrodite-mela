@@ -13,8 +13,8 @@ import {canParent} from '../layout';
 import {patternVariants} from '../patterns';
 import {sampleSrc} from '../design/sample-images';
 import {localRef} from '../design/local-images';
-import {ensureSpace, framePresets, nextFramePosition} from '../editor/space';
-import {placementSpace} from '../editor/starter';
+import {ensureSpace, framePresets} from '../editor/space';
+import {placeFrame} from '../editor/starter';
 import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
@@ -50,7 +50,7 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
     if (refused) return refused;
     ensureSpace(project);
     project.pages.push(created);
-    const frame = nextFramePosition(placementSpace(project), op.width === undefined ? 'desktop' : 'custom', op.width);
+    const frame = placeFrame(project, op.width === undefined ? 'desktop' : 'custom', op.width);
     project.space!.frames[created.id] = op.height === undefined ? frame : {...frame, height: op.height};
     focus.created.push(created.id);
     return undefined;
@@ -86,7 +86,7 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
   const created: Page = {id: uid(), name: clip(name, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
-  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(placementSpace(project), 'desktop'));
+  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? placeFrame(project, 'desktop'));
   focus.created.push(created.id);
   return undefined;
 }
@@ -167,7 +167,7 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
     const created: Page = {id: uid(), name: op.name, blocks: []};
     project.pages.push(created);
     focus.created.push(created.id);
-    project.space!.frames[created.id] = nextFramePosition(placementSpace(project), op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
+    project.space!.frames[created.id] = placeFrame(project, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
     project.activePageId = created.id;
     return undefined;
   }
