@@ -42,3 +42,9 @@ test('a close that saved late and was cancelled leaves nothing turned away; and 
   assert.match(main, /if\(closer\.busy\(\)&&isWrite\(gateFor\(c,reachedAction\(c,agentLook\)\)\)\)return \{error:'Aphrodite is saving to close or restart/);
   assert.doesNotMatch(main, /shuttingDown|goingNow/, 'one word on it, the closer\'s');
 });
+
+/* 3 (low): a restart that fails after the board was saved is said in a notice, not asked about as a close that could not save. */
+test('a failed restart after the save is a notice, not the close\'s question', () => {
+  const updates = sourceOf('src/editor/updates.ts');
+  assert.match(updates, /await host\.leaving\(async\(\)=>\{try\{await relaunch\(\);\}catch\(error\)\{host\.toast\(host\.ui\(`The new version could not start: \$\{String\(error\)\}`/);
+});

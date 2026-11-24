@@ -98,7 +98,8 @@ export function createUpdates(host: UpdateHost) {
           }
           case 'update-relaunch': {
             // The restart's code is loaded before the last save, so nothing waits between that save and the restart (0.3-R fix 3 #16).
-            try{const {relaunch}=await import('@tauri-apps/plugin-process');await host.leaving(async()=>{await relaunch();});}
+            // The board is saved by then: a restart that fails is said, not asked about as a close that could not save (0.3-R fix 4 #3).
+            try{const {relaunch}=await import('@tauri-apps/plugin-process');await host.leaving(async()=>{try{await relaunch();}catch(error){host.toast(host.ui(`The new version could not start: ${String(error)}`,`새 버전을 시작하지 못했습니다: ${String(error)}`));}});}
             catch(error){host.toast(String(error));}
             break;
           }

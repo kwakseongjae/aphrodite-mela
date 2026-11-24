@@ -118,7 +118,7 @@ test('a board file whose words fit but whose history leaves no room once read is
    be tried again, so none is answered as done and then lost; the restart's code is loaded before that save. */
 test('an agent write during the last save of a close or a restart is turned away to be tried again', () => {
   const updates = readFileSync(new URL('../src/editor/updates.ts', import.meta.url), 'utf8');
-  assert.match(updates, /case 'update-relaunch': \{\n(?:\s*\/\/.*\n)?\s*try\{const \{relaunch\}=await import\('@tauri-apps\/plugin-process'\);await host\.leaving\(async\(\)=>\{await relaunch\(\);\}\);\}/, 'the restart is loaded before the save');
+  assert.match(updates, /case 'update-relaunch': \{\n(?:\s*\/\/.*\n)*\s*try\{const \{relaunch\}=await import\('@tauri-apps\/plugin-process'\);await host\.leaving\(async\(\)=>\{(?:try\{)?await relaunch\(\);/, 'the restart is loaded before the save');
   // Under way by the closer's own word, from the request until it is over or answered (0.3-R fix 4 #2).
   assert.match(main, /if\(closer\.busy\(\)&&isWrite\(gateFor\(c,reachedAction\(c,agentLook\)\)\)\)return \{error:'Aphrodite is saving to close or restart[^']*',status:423\};/);
   assert.match(main, /\(\)=>\{if\(closer\.busy\(\)\)return \{error:'Aphrodite is saving to close or restart/, 'and a batch copying files asks again');

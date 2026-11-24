@@ -17,7 +17,7 @@ test('relaunching is the person\'s alone and saves first, like closing; reloadin
   assert.equal(commandById['outside.relaunch'].author, 'person-only');
   assert.equal(personOnlyRow('disk-reload'), 'outside.disk-reload');
   assert.match(main, /if\(act==='update-relaunch'&&refusal\(d,'outside\.relaunch'\)\)return;/, 'the handler asks who pressed, before anything');
-  assert.match(updates, /case 'update-relaunch': \{\n(?:\s*\/\/.*\n)?\s*try\{const \{relaunch\}=await import\('@tauri-apps\/plugin-process'\);await host\.leaving\(async\(\)=>\{await relaunch\(\);\}\);\}/, 'and relaunches through the close (its code loaded first, 0.3-R fix 3 #16)');
+  assert.match(updates, /case 'update-relaunch': \{\n(?:\s*\/\/.*\n)*\s*try\{const \{relaunch\}=await import\('@tauri-apps\/plugin-process'\);await host\.leaving\(async\(\)=>\{(?:try\{)?await relaunch\(\);/, 'and relaunches through the close (its code loaded first, 0.3-R fix 3 #16)');
   assert.match(main, /leaving:go=>closer\.request\(go\)/, 'which main gives as the window\'s close');
 });
 
