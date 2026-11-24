@@ -24,7 +24,7 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  */
 const pins:Record<string,{colours:number,sizes:number,set:string}>={
   'agent/agent.css':{colours:0,sizes:2,set:'fcbaef50'},
-  'design/component-explorer.css':{colours:91,sizes:15,set:'e2e8755c'},
+  'design/component-explorer.css':{colours:0,sizes:15,set:'e4439937'},
   'design/studio.css':{colours:0,sizes:11,set:'1590246b'},
   'editor/pointer-editor.css':{colours:0,sizes:2,set:'83ba3aab'},
   'reference.css':{colours:0,sizes:7,set:'0d8ba2d0'},
