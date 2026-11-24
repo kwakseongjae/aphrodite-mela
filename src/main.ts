@@ -69,6 +69,7 @@ import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
 import {isStarterPage,visiblePages,hasSectionPage,placementSpace} from './editor/starter';
+import {callerMarkHtml} from './agent/caller-mark';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
 import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carriedNow,heldFromAgent,contentId,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
@@ -401,6 +402,7 @@ function bumpConnect(by:string){
   const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
   if(count)count.textContent=String(connectWrites);
   if(who)who.textContent=callerText(by);
+  const mark=app.querySelector('[data-connect-mark]');if(mark){mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);}
   if(!count)render();
 }
 let tokensOpen=false;
@@ -754,7 +756,7 @@ function connectBannerHtml(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
   const holder=lease&&lease.label!==HUMAN?lease.label:'',left=allowedText()?`${ui('allowed','허용')} ${esc(allowedText())}`:'';
-  return `<div class="connect-banner ui-strip" role="status"><span class="ui-dot ui-dot-ok"></span><strong class="ui-strip-strong">${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span class="ui-strip-changes"><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill ui-strip-push"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" class="ui-btn ui-btn-quiet" data-action="agent-disconnect">${icon('unplug','ui-icon ui-icon-sm')}${ui('Disconnect','연결 끊기')}</button></div>`;
+  return `<div class="connect-banner ui-strip" role="status"><span class="ui-dot ui-dot-ok"></span><strong class="ui-strip-strong">${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <span class="connect-mark" data-connect-mark>${holder?callerMarkHtml(holder,true):''}</span><b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span class="ui-strip-changes"><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill ui-strip-push"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" class="ui-btn ui-btn-quiet" data-action="agent-disconnect">${icon('unplug','ui-icon ui-icon-sm')}${ui('Disconnect','연결 끊기')}</button></div>`;
 }
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
@@ -1172,7 +1174,7 @@ function askModal(by:string,id:string){
     `<div class="ask-dialog" data-ask-id="${esc(id)}" data-ask-by="${esc(by)}"><div class="ask-box"><p class="ask-box-title">${ui('If you allow it','허용하면')}</p><ul class="ask-points"><li>${icon('wand-sparkles','ui-icon ui-icon-sm')}<span>${ui('It may change your pages, and every change is recorded with its reason.','페이지를 고치고, 모든 변경은 이유와 함께 기록됩니다.')}</span></li><li>${icon('history','ui-icon ui-icon-sm')}<span>${ui('⌘Z undoes any of it. You keep the screen.','무엇이든 ⌘Z로 되돌립니다. 화면은 그대로 쓰시면 됩니다.')}</span></li><li>${icon('settings','ui-icon ui-icon-sm')}<span>${ui('You will not be asked again · Disconnect it in Help (?) → Agent connection','다음부터는 묻지 않습니다 · 도움말(?) → 에이전트 연결에서 끊을 수 있습니다')}</span></li></ul></div><p class="ask-note">${ui('Allowing starts nothing new: the connection exists only on this Mac, while Aphrodite is open.','허용해도 새로 켜지는 것은 없습니다. 이 연결은 Aphrodite가 열려 있는 동안 이 Mac 안에서만 열려 있습니다.')}</p>`+
     `<p class="ask-raw">${ui('Connection name','연결 이름')}: <code class="ask-name">${esc(by)}</code>${who.known?'':` (${ui('unknown program','알 수 없는 프로그램')})`}</p>`+
     `<div class="ask-actions ui-modal-foot ui-modal-foot-plain"><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="ask-decline">${ui('Not now','나중에')}</button><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="ask-allow">${ui('Allow','허용')}</button></div></div>`,false,
-    `<div class="ask-who"><span class="ask-mark">${icon('bot','ui-icon')}</span><span><strong class="ask-who-name">${n}</strong><small class="ask-who-via">${via}</small></span></div>`);
+    `<div class="ask-who">${callerMarkHtml(by)}<span><strong class="ask-who-name">${n}</strong><small class="ask-who-via">${via}</small></span></div>`);
   modalRoot.querySelector('.modal')?.classList.add('ask-modal');
   // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
   toasts=[];paintToasts();

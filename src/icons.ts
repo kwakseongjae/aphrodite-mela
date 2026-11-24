@@ -89,6 +89,7 @@ import {
   X,
   RotateCw,
   Unplug,
+  Terminal,
 } from 'lucide';
 
 export const icons = {
@@ -182,4 +183,5 @@ export const icons = {
   Unplug,
   WandSparkles,
   X,
+  Terminal,
 };
