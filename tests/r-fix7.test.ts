@@ -48,7 +48,7 @@ test('a window that never goes gives everything back, said as refused; the pictu
   const close = main.slice(main.indexOf('function closeWindow('), main.indexOf('\n', main.indexOf('function closeWindow(')));
   assert.match(close, /await bounded\(destroy\(\),SAVE_LIMIT,\(\)=>new WindowRefused\(/, 'the close\'s own turn waits for the window a bounded time');
   const place = main.slice(main.indexOf('async function placeReadBoard('), main.indexOf('\n}\n', main.indexOf('async function placeReadBoard(')));
-  assert.match(place, /const until=Date\.now\(\)\+SAVE_LIMIT;for\(const pic of read\.pictures\)\{if\(Date\.now\(\)>=until\)\{missing\+\+;continue;\}try\{await bounded\(invoke\('image_library_import'.*?\),until-Date\.now\(\)\)/, 'one limit for all its pictures');
+  assert.match(place, /const now=await bounded\(brought\.now,SAVE_LIMIT\+1_000\)/, 'one limit for all its pictures in the turn (the rest come in after it, tests/r-fix8.test.ts)');
   assert.doesNotMatch(readFileSync(join(root, 'tests/r-fix6.test.ts'), 'utf8'), /destroy\\\(\\\)\)/, 'and no wait is let off the check');
 });
 

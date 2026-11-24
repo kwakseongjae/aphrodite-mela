@@ -108,6 +108,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
+import {bringIn} from './workspace/bring-in';
 import {windowCloser,closeRequests,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
@@ -564,9 +565,12 @@ async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
   let missing=0;
-  if(nativeDesktop){const until=Date.now()+SAVE_LIMIT;for(const pic of read.pictures){if(Date.now()>=until){missing++;continue;}try{await bounded(invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}),until-Date.now());}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  let coming=0;
+  // They share the turn's time; what is not in by then goes on coming in after it, and the board is drawn again when it is, any that failed said (0.3-R fix 7 follow-up).
+  if(nativeDesktop){const brought=bringIn(read.pictures,pic=>invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}),SAVE_LIMIT);const now=await bounded(brought.now,SAVE_LIMIT+1_000);missing=now.failed;coming=now.waiting;if(read.pictures.length)forgetLocal();
+    if(coming)void brought.rest.then(failed=>{forgetLocal();if(screen==='editor'&&project.id===read.project.id)render();const more=failed-now.failed;if(more)notice(ui(`${more} picture(s) from the board's image library could not be put in this board's library and show as missing`,`보드의 이미지 라이브러리 그림 ${more}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`));});}
   else missing=read.pictures.length;
-  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
+  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):'',coming?ui(`${coming} picture(s) from its image library are still coming in`,`이미지 라이브러리 그림 ${coming}개는 아직 들어오는 중입니다`):''].filter(Boolean);
 }
 /** The board on screen, and what did not come with it said. */
 function showReadBoard(read:ReadBoard,notes:string[]){

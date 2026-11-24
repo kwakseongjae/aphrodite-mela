@@ -25,3 +25,23 @@ test('after a window that did not go in its time, the next close request reaches
   assert.equal(asked, 2, 'the next request is the closer\'s again');
   assert.match(main, /onCloseRequested\(closeRequests\(closer,/, 'the desktop gives the system\'s requests to it');
 });
+
+/* 2: a board file's library pictures that do not all come in within the turn's time keep coming in after it; none is dropped
+   without a word: when they are all in, the board is drawn again, and any that failed are counted in a notice. */
+import {bringIn} from '../src/workspace/bring-in.ts';
+test('pictures not in within the time keep coming in after it, and every one that failed is counted', async () => {
+  const put: number[] = [];
+  const brought = bringIn([1, 2, 3, 4], async n => { await wait(15); if (n === 3) throw new Error('no room'); put.push(n); }, 20, 1_000);
+  const now = await brought.now;
+  assert.ok(now.waiting > 0, 'the turn is let go of with some still coming');
+  assert.equal(now.failed, 0);
+  assert.equal(await brought.rest, 1, 'the one that failed is counted');
+  assert.deepEqual(put, [1, 2, 4], 'and every other one came in');
+  const stuck = bringIn([1], () => new Promise(() => {}), 10, 30);
+  assert.deepEqual(await stuck.now, {failed: 0, waiting: 1});
+  assert.equal(await stuck.rest, 1, 'one that never ends is counted as failed, not waited for for ever');
+  const place = main.slice(main.indexOf('async function placeReadBoard('), main.indexOf('\n}\n', main.indexOf('async function placeReadBoard(')));
+  assert.match(place, /const brought=bringIn\(read\.pictures,/);
+  assert.match(place, /void brought\.rest\.then\(/, 'what is still coming is not waited for in the turn');
+  assert.doesNotMatch(place, /continue;\}/, 'no picture is skipped');
+});
