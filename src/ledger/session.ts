@@ -16,6 +16,7 @@ import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject, type PatchOp} from './patch';
 import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
 import {APPROVAL_CLEARED} from './types';
+import {settleStarter} from '../editor/starter';
 
 export {APPROVAL_CLEARED} from './types';
 
@@ -89,9 +90,12 @@ export function begin(project: Project, history: History): Project {
 export function end(project: Project, before: Project, meta: {author: Author; source: string; reason?: string}, history: History): Change | null {
   // Half a pair on its own (the person's typing, a cut) is mended before it is recorded or saved (src/text.ts).
   mendDesign(project);
+  // A change that reaches a new board's hidden page shows it, beside the frames, as part of this change (src/editor/starter.ts).
+  const revealed = settleStarter(before, project);
   const cleared = settleApproval(project, before, meta.author);
   const done = record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta);
-  if (!done) return null;
+  // A page shown with nothing to record (the person going to it) is shown in the state the next change is read against too.
+  if (!done) { if (revealed) history.last = clone(project); return null; }
   // A clearing is the system's, not a write of the approval: undoing this change is content, for anyone (step).
   if (cleared) done.undo.cleared = true;
   history.undo.push(done.undo);
@@ -157,6 +161,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   const current = designOf(project);
   const next = applyPatch(current, ops);
   mendDesign(next);
+  settleStarter(current, next);
   const cleared = settleApproval(next, current, author, true);
   if (check) {
     try { check(next); }

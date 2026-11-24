@@ -564,7 +564,8 @@ check('a component the person drags to another place on the canvas is theirs', a
 check('a layer the person drags to a new place is theirs', async () => {
   await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'tab'; b.dataset.tab = 'layers'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
   await sleep(300);
-  const grips = await evaluate(`[...document.querySelectorAll('[data-layer-grip]')].slice(1, 3).map(g => { g.scrollIntoView({block: 'center'}); const r = g.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, h: r.height}; })`);
+  // Both rows are measured after one scroll: scrolling to the second could move the first out from under its measure.
+  const grips = await evaluate(`(() => { const pair = [...document.querySelectorAll('[data-layer-grip]')].slice(1, 3); pair[0]?.scrollIntoView({block: 'center'}); return pair.map(g => { const r = g.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, h: r.height}; }); })()`);
   assert.equal(grips.length, 2, 'two layers to reorder');
   matches('layer reorder', await oneChange('layer reorder', () => drag(grips[0], {x: grips[1].x, y: grips[1].y + grips[1].h * 0.4})), {row: 'edit.move', author: PERSON, source: 'layer:move'});
 });

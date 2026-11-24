@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep} from './lib/headless.mjs';
 
-const {evaluate, personClicks, personSubmits, presses, close} =
+const {agent, evaluate, personClicks, personPresses, personSubmits, presses, send, close} =
   await openApp({port: 4193, cdp: 9344, profile: '/tmp/aphrodite-ws-check'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
@@ -171,6 +171,136 @@ check('a project is never lost by moving it', async () => {
   // A move is not a delete: the library still holds every project it held before.
   const total = await evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.length`);
   assert.equal(total, 2, 'both projects still exist after the move');
+});
+
+/* 0.3-L4b: a new board looks empty, and the section tools come with a section page (src/editor/starter.ts). */
+const drawn = () => evaluate(`[...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.querySelector('.frame-name span')?.textContent)`);
+const sectionTools = () => evaluate(`({tabs: !!document.querySelector('.library-tabs'), add: !!document.querySelector('.dock [data-action="component-explorer"]'), media: !!document.querySelector('.dock .dock-slot[data-group="media"]'), system: !!document.querySelector('.system-card')})`);
+check('a new board shows no frame and no section tools, and A opens nothing', async () => {
+  await clickData('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name: 'Empty board'}), true);
+  await sleep(900);
+  await clickData('tour-skip'); await sleep(300);
+  assert.deepEqual(await drawn(), [], 'no frame is drawn');
+  assert.equal(await evaluate(`document.querySelectorAll('.pages-list .ui-row').length`), 0, 'and none is listed');
+  assert.deepEqual(await sectionTools(), {tabs: false, add: false, media: false, system: false});
+  assert.equal(await evaluate(`!!document.querySelector('.board-empty')`), true, 'the board says it is empty and how to fill it');
+  await evaluate('document.activeElement?.blur(), true');
+  await send('Input.dispatchKeyEvent', {type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, text: 'a'});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65});
+  await sleep(400);
+  assert.equal(await evaluate(`document.querySelector('#modal-root').children.length`), 0, 'A, whose button is not there, opens nothing');
+});
+check('a picture pasted onto a new board is the only thing on it', async () => {
+  await send('Emulation.setFocusEmulationEnabled', {enabled: true});
+  await send('Browser.grantPermissions', {permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: await evaluate('location.origin')});
+  assert.equal(await evaluate(`(async () => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; c.getContext('2d').fillRect(0, 0, 40, 30); const b = await new Promise(r => c.toBlob(r, 'image/png')); await navigator.clipboard.write([new ClipboardItem({'image/png': b})]); return true; })()`), true);
+  await evaluate('document.activeElement?.blur(), true');
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86, commands: ['paste']});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'v', code: 'KeyV', modifiers: 4, windowsVirtualKeyCode: 86});
+  for (let i = 0; i < 40 && (await drawn()).length === 0; i++) await sleep(250);
+  assert.equal((await drawn()).length, 1, 'one frame: the picture');
+  assert.equal(await evaluate(`!!document.querySelector('.space-frame:not([hidden]) .board-media')`), true, 'and it is the picture');
+  await sleep(800);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('[hidden]')].filter(e => getComputedStyle(e).display !== 'none').map(e => e.className || e.tagName)`), [], 'nothing the app hides shows: not the "not on this Mac" line over a picture that is there');
+  assert.deepEqual(await sectionTools(), {tabs: false, add: false, media: false, system: false}, 'a picture is no section page');
+  assert.equal(await evaluate(`!!document.querySelector('.board-empty')`), false);
+});
+check('a new frame is drawn, empty, and brings the section tools; deleting its last section keeps it', async () => {
+  await clickData('new-frame'); await sleep(300);
+  assert.equal(await personSubmits('#frame-form', {name: 'Landing'}), true);
+  await sleep(700);
+  assert.ok((await drawn()).includes('Landing'), 'the frame is on the board');
+  assert.deepEqual(await sectionTools(), {tabs: true, add: true, media: true, system: true});
+  await personPresses('add', {kind: 'hero'}); await sleep(500);
+  assert.equal(await evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`), 1, 'a section went in');
+  const added = await evaluate(`document.querySelector('#design-canvas [data-block-id]').dataset.blockId`);
+  await personPresses('delete-block', {id: added}); await sleep(500);
+  assert.equal(await evaluate(`document.querySelectorAll('#design-canvas [data-block-id]').length`), 0, 'and came out');
+  assert.ok((await drawn()).includes('Landing'), 'the frame stays when its last section is deleted');
+  assert.equal((await sectionTools()).tabs, true);
+});
+
+/* 0.3-L4-3 fix 1: a new board's hidden page, from the board's side (src/editor/starter.ts). */
+const pressIn = async selector => {
+  const p = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+  await sleep(250);
+};
+const inView = id => evaluate(`(() => { const f = document.querySelector('.space-frame[data-page-id="${id}"]'), s = document.querySelector('#canvas-scroll'); if (!f || f.hidden) return false; const a = f.getBoundingClientRect(), b = s.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; })()`);
+const sideBySide = () => evaluate(`(() => { const r = [...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.getBoundingClientRect()); return r.length === 2 && (r[0].right <= r[1].left || r[1].right <= r[0].left); })()`);
+const newBoard = async name => {
+  await clickData('new-project'); await sleep(400);
+  assert.equal(await personSubmits('#new-project-form', {name}), true);
+  await sleep(900); await clickData('tour-skip'); await sleep(300);
+};
+const BRIEFING = '<!doctype html><html><body><h1>Briefing</h1></body></html>';
+check('a new board starts with the camera at its start, wherever the last board was looked at', async () => {
+  const at = await evaluate(`(() => { const r = document.querySelector('#canvas-scroll').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  for (let i = 0; i < 4; i++) await send('Input.dispatchMouseEvent', {type: 'mouseWheel', x: at.x, y: at.y, deltaX: 3000, deltaY: 3000});
+  await sleep(700);
+  assert.notEqual(await evaluate(`document.querySelector('#app').dataset.camera`), '0,0,1.00', 'the last board was looked at far from its start');
+  await newBoard('Agent board');
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.camera`), '0,0,1.00');
+});
+check('the empty board says what can be dropped on it: pictures and videos, not HTML files', async () => {
+  assert.doesNotMatch(await evaluate(`document.querySelector('.board-empty')?.textContent ?? ''`), /HTML/);
+  assert.match(await evaluate(`document.querySelector('.board-empty')?.textContent ?? ''`), /그림|picture/i);
+  assert.doesNotMatch(await evaluate(`document.querySelector('.library-drop')?.textContent ?? ''`), /HTML|파일을|files/i);
+});
+check('the first page an agent puts on that board is in view', async () => {
+  assert.equal((await agent('connect', {}, 'claude-code')).status, 'asked');
+  for (let i = 0; i < 20 && !(await evaluate(`!!document.querySelector('#modal-root .ask-modal')`)); i++) await sleep(150);
+  await pressIn('#modal-root [data-action="ask-allow"]');
+  await sleep(5300);
+  const made = await agent('apply', {reason: 'verify-workspaces: a page on a new board.', base_revision: (await agent('changes', {limit: 1})).revision, ops: [{op: 'html_page', name: 'Briefing', html: BRIEFING}]});
+  assert.equal(made.ok, true, JSON.stringify(made));
+  await sleep(900);
+  assert.equal(await inView(made.created_pages[0].page_id), true, 'the page is on screen');
+});
+check('with the hidden page still the open one, export offers the agent\'s page and preview shows it', async () => {
+  const page = await evaluate(`document.querySelector('.space-frame:not([hidden])')?.dataset.pageId`);
+  await personPresses('export'); await sleep(500);
+  assert.equal(await evaluate(`document.querySelector('#modal-root [data-action="download-page-html"]')?.dataset.id`), page, 'the page in the dialog is the one on the board');
+  await personPresses('close-modal'); await sleep(300);
+  await personPresses('preview'); await sleep(600);
+  assert.match(await evaluate(`document.querySelector('#modal-root .ui-modal-text')?.textContent ?? ''`), /Briefing/);
+  await personPresses('close-modal'); await sleep(300);
+});
+check('a section the agent adds to the open page shows that page beside the agent\'s, not under it', async () => {
+  await sleep(5300);
+  // No base_revision: a batch sent with one names its page, and this one goes to the page open, the hidden one.
+  const added = await agent('apply', {reason: 'verify-workspaces: a section on the open page.', ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.equal(added.ok, true, JSON.stringify(added));
+  await sleep(800);
+  assert.equal(await sideBySide(), true);
+});
+check('a page added to a new board takes the board\'s first place', async () => {
+  await newBoard('Placement board');
+  await clickData('add-page'); await sleep(300);
+  assert.equal(await personSubmits('#page-form', {name: 'About'}), true);
+  await sleep(700);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.style.left)`), ['0px']);
+});
+check('Edit in the app, from the hidden page seen on its own, shows it on the board beside the page there', async () => {
+  const hidden = await evaluate(`document.querySelector('.space-frame[hidden]')?.dataset.pageId`);
+  assert.ok(hidden, 'the board has its hidden page');
+  await personPresses('page-view', {id: hidden}); await sleep(500);
+  assert.equal(await evaluate(`!!document.querySelector('.page-view')`), true);
+  await personPresses('page-view-edit'); await sleep(700);
+  assert.equal(await evaluate(`document.querySelector('.space-frame[data-page-id="${hidden}"]')?.hidden`), false, 'the page is on the board');
+  assert.equal(await sideBySide(), true);
+  assert.equal(await inView(hidden), true, 'and in view');
+});
+check('a hidden page shown by Edit in the app with nothing in its place is saved shown', async () => {
+  await newBoard('Reveal board');
+  const hidden = await evaluate(`document.querySelector('.space-frame[hidden]')?.dataset.pageId`);
+  const saved = () => evaluate(`(() => { const e = JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.name === 'Reveal board'); return e ? e.project.starter ?? null : 'no board'; })()`);
+  assert.equal(await saved(), hidden, 'a new board is saved with its mark');
+  await personPresses('page-view', {id: hidden}); await sleep(500);
+  await personPresses('page-view-edit'); await sleep(900);
+  assert.equal(await evaluate(`document.querySelector('.space-frame[data-page-id="${hidden}"]')?.hidden`), false);
+  assert.equal(await saved(), null, 'and saved without it once the person has gone to the page');
 });
 
 await runChecks(checks, close);

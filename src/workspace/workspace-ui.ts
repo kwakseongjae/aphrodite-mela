@@ -38,7 +38,7 @@ export function workspaceFormHtml(language:Language,ws:Workspace|undefined,optio
 <div class="ws-pick-row"><span class="ws-pick-label">${ko?'이미지':'Image'}</span><div class="ws-avatar-row"><button type="button" class="ui-btn ui-btn-secondary" data-action="ws-pick-image">${icon('image-plus','ui-icon ui-icon-sm')}${ko?'이미지 올리기':'Upload image'}</button>${avatar.kind==='image'?`<button type="button" class="ui-btn ui-btn-quiet" data-action="ws-clear-image">${ko?'제거':'Remove'}</button>`:''}</div></div>
 <input type="hidden" name="image" value="${esc(avatar.kind==='image'?avatar.value:'')}"></fieldset>
 <p class="ui-help">${ko?'작업 공간은 이 기기에만 저장됩니다. 프로젝트는 작업 공간별로 나뉘어 보입니다.':'Workspaces live on this device. Projects are listed per workspace.'}</p>
-<button class="ui-btn ui-btn-primary ui-btn-md ui-btn-block" type="submit">${editing?(ko?'변경 사항 저장':'Save changes'):(ko?'작업 공간 만들기':'Create workspace')}</button>
 ${editing&&options.canDelete?`<div class="ws-danger"><button type="button" class="ui-btn ui-btn-quiet ws-delete" data-action="ws-delete" data-id="${esc(ws!.id)}">${icon('trash-2','ui-icon ui-icon-sm')}${ko?'이 작업 공간 삭제':'Delete this workspace'}</button><small class="ui-help">${ko?`프로젝트 ${options.projectCount}개는 다른 작업 공간으로 옮겨집니다.`:`Its ${options.projectCount} project(s) move to another workspace.`}</small></div>`:''}
+<div class="ui-home-form-foot"><button class="ui-btn ui-btn-primary ui-btn-md" type="submit">${editing?(ko?'변경 사항 저장':'Save changes'):(ko?'작업 공간 만들기':'Create workspace')}</button></div>
 </form>`;
 }

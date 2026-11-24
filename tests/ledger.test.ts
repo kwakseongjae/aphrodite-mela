@@ -187,7 +187,7 @@ test('a page and its frame come and go together, so ⌘Z and ⌘⇧Z after addin
   ensureSpace(p);
   assert.equal(step(p, 'redo', h, me), null);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /\n {2}change\(\);ensureSpace\(project\);\n {2}const recorded=end\(project,before,/, 'commit() lays out frames before it records');
+  assert.match(main, /\n {2}change\(\);placeNewFrames\(project\);ensureSpace\(project\);\n {2}const recorded=end\(project,before,/, 'commit() lays out frames, new ones beside what the board shows, before it records');
 });
 
 test('switching pages is recorded as view, and undo still takes it back as it always has', () => {
