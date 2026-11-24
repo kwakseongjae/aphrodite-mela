@@ -1,0 +1,113 @@
+/*
+ * Surfaces drawn outside main.ts (0.3-L4 ②): where the parts go on the dock, the help menu, the command
+ * palette, the toast stack, the update card, the welcome sheet and tour, the files dialog, the agent panel
+ * and the language dialog. Colour, type and controls come from components.css; this sheet places them.
+ */
+
+/* The dock: tools and modes floating at the foot of the board (src/editor/dock.ts). */
+.ui-toolbar.dock { z-index: 20; gap: var(--ui-space-1); }
+.ui-toolbar.dock .dock-tools { display: flex; align-items: center; gap: calc(var(--ui-space-1) / 2); }
+.ui-toolbar.dock .dock-slot { position: relative; display: inline-flex; align-items: center; }
+.ui-toolbar.dock .dock-tool { width: var(--ui-control-md); height: var(--ui-control-md); }
+.ui-toolbar.dock .dock-caret { width: var(--ui-space-4); height: var(--ui-control-md); margin-left: calc(var(--ui-space-1) / -2); }
+.ui-toolbar.dock .dock-modes > .ui-seg-item { padding: 0 var(--ui-space-3); }
+.ui-toolbar.dock[data-mode="agent"] .dock-modes > .ui-seg-item[aria-pressed="true"] { background: var(--ui-agent-soft); color: var(--ui-agent-text); }
+.ui-toolbar.dock .dock-zoom { height: var(--ui-control-md); padding: 0 var(--ui-space-2); font-family: var(--ui-font-mono); font-size: var(--ui-text-12); font-variant-numeric: tabular-nums; }
+.ui-toolbar.dock .dock-menu { position: absolute; left: 0; bottom: calc(100% + var(--ui-space-3)); z-index: 30; min-width: calc(var(--ui-control-lg) * 5 + var(--ui-space-4)); }
+.ui-toolbar.dock .dock-check { display: inline-block; width: var(--ui-icon-14); height: var(--ui-icon-14); flex-shrink: 0; }
+.ui-toolbar.dock .ui-menu-item[aria-checked="true"] { font-weight: var(--ui-w-semibold); }
+
+/* The help menu, hanging up from the round button at the board's corner (src/editor/help-menu.ts). */
+.ui-menu.help-menu { position: absolute; right: 0; bottom: calc(100% + var(--ui-space-2)); z-index: 30; min-width: calc(var(--ui-control-lg) * 6); }
+.ui-menu.help-menu > a.ui-menu-item > .ui-icon { margin-left: auto; }
+
+/* The command palette, inside the dialog frame (src/editor/command-palette.ts). */
+.ui-palette { display: flex; flex-direction: column; gap: var(--ui-space-3); font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
+.ui-palette > .ui-palette-search { height: var(--ui-control-lg); font-size: var(--ui-text-15); }
+.ui-palette-list { display: flex; flex-direction: column; gap: var(--ui-space-2); max-height: calc(100vh / 2); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.ui-palette-list ul { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.ui-palette-list li { list-style: none; }
+.ui-palette-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-palette-hint { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
+.ui-palette .ui-menu-item.is-active { background: var(--ui-bg-hover); }
+.ui-palette-empty { padding: var(--ui-space-4) var(--ui-space-2); color: var(--ui-text-2); }
+.ui-palette > .ui-palette-foot { margin: 0; }
+
+/* The toast stack (#toast in index.html, src/design/toasts.ts): above the dock on the board, low on home. */
+.ui-toast-stack { position: fixed; left: 50%; bottom: var(--ui-space-5); transform: translateX(-50%); z-index: 100; display: grid; justify-items: center; gap: var(--ui-space-2); max-width: calc(var(--ui-control-lg) * 13); pointer-events: none; font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); word-break: keep-all; }
+.ui-toast-stack[data-screen="editor"] { bottom: calc(var(--ui-space-7) * 2); }
+.ui-toast-stack > .ui-toast { appearance: none; margin: 0; border: 0; font: inherit; text-align: left; cursor: default; pointer-events: auto; max-width: 100%; height: auto; min-height: var(--ui-control-lg); padding: var(--ui-space-2) var(--ui-space-4); animation: ui-toast-in var(--ui-dur) var(--ui-ease); }
+.ui-toast-text { min-width: 0; }
+.ui-toast-count { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); opacity: 0.7; }
+@keyframes ui-toast-in { from { opacity: 0; transform: translateY(var(--ui-space-2)); } }
+
+/* The update card, bottom left (src/update-notice.ts, src/editor/updates.ts). */
+.ui-update-layer { position: fixed; left: var(--ui-space-4); bottom: var(--ui-space-4); z-index: 45; max-width: calc(100vw - var(--ui-space-6)); font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
+.ui-card.ui-update { position: relative; width: calc(var(--ui-control-lg) * 7 + var(--ui-space-4)); max-width: 100%; padding: var(--ui-space-4); box-shadow: var(--ui-shadow-window); }
+.ui-update > .update-close { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); }
+.ui-update-version { display: block; margin-top: var(--ui-space-1); font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; }
+.ui-update-line { margin: var(--ui-space-2) 0 var(--ui-space-3); color: var(--ui-text-2); }
+.ui-update[data-state="failed"] .ui-update-line { color: var(--ui-danger-text); }
+.ui-update > .ui-progress { margin: 0 0 var(--ui-space-3); }
+.ui-update > .ui-progress[data-indeterminate] > .ui-progress-bar { animation: ui-update-slide calc(var(--ui-dur) * 6) var(--ui-ease) infinite; }
+@keyframes ui-update-slide { from { transform: translateX(-100%); } to { transform: translateX(264%); } }
+.ui-update .update-summary { margin: 0 0 var(--ui-space-3); padding-top: var(--ui-space-2); border-top: var(--ui-hairline) solid var(--ui-line); }
+.ui-update .update-summary > summary { padding: 0 var(--ui-space-1); }
+.ui-update .update-summary ul { margin: var(--ui-space-1) 0 0; padding-left: var(--ui-space-5); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-update-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); }
+.ui-update .update-more { position: relative; }
+.ui-update .update-menu { position: absolute; right: 0; bottom: calc(100% + var(--ui-space-1)); z-index: 1; }
+
+/* The welcome sheet and the tour (src/workspace/onboarding.ts). */
+.ui-welcome { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--ui-space-6); align-items: center; font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
+.ui-welcome-art { padding: var(--ui-space-4); border-radius: var(--ui-radius-3); background: var(--ui-bg-sunken); }
+.ui-welcome-art > img { display: block; width: 100%; height: auto; mix-blend-mode: multiply; }
+.ui-welcome-body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ui-space-4); min-width: 0; }
+.ui-welcome-points { display: flex; flex-direction: column; gap: var(--ui-space-3); margin: 0; padding: 0; list-style: none; }
+.ui-welcome-points > li { display: flex; align-items: flex-start; gap: var(--ui-space-3); }
+.ui-welcome-points > li > .ui-icon { margin-top: calc(var(--ui-space-1) / 2); color: var(--ui-mark); }
+.ui-welcome-points strong { display: block; margin-bottom: calc(var(--ui-space-1) / 2); font-weight: var(--ui-w-semibold); }
+.ui-welcome-points span { color: var(--ui-text-2); }
+.ui-welcome-actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+.ui-welcome-body > .ui-help { margin: 0; }
+.ui-popover.tour-card { position: absolute; pointer-events: auto; animation: ui-toast-in var(--ui-dur) var(--ui-ease); }
+
+/* The files dialog's body (src/workspace/vault.ts). */
+.ui-vault { display: flex; flex-direction: column; gap: var(--ui-space-3); font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
+.ui-vault > .ui-help { margin: 0; }
+.ui-vault-actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+.ui-vault-files { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+.ui-vault-file { display: flex; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-3) var(--ui-space-3) var(--ui-space-3) var(--ui-space-4); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); background: var(--ui-bg-panel); }
+.ui-vault-file > .ui-icon { color: var(--ui-text-2); }
+.ui-vault-file-text { flex: 1 1 auto; min-width: 0; }
+.ui-vault-file-text > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--ui-w-semibold); }
+.ui-vault-file-text > small { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-vault-file-actions { display: inline-flex; gap: var(--ui-space-1); }
+
+/* The agent panel, in the inspector's place while an agent holds the screen (src/agent/delegation.ts). */
+.ui-agent-panel { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: var(--ui-space-4); font-family: var(--ui-font-sans); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-1); word-break: keep-all; }
+.ui-agent-panel-eyebrow { color: var(--ui-agent-text); }
+.ui-agent-panel-name { margin: var(--ui-space-1) 0; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-agent-panel-intent { margin: 0 0 var(--ui-space-3); color: var(--ui-text-2); }
+.ui-agent-panel-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ui-space-2); margin: 0; }
+.ui-agent-panel-stats > div { padding: var(--ui-space-2); border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); }
+.ui-agent-panel-stats dd { margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); }
+.ui-agent-panel h4 { margin: 0 0 var(--ui-space-2); }
+.ui-agent-panel-scope, .ui-agent-panel-timeline { display: flex; flex-direction: column; gap: var(--ui-space-1); margin: 0; padding: 0; list-style: none; }
+.ui-agent-panel-scope > li { display: flex; justify-content: space-between; gap: var(--ui-space-2); padding: var(--ui-space-1) var(--ui-space-2); border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); }
+.ui-agent-panel-scope > li > span { color: var(--ui-text-2); }
+.ui-agent-panel-scope > li[data-allowed="false"] > span { color: var(--ui-danger-text); }
+.ui-agent-panel-timeline > li { display: flex; align-items: baseline; gap: var(--ui-space-2); padding: var(--ui-space-1) 0; border-bottom: var(--ui-hairline) dashed var(--ui-line); font-family: var(--ui-font-mono); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); }
+.ui-agent-panel-timeline b { font-weight: var(--ui-w-semibold); color: var(--ui-agent-text); }
+.ui-agent-panel-timeline time { margin-left: auto; color: var(--ui-text-2); }
+.ui-agent-panel-timeline > .ui-agent-panel-empty { border-bottom: 0; font-family: var(--ui-font-sans); color: var(--ui-text-2); }
+.ui-agent-panel-channel { max-height: calc(var(--ui-control-lg) * 5 + var(--ui-space-4)); margin: 0; padding: var(--ui-space-2); overflow: auto; border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+.ui-agent-panel footer { display: flex; flex-direction: column; gap: var(--ui-space-2); margin-top: auto; }
+.ui-agent-panel footer > .ui-help { margin: 0; }
+
+/* The language dialog's body (src/i18n.ts) uses the dialog body of home's sheet; a select takes the width as a field does. */
+.ui-home-form .ui-label > .ui-select { width: 100%; margin-top: var(--ui-space-1); font-weight: var(--ui-w-regular); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast-stack > .ui-toast, .ui-popover.tour-card, .ui-update > .ui-progress[data-indeterminate] > .ui-progress-bar { animation: none; }
+}

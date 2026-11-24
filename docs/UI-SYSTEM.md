@@ -129,13 +129,13 @@
 
 | 파일 | 색 | 글자 크기 |
 |---|---:|---:|
-| `style.css` | 341 | 32 |
+| `style.css` | 271 | 21 |
 | `design/component-explorer.css` | 92 | 15 |
 | `design/studio.css` | 29 | 11 |
 | `reference.css` | 22 | 7 |
 | `agent/agent.css` | 10 | 2 |
 | `editor/pointer-editor.css` | 9 | 3 |
-| `workspace/vault.css` | 3 | 3 |
+| `workspace/vault.css` | 0 | 0 |
 
 `page.css` · `patterns.css` · `moa.css`는 셈에 넣지 않는다. 캔버스 위 디자인과 내보낸 페이지를 그리는 CSS(`render.ts`가 셋을 읽는다)라 앱 화면을 옮겨도 줄지 않고, 사용자의 디자인이 어떤 모양일 수 있는지는 이 시스템이 고정할 일이 아니다(오너 결정 2026-11-18). 셋 중 하나가 내보낸 페이지에서 빠지면 시험이 실패해 다시 셈에 넣게 한다.
 

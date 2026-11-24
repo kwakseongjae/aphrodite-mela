@@ -47,6 +47,6 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 export function toastHtml(list: readonly Toast[]): string {
   return list
-    .map(t => `<button type="button" class="toast" data-toast="${t.id}">${esc(t.message)}${t.count > 1 ? `<i>×${t.count}</i>` : ''}</button>`)
+    .map(t => `<button type="button" class="toast ui-toast" data-toast="${t.id}"><span class="ui-toast-text">${esc(t.message)}</span>${t.count > 1 ? `<span class="ui-toast-count">×${t.count}</span>` : ''}</button>`)
     .join('');
 }

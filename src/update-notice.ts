@@ -59,7 +59,7 @@ const esc=(s:string)=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,
 export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko',detail='',open=false):string{
   const t=(en:string,ko:string)=>lang==='ko'?ko:en;
   const version=esc(info.latest??'');
-  const icon=(name:string)=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
+  const icon=(name:string,cls='ui-icon ui-icon-sm')=>`<i data-lucide="${name}" class="${cls}" aria-hidden="true"></i>`;
   const working=state==='working'||state==='installing';
   /* One card, four states, and only ever one thing to press. Everything that is not "get this
      version" — the notes, the disk image, skipping, turning checks off — lives behind the dots, so
@@ -83,28 +83,28 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
           ? (detail?esc(detail):t('Starting…','시작하는 중…'))
           : t('Install it, then choose when to restart.','설치한 뒤, 다시 시작할지 고릅니다.');
   const bar=working
-    ? `<div class="update-bar"${state==='installing'||!detail?' data-indeterminate="true"':''}><i style="width:${state==='installing'?'38%':detail||'6%'}"></i></div>`:'';
+    ? `<div class="update-bar ui-progress"${state==='installing'||!detail?' data-indeterminate="true"':''}><i class="ui-progress-bar" style="width:${state==='installing'?'38%':detail||'6%'}"></i></div>`:'';
   const summary=!working&&state!=='ready'&&info.summary?.length
-    ? `<details class="update-summary"${open?' open':''}><summary>${t('What changed','바뀐 것')}</summary><ul>${info.summary.slice(0,3).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></details>`:'';
+    ? `<details class="update-summary"${open?' open':''}><summary class="ui-btn ui-btn-quiet">${t('What changed','바뀐 것')}${icon('chevron-down','ui-icon ui-icon-xs')}</summary><ul>${info.summary.slice(0,3).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></details>`:'';
   const action=working?''   // the bar is the state; a button that only repeats the eyebrow is noise
     : askRestart
-      ? `<button class="primary-button" data-action="update-relaunch">${icon('rotate-cw')}<span>${t('Restart now','다시 시작')}</span></button>`
+      ? `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-relaunch">${icon('rotate-cw')}<span>${t('Restart now','다시 시작')}</span></button>`
     : state==='ready'
-      ? `<button class="primary-button" data-action="update-open">${icon('arrow-up-right')}<span>${t('Open it','열기')}</span></button>`
-      : `<button class="primary-button" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install','설치하기')}</span></button>`;
+      ? `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-open">${icon('arrow-up-right')}<span>${t('Open it','열기')}</span></button>`
+      : `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install','설치하기')}</span></button>`;
   const menu=working||askRestart?''
-    : `<details class="update-more"><summary aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('ellipsis')}</summary><div class="update-menu" role="menu">`
-      +(info.notes?`<button data-action="update-notes">${t('Release notes','릴리즈 노트')}</button>`:'')
-      +`<button data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`
-      +`<button data-action="update-dismiss">${t('Skip this version','이 버전 건너뛰기')}</button>`
-      +`<button data-action="update-never">${t('Stop checking','업데이트 확인 끄기')}</button>`
+    : `<details class="update-more"><summary class="ui-icon-btn" aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('ellipsis','ui-icon')}</summary><div class="update-menu ui-menu" role="menu">`
+      +(info.notes?`<button class="ui-menu-item" role="menuitem" data-action="update-notes">${t('Release notes','릴리즈 노트')}</button>`:'')
+      +`<button class="ui-menu-item" role="menuitem" data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`
+      +`<button class="ui-menu-item" role="menuitem" data-action="update-dismiss">${t('Skip this version','이 버전 건너뛰기')}</button>`
+      +`<button class="ui-menu-item" role="menuitem" data-action="update-never">${t('Stop checking','업데이트 확인 끄기')}</button>`
       +`</div></details>`;
-  return `<div class="update-card" role="status" aria-live="polite" data-state="${state}">`
-    +(working?'':`<button class="icon-button update-close" data-action="${askRestart?'update-later':'update-dismiss'}" aria-label="${askRestart?t('Later','나중에'):t('Not now','나중에')}" title="${askRestart?t('Later','나중에'):t('Not now','나중에')}">${icon('x')}</button>`)
-    +`<span class="update-eyebrow">${eyebrow}</span>`
-    +`<strong>${version}</strong>`
-    +`<p>${line}</p>${bar}${summary}`
-    +(action||menu?`<div class="update-actions">${action}${menu}</div>`:'')
+  return `<div class="update-card ui-card ui-update" role="status" aria-live="polite" data-state="${state}">`
+    +(working?'':`<button class="ui-icon-btn update-close" data-action="${askRestart?'update-later':'update-dismiss'}" aria-label="${askRestart?t('Later','나중에'):t('Not now','나중에')}" title="${askRestart?t('Later','나중에'):t('Not now','나중에')}">${icon('x','ui-icon')}</button>`)
+    +`<span class="ui-caps ui-update-eyebrow">${eyebrow}</span>`
+    +`<strong class="ui-update-version">${version}</strong>`
+    +`<p class="ui-update-line">${line}</p>${bar}${summary}`
+    +(action||menu?`<div class="ui-update-actions">${action}${menu}</div>`:'')
     +`</div>`;
 }
 

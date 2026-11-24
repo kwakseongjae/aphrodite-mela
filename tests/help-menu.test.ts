@@ -15,19 +15,19 @@ test('help items keep Figma-like order with two separators',()=>{
 
 test('helpMenuHtml renders separators, action buttons, blank-target links, and ⌘K once',()=>{
   const html=helpMenuHtml('en');
-  assert.match(html,/<div class="help-menu" role="menu">/);
-  assert.equal((html.match(/class="help-sep"/g)??[]).length,2);
+  assert.match(html,/<div class="help-menu ui-menu" role="menu">/);
+  assert.equal((html.match(/class="help-sep ui-menu-sep"/g)??[]).length,2);
   for(const item of entries){
-    if(item.action)assert.match(html,new RegExp(`<button type="button" role="menuitem" data-action="${item.action}"`));
+    if(item.action)assert.match(html,new RegExp(`<button type="button" role="menuitem" class="ui-menu-item" data-action="${item.action}"`));
     if(item.href){
-      assert.match(html,new RegExp(`<a role="menuitem" href="${item.href.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}" target="_blank" rel="noopener"`));
+      assert.match(html,new RegExp(`<a role="menuitem" class="ui-menu-item" href="${item.href.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}" target="_blank" rel="noopener"`));
       assert.match(html,/target="_blank"/);
       assert.match(html,/rel="noopener"/);
     }
     assert.ok(html.includes(esc(item.en)));
   }
   assert.equal((html.match(/⌘K/g)??[]).length,1);
-  assert.match(html,/<kbd>⌘K<\/kbd>/);
+  assert.match(html,/<span class="ui-menu-key">⌘K<\/span>/);
 });
 
 test('Korean labels differ from English',()=>{
@@ -65,7 +65,7 @@ test('the home menu drops what needs a canvas and what has its own control',()=>
   assert.ok(!ids.includes('agent'),'the assembly console describes a page home does not have');
   assert.deepEqual(ids.filter(id=>id!=='separator'),['taste','brand-kit','release-notes','report-issue'],'only what works from home — taste is a file, not a canvas');
   const html=helpMenuHtml('ko',homeHelpItems,'folio-menu');
-  assert.match(html,/<div class="folio-menu"/,'it wears the chrome the home screen already uses');
+  assert.match(html,/<div class="folio-menu ui-menu"/,'a caller can name its own menu, and it is still the system menu');
   assert.doesNotMatch(html,/data-action="commands"/);
 });
 
@@ -73,5 +73,5 @@ test('the editor menu still carries everything, including the connection',()=>{
   const ids=helpItems.map(item=>item==='separator'?'separator':item.id);
   assert.ok(ids.includes('agent-connect'));
   assert.ok(ids.includes('commands'));
-  assert.match(helpMenuHtml('en'),/<div class="help-menu"/,'and keeps its own chrome by default');
+  assert.match(helpMenuHtml('en'),/<div class="help-menu ui-menu"/,'and keeps its own chrome by default');
 });

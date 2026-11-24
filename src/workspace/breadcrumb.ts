@@ -99,6 +99,7 @@ export function vanishedHtml(crumb: Breadcrumb, ko: boolean): string {
     v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const count = crumb.entries;
   return `<div class="disk-vanished ui-banner ui-banner-warn" role="alert">
+    <i data-lucide="circle-alert" class="ui-icon ui-icon-sm" aria-hidden="true"></i>
     <div class="ui-banner-body">
       <p class="ui-banner-title">${t('Your saved folder is not where it was.', '저장 폴더가 있던 자리에 없습니다.')}</p>
       <p class="ui-banner-text">${t(
