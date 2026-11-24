@@ -108,7 +108,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
-import {windowCloser,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
+import {windowCloser,closeRequests,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -2551,17 +2551,8 @@ async function boot(){
          person must be able to leave — a window that will not shut can only be force-quit, so a
          failure asks the person, in the system's own dialog, whether to keep the board as a file, close unsaved or stay (closer). Every
          request it holds is prevented, or the window would go on its own. */
-      let closing=false;
-      await getCurrentWindow().onCloseRequested(async event=>{
-        // Every close is held and goes through the one closer, a saved board's too (0.3-R fix 7 #3): one asked while the window
-        // is already going asks nothing more of it.
-        event.preventDefault();
-        if(closing)return;
-        // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
-        saveTyping();
-        // The flag marks the window as going; a refused destroy lets go of it, so the next close is asked again.
-        await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}}).catch(error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)));
-      });
+      // Every close is held and goes through the one closer, a saved board's too; what is being typed is saved first (closing.ts closeRequests).
+      await getCurrentWindow().onCloseRequested(closeRequests(closer,()=>getCurrentWindow().destroy(),error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)),saveTyping));
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);

@@ -55,9 +55,11 @@ test('a window that never goes gives everything back, said as refused; the pictu
 /* 3: every close the system asks for is held and goes through the one closer, a saved board's too, and one asked while the
    window is already going asks nothing more of it. */
 test('every close request is held and goes through the closer', () => {
-  const handler = main.slice(main.indexOf('onCloseRequested(async event=>{'), main.indexOf('\n      });', main.indexOf('onCloseRequested(async event=>{')));
+  // The handler is closing.ts closeRequests now (its behaviour is tested in tests/r-fix8.test.ts).
+  const closing = readFileSync(join(root, 'src/workspace/closing.ts'), 'utf8');
+  const handler = closing.slice(closing.indexOf('export function closeRequests('));
   assert.ok(handler.indexOf('event.preventDefault();') > 0 && handler.indexOf('event.preventDefault();') < handler.indexOf('if(closing)return;'), 'held first, whatever the board');
-  assert.doesNotMatch(handler, /if\(lastSaved[^)]*\)return;/, 'a saved board is not let through to close on its own');
+  assert.doesNotMatch(main, /onCloseRequested\(async event=>\{[^]*?if\(lastSaved[^)]*\)return;/, 'a saved board is not let through to close on its own');
 });
 
 /* 4: a board file whose write to the disk is refused says so as a notice, even over a request to edit. */

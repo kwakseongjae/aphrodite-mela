@@ -52,3 +52,17 @@ export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>bool
     busy(){return !!run;},
   };
 }
+/**
+ * The system's requests to close the window (0.3-R fix 7 #3): each is held and goes through the closer. One that comes while
+ * the window is going asks nothing more of it; a going that was refused, or did not happen in its time, lets the next request
+ * through again, so the person can always ask once more.
+ */
+export function closeRequests(closer:WindowCloser,destroy:()=>Promise<void>,said:(error:unknown)=>void,first:()=>void=()=>{}):(event:{preventDefault():void})=>Promise<void>{
+  let closing=false;
+  return async event=>{
+    event.preventDefault();
+    if(closing)return;
+    first();
+    await closer.request(async()=>{closing=true;try{await destroy();}catch(error){closing=false;throw error;}}).catch(error=>{closing=false;said(error);});
+  };
+}
