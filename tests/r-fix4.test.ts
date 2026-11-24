@@ -48,3 +48,17 @@ test('a failed restart after the save is a notice, not the close\'s question', (
   const updates = sourceOf('src/editor/updates.ts');
   assert.match(updates, /await host\.leaving\(async\(\)=>\{try\{await relaunch\(\);\}catch\(error\)\{host\.toast\(host\.ui\(`The new version could not start: \$\{String\(error\)\}`/);
 });
+
+/* 4 (low): the tool and the guide say what the two newer answers mean: a 423 while Aphrodite closes or restarts is to be tried
+   again shortly, and a 403 for a file the board came without is the person's to place. */
+import {mcpTools} from '../src/agent/commands.mjs';
+import {guideFor} from '../src/agent/guide.ts';
+test('the tool and the guide each say what the closing 423 and the held-back 403 mean', () => {
+  const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
+  const guide = sourceOf('src/agent/guide.ts');
+  for (const said of [apply, guide]) {
+    assert.match(said, /423[^.]*clos(?:es|ing) or restart[^.]*try again/i);
+    assert.match(said, /403[^.]*came without[^.]*person/i);
+  }
+  assert.equal(typeof guideFor, 'function');
+});

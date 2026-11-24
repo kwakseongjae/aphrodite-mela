@@ -493,6 +493,7 @@ export const commands = [
         'Target a component by block_id from aphrodite_get_contract, or, in a call without base_revision, by the literal "selection" for whatever the person has selected.',
         'It cannot approve a direction: that decision stays a human one and no tool here can make it.',
         'Editing needs the person to have opened the door (Connected mode, or Agent mode). If it is closed you get a 423 and a sentence to pass on to them; do not retry in a loop.',
+        'A 423 saying Aphrodite closes or restarts means nothing was changed: try again shortly. A 403 for a file the board came without means only the person can put it on the board: ask them to.',
         '',
         'Example: {"reason": "The briefing now covers this week.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
         'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "page_id": "home-1", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "b-7f3a", "fields": {"label": "See the range"}}]}',
