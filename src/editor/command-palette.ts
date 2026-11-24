@@ -11,6 +11,15 @@ export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean
 /** The rows that work on sections (0.3-L4b): left out while the board has no section page, like their dock buttons. */
 const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference','moa']);
 
+/**
+ * Whether an action works on sections: a row above that a board without a section page leaves out, adding a component,
+ * or the Archive's Analyse this (src/design/references.ts). Asked again when one runs (main.ts action), since a palette
+ * or a panel drawn before the board lost its last section page can still be pressed.
+ */
+export function sectionOnly(action:string):boolean{
+  return action==='add'||action==='reference-promote'||commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',kinds:[]}).some(c=>sectionCommands.has(c.id)&&c.action===action);
+}
+
 export function commandTable(ctx:PaletteContext):Command[]{
   const sections=ctx.sections??true;
   const kinds=ctx.kinds??catalog;

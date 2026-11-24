@@ -97,7 +97,7 @@ import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type 
 import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,openingCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
-import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
+import {commandTable,commandPaletteHtml,stateLine,filterCommands,sectionOnly} from './editor/command-palette';
 import {libraryRuntimeReady,loadLibraryRuntime,needsLibraryRuntime} from './library-render';
 import {referencesPanelHtml,type ReferenceScope} from './design/references';
 import {createArchive} from './workspace/archive';
@@ -1018,7 +1018,7 @@ function decorateInspector(page:Page){
   }
 }
 function libraryHtml() {
-  if (tab === 'archive') return referencesPanelHtml(archive.entries(), archive.scope(), uiLanguage === 'ko', nativeDesktop);
+  if (tab === 'archive') return referencesPanelHtml(archive.entries(), archive.scope(), uiLanguage === 'ko', nativeDesktop, hasSectionPage(project));
   if (tab === 'layers') return `<div class="panel-description">화면 순서대로 쌓이는 구성 요소입니다.</div><div class="layer-list">${currentPage(project).blocks.map(b => `<button class="layer ${b.id === selected ? 'selected' : ''}" data-action="select" data-id="${b.id}" data-layer-id="${b.id}" title="${ui('Drag grip to reorder · Alt + arrows','핸들을 드래그해 순서 변경 · Alt + 방향키')}"><span data-layer-grip aria-hidden="true">${icon('grip-vertical')}</span>${icon(catalog.find(c => c.kind === b.kind)!.icon)}<span>${catalog.find(c => c.kind === b.kind)!.name}</span></button>`).join('') || `<p class="empty-state">${ui('Add your first component.','첫 컴포넌트를 추가하세요.')}</p>`}</div>`;
   if (tab === 'assets') {
     const mine=readableImages(localLibrary);
@@ -1379,6 +1379,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
+  // A section tool drawn before the board lost its last section page (an open palette, the Archive) does nothing now.
+  if(act&&screen==='editor'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.

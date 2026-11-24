@@ -10,7 +10,8 @@ import {parseBatch, type Batch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
 import {newBoard, isStarterPage, visiblePages, hasSectionPage, placementSpace} from '../src/editor/starter.ts';
 import {dockHtml, dockShortcut} from '../src/editor/dock.ts';
-import {commandTable} from '../src/editor/command-palette.ts';
+import {commandTable, sectionOnly} from '../src/editor/command-palette.ts';
+import {referencesPanelHtml, type Reference} from '../src/design/references.ts';
 import {ensureSpace} from '../src/editor/space.ts';
 
 const REASON = 'The person asked for this.';
@@ -104,4 +105,17 @@ test('without a section page the palette offers no section tool, but still the n
   assert.ok(commandTable({...ctx, sections: false}).some(c => c.action === 'tab' && c.data?.tab === 'archive'), 'the Archive opens from the palette');
   const some = commandTable(ctx).map(c => c.action);
   for (const action of ['focus-component-search', 'autofill', 'systems', 'component-explorer', 'reference', 'add']) assert.ok(some.includes(action), action);
+});
+
+test('a section tool is asked again when it runs: a palette drawn before the board lost its last section page cannot run one', () => {
+  for (const action of ['focus-component-search', 'autofill', 'systems', 'theme-review', 'component-explorer', 'reference', 'moa-recipe', 'add', 'reference-promote']) assert.equal(sectionOnly(action), true, action);
+  for (const action of ['new-frame', 'tab', 'page', 'export', 'preview', 'undo', 'reference-add-image', 'reference-open', 'reference-delete']) assert.equal(sectionOnly(action), false, action);
+});
+
+test('on a board without a section page the Archive keeps its pictures and links, and offers no analysis', () => {
+  const kept: Reference = {id: 'a1', kind: 'link', scope: 'shared', url: 'https://www.example.com/a', title: 'A lamp', addedAt: '2026-09-16T09:00:00Z', addedBy: 'you'};
+  const none = referencesPanelHtml([kept], 'all', false, true, false);
+  assert.doesNotMatch(none, /data-action="reference-promote"/);
+  for (const action of ['reference-add-image', 'reference-add-link', 'reference-open', 'reference-delete', 'reference-scope']) assert.match(none, new RegExp(`data-action="${action}"`), action);
+  assert.match(referencesPanelHtml([kept], 'all', false, true), /data-action="reference-promote"/, 'with a section page it is offered as before');
 });

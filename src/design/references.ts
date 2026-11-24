@@ -64,7 +64,7 @@ const KIND_LABEL: Record<ReferenceKind, [string, string]> = {
   note: ['Note', '메모'],
 };
 
-function cardHtml(entry: Reference, ko: boolean): string {
+function cardHtml(entry: Reference, ko: boolean, analyse: boolean): string {
   const t = (en: string, kr: string) => (ko ? kr : en);
   const title = entry.title?.trim() || entry.note?.trim() || sourceLabel(entry) || t('Untitled', '제목 없음');
   const source = sourceLabel(entry);
@@ -82,7 +82,7 @@ function cardHtml(entry: Reference, ko: boolean): string {
     ${tags ? `<div class="reference-tags">${tags}</div>` : ''}
     <div class="reference-meta">${esc(addedLabel(entry, ko))}${dead ? ` · ${t('original gone', '원본 사라짐')}` : ''}</div>
     <div class="reference-actions">
-      <button class="secondary-button" data-action="reference-promote" data-id="${esc(entry.id)}">${t('Analyse this', '이걸로 분석')}</button>
+      ${analyse ? `<button class="secondary-button" data-action="reference-promote" data-id="${esc(entry.id)}">${t('Analyse this', '이걸로 분석')}</button>` : ''}
       ${entry.url ? `<button class="secondary-button" data-action="reference-lookup" data-id="${esc(entry.id)}" title="${t('Fetch the title and picture from the page. This is the only moment Aphrodite reaches the network for a reference.', '페이지에서 제목과 그림을 가져옵니다. 레퍼런스 때문에 네트워크로 나가는 건 이때뿐입니다.')}">${t('Look it up', '가져오기')}</button>` : ''}
       ${entry.url ? `<button class="icon-button" data-action="reference-open" data-id="${esc(entry.id)}" aria-label="${t('Open the source', '출처 열기')}" title="${t('Open the source', '출처 열기')}">↗</button>` : ''}
       <button class="icon-button" data-action="reference-delete" data-id="${esc(entry.id)}" aria-label="${t('Remove', '삭제')}" title="${t('Remove', '삭제')}">×</button>
@@ -90,12 +90,13 @@ function cardHtml(entry: Reference, ko: boolean): string {
   </article>`;
 }
 
-/** The whole panel: chips with counts, the add row, and the cards. */
+/** The whole panel: chips with counts, the add row, and the cards. `analyse` is false on a board with no section page to analyse a picture for (0.3-L4b). */
 export function referencesPanelHtml(
   entries: Reference[],
   scope: ReferenceScope,
   ko: boolean,
   desktop: boolean,
+  analyse = true,
 ): string {
   const t = (en: string, kr: string) => (ko ? kr : en);
   if (!desktop) {
@@ -114,16 +115,16 @@ export function referencesPanelHtml(
     .join('');
   const shown = inReferenceScope(entries, scope);
   const body = shown.length
-    ? `<div class="reference-cards">${shown.map(entry => cardHtml(entry, ko)).join('')}</div>`
+    ? `<div class="reference-cards">${shown.map(entry => cardHtml(entry, ko, analyse)).join('')}</div>`
     : `<p class="panel-description">${t(
         'Nothing kept yet. Add what you looked at — a picture, an address, or a line about why it works.',
         '아직 아무것도 없습니다. 본 것을 넣어두세요 — 사진, 주소, 또는 왜 좋았는지 한 줄.',
       )}</p>`;
   return `<div class="section-label">${t('ARCHIVE', '아카이브')}</div>
-    <p class="panel-description">${t(
+    <p class="panel-description">${analyse ? t(
       'What you looked at, kept. Promote one to analyse it.',
       '본 것을 모아둡니다. 하나를 올려 분석에 씁니다.',
-    )}</p>
+    ) : t('What you looked at, kept.', '본 것을 모아둡니다.')}</p>
     <div class="asset-chips" role="group" aria-label="${t('Where the references live', '레퍼런스가 있는 위치')}">${chips}</div>
     <div class="asset-tools">
       <button class="secondary-button" data-action="reference-add-image" data-scope="project">${t('Add a picture', '사진 넣기')}</button>
