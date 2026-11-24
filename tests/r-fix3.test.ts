@@ -205,5 +205,5 @@ test('an open overtaken by another answers the agent with a 409 and the board th
 test('the staged files are let go of in a finally, whatever the placing does', () => {
   const apply = body('async function applyBatch(');
   assert.match(apply, /let answer:Record<string,unknown>\|undefined;\n\s*try\{answer=\(\(\): Record<string,unknown>=>\{/);
-  assert.match(apply, /\}finally\{if\(answer\?\.ok===true\)void flushDisk\(\)[^\n]*releaseMedia\(staged,false\)\.catch\(\(\)=>\{\}\);\}\n\s*return answer;/);
+  assert.match(apply, /\}finally\{await frameHost\.releaseMedia\(staged,answer\?\.ok===true\)\.catch\(\(\)=>\{\}\);\}\n\s*return answer;/);
 });

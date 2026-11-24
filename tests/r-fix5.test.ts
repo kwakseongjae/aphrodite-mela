@@ -8,12 +8,7 @@ import {readFileSync} from 'node:fs';
 const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 const body = (name: string) => { const start = main.indexOf(name); return main.slice(start, main.indexOf('\n}\n', start)); };
 
-/* 1: a batch that landed keeps its files' marks until its save is on the disk; one that did not lets go of them at once. A
-   process that ends between the two leaves the mark, and the next one judges it by the library as it is then. */
-test('a landed batch lets go of its files\' marks only once its save is on the disk', () => {
-  const apply = body('async function applyBatch(');
-  assert.match(apply, /\}finally\{if\(answer\?\.ok===true\)void flushDisk\(\)\.then\(\(\)=>frameHost\.releaseMedia\(staged,true\)\)\.catch\(\(\)=>\{\}\);else await frameHost\.releaseMedia\(staged,false\)\.catch\(\(\)=>\{\}\);\}/);
-});
+/* 1: what fix 5 #1 kept marked until the save landed is gone with the taking away it served (0.3-R fix 6 #1, tests/r-fix6.test.ts). */
 
 /* 2: the close says a save that has not finished is still being saved, not that it failed; and the window's going is asked
    for once, however the save and the time limit fall. */

@@ -62,6 +62,8 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | `POST /agent/export` | `{"format":"contract"}`(기본) · `{"format":"files"}` | 빌드 계약. 기본은 **글**이다 — `PROMPT.md`·`DESIGN.md`·`tokens.json`·SCENE을 그대로 돌려준다(에이전트는 zip을 못 연다). `files`는 번들을 저장 대화상자로 쓴다. 응답의 `approved`가 `false`면 **초안이라고 말해야 한다** — 승인은 사람의 클릭이고 채널로는 안 된다. | 쓰기 |
 | `POST /agent/end` | — | Ends Agent mode from the agent side (`ended-by-agent`). `{ok, ended:true}`. 평소(design)에는 끝낼 것이 없어 **409**. | 모드가 켜져 있을 때만 |
 
+`apply`의 `media_add`가 복사한 파일은 묶음이 들어가거나 거절될 때까지 대기 표시를 달고, 거절되면 그 묶음이 처음 들인 파일만 지운다. 앱이 묶음 도중에 비정상 종료되면 대기 표시와 그 파일이 남을 수 있다(지우지 않는다: 남는 파일은 해롭지 않다).
+
 `apply`가 받는 op는 여섯 가지다 (`src/agent/ops.ts`):
 
 | op | 필드 |

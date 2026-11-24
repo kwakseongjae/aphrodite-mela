@@ -2028,9 +2028,9 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     }
     // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
     return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
-  // A batch that landed keeps its files marked until its save is on the disk (0.3-R fix 5 #1): a process that ends before then
-  // leaves the mark, and the next one judges the file by the library as it is then. One that did not land lets go at once.
-  })();}finally{if(answer?.ok===true)void flushDisk().then(()=>frameHost.releaseMedia(staged,true)).catch(()=>{});else await frameHost.releaseMedia(staged,false).catch(()=>{});}
+  // A batch lets go of its marks as it ends: it keeps its files when it landed, and removes those it was the first to bring when
+  // it did not. Nothing else removes a board's file; what a process that ended left stays (0.3-R fix 6 #1).
+  })();}finally{await frameHost.releaseMedia(staged,answer?.ok===true).catch(()=>{});}
   return answer;
 }
 

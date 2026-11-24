@@ -160,83 +160,6 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
     Ok(Stored { sha, mime: mime.to_string(), bytes })
 }
 
-/// Where a session's lock is kept while its process runs: a mark whose session's lock can be taken was left by a process that
-/// has ended (0.3-R fix 4 #6), whatever pid has been given since.
-fn session_lock(base: &Path, session: &str) -> PathBuf {
-    base.join(UPLOADS).join("sessions").join(format!("{session}.lock"))
-}
-
-/// Holds `session`'s lock for as long as the file it gives back is kept.
-pub(crate) fn hold_session(base: &Path, session: &str) -> Result<fs::File, String> {
-    let path = session_lock(base, session);
-    fs::create_dir_all(path.parent().ok_or("no folder")?).map_err(|e| e.to_string())?;
-    let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(|e| e.to_string())?;
-    fs2::FileExt::try_lock_exclusive(&file).map_err(|e| e.to_string())?;
-    Ok(file)
-}
-
-/// Takes away the marks a process that ended left (0.3-R fix 4 #6): its batch neither landed nor was refused. The file goes
-/// with its mark unless a saved board names it: the batch may have landed just before its process ended. Marks of `own` and
-/// of a session still running stay, and so does everything when the saved library cannot be read.
-pub(crate) fn reap_marks(base: &Path, own: &str, read_saved: &dyn Fn() -> Option<String>) {
-    let Ok(_held) = settling(base) else { return };
-    // Read only once a session is known to have ended, under this lock (0.3-R fix 5 #1): a board its process saved before it
-    // ended is then in what is read. Read before, the library could be older than that board.
-    let mut saved: Option<Option<String>> = None;
-    let Ok(entries) = fs::read_dir(base.join(UPLOADS).join("staged")) else { return };
-    for entry in entries.flatten() {
-        let Ok(session) = fs::read_to_string(entry.path()) else { continue };
-        if session == own {
-            continue;
-        }
-        let lock = session_lock(base, &session);
-        let ended = match fs::OpenOptions::new().write(true).open(&lock) {
-            Ok(file) => fs2::FileExt::try_lock_exclusive(&file).is_ok(),
-            Err(_) => true,
-        };
-        if !ended {
-            continue;
-        }
-        let Some(saved) = saved.get_or_insert_with(read_saved).as_deref() else { continue };
-        let name = entry.file_name().to_string_lossy().to_string();
-        let sha = name.split('.').next().unwrap_or_default().to_string();
-        if !saved.contains(&sha) {
-            let _ = fs::remove_file(base.join(MEDIA).join(&name));
-        }
-        let _ = fs::remove_file(entry.path());
-        let _ = fs::remove_file(lock);
-    }
-}
-
-/// Every saved library's words, or nothing when one cannot be read: then no file is judged unnamed.
-pub(crate) fn saved_libraries(base: &Path) -> Option<String> {
-    let entries = match fs::read_dir(base.join("workspace-v1")) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(String::new()),
-        Err(_) => return None,
-    };
-    let mut saved = String::new();
-    for entry in entries {
-        let path = entry.ok()?.path();
-        if path.extension().is_some_and(|x| x == "json") {
-            saved.push_str(&fs::read_to_string(&path).ok()?);
-        }
-    }
-    Some(saved)
-}
-
-/// Holds this process's session and, the first time, takes away what ended ones left, the saved library telling which files a board names.
-fn staging(base: &Path) -> Result<(), String> {
-    static HELD: Mutex<Vec<(PathBuf, fs::File)>> = Mutex::new(Vec::new());
-    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
-    if held.iter().any(|(b, _)| b == base) {
-        return Ok(());
-    }
-    held.push((base.to_path_buf(), hold_session(base, session())?));
-    reap_marks(base, session(), &|| saved_libraries(base));
-    Ok(())
-}
-
 /// Lets go of the files a batch of `session` staged: kept when it landed, removed when it was refused. Only a file still
 /// marked by that session is removed, under the lock every move takes, so a file anything else has brought in since stays.
 pub(crate) fn release(base: &Path, shas: &[String], keep: bool, session: &str) {
@@ -515,9 +438,7 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
         _ => return Err("name the file with path, or a library picture with library_id, not both.".into()),
     };
     if stage.unwrap_or(false) {
-        let base = base(&app)?;
-        staging(&base)?;
-        store_staged(&base, &from, session())
+        store_staged(&base(&app)?, &from, session())
     } else {
         store(&base(&app)?, &from)
     }
@@ -785,65 +706,5 @@ mod tests {
         assert!(!theirs.exists(), "a folder whose owner ended goes, though a process with the same pid runs");
         assert!(mine.exists() && again.exists());
     }
-    /* 0.3-R fix 3 L4 / fix 4 #6: a batch whose process ended before it landed or was refused leaves a mark; the next process to
-       stage takes it away, and the file with it unless a saved board names it. A session still running, by its lock, is left. */
-    #[test]
-    fn the_marks_of_a_process_that_ended_go_and_their_files_unless_a_board_names_them() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
-        let (mine, gone, named, running) = (file("mine.png", b"mine"), file("gone.png", b"gone"), file("named.png", b"named"), file("running.png", b"running"));
-        let mine = store_staged(dir.path(), &mine, "a").unwrap();
-        let gone = store_staged(dir.path(), &gone, "dead-1").unwrap();
-        let named = store_staged(dir.path(), &named, "dead-1").unwrap();
-        let _alive = hold_session(dir.path(), "live-2").unwrap();
-        let running = store_staged(dir.path(), &running, "live-2").unwrap();
-        let marked = |s: &Stored| mark(dir.path(), &media_file(dir.path(), &s.sha).unwrap()).unwrap().exists();
-        fs::create_dir_all(dir.path().join("workspace-v1")).unwrap();
-        fs::write(dir.path().join("workspace-v1").join("library.json"), format!("media:{}", named.sha)).unwrap();
-        reap_marks(dir.path(), "a", &|| saved_libraries(dir.path()));
-        assert!(media_file(dir.path(), &gone.sha).is_none(), "a file only a process that ended was staging goes");
-        assert!(media_file(dir.path(), &named.sha).is_some() && !marked(&named), "one a saved board names stays, unmarked");
-        assert!(marked(&running), "a session still running keeps its marks");
-        assert!(marked(&mine), "and so does this one");
-    }
-    /* 0.3-R fix 5 #1: the saved library is read only after the session is known to have ended, under the lock every move
-       takes. Read before (the order this replays), a board another process saved naming the file, just before it ended, was
-       judged on the old library and the file was removed. A library that cannot be read removes nothing. */
-    #[test]
-    fn the_library_is_read_after_the_session_is_known_to_have_ended_and_an_unreadable_one_removes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().to_path_buf();
-        let src = base.join("late.png");
-        fs::write(&src, [&PNG[..], b"saved late"].concat()).unwrap();
-        let alive = hold_session(&base, "b-1").unwrap();
-        let late = store_staged(&base, &src, "b-1").unwrap();
-        fs::create_dir_all(base.join("workspace-v1")).unwrap();
-        fs::write(base.join("workspace-v1").join("library.json"), "{}").unwrap();
-        let (read_tx, read_rx) = std::sync::mpsc::channel::<()>();
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        let reaping = {
-            let base = base.clone();
-            std::thread::spawn(move || {
-                let at = base.clone();
-                let reader = move || { let got = saved_libraries(&at); let _ = read_tx.send(()); let _ = done_rx.recv_timeout(std::time::Duration::from_secs(2)); got };
-                reap_marks(&base, "a", &reader);
-            })
-        };
-        // The other process saves a board naming the file and ends, whether or not the library was read already.
-        let _ = read_rx.recv_timeout(std::time::Duration::from_millis(300));
-        fs::write(base.join("workspace-v1").join("library.json"), format!("{{\"data\":\"media:{}\"}}", late.sha)).unwrap();
-        drop(alive);
-        let _ = done_tx.send(());
-        reaping.join().unwrap();
-        assert!(media_file(&base, &late.sha).is_some(), "a board saved before its process ended keeps its file");
-        reap_marks(&base, "a", &|| saved_libraries(&base));
-        assert!(media_file(&base, &late.sha).is_some(), "read after it ended, the library names it");
-        let other = base.join("other.png");
-        fs::write(&other, [&PNG[..], b"unread"].concat()).unwrap();
-        let unread = store_staged(&base, &other, "c-1").unwrap();
-        reap_marks(&base, "a", &|| None);
-        assert!(media_file(&base, &unread.sha).is_some(), "a library that cannot be read removes nothing");
-        reap_marks(&base, "a", &|| saved_libraries(&base));
-        assert!(media_file(&base, &unread.sha).is_none(), "and once it can be, a file no board names goes");
-    }
+
 }
