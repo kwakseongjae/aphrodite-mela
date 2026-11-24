@@ -12,7 +12,7 @@ import {runBatch} from '../src/agent/apply.ts';
 import {begin, end, newHistory, stepForScreen, type History} from '../src/ledger/session.ts';
 import {compact} from '../src/ledger/ledger.ts';
 import {ensureSpace, openingCamera} from '../src/editor/space.ts';
-import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames, revealStarter} from '../src/editor/starter.ts';
+import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames, revealStarter, fullBoard} from '../src/editor/starter.ts';
 import type {Author} from '../src/ledger/types.ts';
 import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
 import {cloneProject} from '../src/workspace/library.ts';
@@ -201,4 +201,15 @@ test('the person going to the hidden page (Edit in the app) shows it, beside the
   assert.equal(p.starter, undefined);
   assert.deepEqual(visiblePages(p).map(x => x.id), [starter, html]);
   assert.equal(overlap(p, starter, html), false);
+});
+
+test('a full board with its hidden page says the page holds one of the places; any other full board says only the limit', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  p = apply(h, p, {ops: Array.from({length: 29}, (_, i) => ({op: 'html_page', name: `Page ${i}`, html: PAGE}))});
+  assert.equal(visiblePages(p).length, 29);
+  assert.match(fullBoard(p, false), /at most 30 pages/);
+  assert.match(fullBoard(p, false), /empty page/, 'the board shows 29, so why it is full is said');
+  assert.match(fullBoard(p, true), /빈 페이지/);
+  assert.doesNotMatch(fullBoard(initialProject(), false), /empty page/);
 });

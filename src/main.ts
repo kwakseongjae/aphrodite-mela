@@ -68,7 +68,7 @@ import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
-import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames,revealStarter} from './editor/starter';
+import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames,revealStarter,fullBoard} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
@@ -283,7 +283,7 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   const kept:File[]=[];
   for(const file of files.slice(0,12)){const refused=mediaRefusal(file,new Uint8Array(await file.slice(0,16).arrayBuffer()),frameHost.maxBytes);if(refused)toast(refused);else kept.push(file);}
   if(!kept.length)return;
-  if(project.pages.length+kept.length>MAX_PAGES){toast(ui(`A project holds at most ${MAX_PAGES} pages and media items.`,`한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`));return;}
+  if(project.pages.length+kept.length>MAX_PAGES){toast(fullBoard(project,uiLanguage==='ko'));return;}
   // What the library holds is known before a file is kept (0.3-R fix 2 #20).
   const ahead=preflightBatch(project,{ops:kept.map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
   if(ahead){toast(ahead.error);return;}
@@ -1469,14 +1469,14 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
     case 'insert-root': insertParent=undefined;recordRun('target:root',{},d);refreshAssemblyBar();break;
-    case 'assembly-empty': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},d,'edit.page-add',{source:'assembly:new-page'});closeModal();break;
+    case 'assembly-empty': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},d,'edit.page-add',{source:'assembly:new-page'});closeModal();break;
     case 'assembly-brief': await saveFile('ASSEMBLY-BRIEF.md',assemblyBrief(project,selected,insertionTarget()),'text/markdown');break;
     case 'assembly-log': if(assemblyRun)await saveFile(`assembly-${assemblyRun.id}.json`,JSON.stringify({...assemblyRun,scope:'Editor receipts only; not a model trace, video, or usage report.'},null,2),'application/json');break;
     case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 프로젝트로 돌아가세요.');break;}recordRun('review:requested',{approved:false},d);if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
     case 'assembly-end': recordRun('run:ended',{},d);if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
-    case 'moa-recipe': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
-    case 'pointer-lab': if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');toast('Pointer lab · 기존 페이지는 보존됩니다');break;
+    case 'moa-recipe': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
+    case 'pointer-lab': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');toast('Pointer lab · 기존 페이지는 보존됩니다');break;
     case 'undo': history('undo',d); break;
     case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
@@ -1498,7 +1498,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
     case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
-    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast('최대 30개 페이지를 지원합니다.');break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
+    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
     case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
     case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
     case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
@@ -1654,7 +1654,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       compareModal(); break;
     }
     case 'choose-direction': {
-      if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; }
+      if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; }
       const candidate = candidatePages[Number(el.dataset.index)]; if (!candidate) break;
       commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
       candidatePages = []; closeModal(); toast(ui('Direction added · Edit any component · Undo available','방향을 추가했습니다 · 컴포넌트를 편집하세요 · 실행 취소 가능')); break;
@@ -1727,7 +1727,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'new-project': await guardSwitch();showModal(ui('New project','새 프로젝트'), ui('Your other projects stay in the library. You can open them again any time.','기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.'), `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('New page','새 페이지'), ui('It takes the project\'s design system as it is.','프로젝트의 디자인 시스템을 그대로 이어받습니다.'), `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Page','페이지'), ui('Rename the page, or duplicate it to start the next screen.','페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.'), `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
-    case 'duplicate-page': if (project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d, 'edit.page-duplicate'); closeModal(); break;
+    case 'duplicate-page': if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d, 'edit.page-duplicate'); closeModal(); break;
     case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
@@ -1872,7 +1872,7 @@ document.addEventListener('submit', async e => {
     toast(id?ui('Workspace updated','작업 공간을 업데이트했습니다'):`‘${name}’ · ${ui('workspace created','작업 공간을 만들었습니다')}`);
     return;
   }
-  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast('최대 30개 페이지를 지원합니다.');return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
+  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
   if(form.id==='agent-mode-form'){startAgentMode(clip(String(data.get('operator')??''),100),clip(String(data.get('intent')??''),1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
@@ -1886,7 +1886,7 @@ document.addEventListener('submit', async e => {
   }
   // The forms below change the design; `d!` there is this line's doing.
   if (['brief-form', 'fill-form', 'rename-form', 'page-rename-form', 'page-form'].includes(form.id) && !d) return;
-  if (['page-form', 'brief-form'].includes(form.id) && project.pages.length >= 30) { toast('최대 30개 페이지를 지원합니다.'); return; }
+  if (['page-form', 'brief-form'].includes(form.id) && project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); return; }
   if (!['fill-form','vibe-form','assembly-run-form'].includes(form.id) && !name) { toast('이름을 입력해주세요.'); return; }
   if(form.id==='vault-note-form'){try{vaultState=await invoke<Vault>('vault_document',{projectId:vaultProjectId,name,text:String(data.get('text')??'')});await showVault(false);}catch(error){toast(String(error));}return;}
   if(form.id==='vibe-form'){

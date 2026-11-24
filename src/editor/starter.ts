@@ -6,7 +6,7 @@
  * leave it out, as they leave out `leftOut`. A board without it (an older one, one received without it, the sample)
  * hides nothing.
  */
-import {currentPage, initialProject, type Page, type Project} from '../model';
+import {currentPage, initialProject, MAX_PAGES, type Page, type Project} from '../model';
 import {clip} from '../text';
 import {frameWidth, nextFramePosition, type FrameLayout, type FramePreset, type Space} from './space';
 
@@ -49,6 +49,12 @@ export function revealStarter(project: Pick<Project, 'starter'>, id: string): bo
   if (project.starter !== id) return false;
   delete project.starter;
   return true;
+}
+/** What a full board says (MAX_PAGES counts every page): while the hidden page holds one of the places, that too. */
+export function fullBoard(project: Pick<Project, 'pages' | 'starter'>, ko: boolean): string {
+  const t = (en: string, kr: string) => ko ? kr : en;
+  const limit = t(`A project holds at most ${MAX_PAGES} pages and media items.`, `한 프로젝트에는 페이지와 미디어를 합쳐 ${MAX_PAGES}개까지 둘 수 있습니다.`);
+  return project.pages.some(p => isStarterPage(project, p)) ? `${limit} ${t('One place is held by the empty page every new board starts with, which the board does not show.', '새 보드가 처음부터 가진 빈 페이지 하나가 보이지 않게 한 자리를 차지합니다.')}` : limit;
 }
 /** Where a new frame goes, whoever makes it: right of the frames the board shows, on their top row. */
 export function placeFrame(project: Pick<Project, 'pages' | 'starter' | 'space'>, preset: FramePreset, width?: number): FrameLayout {
