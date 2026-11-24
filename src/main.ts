@@ -1998,7 +1998,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   for(const [i,m] of Object.entries(media)){
     const sha=m.src.slice('media:'.length);let no=heldFromAgent(project,sha);
     if(!no&&m.mime.startsWith('image/')&&project.leftOut?.some(f=>f.startsWith('local:'))){const bytes=await frameHost.read(sha);if(bytes)no=heldFromAgent(project,`local:${contentId(bytes)}`);}
-    if(no){await frameHost.releaseMedia(Object.values(media).map(x=>x.src.slice('media:'.length)),false).catch(()=>{});return {error:`ops[${i}]: ${no}`,failed_at:Number(i),part:'ops',status:403,applied:0};}
+    if(no){await frameHost.releaseMedia(Object.values(media).map(x=>x.src.slice('media:'.length))).catch(()=>{});return {error:`ops[${i}]: ${no}`,failed_at:Number(i),part:'ops',status:403,applied:0};}
   }
   // The files the batch staged are kept only if it lands, at this one place, whichever way it ends (0.3-R fix 2 #20).
   const staged=Object.values(media).map(m=>m.src.slice('media:'.length));
@@ -2035,9 +2035,9 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     }
     // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
     return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
-  // A batch lets go of its marks as it ends: it keeps its files when it landed, and removes those it was the first to bring when
-  // it did not. Nothing else removes a board's file; what a process that ended left stays (0.3-R fix 6 #1).
-  })();}finally{await frameHost.releaseMedia(staged,answer?.ok===true).catch(()=>{});}
+  // A batch clears its marks as it ends, landed or refused, and its files stay: a saved board may name the same bytes by
+  // their hash, so no placed file is removed (0.3-R fix 6 #1, fix 7 #1).
+  })();}finally{await frameHost.releaseMedia(staged).catch(()=>{});}
   return answer;
 }
 

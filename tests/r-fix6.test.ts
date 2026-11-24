@@ -29,14 +29,14 @@ test('a board file is removed only when this process\'s own batch is refused', (
   assert.deepEqual([...new Set(sites.map(s => s.fn))].sort(), ['append', 'copy_hashed', 'finish', 'publish_in', 'reap', 'release', 'settle', 'sweep'],
     'uploads on their way in, the frames\' copies, and one release');
   const media = sites.filter(s => /MEDIA|&path\)|media_file/.test(s.line) && !['append', 'finish', 'reap', 'sweep', 'publish_in'].includes(s.fn));
-  assert.deepEqual(media.map(s => s.fn), ['release'], 'a board file goes only in release');
+  assert.deepEqual(media.map(s => s.fn), [], 'no board file is removed: release clears marks only (0.3-R fix 7 #1)');
   assert.doesNotMatch(board, /fn reap_marks|fn saved_libraries|fn hold_session|workspace-v1/, 'nothing judges by the saved library or a session that ended');
   for (const name of readdirSync(new URL('../src-tauri/src/', import.meta.url))) {
     if (name === 'board.rs' || !name.endsWith('.rs')) continue;
     assert.doesNotMatch(readFileSync(new URL(`../src-tauri/src/${name}`, import.meta.url), 'utf8'), /board-media/, `${name} touches no board file`);
   }
   assert.match(readFileSync(new URL('../docs/AGENT-CHANNEL.md', import.meta.url), 'utf8'), /비정상 종료되면 대기 표시와 그 파일이 남을 수 있다/, 'and the guide to the channel says so');
-  assert.match(main, /\}finally\{await frameHost\.releaseMedia\(staged,answer\?\.ok===true\)\.catch\(\(\)=>\{\}\);\}/, 'a batch lets go of its marks as it ends, keeping its files when it landed');
+  assert.match(main, /\}finally\{await frameHost\.releaseMedia\(staged\)\.catch\(\(\)=>\{\}\);\}/, 'a batch lets go of its marks as it ends, keeping its files when it landed');
 });
 
 /* 2: no wait holds the editor without a time limit. Every turn in the line of leavings, and whatever it runs, waits only

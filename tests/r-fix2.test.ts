@@ -191,17 +191,17 @@ test('a media batch past the library\'s cap is refused before a file is copied, 
   }
 });
 test('the files a batch copies are staged, and one that fails partway lets go of them; applyBatch lets go of them unless it lands', async () => {
-  const asked: {stage?: boolean}[] = [], released: [string[], boolean][] = [];
-  const host = {importFile: async (ask: {stage?: boolean}) => { asked.push(ask); return {sha: sha(asked.length), mime: 'image/png', bytes: 4}; }, mediaUrl: async () => 'blob:x', releaseMedia: async (shas: string[], keep: boolean) => { released.push([shas, keep]); }};
+  const asked: {stage?: boolean}[] = [], released: string[][] = [];
+  const host = {importFile: async (ask: {stage?: boolean}) => { asked.push(ask); return {sha: sha(asked.length), mime: 'image/png', bytes: 4}; }, mediaUrl: async () => 'blob:x', releaseMedia: async (shas: string[]) => { released.push(shas); }};
   let n = 0;
   const measure = async () => { if (++n === 2) throw new Error('it could not be read'); return {width: 1, height: 1}; };
   const got = await importMedia([{op: 'media_add', library_id: '0123456789abcdef'}, {op: 'media_add', library_id: '0123456789abcdee'}] as never, 'inApp', host as never, 'p', measure);
   assert.ok('error' in got);
   assert.deepEqual(asked.map(a => a.stage), [true, true], 'each copy is staged');
-  assert.deepEqual(released, [[[sha(1), sha(2)], false]], 'both are let go of, the one that could not be measured too');
+  assert.deepEqual(released, [[sha(1), sha(2)]], 'both are let go of, the one that could not be measured too');
   const body = main.slice(main.indexOf('async function applyBatch('), main.indexOf('\n}\n', main.indexOf('async function applyBatch(')));
   assert.match(body, /preflightBatch\(project,held,selected,r=>libraryRefusal\(library,project,r\.project,/, 'the library is asked before the copy');
-  assert.match(body, /await frameHost\.releaseMedia\(staged,answer\?\.ok===true\)/, 'one place lets go of the files, keeping them only when the batch landed');
+  assert.match(body, /await frameHost\.releaseMedia\(staged\)/, 'one place clears the batch\'s marks as it ends (its files stay, 0.3-R fix 7 #1)');
   const drop = main.slice(main.indexOf('async function putMedia('), main.indexOf('\n}\n', main.indexOf('async function putMedia(')));
   assert.ok(drop.indexOf('preflightBatch(project,') > 0 && drop.indexOf('preflightBatch(project,') < drop.indexOf('frameHost.put('), 'a drop or a paste asks the library before a file is kept too');
 });
