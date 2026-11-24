@@ -201,6 +201,8 @@ check('a picture pasted onto a new board is the only thing on it', async () => {
   for (let i = 0; i < 40 && (await drawn()).length === 0; i++) await sleep(250);
   assert.equal((await drawn()).length, 1, 'one frame: the picture');
   assert.equal(await evaluate(`!!document.querySelector('.space-frame:not([hidden]) .board-media')`), true, 'and it is the picture');
+  await sleep(800);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('[hidden]')].filter(e => getComputedStyle(e).display !== 'none').map(e => e.className || e.tagName)`), [], 'nothing the app hides shows: not the "not on this Mac" line over a picture that is there');
   assert.deepEqual(await sectionTools(), {tabs: false, add: false, media: false, system: false}, 'a picture is no section page');
   assert.equal(await evaluate(`!!document.querySelector('.board-empty')`), false);
 });

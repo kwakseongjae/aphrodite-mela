@@ -1,5 +1,7 @@
 :root{font-family:var(--ui-font-sans);color:var(--ui-text-1);background:var(--ui-bg-app);font-synthesis:none;font-size:12px;font-weight:400;-webkit-font-smoothing:antialiased}
 *{box-sizing:border-box}
+/* An element the app hides with the hidden attribute stays hidden, whatever display a class gives it: a class that set display once showed "this file is not on this Mac" over every picture. */
+[hidden]{display:none!important}
 body{margin:0}
 button,input,textarea,select{font:inherit}
 button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}
@@ -366,8 +368,8 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
 .board-media img,.board-media video{display:block;width:100%;height:100%;object-fit:contain}
 .board-media .board-play{position:absolute;left:50%;top:50%;z-index:1;transform:translate(-50%,-50%) scale(var(--inv,1));background:var(--ui-bg-raised);box-shadow:var(--ui-shadow-panel)}
 .board-media .board-play.is-on{top:auto;bottom:var(--ui-space-3);left:var(--ui-space-3);transform:scale(var(--inv,1));transform-origin:0 100%}
-.board-missing{position:absolute;inset:0;display:grid;place-items:center;color:var(--ui-text-inverse);font-family:var(--ui-font-sans)}
-.board-missing[hidden]{display:none}#page-view-root:empty{display:none}
+.board-missing{position:absolute;inset:0;display:grid;place-items:center;padding:24px;background:var(--ui-bg-sunken);color:var(--ui-text-2);font-family:var(--ui-font-sans);font-size:13px;text-align:center}
+.board-media [data-mounted="missing"]{visibility:hidden}#page-view-root:empty{display:none}
 .page-view{position:fixed;top:var(--page-view-top,0);right:0;bottom:0;left:0;z-index:40;display:flex;flex-direction:column;background:var(--ui-bg-app);font-family:var(--ui-font-sans);color:var(--ui-text-1)}
 .page-view-body{position:relative;flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;overflow:auto;background:var(--ui-bg-sunken)}
 .page-view-frame{display:block;flex:1;width:100%;height:100%;border:0;background:var(--ui-bg-raised)}
