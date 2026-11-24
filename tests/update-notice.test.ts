@@ -36,7 +36,7 @@ test('one card, four states, and never more than one thing to press',()=>{
               notes:'https://example.com/notes',summary:['Updates that install themselves','Fifty-eight section layouts']};
   const buttons=(html:string)=>[...html.matchAll(/data-action="([a-z-]+)"/g)].map(m=>m[1]);
   const offer=updateNoticeHtml(info,'offer','ko');
-  assert.match(offer,/<strong>0\.1\.6<\/strong>/,'the version is the headline, not a sentence');
+  assert.match(offer,/<strong class="ui-update-version">0\.1\.6<\/strong>/,'the version is the headline, not a sentence');
   assert.ok(offer.includes('새 버전'));
   // Exactly one thing to press, and the rest live behind the dots where they cannot compete.
   const visible=buttons(offer.split('<details class="update-more"')[0]);

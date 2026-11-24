@@ -1,4 +1,5 @@
 import {esc} from '../html';
+import {icon} from '../design/icon';
 import type {Language} from '../i18n';
 
 export type HelpItem={id:string;action?:string;href?:string;en:string;ko:string;keys?:string};
@@ -30,9 +31,9 @@ export const homeHelpItems:readonly (HelpItem|'separator')[]=
 
 function helpRow(item:HelpItem,ko:boolean):string{
   const label=esc(ko?item.ko:item.en);
-  const kbd=item.keys?`<kbd>${esc(item.keys)}</kbd>`:'';
-  if(item.href)return `<a role="menuitem" href="${esc(item.href)}" target="_blank" rel="noopener">${label}${kbd}</a>`;
-  return `<button type="button" role="menuitem"${item.action?` data-action="${esc(item.action)}"`:''}>${label}${kbd}</button>`;
+  const kbd=item.keys?`<span class="ui-menu-key">${esc(item.keys)}</span>`:'';
+  if(item.href)return `<a role="menuitem" class="ui-menu-item" href="${esc(item.href)}" target="_blank" rel="noopener"><span>${label}</span>${icon('arrow-up-right','ui-icon ui-icon-sm')}${kbd}</a>`;
+  return `<button type="button" role="menuitem" class="ui-menu-item"${item.action?` data-action="${esc(item.action)}"`:''}><span>${label}</span>${kbd}</button>`;
 }
 
 /**
@@ -42,5 +43,5 @@ function helpRow(item:HelpItem,ko:boolean):string{
  */
 export function helpMenuHtml(language:Language,items:readonly (HelpItem|'separator')[]=helpItems,className='help-menu'):string{
   const ko=language==='ko';
-  return `<div class="${className}" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep"></div>':helpRow(item,ko)).join('')}</div>`;
+  return `<div class="${className} ui-menu" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep ui-menu-sep"></div>':helpRow(item,ko)).join('')}</div>`;
 }

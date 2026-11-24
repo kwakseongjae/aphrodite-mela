@@ -27,7 +27,7 @@ test('palette html carries real data-action hooks, grouped, escaped, with shortc
   const html=commandPaletteHtml(commandTable(ctx),'','ko');
   assert.match(html,/id="command-search"/);assert.match(html,/role="listbox"/);
   assert.match(html,/data-palette data-action="add" data-kind="hero"/);
-  assert.match(html,/<kbd>⌘Z<\/kbd>/);assert.match(html,/컴포넌트 추가/);
+  assert.match(html,/<span class="ui-menu-key">⌘Z<\/span>/);assert.match(html,/컴포넌트 추가/);
   const empty=commandPaletteHtml(commandTable(ctx),'<script>','en');
   assert.doesNotMatch(empty,/<script>/);assert.match(empty,/No matching commands/);
 });
@@ -42,7 +42,7 @@ test('state line summarises page, selection, system, approval, viewport and save
 
 test('groups are ordered so the long add-component list comes last',()=>{
   const html=commandPaletteHtml(commandTable(ctx),'','en');
-  const idx=(label:string)=>html.indexOf(`<span>${label}</span>`);
+  const idx=(label:string)=>html.indexOf(`<span class="ui-menu-label">${label}</span>`);
   assert.ok(idx('Navigate')<idx('Design'));assert.ok(idx('Design')<idx('Review'));assert.ok(idx('Review')<idx('Edit'));assert.ok(idx('File')<idx('Add component'));
 });
 
@@ -64,7 +64,7 @@ test('ranked search normalises spaces, ranks starts-with first, and appends rela
   assert.deepEqual(filterCommands(cmds,'  ','ko'),cmds);
   const html=commandPaletteHtml(cmds,'디자인','ko');
   assert.equal((html.match(/class="palette-group palette-related"/g)??[]).length,1);
-  assert.match(html,/<li class="palette-group palette-related"><span>관련 항목<\/span><\/li>/);
+  assert.match(html,/<li class="palette-group palette-related"><span class="ui-menu-label">관련 항목<\/span><\/li>/);
   assert.match(html,/data-related="true"/);
   assert.ok(html.indexOf('data-action="systems"')<html.indexOf('palette-related'));
   assert.ok(html.indexOf('palette-related')<html.indexOf('data-related="true"'));
