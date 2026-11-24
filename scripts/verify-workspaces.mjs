@@ -243,6 +243,11 @@ check('a new board starts with the camera at its start, wherever the last board 
   await newBoard('Agent board');
   assert.equal(await evaluate(`document.querySelector('#app').dataset.camera`), '0,0,1.00');
 });
+check('the empty board says what can be dropped on it: pictures and videos, not HTML files', async () => {
+  assert.doesNotMatch(await evaluate(`document.querySelector('.board-empty')?.textContent ?? ''`), /HTML/);
+  assert.match(await evaluate(`document.querySelector('.board-empty')?.textContent ?? ''`), /그림|picture/i);
+  assert.doesNotMatch(await evaluate(`document.querySelector('.library-drop')?.textContent ?? ''`), /HTML|파일을|files/i);
+});
 check('the first page an agent puts on that board is in view', async () => {
   assert.equal((await agent('connect', {}, 'claude-code')).status, 'asked');
   for (let i = 0; i < 20 && !(await evaluate(`!!document.querySelector('#modal-root .ask-modal')`)); i++) await sleep(150);
