@@ -83,3 +83,18 @@ test('a refused going is said as it is, once, and not asked about as a save', as
   await assert.rejects(late.request(refuse), WindowRefused);
   assert.deepEqual([tries, asked], [1, 1], 'a save still under way is asked about, and Close without saving asks the window to go once');
 });
+
+/* 3: a refusal the person must not miss is a notice at every edge a wait comes back through: the picker, a form, what macOS
+   handed the app to open, a board file dropped on the board, and a link followed. */
+test('a refusal the person must not miss is a notice at the picker, a form, and what the system opened', () => {
+  assert.match(main, /const channel=\(error:unknown\)=>error instanceof Unmissable\?notice:toast;/);
+  const edges: [string, RegExp][] = [
+    ['a link macOS opened', /followOpenLink\(readOpenLink\(openLink\(link\.board,link\.page\)\)\)\.catch\(error=>channel\(error\)\(/],
+    ['a board file macOS opened', /await openBoardFileNow\(new Uint8Array\(await invoke<ArrayBuffer>\('opened_file_read'[^\n]*?catch\(error\)\{channel\(error\)\(/],
+    ['the picker', /await handler\(input\.files\[0\]\); \} catch \(error\) \{ channel\(error\)\(/],
+    ['a form', /catch\(error\)\{channel\(error\)\(error instanceof Error\?error\.message:'프로젝트 저장 실패'\);\}/],
+    ['a board file dropped', /openBoardFileNow\(await boardFileBytes\(board\)\)\)\.catch\(error=>channel\(error\)\(/],
+    ['a link followed here', /aphroditeOpenLink=href=>\{void followOpenLink\(readOpenLink\(href\)\)\.catch\(error=>channel\(error\)\(/],
+  ];
+  for (const [where, shape] of edges) assert.match(main, shape, where);
+});

@@ -253,9 +253,9 @@ async function followOpenLinkNow(link:OpenLink|undefined,seq:number){
 /** What macOS handed the app to open (src-tauri/src/opened.rs), each once, in the line of what comes in: links followed, board files opened as new boards. */
 async function takeOpened(){
   const waiting=await invoke<{links:OpenLink[];files:{id:number;name:string}[]}>('opened_take').catch(error=>{toast(String(error));return {links:[],files:[]};});
-  for(const link of waiting.links)void followOpenLink(readOpenLink(openLink(link.board,link.page))).catch(error=>toast(String(error)));
+  for(const link of waiting.links)void followOpenLink(readOpenLink(openLink(link.board,link.page))).catch(error=>channel(error)(String(error instanceof Error?error.message:error)));
   // A file macOS hands over again while it already waits in the line is not put in twice (0.3-P3-fix3 #7).
-  for(const file of waiting.files){if(filesWaiting.has(file.id))continue;filesWaiting.add(file.id);void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){toast(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}finally{filesWaiting.delete(file.id);}});}
+  for(const file of waiting.files){if(filesWaiting.has(file.id))continue;filesWaiting.add(file.id);void opening(async()=>{try{await openBoardFileNow(new Uint8Array(await invoke<ArrayBuffer>('opened_file_read',{id:file.id})));}catch(error){channel(error)(`${file.name}: ${error instanceof Error?error.message:String(error)}`);}finally{filesWaiting.delete(file.id);}});}
 }
 const filesWaiting=new Set<number>();
 /* An export's receipt goes into the run of the board Save was pressed on, and into no other board's (0.3-P3-fix3 #9). */
@@ -480,6 +480,8 @@ function turn<T>(go:()=>T|Promise<T>):Promise<T>{
 }
 /** A refusal the person must not miss after a wait: said as a notice, even over the request to edit (0.3-R fix 5 #4). */
 class Unmissable extends Error {}
+/** How a refusal is said: one the person must not miss as a notice, any other as a toast (0.3-R fix 5 #4, fix 6 #3). */
+const channel=(error:unknown)=>error instanceof Unmissable?notice:toast;
 function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   return turn(async()=>{
     // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
@@ -1318,7 +1320,7 @@ function bindDragAndDrop() {
 function pickFile(accept: string, handler: (file: File) => Promise<void>) {
   const input = document.createElement('input'); input.type = 'file'; input.accept = accept; input.hidden = true; input.dataset.upload = accept;
   document.querySelector('[data-upload]')?.remove(); document.body.append(input);
-  input.addEventListener('change', async e => { if (!e.isTrusted) return; try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { toast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
+  input.addEventListener('change', async e => { if (!e.isTrusted) return; try { if (input.files?.[0]) await handler(input.files[0]); } catch (error) { channel(error)(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); } finally { input.remove(); } }); input.addEventListener('cancel', () => input.remove()); input.click();
 }
 async function readImage(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000) throw new Error('2MB 이하 PNG, JPG, WebP 이미지를 선택해주세요.');
@@ -1893,7 +1895,7 @@ document.addEventListener('submit', async e => {
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
   else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=clip(name,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
-      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;
@@ -2438,7 +2440,7 @@ function mountSpace(){
   space.addEventListener('drop',e=>{const all=[...(e.dataTransfer?.files??[])];if(!all.length)return;e.preventDefault();const d=who(e);if(!d)return;
     // A board file dropped on the board is opened as a board, the person's to do, in the line of what comes in (0.3-P3-fix3 #7).
     const boards=all.filter(f=>isBoardFileName(f.name)),files=all.filter(f=>!isBoardFileName(f.name));
-    if(boards.length&&!refusal(d,'outside.import'))for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board))).catch(error=>toast(`${board.name}: ${error instanceof Error?error.message:String(error)}`));
+    if(boards.length&&!refusal(d,'outside.import'))for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board))).catch(error=>channel(error)(`${board.name}: ${error instanceof Error?error.message:String(error)}`));
     if(files.length)void putMedia(files,screenToWorld(camera,spaceLocal(e)),d,'media:drop');},{signal});
   space.addEventListener('change',e=>{
     const sel=(e.target as HTMLElement).closest<HTMLSelectElement>('select[data-frame-preset]');if(!sel)return;
@@ -2566,7 +2568,7 @@ async function boot(){
   if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}
   // The browser build has no macOS to hand it links; a check follows one through the same door.
   else{// It hands the link to the line of what comes in and returns at once, as macOS does: the check waits on the screen.
-    (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>toast(String(error)));};
+    (window as unknown as {aphroditeOpenLink?:(href:string)=>void}).aphroditeOpenLink=href=>{void followOpenLink(readOpenLink(href)).catch(error=>channel(error)(String(error instanceof Error?error.message:error)));};
     // A check holds the store's write while a board is left (the browser build writes at once), to type into that moment.
     let release:(()=>void)|undefined;(window as unknown as {aphroditeHoldWrites?:(on:boolean)=>void}).aphroditeHoldWrites=on=>{if(on&&!release)heldWrites=new Promise<void>(r=>{release=r;});else if(!on&&release){release();release=undefined;heldWrites=undefined;}};
     (window as unknown as {aphroditeFailImportWrite?:()=>void}).aphroditeFailImportWrite=()=>{failImportWrite='armed';};
