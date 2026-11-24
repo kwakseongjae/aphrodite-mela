@@ -25,3 +25,20 @@ test('only the person\'s three ways take a file off the list; no agent command d
   assert.match(agent, /const kept=heldFromAgent\(project,`local:\$\{added\.id\}`\);if\(kept\)held=kept;/, 'an agent\'s library picture is answered with what the board holds back');
   assert.match(agent, /\.\.\.\(held\?\{held_back:held\}:\{\}\)/);
 });
+
+/* 2 (medium): a close is "under way" from its request until it is answered, and no longer: a close whose save lands after its
+   time is up, then answered with Cancel, leaves the closer free, so agents' writes go in again. Agents' writes are turned away while the closer is busy, by the closer's own word. */
+import {windowCloser, type CloseAnswer} from '../src/workspace/closing.ts';
+test('a close that saved late and was cancelled leaves nothing turned away; and agents\' writes go in again', async () => {
+  let land!: () => void;
+  const late = new Promise<void>(r => { land = r; });
+  let destroyed = 0;
+  const closer = windowCloser(async destroy => { await late; await destroy(); return true; }, async (): Promise<CloseAnswer> => { land(); await new Promise(r => setTimeout(r, 20)); return 'cancel'; }, async () => false, 30);
+  const asked = closer.request(async () => { destroyed++; });
+  assert.equal(closer.busy(), true, 'under way while the close runs');
+  await asked;
+  assert.equal(closer.busy(), false, 'free once the person answered, though the save landed after its time');
+  assert.equal(destroyed, 0, 'and the window stays');
+  assert.match(main, /if\(closer\.busy\(\)&&isWrite\(gateFor\(c,reachedAction\(c,agentLook\)\)\)\)return \{error:'Aphrodite is saving to close or restart/);
+  assert.doesNotMatch(main, /shuttingDown|goingNow/, 'one word on it, the closer\'s');
+});
