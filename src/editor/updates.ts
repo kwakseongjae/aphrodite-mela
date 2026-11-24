@@ -19,6 +19,8 @@ export type UpdateHost = {
   korean: () => boolean;
   ui: (en: string, ko: string) => string;
   toast: (text: string) => void;
+  /** What the person must not miss, shown even over the request to edit (0.3-R fix 5 #4). */
+  notice: (text: string) => void;
   /** Icons are drawn once the card's markup is in the document. */
   hydrateIcons: () => void;
   /** Leaves the app the way closing the window does (0.3-R fix 2 #1): the board is saved first, and if it cannot be, the person is asked. */
@@ -99,8 +101,8 @@ export function createUpdates(host: UpdateHost) {
           case 'update-relaunch': {
             // The restart's code is loaded before the last save, so nothing waits between that save and the restart (0.3-R fix 3 #16).
             // The board is saved by then: a restart that fails is said, not asked about as a close that could not save (0.3-R fix 4 #3).
-            try{const {relaunch}=await import('@tauri-apps/plugin-process');await host.leaving(async()=>{try{await relaunch();}catch(error){host.toast(host.ui(`The new version could not start: ${String(error)}`,`새 버전을 시작하지 못했습니다: ${String(error)}`));}});}
-            catch(error){host.toast(String(error));}
+            try{const {relaunch}=await import('@tauri-apps/plugin-process');await host.leaving(async()=>{try{await relaunch();}catch(error){host.notice(host.ui(`The new version could not start: ${String(error)}`,`새 버전을 시작하지 못했습니다: ${String(error)}`));}});}
+            catch(error){host.notice(String(error));}
             break;
           }
           case 'update-later': closeUpdate();host.toast(host.ui('The new version starts the next time you open Aphrodite.','새 버전은 다음에 열 때 시작합니다.'));break;

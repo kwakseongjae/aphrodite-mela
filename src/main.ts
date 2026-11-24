@@ -349,6 +349,7 @@ const updates=createUpdates({
   korean:()=>uiLanguage==='ko',
   ui,
   toast,
+  notice,
   hydrateIcons:()=>hydrateIcons(),
   leaving:go=>closer.request(go),
 });
@@ -477,12 +478,14 @@ function turn<T>(go:()=>T|Promise<T>):Promise<T>{
     finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))focusAfterLeaving.focus();focusAfterLeaving=undefined;}}
   });
 }
+/** A refusal the person must not miss after a wait: said as a notice, even over the request to edit (0.3-R fix 5 #4). */
+class Unmissable extends Error {}
 function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   return turn(async()=>{
     // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
-    const slow=()=>new Error(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
+    const slow=()=>new Unmissable(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
     saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();
-    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Error('저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.');}
+    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
     return await go();
   });
 }
@@ -1723,7 +1726,7 @@ document.addEventListener('click', e => {
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});toast(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
@@ -2548,7 +2551,7 @@ async function boot(){
         if(lastSaved&&!leaving&&!closer.busy())return;
         event.preventDefault();
         // The flag lets the destroy's own close through; a refused destroy lets go of it, so every close after it is held again.
-        await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}});
+        await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}}).catch(error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)));
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }

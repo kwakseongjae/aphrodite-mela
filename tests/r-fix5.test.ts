@@ -56,3 +56,18 @@ test('only placing a picture on the board takes it off the list, as the notice s
   assert.doesNotMatch(added, /carriedNow|leftOut/);
   assert.match(main, /To send one, put it on the board again\./, 'the notice asks for placing, which is what frees it');
 });
+
+/* 4: what the person must not miss after a wait is shown even over the request to edit: a restart that failed, a leaving
+   whose save did not finish or failed, and a close the system refused. A toast is held back while the request is up. */
+test('a failed restart, a leaving that could not save, and a refused close are notices, shown over the request to edit', () => {
+  const updates = readFileSync(new URL('../src/editor/updates.ts', import.meta.url), 'utf8');
+  assert.match(updates, /notice: \(text: string\) => void;/);
+  const relaunch = updates.slice(updates.indexOf("case 'update-relaunch':"), updates.indexOf("case 'update-later':"));
+  assert.doesNotMatch(relaunch, /host\.toast\(/, 'nothing about the restart is a toast');
+  assert.equal((relaunch.match(/host\.notice\(/g) ?? []).length, 2);
+  assert.match(main, /\n  notice,\n  hydrateIcons:/, 'main gives the update card its notice');
+  const leave = main.slice(main.indexOf('function leave<T>('), main.indexOf('\n}\n', main.indexOf('function leave<T>(')));
+  assert.doesNotMatch(leave, /new Error\(/, 'every refusal of a leaving is one the person must see');
+  assert.match(main, /\(error instanceof Unmissable\?notice:toast\)\(error instanceof Error \? error\.message/, 'and the press that waited for it says it as a notice');
+  assert.match(main, /await closer\.request\(async\(\)=>\{closing=true;[^\n]*\}\)\.catch\(error=>notice\(/, 'a close the system refused is said too');
+});

@@ -47,7 +47,7 @@ test('a close that saved late and was cancelled leaves nothing turned away; and 
 /* 3 (low): a restart that fails after the board was saved is said in a notice, not asked about as a close that could not save. */
 test('a failed restart after the save is a notice, not the close\'s question', () => {
   const updates = sourceOf('src/editor/updates.ts');
-  assert.match(updates, /await host\.leaving\(async\(\)=>\{try\{await relaunch\(\);\}catch\(error\)\{host\.toast\(host\.ui\(`The new version could not start: \$\{String\(error\)\}`/);
+  assert.match(updates, /await host\.leaving\(async\(\)=>\{try\{await relaunch\(\);\}catch\(error\)\{host\.(?:toast|notice)\(host\.ui\(`The new version could not start: \$\{String\(error\)\}`/);
 });
 
 /* 4 (low): the tool and the guide say what the two newer answers mean: a 423 while Aphrodite closes or restarts is to be tried
