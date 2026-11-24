@@ -28,8 +28,8 @@ const pins:Record<string,{colours:number,sizes:number,set:string}>={
   'design/studio.css':{colours:24,sizes:11,set:'34c771f1'},
   'editor/pointer-editor.css':{colours:8,sizes:2,set:'d18413dc'},
   'reference.css':{colours:22,sizes:7,set:'2d3a2d22'},
-  'style.css':{colours:302,sizes:24,set:'98728077'},
-  'workspace/vault.css':{colours:3,sizes:3,set:'dda54f2f'},
+  'style.css':{colours:271,sizes:21,set:'03264573'},
+  'workspace/vault.css':{colours:0,sizes:0,set:'0e7d07ee'},
 };
 
 const namedRe=new RegExp(`(?<![\\w-])(${namedColours.join('|')})(?![\\w-])`,'gi');

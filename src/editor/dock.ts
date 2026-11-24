@@ -61,26 +61,26 @@ function currentItem(group:DockGroup,activeTool?:string){return group.items.find
 
 function caretButton(groupId:string,open:boolean,ko:boolean){
   const label=copy(groupCopy[groupId]??{en:groupId,ko:groupId},ko);
-  return `<button type="button" class="dock-caret" data-action="dock-group" data-group="${esc(groupId)}" aria-expanded="${open}" aria-label="${esc(label)}">${icon('chevron-down')}</button>`;
+  return `<button type="button" class="dock-caret ui-icon-btn" data-action="dock-group" data-group="${esc(groupId)}" aria-expanded="${open}" aria-label="${esc(label)}">${icon('chevron-down','ui-icon ui-icon-xs')}</button>`;
 }
 
 function toolButton(item:DockItem,state:{activeTool?:string;language:Language}){
   const label=copy(item,state.language==='ko');
-  return `<button type="button" class="dock-tool" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}" aria-pressed="${state.activeTool===item.id}" aria-label="${esc(label)}" title="${esc(label)} · ${esc(item.key)}">${icon(item.icon)}</button>`;
+  return `<button type="button" class="dock-tool ui-icon-btn" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}" aria-pressed="${state.activeTool===item.id}" aria-label="${esc(label)}" title="${esc(label)} · ${esc(item.key)}">${icon(item.icon,'ui-icon')}</button>`;
 }
 
 function toolMenu(group:DockGroup,current:DockItem,ko:boolean){
   const items=group.items.map(item=>{
     const checked=item.id===current.id;
-    const check=checked?icon('check','dock-check'):'<i class="dock-check"></i>';
-    return `<button type="button" role="menuitemradio" aria-checked="${checked}" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}">${check}${icon(item.icon)}<span>${esc(copy(item,ko))}</span><kbd>${esc(item.key)}</kbd></button>`;
+    const check=checked?icon('check','dock-check ui-icon ui-icon-sm'):'<i class="dock-check"></i>';
+    return `<button type="button" class="ui-menu-item" role="menuitemradio" aria-checked="${checked}" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}">${check}${icon(item.icon,'ui-icon ui-icon-sm')}<span>${esc(copy(item,ko))}</span><span class="ui-menu-key">${esc(item.key)}</span></button>`;
   }).join('');
-  return `<div class="dock-menu" role="menu" data-group="${esc(group.id)}">${items}</div>`;
+  return `<div class="dock-menu ui-menu" role="menu" data-group="${esc(group.id)}">${items}</div>`;
 }
 
 function zoomMenu(ko:boolean){
-  const items=zoomItems.map(item=>`<button type="button" role="menuitem" data-action="${esc(item.action)}"><span>${esc(copy(item,ko))}</span><kbd>${esc(item.keys)}</kbd></button>`).join('');
-  return `<div class="dock-menu" role="menu" data-group="zoom">${items}</div>`;
+  const items=zoomItems.map(item=>`<button type="button" class="ui-menu-item" role="menuitem" data-action="${esc(item.action)}"><span>${esc(copy(item,ko))}</span><span class="ui-menu-key">${esc(item.keys)}</span></button>`).join('');
+  return `<div class="dock-menu ui-menu" role="menu" data-group="zoom">${items}</div>`;
 }
 
 export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number;openGroup?:string}):string{
@@ -92,9 +92,9 @@ export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:st
     const menu=open?toolMenu(group,current,ko):'';
     return `<div class="dock-slot" data-group="${esc(group.id)}">${toolButton(current,state)}${caret}${menu}</div>`;
   }).join('');
-  const modes=editorModes.map(m=>`<button type="button" class="dock-mode" data-action="editor-mode" data-mode="${m}" aria-pressed="${state.mode===m}" title="${esc(ko?modeCopy[m].hintKo:modeCopy[m].hintEn)} · ${modeCopy[m].key}">${m==='agent'&&state.delegated?icon('bot'):''}<span>${esc(ko?modeCopy[m].ko:modeCopy[m].en)}</span></button>`).join('');
-  const zoom=state.zoom?`<span class="dock-divider"></span><div class="dock-slot" data-group="zoom"><button type="button" class="dock-zoom" data-action="zoom-fit" title="${esc(ko?'전체 보기 ⇧1 · 프레임 맞춤 ⇧2 · 100% ⌘0 · ⌘휠 줌':'Fit all ⇧1 · Fit frame ⇧2 · 100% ⌘0 · ⌘wheel zoom')}">${state.zoom}%</button>${caretButton('zoom',state.openGroup==='zoom',ko)}${state.openGroup==='zoom'?zoomMenu(ko):''}</div>`:'';
-  return `<div class="dock" role="toolbar" aria-label="${ko?'도구':'Tools'}" data-mode="${state.mode}"><div class="dock-tools">${tools}</div><span class="dock-divider"></span><div class="dock-modes" role="group" aria-label="${ko?'모드':'Mode'}">${modes}</div>${zoom}</div>`;
+  const modes=editorModes.map(m=>`<button type="button" class="dock-mode ui-seg-item" data-action="editor-mode" data-mode="${m}" aria-pressed="${state.mode===m}" title="${esc(ko?modeCopy[m].hintKo:modeCopy[m].hintEn)} · ${modeCopy[m].key}">${m==='agent'&&state.delegated?icon('bot','ui-icon ui-icon-sm'):''}<span>${esc(ko?modeCopy[m].ko:modeCopy[m].en)}</span></button>`).join('');
+  const zoom=state.zoom?`<span class="dock-divider ui-toolbar-sep"></span><div class="dock-slot" data-group="zoom"><button type="button" class="dock-zoom ui-btn ui-btn-quiet" data-action="zoom-fit" title="${esc(ko?'전체 보기 ⇧1 · 프레임 맞춤 ⇧2 · 100% ⌘0 · ⌘휠 줌':'Fit all ⇧1 · Fit frame ⇧2 · 100% ⌘0 · ⌘wheel zoom')}">${state.zoom}%</button>${caretButton('zoom',state.openGroup==='zoom',ko)}${state.openGroup==='zoom'?zoomMenu(ko):''}</div>`:'';
+  return `<div class="dock ui-toolbar ui-toolbar-float" role="toolbar" aria-label="${ko?'도구':'Tools'}" data-mode="${state.mode}"><div class="dock-tools">${tools}</div><span class="dock-divider ui-toolbar-sep"></span><div class="dock-modes ui-seg" role="group" aria-label="${ko?'모드':'Mode'}">${modes}</div>${zoom}</div>`;
 }
 
 /** Maps a bare key press (no modifiers, outside inputs) to a dock tool or mode. Returns null when unmapped. */

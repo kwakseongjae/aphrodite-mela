@@ -26,7 +26,7 @@ export type UpdateHost = {
 export type Updates = ReturnType<typeof createUpdates>;
 
 export function createUpdates(host: UpdateHost) {
-  const updateRoot=document.createElement('div');updateRoot.className='update-layer';updateRoot.hidden=true;document.body.append(updateRoot);
+  const updateRoot=document.createElement('div');updateRoot.className='update-layer ui-update-layer';updateRoot.hidden=true;document.body.append(updateRoot);
   let updateInfo:UpdateInfo|undefined,updateState:NoticeState='offer',updateDetail='',updateFile='';
   function paintUpdate(){
     if(!updateInfo){updateRoot.hidden=true;updateRoot.innerHTML='';return;}

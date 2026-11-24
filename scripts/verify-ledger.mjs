@@ -82,11 +82,23 @@ async function pressAt(selector) {
   await mouse('mouseMoved', p); await mouse('mousePressed', p, 1); await mouse('mouseReleased', p);
   await sleep(250);
 }
-/** The person picking an option in one of the app's menus (a native select behind a custom menu). */
+/**
+ * The person picking an option in one of the app's menus. Most are a custom menu over a native select, pressed like any button.
+ * A select drawn with the system's own part (.ui-select, which opts out of the custom menu) is the native select itself. Its
+ * popup is the operating system's, which headless Chrome does not draw, so the person picks the way any select allows: with
+ * it focused, by typing the option's name.
+ */
 async function pick(selectSelector, value) {
-  const id = await evaluate(`(() => { const s = document.querySelector(${JSON.stringify(selectSelector)}); if (!s) return null;
-    s.previousElementSibling.dataset.ledgerMenu = '1'; return true; })()`);
-  assert.ok(id, `${selectSelector} is on screen`);
+  const found = await evaluate(`(() => { const s = document.querySelector(${JSON.stringify(selectSelector)}); if (!s) return null;
+    const menu = s.previousElementSibling; if (menu?.matches('details.menu-select')) { menu.dataset.ledgerMenu = '1'; return {menu: true}; }
+    s.focus(); return {label: [...s.options].find(o => o.value === ${JSON.stringify(value)})?.text ?? null}; })()`);
+  assert.ok(found, `${selectSelector} is on screen`);
+  if (!found.menu) {
+    assert.ok(found.label, `${selectSelector} offers ${value}`);
+    for (const ch of found.label) { await send('Input.dispatchKeyEvent', {type: 'keyDown', key: ch, text: ch}); await send('Input.dispatchKeyEvent', {type: 'keyUp', key: ch}); }
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selectSelector)}).value`), value, `typing the name picks ${value} in ${selectSelector}`);
+    return;
+  }
   await pressAt('[data-ledger-menu="1"] > summary');
   await pressAt(`[data-ledger-menu="1"] [data-value=${JSON.stringify(value)}]`);
   await evaluate(`document.querySelector('[data-ledger-menu]')?.removeAttribute('data-ledger-menu'), true`);

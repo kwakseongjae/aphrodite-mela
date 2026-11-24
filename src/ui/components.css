@@ -110,8 +110,8 @@
   width: var(--ui-control-sm); height: var(--ui-control-sm); border-radius: var(--ui-radius-1); color: var(--ui-text-2);
 }
 /* A menu's own button can be its <summary>: no disclosure triangle. */
-summary.ui-icon-btn, summary.ui-btn, summary.ui-ws { list-style: none; }
-.ui-icon-btn::-webkit-details-marker, .ui-btn::-webkit-details-marker, .ui-ws::-webkit-details-marker { display: none; }
+summary.ui-icon-btn, summary.ui-btn, summary.ui-ws, summary.ui-fab { list-style: none; }
+.ui-icon-btn::-webkit-details-marker, .ui-btn::-webkit-details-marker, .ui-ws::-webkit-details-marker, .ui-fab::-webkit-details-marker { display: none; }
 .ui-icon-btn:hover:not(:disabled), .ui-icon-btn.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
 .ui-icon-btn:active:not(:disabled), .ui-icon-btn.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
 .ui-icon-btn.ui-icon-btn-md { width: var(--ui-control-md); height: var(--ui-control-md); }
@@ -559,7 +559,7 @@ button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; backgroun
 .ui-heading > .ui-input { width: calc(var(--ui-control-lg) * 6); height: var(--ui-control-sm); font-size: var(--ui-text-12); }
 /* Progress (the update card): the fill is the graphic, on a sunken track. */
 .ui-progress { position: relative; height: var(--ui-space-1); overflow: hidden; border-radius: var(--ui-radius-pill); background: var(--ui-bg-active); }
-.ui-progress-bar { height: 100%; border-radius: var(--ui-radius-pill); background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease); }
+.ui-progress-bar { display: block; height: 100%; border-radius: var(--ui-radius-pill); background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease); }
 
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }

@@ -187,6 +187,7 @@ export const pairs:{fg:string,bg:string,min:4.5|3,meta?:true,use:string,short?:P
   {fg:'warn-text',bg:'warn-soft',min:4.5,use:'주의 알약'},
   {fg:'danger-text',bg:'danger-soft',min:4.5,use:'위험 알약, 오류 설명'},
   {fg:'danger-text',bg:'bg-panel',min:4.5,use:'입력 오류 설명'},
+  {fg:'danger-text',bg:'bg-sunken',min:4.5,use:'에이전트 패널의 잠긴 권한'},
   {fg:'danger-line',bg:'bg-panel',min:3,use:'입력 오류 테두리 (그래픽)'},
   {fg:'on-danger',bg:'danger',min:4.5,use:'위험 버튼'},
 ];
