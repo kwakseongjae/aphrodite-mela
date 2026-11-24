@@ -213,3 +213,30 @@ test('a full board with its hidden page says the page holds one of the places; a
   assert.match(fullBoard(p, true), /빈 페이지/);
   assert.doesNotMatch(fullBoard(initialProject(), false), /empty page/);
 });
+
+test('a reveal that moves nothing still leaves the history\'s baseline without the mark, so a later edit never moves the page', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  const starter = p.pages[0].id;
+  edit(h, p, q => { revealStarter(q, starter); });
+  assert.equal(p.starter, undefined);
+  assert.equal(h.last?.starter, undefined, 'the state the next change is read against has no mark either');
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+  const html = p.pages[1].id;
+  edit(h, p, q => { q.space!.frames[html] = {...q.space!.frames[html], x: 0, y: 0}; });
+  assert.deepEqual([p.space!.frames[starter].x, p.space!.frames[starter].y], [0, 0], 'the shown page stays where it is when a frame is moved over it');
+});
+
+test('undo and redo of a change elsewhere, and a batch that only patches, leave the hidden page hidden', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+  p = stepForScreen(p, 'undo', h, YOU)!.project;
+  assert.equal(p.starter, p.pages[0].id, 'after undo');
+  p = stepForScreen(p, 'redo', h, YOU)!.project;
+  assert.equal(p.starter, p.pages[0].id, 'after redo');
+  p = apply(h, p, {ops: [], patch: [{op: 'set', on: 'project', field: 'name', value: 'Renamed'}]});
+  assert.equal(p.name, 'Renamed');
+  assert.equal(p.starter, p.pages[0].id, 'after a batch that only patches');
+  assert.deepEqual(visiblePages(p).map(x => x.name), ['Briefing']);
+});

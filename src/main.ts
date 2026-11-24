@@ -617,6 +617,8 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
   change();placeNewFrames(project);ensureSpace(project);
   const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
   if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'},d); }
+  // A new board's hidden page shown with nothing to record (src/editor/starter.ts) is saved shown.
+  else if(before.starter!==project.starter)persist();
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
 }
 /**

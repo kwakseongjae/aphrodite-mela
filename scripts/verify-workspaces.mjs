@@ -292,5 +292,15 @@ check('Edit in the app, from the hidden page seen on its own, shows it on the bo
   assert.equal(await sideBySide(), true);
   assert.equal(await inView(hidden), true, 'and in view');
 });
+check('a hidden page shown by Edit in the app with nothing in its place is saved shown', async () => {
+  await newBoard('Reveal board');
+  const hidden = await evaluate(`document.querySelector('.space-frame[hidden]')?.dataset.pageId`);
+  const saved = () => evaluate(`(() => { const e = JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.name === 'Reveal board'); return e ? e.project.starter ?? null : 'no board'; })()`);
+  assert.equal(await saved(), hidden, 'a new board is saved with its mark');
+  await personPresses('page-view', {id: hidden}); await sleep(500);
+  await personPresses('page-view-edit'); await sleep(900);
+  assert.equal(await evaluate(`document.querySelector('.space-frame[data-page-id="${hidden}"]')?.hidden`), false);
+  assert.equal(await saved(), null, 'and saved without it once the person has gone to the page');
+});
 
 await runChecks(checks, close);
