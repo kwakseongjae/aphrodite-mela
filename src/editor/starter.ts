@@ -1,32 +1,51 @@
 /**
  * 0.3-L4b: what a board shows of its pages. Every project is made with a section page, and the model keeps it (a project
- * always has a page; its fingerprint, revision, ledger and undo stay as they are). While that page is the untouched starter
- * it is not drawn, not listed, and takes no place on the board, so a new board looks empty; the section tools show only
- * once the board has a section page to use them on. Nothing here writes to the project.
+ * always has a page). A new board marks that page (`Project.starter`, 0.3-L4-3 fix 1): while the mark holds it is not
+ * drawn, not listed, and takes no place on the board, so a new board looks empty; the section tools show only once the
+ * board has a section page to use them on. The mark is not design: the fingerprint, the revision, the ledger and undo
+ * leave it out, as they leave out `leftOut`. A board without it (an older one, one received without it, the sample)
+ * hides nothing.
  */
-import type {Page, Project} from '../model';
+import {initialProject, type Page, type Project} from '../model';
+import {clip} from '../text';
 import type {Space} from './space';
 
-/**
- * The starter: the first page, a section page with no sections, that no change in the ledger has touched. A section page
- * whose last section was deleted was touched, and a frame made later is not the first page, so both are drawn. Only
- * opening a page (a view change) does not count. An old board with no ledger is read the same way.
- */
-export function isStarterPage(project: Pick<Project, 'pages' | 'ledger'>, page: Page): boolean {
-  if (page.id !== project.pages[0]?.id || page.kind !== undefined || page.blocks.length) return false;
-  return !(project.ledger?.changes ?? []).some(c => !c.view && (c.anchors.truncated || c.anchors.pages.includes(page.id)));
+/** A new board, as the new-project form makes one: its one section page empty, and marked. */
+export function newBoard(name: string): Project {
+  const p = initialProject();
+  p.name = clip(name, 100); p.brief = ''; p.pages[0].blocks = [];
+  p.starter = p.pages[0].id;
+  return p;
+}
+/** The marked page, while it is still an empty section page. */
+export function isStarterPage(project: Pick<Project, 'starter'>, page: Page): boolean {
+  return project.starter === page.id && page.kind === undefined && !page.blocks.length;
 }
 /** The pages the board draws and lists, in page order. */
-export function visiblePages(project: Pick<Project, 'pages' | 'ledger'>): Page[] {
+export function visiblePages(project: Pick<Project, 'pages' | 'starter'>): Page[] {
   return project.pages.filter(p => !isStarterPage(project, p));
 }
 /** The one condition the section tools are shown on: a section page the person can see. */
-export function hasSectionPage(project: Pick<Project, 'pages' | 'ledger'>): boolean {
+export function hasSectionPage(project: Pick<Project, 'pages' | 'starter'>): boolean {
   return visiblePages(project).some(p => p.kind === undefined);
 }
 /** The board as placing the next item reads it: every frame but the starter's, which is not there to the eye. */
-export function placementSpace(project: Pick<Project, 'pages' | 'ledger' | 'space'>): Space {
+export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'space'>): Space {
   const frames = {...(project.space?.frames ?? {})};
   for (const page of project.pages) if (isStarterPage(project, page)) delete frames[page.id];
   return {frames};
+}
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * Where a change leaves the mark, `before` being the board as the change found it. A change that reaches the marked page
+ * (a section, its name, its frame's size or place) or takes it away drops the mark, and it does not come back: an undo
+ * of that change leaves the page showing. True when the mark was dropped.
+ */
+export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter'>, after: Project): boolean {
+  const id = before.starter;
+  if (id === undefined) return false;
+  const was = before.pages.find(p => p.id === id), now = after.pages.find(p => p.id === id), frame = before.space?.frames[id];
+  if (was && now && same(was, now) && (frame === undefined || same(frame, after.space?.frames[id]))) return false;
+  delete after.starter;
+  return true;
 }

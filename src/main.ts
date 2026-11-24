@@ -68,7 +68,7 @@ import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
-import {isStarterPage,visiblePages,hasSectionPage,placementSpace} from './editor/starter';
+import {isStarterPage,visiblePages,hasSectionPage,placementSpace,newBoard} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
@@ -1910,7 +1910,7 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=clip(name,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=newBoard(name);saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
       if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });

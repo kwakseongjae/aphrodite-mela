@@ -29,8 +29,9 @@ export type Page = { id: string; name: string; blocks: Block[]; referenceEvidenc
 /**
  * `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. Nor is
  * `leftOut` (0.3-R ④): the files, by hash or `local:` id, a received board named and did not carry, which no export sends.
+ * Nor is `starter` (0.3-L4-3 fix 1): the id of the empty page a new board is made with, not drawn until something reaches it (src/editor/starter.ts).
  */
-export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger; leftOut?:string[] };
+export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger; leftOut?:string[]; starter?:string };
 export const uid = () => crypto.randomUUID();
 /** How many pages (and media items) a project holds, and how long a page's name may be. */
 export const MAX_PAGES = 30;
@@ -195,8 +196,10 @@ export function parseProject(raw: string): Project {
   }
   // A saved ledger that does not hold together is dropped, never a reason to refuse the project.
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
+  // The mark of a new board's empty page (src/editor/starter.ts) is kept while it names an empty section page, and dropped, to the side of showing, otherwise.
+  const starter = typeof p.starter === 'string' ? p.pages.find(page => page.id === p.starter && page.kind === undefined && !page.blocks.length) : undefined;
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{})};
+  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{}),...(starter?{starter:starter.id}:{})};
   // A fingerprint written before 0.3-R was checked by the reader after it tidied the design (a type role's keys, say):
   // it is checked against the design as read too, so what an older reader showed as approved stays approved (fix 1 #8).
   const held = typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined;
