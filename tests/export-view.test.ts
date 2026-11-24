@@ -27,3 +27,11 @@ test('a board without one offers the board file first and the open page as one H
 test('with no page of its own in view, a board without a section page still offers its board file', () => {
   assert.deepEqual(reachable(exportBodyHtml({...base, sections: false})), ['download-board-file']);
 });
+
+test('everything the export dialog shows of a page is the page it means: the one the board shows, not a hidden open page', async () => {
+  const {readFileSync} = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const dialog = main.slice(main.indexOf('function exportModal('), main.indexOf("modalRoot.addEventListener('change'"));
+  assert.match(dialog, /page = shownPage\(project\)/);
+  assert.doesNotMatch(dialog, /currentPage\(|project\.pages\[0\]|project\.activePageId/);
+});
