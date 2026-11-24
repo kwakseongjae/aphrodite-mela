@@ -107,7 +107,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
-import {windowCloser,SAVE_LIMIT,type CloseAnswer} from './workspace/closing';
+import {windowCloser,SAVE_LIMIT,StillSaving,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -500,18 +500,19 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new Error(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();return true;});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();return true;});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
  * screen cannot answer it for them: it is the system's, not the page's.
  */
 async function askClose(error:unknown):Promise<CloseAnswer>{
-  const said=ui(`This board could not be saved before closing: ${String(error)}.`,`종료 전에 이 보드를 저장하지 못했습니다: ${String(error)}.`);
+  // A save that has not finished is said as still under way, not as failed: it may yet land (0.3-R fix 5 #2).
+  const pending=error instanceof StillSaving,said=pending?ui(`The board is still being saved: ${String(error.message)}. It may still finish.`,`보드를 아직 저장하는 중입니다: ${SAVE_LIMIT/1000}초 안에 끝나지 않았습니다. 곧 끝날 수도 있습니다.`):ui(`This board could not be saved before closing: ${String(error)}.`,`종료 전에 이 보드를 저장하지 못했습니다: ${String(error)}.`);
   if(nativeDesktop){
     const save=ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
     const {message}=await import('@tauri-apps/plugin-dialog');
-    const got=await message(said,{title:ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
+    const got=await message(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
     return got===save||got==='Yes'?'save-file':got===discard||got==='No'?'discard':'cancel';
   }
   if(confirm(`${said}\n\n${ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return 'save-file';
