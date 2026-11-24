@@ -160,6 +160,63 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
     Ok(Stored { sha, mime: mime.to_string(), bytes })
 }
 
+/// Where a session's lock is kept while its process runs: a mark whose session's lock can be taken was left by a process that
+/// has ended (0.3-R fix 4 #6), whatever pid has been given since.
+fn session_lock(base: &Path, session: &str) -> PathBuf {
+    base.join(UPLOADS).join("sessions").join(format!("{session}.lock"))
+}
+
+/// Holds `session`'s lock for as long as the file it gives back is kept.
+pub(crate) fn hold_session(base: &Path, session: &str) -> Result<fs::File, String> {
+    let path = session_lock(base, session);
+    fs::create_dir_all(path.parent().ok_or("no folder")?).map_err(|e| e.to_string())?;
+    let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(|e| e.to_string())?;
+    fs2::FileExt::try_lock_exclusive(&file).map_err(|e| e.to_string())?;
+    Ok(file)
+}
+
+/// Takes away the marks a process that ended left (0.3-R fix 4 #6): its batch neither landed nor was refused. The file goes
+/// with its mark unless a saved board names it (`named`): the batch may have landed just before its process ended. Marks of
+/// `own` and of a session still running stay.
+pub(crate) fn reap_marks(base: &Path, own: &str, named: &dyn Fn(&str) -> bool) {
+    let Ok(_held) = settling(base) else { return };
+    let Ok(entries) = fs::read_dir(base.join(UPLOADS).join("staged")) else { return };
+    for entry in entries.flatten() {
+        let Ok(session) = fs::read_to_string(entry.path()) else { continue };
+        if session == own {
+            continue;
+        }
+        let lock = session_lock(base, &session);
+        let ended = match fs::OpenOptions::new().write(true).open(&lock) {
+            Ok(file) => fs2::FileExt::try_lock_exclusive(&file).is_ok(),
+            Err(_) => true,
+        };
+        if !ended {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let sha = name.split('.').next().unwrap_or_default().to_string();
+        if !named(&sha) {
+            let _ = fs::remove_file(base.join(MEDIA).join(&name));
+        }
+        let _ = fs::remove_file(entry.path());
+        let _ = fs::remove_file(lock);
+    }
+}
+
+/// Holds this process's session and, the first time, takes away what ended ones left, the saved library telling which files a board names.
+fn staging(base: &Path) -> Result<(), String> {
+    static HELD: Mutex<Vec<(PathBuf, fs::File)>> = Mutex::new(Vec::new());
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    if held.iter().any(|(b, _)| b == base) {
+        return Ok(());
+    }
+    held.push((base.to_path_buf(), hold_session(base, session())?));
+    let saved: String = fs::read_dir(base.join("workspace-v1")).into_iter().flatten().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "json")).filter_map(|e| fs::read_to_string(e.path()).ok()).collect();
+    reap_marks(base, session(), &|sha: &str| saved.contains(sha));
+    Ok(())
+}
+
 /// Lets go of the files a batch of `session` staged: kept when it landed, removed when it was refused. Only a file still
 /// marked by that session is removed, under the lock every move takes, so a file anything else has brought in since stays.
 pub(crate) fn release(base: &Path, shas: &[String], keep: bool, session: &str) {
@@ -438,7 +495,9 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
         _ => return Err("name the file with path, or a library picture with library_id, not both.".into()),
     };
     if stage.unwrap_or(false) {
-        store_staged(&base(&app)?, &from, session())
+        let base = base(&app)?;
+        staging(&base)?;
+        store_staged(&base, &from, session())
     } else {
         store(&base(&app)?, &from)
     }
@@ -705,5 +764,24 @@ mod tests {
         reap(&pages, &again);
         assert!(!theirs.exists(), "a folder whose owner ended goes, though a process with the same pid runs");
         assert!(mine.exists() && again.exists());
+    }
+    /* 0.3-R fix 3 L4 / fix 4 #6: a batch whose process ended before it landed or was refused leaves a mark; the next process to
+       stage takes it away, and the file with it unless a saved board names it. A session still running, by its lock, is left. */
+    #[test]
+    fn the_marks_of_a_process_that_ended_go_and_their_files_unless_a_board_names_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
+        let (mine, gone, named, running) = (file("mine.png", b"mine"), file("gone.png", b"gone"), file("named.png", b"named"), file("running.png", b"running"));
+        let mine = store_staged(dir.path(), &mine, "a").unwrap();
+        let gone = store_staged(dir.path(), &gone, "dead-1").unwrap();
+        let named = store_staged(dir.path(), &named, "dead-1").unwrap();
+        let _alive = hold_session(dir.path(), "live-2").unwrap();
+        let running = store_staged(dir.path(), &running, "live-2").unwrap();
+        let marked = |s: &Stored| mark(dir.path(), &media_file(dir.path(), &s.sha).unwrap()).unwrap().exists();
+        reap_marks(dir.path(), "a", &|sha: &str| sha == named.sha);
+        assert!(media_file(dir.path(), &gone.sha).is_none(), "a file only a process that ended was staging goes");
+        assert!(media_file(dir.path(), &named.sha).is_some() && !marked(&named), "one a saved board names stays, unmarked");
+        assert!(marked(&running), "a session still running keeps its marks");
+        assert!(marked(&mine), "and so does this one");
     }
 }
