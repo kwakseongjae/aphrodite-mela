@@ -974,14 +974,14 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
   const withScripts = (await save('download-page-html')).bytes.toString('utf8');
   assert.equal(withScripts, '\ufeff' + hostile, 'with its scripts, the page is the one stored, and nothing more');
   // 0.3-P3-fix1 #7: the file, its record and its toast follow the choice made when Save was pressed, whatever the box says after.
-  await waitFor(() => evaluate(`!document.querySelector('#toast').textContent.includes('페이지를 내보냈습니다')`), 'the earlier toasts to go', 15);
+  await waitFor(() => evaluate(`!/Page exported|페이지를 내보냈습니다/.test(document.querySelector('#toast').textContent)`), 'the earlier toasts to go', 15);
   const n = await evaluate('window.__downloads.length');
   // The box changes in the moment the file is handed over, after the page is made and before it is recorded.
   await evaluate('window.__toggleOnSave = true');
   await personPresses('download-page-html');
   await waitFor(async () => (await evaluate('window.__downloads.length')) > n, 'the download pressed with the scripts');
-  await waitFor(() => evaluate(`document.querySelector('#toast').textContent.includes('페이지를 내보냈습니다')`), 'the toast');
-  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /스크립트를 포함해 페이지를 내보냈습니다/, 'the toast says what was saved');
+  await waitFor(() => evaluate(`/Page exported|페이지를 내보냈습니다/.test(document.querySelector('#toast').textContent)`), 'the toast');
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /Page exported with its scripts|스크립트를 포함해 페이지를 내보냈습니다/, 'the toast says what was saved');
   assert.equal(Buffer.from(await evaluate('window.__downloads.at(-1).b64'), 'base64').toString('utf8'), '\ufeff' + hostile, 'the file is the one chosen when Save was pressed');
   const receipt = (await receipts()).at(-1);
   assert.equal(receipt?.scripts, true, `and its receipt says what was saved: ${JSON.stringify(receipt)}`);

@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
+import {scale} from '../src/ui/tokens';
 import {rules,scenarios,value,clone,el,disabled,describe,type El,sheetKind,rawValues,outOfScope,strip,allowedUnits,allowedLengths,hasFlag,conditions} from './support/css';
 
 /** Every sheet the system owns: any .css under src/ui at any depth, but the generated tokens.css. */
@@ -84,21 +85,26 @@ test('Korean text breaks between words, never inside one',()=>{
  */
 const focusable:Record<string,'self'|'within'|'switch'>={
   'ui-btn':'self','ui-icon-btn':'self','ui-chip':'self','ui-seg-item':'self','ui-tab':'self','ui-row':'self','ui-attach':'self','ui-send':'self',
+  'ui-search':'self','ui-fab':'self',
   'ui-input':'self','ui-textarea':'self',
   // A box around a native field takes focus from inside it.
   'ui-select':'within','ui-composer':'within',
-  // The checkbox under the track takes focus; the track draws it.
-  'ui-switch-track':'switch',
+  // The checkbox under the track (or the box) takes focus; the track (or the box) draws it.
+  'ui-switch-track':'switch','ui-check-box':'switch',
+  'ui-menu-item':'self','ui-option':'within','ui-ws':'self','ui-board-card-thumb':'self',
 };
 
+/** For a part drawn beside a hidden input: the label it sits in, and the input before it. */
+const drawnFor:Record<string,[host:string,input:string]>={'ui-switch-track':['ui-switch','ui-switch-input'],'ui-check-box':['ui-check','ui-check-input']};
 function focused(chain:El[],how:'self'|'within'|'switch',from:'keyboard'|'gallery'){
   const target=chain.at(-1)!,above=chain.slice(0,-1);
-  if(from==='gallery'){(how==='switch'?above.find(e=>e.classes.has('ui-switch'))!:target).classes.add('is-focus');return chain;}
+  const [host,input]=drawnFor[Object.keys(drawnFor).find(k=>target.classes.has(k))??'ui-switch-track'];
+  if(from==='gallery'){(how==='switch'?above.find(e=>e.classes.has(host))!:target).classes.add('is-focus');return chain;}
   for(const e of above)e.states.add('focus-within');
   if(how==='within')target.states.add('focus-within');
   if(how==='self')for(const s of ['focus','focus-visible','focus-within'])target.states.add(s);
   if(how==='switch'){
-    target.prev=target.prev?.length?target.prev:[el(['ui-switch-input'])];
+    target.prev=target.prev?.length?target.prev:[el([input])];
     for(const input of target.prev)for(const s of ['focus','focus-visible'])input.states.add(s);
   }
   return chain;
@@ -147,6 +153,27 @@ test('the cascade reader picks the declaration a browser would',()=>{
   assert.equal(value(sheet,[el(['a'])],'t',['@media (m)']),'1');
 });
 
+/**
+ * What L4 needs to move the screens over (docs/research/2026-11-23-screen-inventory.md, the shared and free-board
+ * surfaces): one part for each, so a screen is moved by markup and never by a new rule beside it.
+ */
+const forScreens=['ui-side','ui-side-head','ui-side-foot','ui-list-head','ui-list-count','ui-search','ui-row-thumb','ui-drop-line',
+  'ui-floor','ui-frame','ui-frame-head','ui-frame-sheet','ui-selection','ui-handle','ui-toolbar-float','ui-fab',
+  'ui-menu','ui-menu-item','ui-menu-key','ui-menu-sep','ui-menu-label','ui-strip','ui-toast-error','ui-modal-head','ui-modal-kicker',
+  'ui-option','ui-check','ui-ws','ui-avatar-accent','ui-board-card','ui-empty','ui-pagebar','ui-swatch','ui-range',
+  // Inventory rows 4 (tour card), 5 (home title and search field), 26 (palette groups) and 29 (update card).
+  'ui-popover','ui-heading','ui-heading-count','ui-progress','ui-progress-bar'];
+test('every part the screens to move need is in the sheet',()=>{
+  const drawn=new Set(rules(system).flatMap(r=>[...r.selector.matchAll(/\.(ui-[\w-]+)/g)].map(m=>m[1])));
+  assert.deepEqual(forScreens.filter(k=>!drawn.has(k)),[]);
+});
+
+test('a field box can hold an icon or a swatch beside its own input, and draws focus and disabled from it',()=>{
+  const all=rules(system);
+  assert.equal(value(all,[el(['ui-input'],['focus-within'])],'border-color')??value(all,[el(['ui-input'],['focus-within'])],'border'),'var(--ui-focus)');
+  assert.equal(value(all,[el(['ui-input'],[hasFlag('> input:disabled')])],'background'),'var(--ui-bg-sunken)');
+});
+
 test('every focusable part is in the sheet',()=>{
   const every=scenarios(rules(system));
   for(const part of Object.keys(focusable))assert.ok(every.some(c=>c.at(-1)!.classes.has(part)),'.'+part+' is not drawn: take it off the focusable list');
@@ -172,7 +199,8 @@ test('the ring check sees a state rule that replaces the ring',()=>{
 const disabledWays:Record<string,{classes?:string[],states?:string[]}[]>={
   'ui-btn':[{states:['disabled']}],'ui-icon-btn':[{states:['disabled']}],'ui-chip':[{states:['disabled']}],'ui-seg-item':[{states:['disabled']}],
   'ui-tab':[{states:['disabled']}],'ui-attach':[{states:['disabled']}],'ui-send':[{states:['disabled']}],'ui-input':[{states:['disabled']}],'ui-textarea':[{states:['disabled']}],
-  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],
+  'ui-row':[{states:['disabled']},{classes:['is-disabled']}],'ui-search':[{states:['disabled']}],'ui-fab':[{states:['disabled']}],'ui-menu-item':[{states:['disabled']},{classes:['is-disabled']}],
+  'ui-option':[{states:[hasFlag('> .ui-option-input:disabled')]},{classes:['is-disabled']}],'ui-ws':[{states:['disabled']}],
   'ui-select':[{states:[hasFlag('> select:disabled')]},{classes:['is-disabled']}],
 };
 export function litWhileDisabled(css:string){
@@ -221,12 +249,23 @@ test('every file the new sheets load is bundled in public/, and none comes from 
     assert.ok(existsSync(new URL(`../public${url}`,import.meta.url)),`${url} is not in public/`);
   }
   assert.ok(existsSync(new URL('../public/fonts/LICENSE.txt',import.meta.url)),'the OFL travels with the font file');
+  assert.ok(existsSync(new URL('../public/fonts/GeistMono-OFL.txt',import.meta.url)),'the OFL travels with the mono file');
+  // Where each file came from and which version it is, next to the licences.
+  const sources=readFileSync(new URL('../public/fonts/SOURCES.txt',import.meta.url),'utf8');
+  for(const file of urls.map(u=>u.split('/').pop()!))assert.ok(sources.includes(file),file+' has no source in public/fonts/SOURCES.txt');
 });
 
-test('the bundled face is named so that no design on the canvas picks it up by accident',()=>{
-  // Designs name `Pretendard` (src/design/fonts.ts). Declaring that name would swap their Hangul.
+test('the bundled faces are named so that no design on the canvas picks them up by accident',()=>{
+  // Designs name `Pretendard` (src/design/fonts.ts) and may name `Geist Mono` from a web font. Declaring
+  // either name in the app's own document would swap the face a section page on the board draws with.
   const families=sheets.flatMap(file=>[...strip(read(file)).matchAll(/@font-face\s*\{[^}]*font-family:\s*["']?([^"';]+)["']?/g)].map(m=>m[1]));
-  assert.deepEqual(families,['Pretendard Variable']);
+  assert.deepEqual(families,['Pretendard Variable','Geist Mono Variable']);
+});
+
+test('the mono face is the bundled Geist Mono, with the bundled Pretendard behind it for Hangul',()=>{
+  const mono=String(scale['font-mono']);
+  assert.match(mono,/^"Geist Mono Variable", "Pretendard Variable",/,'a path or a size in Korean falls to Pretendard, not to the system');
+  assert.match(mono,/monospace$/);
 });
 
 test('the app loads the tokens before the parts, from index.html and not from app code',()=>{

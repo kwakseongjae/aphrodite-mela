@@ -1,10 +1,10 @@
 :root{
   --paper:#f7f5ef;--paper-2:#efece3;--ink:#292820;--muted:#77756c;--faint:#a19d90;--line:#dedbd2;
   --gold:#d7b449;--gold-deep:#b48a32;--gold-ink:#8f6a1c;
-  --serif:"Fraunces","Iowan Old Style",Georgia,serif;
-  --sans:"Geist",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
-  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --hand:"Reenie Beanie","Bradley Hand",cursive;
+  --serif:"Fraunces","Noto Serif KR","Iowan Old Style",Georgia,serif;
+  --sans:"Geist","Pretendard Variable","Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,"Pretendard Variable",monospace;
+  --hand:"Reenie Beanie","Bradley Hand","Noto Serif KR",cursive;
   --max:1180px;
   color-scheme:light;
 }
@@ -12,9 +12,11 @@
   :root{--paper:#24241f;--paper-2:#2c2b25;--ink:#f4efdf;--muted:#c3bda9;--faint:#8d8977;--line:#3a382e;--gold:#ddc47b;--gold-deep:#b89a4a;--gold-ink:#e2c877;color-scheme:dark}
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;font-synthesis-style:none}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 :lang(ko) body,body:lang(ko){word-break:keep-all}
+/* Hangul has no italic: in Korean the slanted lines stand upright, in the Korean serif. */
+:lang(ko) .hero h1 em,:lang(ko) .story-body .pull{font-style:normal}
 img{max-width:100%;height:auto;display:block}
 a{color:inherit}
 h1,h2,h3{font-family:var(--serif);font-weight:400;letter-spacing:-.02em;margin:0}

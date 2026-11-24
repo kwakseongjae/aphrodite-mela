@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
-import {sculptureStates,sculptureImage,sculptureHtml,sculptureAssetRoot} from '../src/design/sculpture';
+import {sculptureStates,sculptureImage,sculptureAssetRoot} from '../src/design/sculpture';
 
 test('every state has a real square RGBA Blender render and atlas coordinates',()=>{
   const manifest=JSON.parse(readFileSync(`public${sculptureAssetRoot}/manifest.json`,'utf8'));
@@ -19,11 +19,6 @@ test('every state has a real square RGBA Blender render and atlas coordinates',(
     assert.equal(manifest.states[state].y,Math.floor(i/4)*512);
   }
   assert.ok(existsSync(`public${sculptureAssetRoot}/atlas.png`));
-});
-test('decorative render leaves explicit review text available and escapes labels',()=>{
-  const html=sculptureHtml('awaiting-review','승인 대기 <script>');
-  assert.match(html,/alt=""/);assert.match(html,/승인 대기 &lt;script&gt;/);
-  assert.doesNotMatch(html,/<script>|autoplay|animation:/);
 });
 test('classic and vibe GLBs are self-contained and sunglasses are opt-in',{skip:existsSync('lab/sculpture/models-v2/aphrodite-classic-v2.glb')?false:'local-only fixture under lab/ (git-ignored) is not present'},()=>{
   for(const variant of ['classic','vibe']){

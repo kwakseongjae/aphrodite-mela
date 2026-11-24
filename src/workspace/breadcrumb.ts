@@ -98,22 +98,22 @@ export function vanishedHtml(crumb: Breadcrumb, ko: boolean): string {
   const esc = (v: string) =>
     v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const count = crumb.entries;
-  return `<div class="folio-warning disk-vanished" role="alert">
-    <div>
-      <strong>${t('Your saved folder is not where it was.', '저장 폴더가 있던 자리에 없습니다.')}</strong>
-      <p>${t(
+  return `<div class="disk-vanished ui-banner ui-banner-warn" role="alert">
+    <div class="ui-banner-body">
+      <p class="ui-banner-title">${t('Your saved folder is not where it was.', '저장 폴더가 있던 자리에 없습니다.')}</p>
+      <p class="ui-banner-text">${t(
         `Nothing has been deleted. Last time, ${count} project${count === 1 ? '' : 's'} were saved here:`,
         `아무것도 지워지지 않았습니다. 마지막에 이곳에 ${count}개의 프로젝트가 저장돼 있었습니다:`,
       )}</p>
-      <code>${esc(crumb.path)}</code>
-      <p>${t(
+      <p class="ui-banner-text"><code class="ui-mono">${esc(crumb.path)}</code></p>
+      <p class="ui-banner-text">${t(
         'If you moved it, put it back and press Look again. Starting fresh will leave the old folder untouched wherever it is.',
         '옮기셨다면 제자리에 돌려놓고 다시 확인을 누르세요. 새로 시작해도 예전 폴더는 그대로 남습니다.',
       )}</p>
     </div>
-    <div class="folio-warning-actions">
-      <button data-action="disk-reload">${t('Look again', '다시 확인')}</button>
-      <button data-action="disk-start-fresh" class="secondary-button">${t('Start fresh', '새로 시작')}</button>
+    <div class="ui-banner-actions">
+      <button type="button" class="ui-btn ui-btn-secondary" data-action="disk-reload">${t('Look again', '다시 확인')}</button>
+      <button type="button" class="ui-btn ui-btn-quiet" data-action="disk-start-fresh">${t('Start fresh', '새로 시작')}</button>
     </div>
   </div>`;
 }

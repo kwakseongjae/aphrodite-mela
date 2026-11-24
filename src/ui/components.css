@@ -4,12 +4,19 @@
  * .is-hover, .is-pressed, .is-disabled and .is-focus so the gallery can show each one at rest.
  * Guide: docs/UI-SYSTEM.md. Tests: tests/ui-components.test.ts, tests/ui-contrast.test.ts. */
 
-/* Pretendard Variable (SIL OFL 1.1, public/fonts/LICENSE.txt), shipped with the app. Declaring a face
- * does not load it; only a part that uses --ui-font-sans does. */
+/* Pretendard Variable (SIL OFL 1.1, public/fonts/LICENSE.txt) and Geist Mono (SIL OFL 1.1,
+ * public/fonts/GeistMono-OFL.txt), shipped with the app; sources in public/fonts/SOURCES.txt. Declaring a
+ * face does not load it; only a part that uses --ui-font-sans or --ui-font-mono does. The mono face is
+ * declared as "Geist Mono Variable" so a design that names Geist Mono keeps its own. */
 @font-face {
   font-family: "Pretendard Variable";
   src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
   font-weight: 45 920; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  src: url("/fonts/GeistMonoVariable.woff2") format("woff2-variations");
+  font-weight: 100 900; font-style: normal; font-display: block;
 }
 
 /* ── Root ──────────────────────────────────────────────────────── */
@@ -25,7 +32,8 @@
 /* Parts carry their own type, so one dropped into an older screen still reads as itself. */
 .ui-btn, .ui-icon-btn, .ui-kbd, .ui-label, .ui-input, .ui-textarea, .ui-select, .ui-help, .ui-switch, .ui-seg, .ui-tabs,
 .ui-chip, .ui-pill, .ui-avatar, .ui-banner, .ui-toast, .ui-modal, .ui-panel-head, .ui-row, .ui-card, .ui-connect,
-.ui-composer, .ui-attach, .ui-send, .ui-toolbar {
+.ui-composer, .ui-attach, .ui-send, .ui-toolbar, .ui-side, .ui-list-head, .ui-search, .ui-floor, .ui-frame, .ui-fab,
+.ui-menu, .ui-strip, .ui-option, .ui-check, .ui-ws, .ui-board-card, .ui-empty, .ui-pagebar, .ui-popover, .ui-heading {
   box-sizing: border-box; margin: 0; font-family: var(--ui-font-sans); word-break: keep-all; overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
@@ -49,8 +57,9 @@
 /* The outline is transparent: forced-colours mode drops box-shadow and paints it in the system colour. */
 .ui-btn:focus-visible, .ui-btn.is-focus, .ui-icon-btn:focus-visible, .ui-icon-btn.is-focus, .ui-chip:focus-visible, .ui-chip.is-focus,
 .ui-seg-item:focus-visible, .ui-seg-item.is-focus, .ui-tab:focus-visible, .ui-tab.is-focus, .ui-row:focus-visible, .ui-row.is-focus,
-.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus,
-.ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track {
+.ui-attach:focus-visible, .ui-attach.is-focus, .ui-send:focus-visible, .ui-send.is-focus, .ui-search:focus-visible, .ui-search.is-focus, .ui-fab:focus-visible, .ui-fab.is-focus, .ui-menu-item:focus-visible, .ui-menu-item.is-focus, .ui-ws:focus-visible, .ui-ws.is-focus,
+.ui-board-card-thumb:focus-visible, .ui-board-card-thumb.is-focus,
+.ui-switch-input:focus-visible + .ui-switch-track, .ui-switch.is-focus .ui-switch-track, .ui-switch[role="switch"]:focus-visible > .ui-switch-track {
   outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
 }
 /* A state that draws its own shadow keeps it under the ring, rather than replacing the ring. */
@@ -63,7 +72,7 @@
   box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-press);
 }
 /* Fields draw focus on their own edge: the box is already a boundary. */
-.ui-input:focus-visible, .ui-input.is-focus, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
+.ui-input:focus-visible, .ui-input.is-focus, .ui-input:focus-within, .ui-textarea:focus-visible, .ui-textarea.is-focus, .ui-select:focus-within, .ui-select.is-focus {
   outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus);
 }
 .ui-composer:focus-within, .ui-composer.is-focus { outline: var(--ui-ring) solid transparent; border-color: var(--ui-focus); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-focus), var(--ui-shadow-panel); }
@@ -100,6 +109,9 @@
   display: inline-flex; align-items: center; justify-content: center;
   width: var(--ui-control-sm); height: var(--ui-control-sm); border-radius: var(--ui-radius-1); color: var(--ui-text-2);
 }
+/* A menu's own button can be its <summary>: no disclosure triangle. */
+summary.ui-icon-btn, summary.ui-btn, summary.ui-ws { list-style: none; }
+.ui-icon-btn::-webkit-details-marker, .ui-btn::-webkit-details-marker, .ui-ws::-webkit-details-marker { display: none; }
 .ui-icon-btn:hover:not(:disabled), .ui-icon-btn.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
 .ui-icon-btn:active:not(:disabled), .ui-icon-btn.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
 .ui-icon-btn.ui-icon-btn-md { width: var(--ui-control-md); height: var(--ui-control-md); }
@@ -143,6 +155,8 @@
 
 /* Switch: a real checkbox under a drawn track. */
 .ui-switch { position: relative; display: inline-flex; align-items: center; gap: var(--ui-space-2); cursor: default; }
+/* A switch can also be one button (role="switch", aria-checked) when the press must be answered before it flips. */
+button.ui-switch { appearance: none; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; }
 .ui-switch-input { position: absolute; opacity: 0; width: var(--ui-switch-w); height: var(--ui-switch-h); margin: 0; }
 .ui-switch-track {
   position: relative; width: var(--ui-switch-w); height: var(--ui-switch-h); flex-shrink: 0;
@@ -153,12 +167,12 @@
   width: var(--ui-switch-knob); height: var(--ui-switch-knob); border-radius: var(--ui-radius-pill); background: var(--ui-knob);
   box-shadow: var(--ui-shadow-knob); transition: transform var(--ui-dur) var(--ui-ease);
 }
-.ui-switch:hover .ui-switch-input:not(:disabled) + .ui-switch-track, .ui-switch.is-hover .ui-switch-track { background: var(--ui-text-3); }
-.ui-switch-input:checked + .ui-switch-track, .ui-switch.is-on .ui-switch-track { background: var(--ui-accent); }
-.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track, .ui-switch.is-on.is-hover .ui-switch-track { background: var(--ui-accent-hover); }
-.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); }
-.ui-switch:active .ui-switch-input:not(:disabled) + .ui-switch-track::after, .ui-switch.is-pressed .ui-switch-track::after { box-shadow: var(--ui-shadow-knob), 0 0 0 var(--ui-ring) var(--ui-bg-hover); }
-.ui-switch:has(.ui-switch-input:disabled), .ui-switch.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-switch:hover .ui-switch-input:not(:disabled) + .ui-switch-track, .ui-switch.is-hover .ui-switch-track, .ui-switch[role="switch"]:hover:not(:disabled) > .ui-switch-track { background: var(--ui-text-3); }
+.ui-switch-input:checked + .ui-switch-track, .ui-switch.is-on .ui-switch-track, .ui-switch[aria-checked="true"] > .ui-switch-track { background: var(--ui-accent); }
+.ui-switch:hover .ui-switch-input:checked:not(:disabled) + .ui-switch-track, .ui-switch.is-on.is-hover .ui-switch-track, .ui-switch[aria-checked="true"]:hover:not(:disabled) > .ui-switch-track { background: var(--ui-accent-hover); }
+.ui-switch-input:checked + .ui-switch-track::after, .ui-switch.is-on .ui-switch-track::after, .ui-switch[aria-checked="true"] > .ui-switch-track::after { transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h))); background: var(--ui-on-accent); }
+.ui-switch:active .ui-switch-input:not(:disabled) + .ui-switch-track::after, .ui-switch.is-pressed .ui-switch-track::after, .ui-switch[role="switch"]:active:not(:disabled) > .ui-switch-track::after { box-shadow: var(--ui-shadow-knob), 0 0 0 var(--ui-ring) var(--ui-bg-hover); }
+.ui-switch:has(.ui-switch-input:disabled), .ui-switch.is-disabled, .ui-switch:disabled { opacity: var(--ui-disabled-opacity); }
 
 /* Segmented */
 .ui-seg { display: inline-flex; padding: calc(var(--ui-space-1) / 2); gap: calc(var(--ui-space-1) / 2); background: var(--ui-bg-sunken); border-radius: var(--ui-radius-1); border: var(--ui-hairline) solid var(--ui-line); }
@@ -220,6 +234,7 @@
 
 .ui-dot { display: inline-block; width: var(--ui-dot); height: var(--ui-dot); border-radius: var(--ui-radius-pill); background: var(--ui-text-3); flex-shrink: 0; }
 .ui-dot.ui-dot-ok { background: var(--ui-ok-text); }
+.ui-dot.ui-dot-warn { background: var(--ui-warn-text); }
 .ui-dot.ui-dot-agent { background: var(--ui-agent); box-shadow: 0 0 0 var(--ui-ring) var(--ui-agent-soft); }
 .ui-dot.ui-dot-select { background: var(--ui-select); }
 .ui-dot.ui-dot-accent { background: var(--ui-accent); }
@@ -237,6 +252,7 @@
 .ui-banner > .ui-icon { margin-top: calc(var(--ui-space-1) / 2); color: var(--ui-text-2); }
 .ui-banner-body { flex: 1 1 auto; min-width: 0; }
 .ui-banner-title { margin: 0; font-weight: var(--ui-w-semibold); }
+.ui-banner-actions { display: flex; align-items: center; gap: var(--ui-space-2); flex-shrink: 0; }
 .ui-banner-text { margin: var(--ui-space-1) 0 0; color: var(--ui-text-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
 .ui-banner.ui-banner-ok { background: var(--ui-ok-soft); } .ui-banner.ui-banner-ok > .ui-icon { color: var(--ui-ok-text); }
 .ui-banner.ui-banner-warn { background: var(--ui-warn-soft); } .ui-banner.ui-banner-warn > .ui-icon { color: var(--ui-warn-text); }
@@ -261,7 +277,7 @@
 .ui-panel-title { margin: 0 auto 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
 
 .ui-row {
-  appearance: none; cursor: default; border: 0; background: none; width: 100%; text-align: left; font-family: inherit;
+  appearance: none; cursor: default; text-decoration: none; border: 0; background: none; width: 100%; text-align: left; font-family: inherit;
   display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
   border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13);
 }
@@ -269,17 +285,17 @@
 /* :where() keeps these at the weight of .ui-row:hover, so the current, selected and agent fills below still win. */
 .ui-row:hover:where(:not(:disabled):not(.is-disabled)), .ui-row.is-hover { background: var(--ui-bg-hover); }
 .ui-row:active:where(:not(:disabled):not(.is-disabled)), .ui-row.is-pressed { background: var(--ui-bg-active); }
-.ui-row.is-on, .ui-row[aria-current="true"], .ui-row[aria-current="page"] { background: var(--ui-bg-active); font-weight: var(--ui-w-medium); }
-.ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon { color: var(--ui-text-1); }
+.ui-row.is-on, .ui-row[aria-current="true"], .ui-row[aria-current="page"], .ui-row[aria-pressed="true"] { background: var(--ui-bg-active); font-weight: var(--ui-w-medium); }
+.ui-row.is-on > .ui-icon, .ui-row[aria-current="true"] > .ui-icon, .ui-row[aria-current="page"] > .ui-icon, .ui-row[aria-pressed="true"] > .ui-icon { color: var(--ui-text-1); }
 .ui-row.is-selected, .ui-row[aria-selected="true"] { background: var(--ui-select-soft); }
 .ui-row.is-agent { background: var(--ui-agent-soft); }
 /* Meta in a lit row moves up a step: text-3 does not keep 3:1 on the hover, pressed, current and selected fills. */
 .ui-row:hover:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-hover > .ui-row-meta, .ui-row:active:where(:not(:disabled):not(.is-disabled)) > .ui-row-meta, .ui-row.is-pressed > .ui-row-meta,
-.ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta,
+.ui-row.is-on > .ui-row-meta, .ui-row[aria-current="true"] > .ui-row-meta, .ui-row[aria-current="page"] > .ui-row-meta, .ui-row[aria-pressed="true"] > .ui-row-meta,
 .ui-row.is-selected > .ui-row-meta, .ui-row[aria-selected="true"] > .ui-row-meta { color: var(--ui-text-2); }
 .ui-row.is-agent > .ui-row-meta { color: var(--ui-agent-text); }
 .ui-row:disabled, .ui-row.is-disabled { opacity: var(--ui-disabled-opacity); }
-.ui-row-meta { margin-left: auto; font-size: var(--ui-text-11); color: var(--ui-text-3); }
+.ui-row-meta { margin-left: auto; font-size: var(--ui-text-11); font-variant-numeric: tabular-nums; color: var(--ui-text-3); }
 
 .ui-card { background: var(--ui-bg-panel); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); }
 
@@ -293,6 +309,257 @@
 .ui-connect-found { display: flex; gap: var(--ui-space-3); padding: var(--ui-space-3); border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); }
 .ui-connect-found > .ui-icon { color: var(--ui-text-2); margin-top: calc(var(--ui-space-1) / 2); }
 .ui-connect-actions { display: flex; align-items: center; gap: var(--ui-space-2); }
+
+/* ── Side panel, list head, search row (0.3-L3) ────────────────── */
+.ui-side { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--ui-bg-panel); color: var(--ui-text-1); border-right: var(--ui-hairline) solid var(--ui-line); }
+.ui-side.ui-side-end { border-right: 0; border-left: var(--ui-hairline) solid var(--ui-line); }
+.ui-side-head { display: flex; align-items: center; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-2) 0 var(--ui-space-3); }
+.ui-side-title { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.ui-side-name { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-side-sub { display: inline-flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-3); }
+.ui-side-sub > .ui-icon { color: var(--ui-ok-text); }
+.ui-side-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ui-space-2) var(--ui-space-2); }
+.ui-side-foot { display: flex; align-items: flex-start; gap: var(--ui-space-2); margin: 0; padding: var(--ui-space-3) var(--ui-space-4) var(--ui-space-4); border-top: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-2); }
+
+.ui-list-head { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-md); padding: var(--ui-space-4) 0 var(--ui-space-1) var(--ui-space-2); }
+.ui-list-title { margin: 0; font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); color: var(--ui-text-2); }
+.ui-list-count { font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; color: var(--ui-mark); }
+.ui-list-head > .ui-icon-btn { margin-left: auto; }
+
+/* Opens the command palette: a button that reads like a field. Its label is text, so text-2. */
+.ui-search {
+  appearance: none; cursor: default; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; height: var(--ui-control-sm); padding: 0 var(--ui-space-1) 0 var(--ui-space-2);
+  border: 0; border-radius: var(--ui-radius-1); background: var(--ui-bg-sunken); color: var(--ui-text-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap;
+}
+.ui-search > .ui-icon { color: var(--ui-text-2); }
+.ui-search-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-search:hover:not(:disabled), .ui-search.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
+.ui-search:active:not(:disabled), .ui-search.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
+.ui-search:disabled, .ui-search.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* Row extras: a thumbnail on the left, a name that ellipsises, a row being dragged and the line where it lands. */
+.ui-row.ui-row-md { min-height: var(--ui-control-md); gap: var(--ui-space-3); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
+.ui-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-row-thumb { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--ui-thumb-w); height: var(--ui-thumb-h); overflow: hidden; border-radius: calc(var(--ui-radius-1) / 2); background: var(--ui-bg-sunken); box-shadow: 0 0 0 var(--ui-hairline) var(--ui-line); }
+.ui-row-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.ui-row.is-dragging { background: var(--ui-bg-raised); box-shadow: var(--ui-shadow-panel); }
+.ui-row.is-dragging:focus-visible, .ui-row.is-dragging.is-focus { box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus), var(--ui-shadow-panel); }
+.ui-drop-line { height: var(--ui-ring); margin: calc(var(--ui-ring) / -2) var(--ui-space-2); border-radius: var(--ui-ring); background: var(--ui-select); }
+
+/* ── Board: floor, frames, selection, floating toolbar, help (0.3-L3) ── */
+/* The floor is the board's ground: a flat colour with a dot grid on top, kept apart so the colour is a token the contrast test can read. */
+.ui-floor {
+  position: relative; overflow: hidden; color: var(--ui-text-1); background-color: var(--ui-bg-canvas);
+  background-image: radial-gradient(circle, var(--ui-canvas-dot) var(--ui-canvas-dot-size), transparent calc(var(--ui-canvas-dot-size) + var(--ui-hairline) / 2));
+  background-size: var(--ui-canvas-dot-gap) var(--ui-canvas-dot-gap);
+}
+/* A frame on the floor: its head line, then the sheet the person's page or picture is drawn in. Colours are set under .ui-floor, the surface they sit on. */
+.ui-frame { position: relative; display: flex; flex-direction: column; gap: var(--ui-space-1); }
+.ui-frame-head { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-sm); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-floor .ui-frame-head { color: var(--ui-text-2); }
+.ui-floor .ui-frame-head > .ui-icon { color: var(--ui-text-2); }
+.ui-frame-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--ui-w-medium); }
+.ui-floor .ui-frame-name { color: var(--ui-text-1); }
+.ui-frame-size { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); font-variant-numeric: tabular-nums; }
+.ui-floor .ui-frame-size { color: var(--ui-text-3); }
+.ui-frame-head > .ui-pill { height: calc(var(--ui-avatar) - var(--ui-space-1)); }
+.ui-frame-head > .ui-icon-btn { margin-left: auto; margin-right: calc(var(--ui-space-2) * -1); }
+.ui-floor .ui-frame-head > .ui-icon-btn { color: var(--ui-text-2); }
+.ui-floor .ui-frame.is-selected .ui-frame-head > .ui-icon { color: var(--ui-select); }
+.ui-floor .ui-frame.is-selected .ui-frame-name { color: var(--ui-select-text); }
+.ui-frame-sheet { position: relative; background: var(--ui-bg-page); box-shadow: var(--ui-shadow-frame); }
+.ui-frame-sheet > img, .ui-frame-sheet > iframe, .ui-frame-sheet > video { display: block; width: 100%; height: 100%; border: 0; object-fit: cover; object-position: top left; }
+/* The agent changed this frame: a gold edge just outside the sheet (outline, so the contrast pair agent / bg-canvas is listed by hand). */
+.ui-frame.is-agent > .ui-frame-sheet { outline: var(--ui-ring) solid var(--ui-agent); outline-offset: var(--ui-ring); }
+/* The person's selection: a blue edge on the sheet and four handles. */
+.ui-selection { position: absolute; inset: calc(var(--ui-hairline) * -1); border: var(--ui-hairline) solid var(--ui-select); pointer-events: none; }
+.ui-handle { position: absolute; width: var(--ui-handle); height: var(--ui-handle); background: var(--ui-bg-page); border: var(--ui-hairline) solid var(--ui-select); }
+.ui-handle.ui-handle-nw { left: calc(var(--ui-handle) / -2); top: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-ne { right: calc(var(--ui-handle) / -2); top: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-sw { left: calc(var(--ui-handle) / -2); bottom: calc(var(--ui-handle) / -2); }
+.ui-handle.ui-handle-se { right: calc(var(--ui-handle) / -2); bottom: calc(var(--ui-handle) / -2); }
+
+/* The toolbar floats at the bottom centre of the board; a quiet button in it shows the zoom. */
+.ui-toolbar.ui-toolbar-float { position: absolute; left: 50%; bottom: var(--ui-space-4); transform: translateX(-50%); z-index: 1; }
+.ui-toolbar > .ui-btn { height: var(--ui-control-md); padding: 0 var(--ui-space-2); gap: var(--ui-space-1); font-size: var(--ui-text-12); font-variant-numeric: tabular-nums; }
+
+/* The round help button in a corner of the board. */
+.ui-fab {
+  appearance: none; cursor: default; margin: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md);
+  border-radius: var(--ui-radius-pill); border: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-raised); color: var(--ui-text-2); box-shadow: var(--ui-shadow-panel);
+}
+.ui-fab:hover:not(:disabled), .ui-fab.is-hover { background: var(--ui-bg-hover); color: var(--ui-text-1); }
+.ui-fab:active:not(:disabled), .ui-fab.is-pressed { background: var(--ui-bg-active); color: var(--ui-text-1); }
+.ui-fab:disabled, .ui-fab.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* ── Menu, strip, toast error, modal head, option card, check row (0.3-L3) ── */
+.ui-menu { display: flex; flex-direction: column; min-width: calc(var(--ui-control-lg) * 5); padding: var(--ui-space-1); background: var(--ui-bg-raised); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-panel); }
+.ui-menu-item {
+  appearance: none; cursor: default; text-decoration: none; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--ui-space-2); width: 100%; min-height: var(--ui-control-sm); padding: 0 var(--ui-space-2);
+  border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); white-space: nowrap;
+}
+.ui-menu-item > .ui-icon { color: var(--ui-text-2); }
+.ui-menu-item:hover:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-hover { background: var(--ui-bg-hover); }
+.ui-menu-item:active:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-pressed { background: var(--ui-bg-active); }
+.ui-menu-item.is-danger, .ui-menu-item.is-danger > .ui-icon { color: var(--ui-danger-text); }
+.ui-menu-item.is-danger:hover:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-danger.is-hover, .ui-menu-item.is-danger:active:where(:not(:disabled):not(.is-disabled)), .ui-menu-item.is-danger.is-pressed { background: var(--ui-danger-soft); }
+.ui-menu-item:disabled, .ui-menu-item.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-menu-key { margin-left: auto; padding-left: var(--ui-space-4); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); color: var(--ui-text-3); }
+/* Pressed is bg-active, where text-3 falls under 4.5: the shortcut moves up a step, as a lit row's meta does. */
+.ui-menu-item:active:where(:not(:disabled):not(.is-disabled)) > .ui-menu-key, .ui-menu-item.is-pressed > .ui-menu-key,
+.ui-menu-item.is-danger:hover:where(:not(:disabled):not(.is-disabled)) > .ui-menu-key, .ui-menu-item.is-danger.is-hover > .ui-menu-key { color: var(--ui-text-2); }
+.ui-menu-sep { height: var(--ui-hairline); margin: var(--ui-space-1) calc(var(--ui-space-1) * -1); background: var(--ui-line); }
+
+/* The line at the top of the window: connected, agent mode, a warning, a folder that is gone. */
+.ui-strip { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-strip-h); padding: 0 var(--ui-space-2) 0 var(--ui-space-3); background: var(--ui-bg-app); color: var(--ui-text-2); border-bottom: var(--ui-hairline) solid var(--ui-line); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-strip > .ui-dot { width: var(--ui-dot-sm); height: var(--ui-dot-sm); }
+.ui-strip-strong { color: var(--ui-text-1); font-weight: var(--ui-w-semibold); }
+.ui-strip-changes { color: var(--ui-agent-text); font-weight: var(--ui-w-medium); }
+.ui-strip-push { margin-left: auto; }
+.ui-strip > .ui-btn { height: calc(var(--ui-control-sm) - var(--ui-space-1)); padding: 0 var(--ui-space-2); font-size: var(--ui-text-12); }
+.ui-strip.ui-strip-agent { background: var(--ui-agent-soft); border-color: transparent; }
+.ui-strip.ui-strip-warn { background: var(--ui-warn-soft); border-color: transparent; }
+.ui-strip.ui-strip-danger { background: var(--ui-danger-soft); border-color: transparent; }
+.ui-strip.ui-strip-warn > .ui-icon { color: var(--ui-warn-text); }
+.ui-strip.ui-strip-danger > .ui-icon { color: var(--ui-danger-text); }
+
+/* An error toast: the danger fill, its buttons on it. */
+.ui-toast > .ui-icon { color: inherit; }
+.ui-toast.ui-toast-error { background: var(--ui-danger); color: var(--ui-on-danger); }
+.ui-toast.ui-toast-error .ui-btn { color: var(--ui-on-danger); }
+.ui-toast.ui-toast-error .ui-btn:hover:not(:disabled), .ui-toast.ui-toast-error .ui-btn.is-hover { background: color-mix(in srgb, var(--ui-on-danger) 16%, transparent); color: var(--ui-on-danger); }
+
+/* A modal's head: a small label, the title, a line under it, and the close button. */
+.ui-modal-head { display: flex; align-items: flex-start; gap: var(--ui-space-3); padding: var(--ui-space-5) var(--ui-space-4) var(--ui-space-4) var(--ui-space-5); }
+.ui-modal-heading { flex: 1 1 auto; min-width: 0; }
+.ui-modal-kicker { display: block; margin: 0 0 var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-medium); letter-spacing: var(--ui-track-caps); color: var(--ui-text-2); }
+.ui-modal-head .ui-modal-title { font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); }
+.ui-modal-head .ui-modal-text { margin-top: var(--ui-space-1); }
+.ui-modal-head > .ui-icon-btn { margin-top: calc(var(--ui-space-1) * -1); }
+.ui-modal-head + .ui-modal-body { padding-top: 0; }
+.ui-modal-body.ui-modal-stack { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+.ui-modal.ui-modal-md { width: var(--ui-modal-w-md); }
+.ui-modal-foot.ui-modal-foot-plain { align-items: center; padding: var(--ui-space-5); border-top: 0; background: none; }
+.ui-modal-foot-note { display: inline-flex; align-items: center; gap: var(--ui-space-1); margin-right: auto; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+
+/* A choice drawn as a large row, picked like a radio (the export dialog). The real radio covers the card. */
+.ui-option {
+  position: relative; display: grid; grid-template-columns: var(--ui-icon-16) var(--ui-control-md) minmax(0, 1fr); column-gap: var(--ui-space-3); align-items: start;
+  padding: var(--ui-space-4); background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); cursor: default;
+}
+.ui-option-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
+.ui-option:hover:not(.is-disabled):not(:has(> .ui-option-input:disabled)), .ui-option.is-hover { border-color: var(--ui-edge-control); }
+.ui-option.is-on, .ui-option:has(> .ui-option-input:checked) { border-color: var(--ui-accent); box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-accent); }
+.ui-option:focus-within, .ui-option.is-focus { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+.ui-option.is-on:focus-within, .ui-option.is-on.is-focus, .ui-option:has(> .ui-option-input:checked):focus-within, .ui-option:has(> .ui-option-input:checked).is-focus {
+  box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-accent), 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus);
+}
+.ui-option.is-disabled, .ui-option:has(> .ui-option-input:disabled) { opacity: var(--ui-disabled-opacity); }
+.ui-option-radio { position: relative; width: var(--ui-icon-16); height: var(--ui-icon-16); margin-top: calc(var(--ui-space-2) + var(--ui-hairline)); border-radius: var(--ui-radius-pill); border: var(--ui-hairline) solid var(--ui-edge-control); background: var(--ui-bg-panel); }
+.ui-option.is-on .ui-option-radio, .ui-option-input:checked ~ .ui-option-radio { border-color: var(--ui-accent); background: var(--ui-accent); }
+.ui-option.is-on .ui-option-radio::after, .ui-option-input:checked ~ .ui-option-radio::after { content: ""; position: absolute; inset: calc(var(--ui-space-1) - var(--ui-hairline)); border-radius: var(--ui-radius-pill); background: var(--ui-on-accent); }
+.ui-option-icon { display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); color: var(--ui-text-1); }
+.ui-option-name { display: flex; align-items: baseline; gap: var(--ui-space-2); margin: 0; font-weight: var(--ui-w-semibold); }
+.ui-option-ext { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); font-weight: var(--ui-w-regular); color: var(--ui-text-3); }
+.ui-option-why { margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-option-sub { position: relative; grid-column: 3; margin-top: var(--ui-space-3); padding-top: var(--ui-space-3); border-top: var(--ui-hairline) solid var(--ui-line); }
+
+/* A checkbox row: a real checkbox under a drawn box, a label and a line of help. */
+.ui-check { position: relative; display: grid; grid-template-columns: var(--ui-icon-16) minmax(0, 1fr); column-gap: var(--ui-space-2); align-items: start; color: var(--ui-text-1); cursor: default; }
+.ui-check-input { position: absolute; width: var(--ui-icon-16); height: var(--ui-icon-16); margin: 0; opacity: 0; }
+.ui-check-box {
+  display: inline-flex; align-items: center; justify-content: center; width: var(--ui-icon-16); height: var(--ui-icon-16); margin-top: calc((var(--ui-lh-13) - var(--ui-icon-16)) / 2);
+  border-radius: var(--ui-radius-1); border: var(--ui-hairline) solid var(--ui-edge-control); background: var(--ui-bg-panel); color: transparent;
+}
+.ui-check-box > .ui-icon { width: var(--ui-icon-12); height: var(--ui-icon-12); stroke-width: calc(var(--ui-icon-stroke) * 1.4); }
+.ui-check:hover .ui-check-input:not(:disabled) + .ui-check-box, .ui-check.is-hover .ui-check-box { border-color: var(--ui-text-1); }
+.ui-check-input:checked + .ui-check-box, .ui-check.is-on .ui-check-box { background: var(--ui-accent); border-color: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-check-input:focus-visible + .ui-check-box, .ui-check.is-focus .ui-check-box { outline: var(--ui-ring) solid transparent; box-shadow: 0 0 0 var(--ui-ring) var(--ui-bg-panel), 0 0 0 calc(var(--ui-ring) * 2) var(--ui-focus); }
+.ui-check:has(.ui-check-input:disabled), .ui-check.is-disabled { opacity: var(--ui-disabled-opacity); }
+.ui-check-label { font-weight: var(--ui-w-medium); }
+.ui-check-help { grid-column: 2; margin: calc(var(--ui-space-1) / 2) 0 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-check.ui-check-boxed { padding: var(--ui-space-4); border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); }
+
+/* ── Home: workspace picker, board cards, empty state; the page-alone bar; colour swatch and range (0.3-L3) ── */
+.ui-avatar.ui-avatar-accent { background: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-ws {
+  appearance: none; cursor: default; border: 0; background: none; margin: 0; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: var(--ui-space-2); width: 100%; height: var(--ui-control-md); padding: 0 var(--ui-space-2);
+  border-radius: var(--ui-radius-1); color: var(--ui-text-1); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold);
+}
+.ui-ws-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-ws > .ui-icon { color: var(--ui-text-2); }
+.ui-ws:hover:not(:disabled), .ui-ws.is-hover { background: var(--ui-bg-hover); }
+.ui-ws:active:not(:disabled), .ui-ws.is-pressed { background: var(--ui-bg-active); }
+.ui-ws:disabled, .ui-ws.is-disabled { opacity: var(--ui-disabled-opacity); }
+
+/* A board on the home grid: the picture opens it, the name and counts, who changed it last and when. */
+.ui-board-card { position: relative; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; color: var(--ui-text-1); }
+.ui-board-card-thumb {
+  appearance: none; cursor: default; text-decoration: none; margin: 0; padding: 0; font-family: inherit;
+  position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
+  border-radius: var(--ui-radius-2); border: var(--ui-hairline) solid var(--ui-line); background: var(--ui-bg-page);
+  transition: border-color var(--ui-dur-fast) var(--ui-ease);
+}
+.ui-board-card-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.ui-board-card-thumb:hover, .ui-board-card-thumb.is-hover { border-color: var(--ui-text-3); }
+.ui-board-card-thumb > .ui-pill { position: absolute; left: var(--ui-space-2); top: var(--ui-space-2); }
+.ui-board-card-actions { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); display: flex; gap: var(--ui-space-1); opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease); }
+.ui-board-card:hover .ui-board-card-actions, .ui-board-card:focus-within .ui-board-card-actions, .ui-board-card.is-hover .ui-board-card-actions, .ui-board-card-actions.is-pinned { opacity: 1; }
+.ui-board-card-actions > .ui-icon-btn, .ui-board-card-actions > details > .ui-icon-btn { background: var(--ui-bg-raised); }
+.ui-board-card-head { display: flex; align-items: baseline; gap: var(--ui-space-2); }
+.ui-board-card-name { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
+.ui-board-card-counts { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); white-space: nowrap; }
+.ui-board-card-by { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); white-space: nowrap; }
+.ui-board-card-by > .ui-avatar { width: var(--ui-icon-14); height: var(--ui-icon-14); }
+.ui-board-card-when { color: var(--ui-text-3); }
+.ui-board-card-changed { margin-left: auto; color: var(--ui-agent-text); font-weight: var(--ui-w-medium); }
+
+.ui-empty { display: flex; flex-direction: column; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-7) var(--ui-space-5); text-align: center; color: var(--ui-text-1); }
+.ui-empty > .ui-icon { width: var(--ui-icon-20); height: var(--ui-icon-20); color: var(--ui-text-2); }
+.ui-empty-art { display: block; width: calc(var(--ui-space-7) * 2 + var(--ui-space-4)); height: auto; }
+.ui-empty-title { margin: 0; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-empty-text { margin: 0; max-width: calc(var(--ui-space-7) * 8); color: var(--ui-text-2); }
+.ui-empty-actions { display: flex; gap: var(--ui-space-2); margin-top: var(--ui-space-2); }
+
+/* The bar over one page shown alone: back, where it came from, its name and size, then its actions. */
+.ui-pagebar { display: flex; align-items: center; gap: var(--ui-space-2); min-height: calc(var(--ui-control-lg) + var(--ui-space-1)); padding: 0 var(--ui-space-3) 0 var(--ui-space-2); background: var(--ui-bg-panel); color: var(--ui-text-1); border-bottom: var(--ui-hairline) solid var(--ui-line); white-space: nowrap; }
+.ui-pagebar-from { font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-pagebar-slash { color: var(--ui-text-3); }
+.ui-pagebar-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); }
+.ui-pagebar-size { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); color: var(--ui-text-3); }
+.ui-pagebar-push { margin-left: auto; }
+
+/* A colour field's swatch (inside a label beside the hex) and a range on the accent. */
+.ui-swatch { display: inline-block; flex-shrink: 0; width: var(--ui-icon-16); height: var(--ui-icon-16); border-radius: var(--ui-radius-1); box-shadow: inset 0 0 0 var(--ui-hairline) var(--ui-swatch-edge); }
+.ui-range { display: block; width: 100%; margin: 0; accent-color: var(--ui-accent); }
+.ui-range:disabled { opacity: var(--ui-disabled-opacity); }
+
+/* ── Inventory gaps: a field box with its own input, menu group labels, a pointer card, a screen heading, progress (0.3-L3) ── */
+/* A label.ui-input can hold an icon or a swatch and its own <input>: the box draws focus and disabled for it. */
+.ui-input > input { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0; outline: none; background: none; font: inherit; color: inherit; }
+.ui-input > input::placeholder { color: var(--ui-text-3); opacity: 1; }
+.ui-input > .ui-icon { color: var(--ui-text-3); }
+.ui-input.ui-input-sunken { background: var(--ui-bg-sunken); border-color: transparent; }
+.ui-input:has(> input:disabled) { background: var(--ui-bg-sunken); color: var(--ui-text-3); }
+.ui-menu-label { margin: 0; padding: var(--ui-space-2) var(--ui-space-2) var(--ui-space-1); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-weight: var(--ui-w-semibold); color: var(--ui-text-2); }
+/* A card that points at something on the screen (the editor tour): title, text, step count and its buttons. */
+.ui-popover { display: flex; flex-direction: column; gap: var(--ui-space-2); width: calc(var(--ui-control-lg) * 7); padding: var(--ui-space-4); background: var(--ui-bg-raised); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line); border-radius: var(--ui-radius-2); box-shadow: var(--ui-shadow-window); }
+.ui-popover-title { margin: 0; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); }
+.ui-popover-text { margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-popover-foot { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-1); }
+.ui-popover-step { margin-right: auto; font-size: var(--ui-text-11); line-height: var(--ui-lh-11); font-variant-numeric: tabular-nums; color: var(--ui-text-3); }
+/* A screen's heading row (the home): a large title, its gold count, then the actions, over a rule. */
+.ui-heading { display: flex; align-items: center; gap: var(--ui-space-2); padding-bottom: var(--ui-space-5); border-bottom: var(--ui-hairline) solid var(--ui-line); color: var(--ui-text-1); }
+.ui-heading-title { margin: 0 var(--ui-space-2) 0 0; font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); }
+.ui-heading-count { align-self: flex-end; margin-right: auto; margin-bottom: calc(var(--ui-space-1) / 2); font-size: var(--ui-text-15); line-height: var(--ui-lh-15); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; color: var(--ui-mark); }
+.ui-heading > .ui-input { width: calc(var(--ui-control-lg) * 6); height: var(--ui-control-sm); font-size: var(--ui-text-12); }
+/* Progress (the update card): the fill is the graphic, on a sunken track. */
+.ui-progress { position: relative; height: var(--ui-space-1); overflow: hidden; border-radius: var(--ui-radius-pill); background: var(--ui-bg-active); }
+.ui-progress-bar { height: 100%; border-radius: var(--ui-radius-pill); background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease); }
 
 /* ── Composer (request box) ────────────────────────────────────── */
 .ui-composer { display: flex; flex-direction: column; background: var(--ui-bg-panel); color: var(--ui-text-1); border: var(--ui-hairline) solid var(--ui-line-strong); border-radius: var(--ui-radius-3); box-shadow: var(--ui-shadow-panel); }
@@ -332,5 +599,5 @@
 
 /* ── Reduced motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after { transition: none; }
+  .ui-btn, .ui-input, .ui-textarea, .ui-select, .ui-switch-track, .ui-switch-track::after, .ui-board-card-thumb, .ui-board-card-actions, .ui-progress-bar { transition: none; }
 }

@@ -9,8 +9,3 @@ export const sculptureAssetRoot = '/brand/sculpture-v2';
 export function sculptureImage(state: SculptureState): string {
   return `${sculptureAssetRoot}/${state}.png`;
 }
-export function sculptureHtml(state: SculptureState, label: string): string {
-  // Labels are rendered separately; images remain decorative to assistive tech.
-  const safeLabel = label.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-  return `<figure class="sculpture-state" data-sculpture-state="${state}"><img src="${sculptureImage(state)}" width="512" height="512" alt="" loading="lazy" decoding="async"><figcaption>${safeLabel}</figcaption></figure>`;
-}

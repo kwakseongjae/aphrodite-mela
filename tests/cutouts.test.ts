@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {inflateSync} from 'node:zlib';
-import {brandLockup} from '../src/design/logo';
+import {brandLockup,brandWordmark} from '../src/design/logo';
 test('six cutouts contain actual transparent and near-opaque pixels, not painted backgrounds',()=>{
  for(const id of ['aphrodite','apple-hand','paper-dove','review','recovery','night']){
   const png=readFileSync(`public/brand/cutouts/${id}.png`);assert.equal(png[24],8);assert.equal(png[25],6);assert.equal(png[28],0);
@@ -13,4 +13,8 @@ test('six cutouts contain actual transparent and near-opaque pixels, not painted
   assert.ok(transparent>w*h*.2,`${id}: transparent canvas`);assert.ok(opaque>w*h*.1,`${id}: near-opaque subjects`);
  }
 });
-test('custom logo is font-independent vector artwork',()=>{assert.match(brandLockup,/fill-rule="evenodd"/);assert.doesNotMatch(brandLockup,/<text|font-family|✳/);});
+test('custom logo is font-independent vector artwork',()=>{
+ assert.match(brandLockup,/fill-rule="evenodd"/);assert.match(brandLockup,/fill="#B48A32"/);
+ for(const svg of [brandLockup,brandWordmark])assert.doesNotMatch(svg,/<text|font-family|stroke|✳/);
+ assert.match(brandWordmark,/<path fill="currentColor" d="/);
+});

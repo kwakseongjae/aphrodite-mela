@@ -1,0 +1,16 @@
+Fonts shipped with the app: where each file came from, and which version it is.
+Neither is fetched over the network; src/ui/components.css declares them from /fonts/.
+
+PretendardVariable.woff2
+  Pretendard Variable, by Kil Hyung-jin. https://github.com/orioncactus/pretendard (the address in its licence).
+  Added in 0e0d1c5 (2026-11-18), which did not record the release it came from.
+  Licence: SIL Open Font License 1.1, LICENSE.txt.
+  sha256 9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4
+
+GeistMonoVariable.woff2
+  Geist Mono, by The Geist Project Authors (Vercel). Variable, wght 100-900, font version 1.701 (name ID 5).
+  From github.com/google/fonts, ofl/geistmono/GeistMono[wght].ttf, compressed to woff2 with fontTools
+  without subsetting (lab/review-board/proposals/0.3-D2/src/fonts-convert.py; the file is that
+  folder's fonts/GeistMono-wght.woff2, renamed). No Hangul: the mono stack puts Pretendard Variable behind it.
+  Licence: SIL Open Font License 1.1, GeistMono-OFL.txt.
+  sha256 a9cb64c5f3c2fd058d44d352802f3a86b69233ed547ecc00fc9b1e9a22379266

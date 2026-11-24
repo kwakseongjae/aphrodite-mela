@@ -74,6 +74,7 @@ import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger'
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
 import {workspaceHome,projectCards,type HubView} from './workspace/home';
+import {renameDialogHtml,deleteDialogHtml,workspaceDeleteDialogHtml,storageDialogHtml} from './workspace/home-dialogs';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
 import {sanitizeFamily,fontStack,freeFonts,fontsFor,licenseNote,type FreeFont} from './design/fonts';
@@ -99,7 +100,7 @@ import {referencesPanelHtml,type ReferenceScope} from './design/references';
 import {createArchive} from './workspace/archive';
 import {fitWithin,worthShrinking,base64Of} from './design/downscale';
 import {deriveTaste,renderTaste,parseTaste,mergeTaste,orderDirections,againstLabel,EMPTY as EMPTY_TASTE,type Taste,type TasteConsent} from './design/taste';
-import './workspace/home.css';
+import './ui/screens/home.css';
 import {invoke,isTauri,convertFileSrc} from '@tauri-apps/api/core';
 import {brandLockup} from './design/logo';
 import {vaultHtml,type Vault} from './workspace/vault';
@@ -400,7 +401,7 @@ const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:
 let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
-function topLanguageMenu(){return `<details class="top-lang"><summary aria-label="${ui('Language','언어')}" title="${ui('Interface language','앱 조작 언어')}">${icon('languages')}<span>${uiLanguage==='ko'?'한국어':'English'}</span>${icon('chevron-down')}</summary><div class="top-lang-menu" role="menu">${(['en','ko'] as const).map(l=>`<button type="button" role="menuitemradio" aria-checked="${uiLanguage===l}" data-action="set-language" data-lang="${l}">${l==='ko'?'한국어':'English'}${uiLanguage===l?icon('check'):''}</button>`).join('')}<button type="button" role="menuitem" data-action="language-settings">${ui('Content language…','콘텐츠 언어…')}</button></div></details>`;}let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
+let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
 let toastTimer = 0;
 let referenceAnalysis: ReferenceAnalysis | null = null;
 let referenceDraft: { copy: ReturnType<typeof suggestCopy>; useCrop: boolean } | null = null;
@@ -705,17 +706,15 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentLocked(){return editorMode==='agent'&&!!delegation;}
 /** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
-/** Paper or midnight. A colour change is a class and one picture, not a reason to rebuild the page. */
+/** Paper or midnight. A colour change is the theme on home's root, not a reason to rebuild the page. */
 function toggleNight(){
   night=!night;
   try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{/* the choice holds for this launch */}
   const home=document.querySelector('.folio-home');
   if(!home){render();return;}
-  home.classList.toggle('folio-night',night);
-  const art=home.querySelector<HTMLImageElement>('.folio-art img');
-  if(art)art.src=`/brand/cutouts/${night?'night':'aphrodite'}.png`;
+  (home as HTMLElement).dataset.theme=night?'dark':'light';
   const button=home.querySelector<HTMLElement>('[data-action="hub-theme"]');
-  if(button){button.setAttribute('aria-pressed',String(night));button.innerHTML=`${icon(night?'sun':'moon')}<span>${night?homeCopy[uiLanguage].paper:homeCopy[uiLanguage].night}</span>`;}
+  if(button){button.setAttribute('aria-pressed',String(night));button.title=night?homeCopy[uiLanguage].paper:homeCopy[uiLanguage].night;button.innerHTML=icon(night?'sun':'moon','ui-icon');}
   hydrateIcons();
 }
 
@@ -1394,7 +1393,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'ws-pick-emoji': {const value=el.dataset.emoji??'';const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)break;const field=form.elements.namedItem('emoji') as HTMLInputElement;const already=field.value===value;field.value=already?'':value;(form.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft=already?{kind:'color',value:(form.elements.namedItem('color') as HTMLInputElement).value}:{kind:'emoji',value};modalRoot.querySelectorAll<HTMLElement>('[data-action="ws-pick-emoji"]').forEach(b=>b.setAttribute('aria-pressed',String(!already&&b.dataset.emoji===value)));wsPreview();break;}
     case 'ws-pick-image': pickFile('image/png,image/jpeg,image/webp',async file=>{if(file.size>2_000_000)throw new Error(ui('Pick an image under 2 MB.','2MB 이하 이미지를 골라주세요.'));const data=await readImage(file);const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(!form)return;(form.elements.namedItem('image') as HTMLInputElement).value=data;(form.elements.namedItem('emoji') as HTMLInputElement).value='';wsAvatarDraft={kind:'image',value:data};wsPreview();});break;
     case 'ws-clear-image': {const form=modalRoot.querySelector<HTMLFormElement>('#workspace-form');if(form)(form.elements.namedItem('image') as HTMLInputElement).value='';wsAvatarDraft={kind:'color',value:WORKSPACE_COLORS[0]};wsPreview();break;}
-    case 'ws-delete': {const id=el.dataset.id!;const target=workspaces.workspaces.find(w=>w.id===id);if(!target)break;const count=workspaceCounts(library)[id]??0;showModal(ui('Delete this workspace?','이 작업 공간을 삭제할까요?'),esc(target.name),`<p class="panel-description">${count?ui(`Its ${count} project(s) move to the workspace you land in. Nothing is deleted.`,`프로젝트 ${count}개는 이동한 작업 공간으로 옮겨집니다. 삭제되지 않습니다.`):ui('It holds no projects.','프로젝트가 없습니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="ws-delete-confirm" data-id="${esc(id)}">${icon('trash-2')}${ui('Delete workspace','작업 공간 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
+    case 'ws-delete': {const id=el.dataset.id!;const target=workspaces.workspaces.find(w=>w.id===id);if(!target)break;const count=workspaceCounts(library)[id]??0;showModal(ui('Delete this workspace?','이 작업 공간을 삭제할까요?'),esc(target.name),workspaceDeleteDialogHtml(uiLanguage,id,count));break;}
     case 'ws-delete-confirm': {const id=el.dataset.id!;const name=workspaces.workspaces.find(w=>w.id===id)?.name??'';try{const {movedTo}=deleteWorkspace(workspaces,id);
       // The projects move first, to a workspace that stays, and the write is waited for (0.3-R ⑤): refused, nothing has changed, on the desktop too,
       // where the refusal comes after the write is queued. Then the list, worked out again after the wait so a workspace made meanwhile stays
@@ -1417,7 +1416,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       // It opens in the workspace it is in, so the next save does not move it to the one that was open (0.3-R fix 1 #5).
       const ws=entry.workspaceId??DEFAULT_WORKSPACE_ID;if(ws!==workspaces.activeId){saveWorkspaces(setActiveWorkspace(workspaces,ws));hubCardCache.clear();}
       saveLibrary(markOpened(library,entry.project.id));openProject(entry.project);}});break;}
-    case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),`<p class="panel-description">${ui('It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p><div class="assembly-actions"><button class="danger-button" data-action="hub-delete-confirm" data-id="${esc(entry.project.id)}">${icon('trash-2')}${ui('Delete project','프로젝트 삭제')}</button><button class="secondary-button" data-action="close-modal">${ui('Keep it','그대로 두기')}</button></div>`);break;}
+    case 'hub-delete': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(!entry)break;showModal(ui('Delete this project?','이 프로젝트를 삭제할까요?'),esc(entry.project.name),deleteDialogHtml(uiLanguage,entry.project));break;}
     case 'hub-delete-confirm': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==id)});closeModal();hubRefresh();toast(`‘${entry.project.name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-pin': {const id=el.dataset.id!;saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,pinned:!e.pinned}:e)});hubRefresh();document.querySelector(`[data-action="hub-pin"][data-id="${CSS.escape(id)}"]`)?.classList.add('folio-star-pop');break;}
     /* One project to another workspace. The bulk move that already existed only runs when a whole
@@ -1434,8 +1433,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     }
     case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});hubRefresh();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
     case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy,undefined,entry.workspaceId??workspaces.activeId));hubRefresh();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
-    case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Give it a name.','이름을 지어 주세요.'),'프로젝트 내용은 그대로 보존됩니다.',`<form id="hub-rename-form"><input type="hidden" name="projectId" value="${esc(entry.project.id)}"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" value="${esc(entry.project.name)}"></label><button class="primary-button" type="submit">${ui('Rename project','프로젝트 이름 변경')}</button></form>`);break;}
-    case 'storage-info': showModal(ui('Where your work lives','작업이 저장되는 곳'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),`<div class="storage-path"><code>${esc(storagePath)}</code><button class="secondary-button" data-action="copy-storage-path">${icon('copy')}${ui('Copy path','경로 복사')}</button></div><ul class="storage-facts"><li>${icon('hard-drive')}<span><strong>library.json</strong> · ${ui('your current projects','현재 프로젝트 보관함')}</span></li><li>${icon('history')}<span><strong>library.previous.json</strong> · ${ui('the previous save, kept automatically','직전 저장본 · 자동 보관')}</span></li><li>${icon('folder-open')}<span><strong>project-vault-v1/</strong> · ${ui('per-project images and DESIGN.md snapshots (Files on a project card)','프로젝트별 이미지·DESIGN.md 스냅샷 (프로젝트 카드의 파일)')}</span></li></ul><div class="vibe-actions">${button('hub-backup','download',ui('Save a workspace backup','작업 공간 백업 저장'),'secondary-button')}${button('hub-recovery','download',ui('Save raw recovery files','원본 복구 파일 저장'),'secondary-button')}</div><p class="fine-print">${ui('If another window changed the files, this one refuses to overwrite them and shows a banner with reload and backup options.','다른 창이 파일을 바꾸면 이 창은 덮어쓰지 않고, 다시 불러오기·백업 옵션이 있는 배너를 표시합니다.')}</p>`);break;
+    case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Give it a name.','이름을 지어 주세요.'),'프로젝트 내용은 그대로 보존됩니다.',renameDialogHtml(uiLanguage,entry.project));break;}
+    case 'storage-info': showModal(ui('Where your work lives','작업이 저장되는 곳'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),storageDialogHtml(uiLanguage,storagePath));break;
     case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
