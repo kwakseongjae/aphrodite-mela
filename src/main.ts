@@ -1382,10 +1382,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
   if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
-  // A section tool drawn before the board lost its last section page (an open palette, the Archive) does nothing now.
-  if(act&&screen==='editor'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
+  // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
+  if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
   const here=sameBoard();
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);

@@ -119,3 +119,9 @@ test('on a board without a section page the Archive keeps its pictures and links
   for (const action of ['reference-add-image', 'reference-add-link', 'reference-open', 'reference-delete', 'reference-scope']) assert.match(none, new RegExp(`data-action="${action}"`), action);
   assert.match(referencesPanelHtml([kept], 'all', false, true), /data-action="reference-promote"/, 'with a section page it is offered as before');
 });
+
+test('the check is the person\'s: an agent\'s section action still goes to the open page, as its batches do', async () => {
+  const {readFileSync} = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /if\(act&&screen==='editor'&&d\.author\.kind!=='agent'&&sectionOnly\(act\)&&!hasSectionPage\(project\)\)return;/);
+});
