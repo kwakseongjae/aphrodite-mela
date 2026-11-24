@@ -94,7 +94,7 @@ import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
 import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
-import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
+import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,openingCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
 import {commandTable,commandPaletteHtml,stateLine,filterCommands} from './editor/command-palette';
@@ -2362,16 +2362,17 @@ function applyCamera(){
   space.dispatchEvent(new Event('scroll',{bubbles:true}));scheduleCameraWrite();
 }
 function frameBoxes(){return [...document.querySelectorAll<HTMLElement>('.space-frame:not([hidden])')].map(el=>{const f=project.space?.frames[el.dataset.pageId!];return {x:f?.x??0,y:f?.y??0,width:el.offsetWidth,height:Math.max(200,el.offsetHeight),id:el.dataset.pageId!};});}
-function fitAll(){const space=spaceEl();if(!space)return;const box=unionBox(frameBoxes());if(!box)return;camera=fitCamera(box,{width:space.clientWidth,height:space.clientHeight},60);applyCamera();recordRun('camera:fit',{scope:'all',zoom:camera.zoom});}
+function fitAll(){const space=spaceEl();if(!space)return false;const box=unionBox(frameBoxes());if(!box)return false;camera=fitCamera(box,{width:space.clientWidth,height:space.clientHeight},60);applyCamera();recordRun('camera:fit',{scope:'all',zoom:camera.zoom});return true;}
 function fitFrame(pageId:string){const space=spaceEl();if(!space)return;const box=frameBoxes().find(b=>b.id===pageId);if(!box)return;camera=fitCamera(box,{width:space.clientWidth,height:space.clientHeight},48);applyCamera();recordRun('camera:fit',{scope:'frame',pageId,zoom:camera.zoom});}
 function zoomCenter(next:number){const space=spaceEl();if(!space)return;camera=zoomAt(camera,{x:space.clientWidth/2,y:space.clientHeight/2},next);applyCamera();}
 function mountSpace(){
   spaceAbort?.abort();const space=spaceEl();if(!space)return;
   spaceAbort=new AbortController();const signal=spaceAbort.signal;
-  if(cameraProjectId!==project.id){cameraProjectId=project.id;const stored=readCamera(localStorage,project.id);if(stored)camera=stored;else cameraFitPending=true;}
+  if(cameraProjectId!==project.id){cameraProjectId=project.id;({camera,fit:cameraFitPending}=openingCamera(readCamera(localStorage,project.id)));}
   if(spaceHeld)space.classList.add('pan-ready');
   applyCamera();
-  if(cameraFitPending){cameraFitPending=false;fitAll();}
+  // A board with nothing on it yet keeps the fit for the render that first shows a frame.
+  if(cameraFitPending&&fitAll())cameraFitPending=false;
   space.addEventListener('wheel',e=>{
     e.preventDefault();
     if(e.ctrlKey||e.metaKey){camera=zoomAt(camera,spaceLocal(e),camera.zoom*Math.exp(-e.deltaY*0.01));}

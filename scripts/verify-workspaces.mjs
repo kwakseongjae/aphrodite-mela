@@ -235,6 +235,39 @@ const newBoard = async name => {
   await sleep(900); await clickData('tour-skip'); await sleep(300);
 };
 const BRIEFING = '<!doctype html><html><body><h1>Briefing</h1></body></html>';
+check('a new board starts with the camera at its start, wherever the last board was looked at', async () => {
+  const at = await evaluate(`(() => { const r = document.querySelector('#canvas-scroll').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()`);
+  for (let i = 0; i < 4; i++) await send('Input.dispatchMouseEvent', {type: 'mouseWheel', x: at.x, y: at.y, deltaX: 3000, deltaY: 3000});
+  await sleep(700);
+  assert.notEqual(await evaluate(`document.querySelector('#app').dataset.camera`), '0,0,1.00', 'the last board was looked at far from its start');
+  await newBoard('Agent board');
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.camera`), '0,0,1.00');
+});
+check('the first page an agent puts on that board is in view', async () => {
+  assert.equal((await agent('connect', {}, 'claude-code')).status, 'asked');
+  for (let i = 0; i < 20 && !(await evaluate(`!!document.querySelector('#modal-root .ask-modal')`)); i++) await sleep(150);
+  await pressIn('#modal-root [data-action="ask-allow"]');
+  await sleep(5300);
+  const made = await agent('apply', {reason: 'verify-workspaces: a page on a new board.', base_revision: (await agent('changes', {limit: 1})).revision, ops: [{op: 'html_page', name: 'Briefing', html: BRIEFING}]});
+  assert.equal(made.ok, true, JSON.stringify(made));
+  await sleep(900);
+  assert.equal(await inView(made.created_pages[0].page_id), true, 'the page is on screen');
+});
+check('with the hidden page still the open one, export offers the agent\'s page and preview shows it', async () => {
+  const page = await evaluate(`document.querySelector('.space-frame:not([hidden])')?.dataset.pageId`);
+  await personPresses('export'); await sleep(500);
+  assert.equal(await evaluate(`document.querySelector('#modal-root [data-action="download-page-html"]')?.dataset.id`), page, 'the page in the dialog is the one on the board');
+  await personPresses('close-modal'); await sleep(300);
+  await personPresses('preview'); await sleep(600);
+  assert.match(await evaluate(`document.querySelector('#modal-root .ui-modal-text')?.textContent ?? ''`), /Briefing/);
+  await personPresses('close-modal'); await sleep(300);
+});
+check('a section the agent adds to the open page shows that page beside the agent\'s, not under it', async () => {
+  const added = await agent('apply', {reason: 'verify-workspaces: a section on the open page.', base_revision: (await agent('changes', {limit: 1})).revision, ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.equal(added.ok, true, JSON.stringify(added));
+  await sleep(800);
+  assert.equal(await sideBySide(), true);
+});
 check('a page added to a new board takes the board\'s first place', async () => {
   await newBoard('Placement board');
   await clickData('add-page'); await sleep(300);

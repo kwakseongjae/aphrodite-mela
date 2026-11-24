@@ -11,7 +11,7 @@ import {parseBatch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
 import {begin, end, newHistory, stepForScreen, type History} from '../src/ledger/session.ts';
 import {compact} from '../src/ledger/ledger.ts';
-import {ensureSpace} from '../src/editor/space.ts';
+import {ensureSpace, openingCamera} from '../src/editor/space.ts';
 import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames} from '../src/editor/starter.ts';
 import type {Author} from '../src/ledger/types.ts';
 import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
@@ -183,4 +183,9 @@ test('a page added, copied or drafted on a new board takes the board\'s first pl
   assert.ok(p.space!.frames.copy.x > 0, 'the next one goes beside the first');
   assert.equal(p.starter, p.pages[0].id, 'the hidden page is still hidden, and still where it was');
   assert.deepEqual([p.space!.frames[p.pages[0].id].x, p.space!.frames[p.pages[0].id].y], [0, 0]);
+});
+
+test('a board opened with no camera of its own starts at its start, and waits to be fitted until it shows a frame', () => {
+  assert.deepEqual(openingCamera(undefined), {camera: {x: 0, y: 0, zoom: 1}, fit: true}, 'not the camera of the board looked at before');
+  assert.deepEqual(openingCamera({x: -900, y: 40, zoom: 0.5}), {camera: {x: -900, y: 40, zoom: 0.5}, fit: false});
 });

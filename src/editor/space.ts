@@ -120,6 +120,8 @@ export function fitCamera(box:Box,viewport:{width:number;height:number},padding=
 export function cameraLabel(camera:Camera):string{return `${Math.round(camera.zoom*100)}%`;}
 
 export const CAMERA_KEY='aphrodite-camera-v1';
+/** The camera a board opens with: its own, kept from last time, or the start of the board, to be fitted once there is a frame to fit. */
+export function openingCamera(stored:Camera|undefined):{camera:Camera;fit:boolean}{return stored?{camera:stored,fit:false}:{camera:{x:0,y:0,zoom:1},fit:true};}
 export function readCamera(storage:Pick<Storage,'getItem'>,projectId:string):Camera|undefined{
   try{
     const raw=storage.getItem(`${CAMERA_KEY}:${projectId}`);if(!raw)return undefined;
