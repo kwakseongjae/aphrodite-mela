@@ -68,7 +68,7 @@ import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
 import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,mediaRefusal,mediaFrame,mediaNamed,type PageMedia,browserFrameHost,desktopFrameHost,type FrameHost} from './free-page';
 import {morph,frameKey} from './editor/board';
-import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames} from './editor/starter';
+import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames,revealStarter} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
@@ -176,7 +176,7 @@ addEventListener('message',e=>{
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
   if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
   if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();fitFrame(m.id);}}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();if(revealStarter(project,m.id)){if(edits.last)delete edits.last.starter;persist();render();}fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
@@ -1480,8 +1480,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page-view': openPageView(el.dataset.id!); break;
     case 'page-view-close': closePageView(); break;
-    case 'page-view-edit': {if(leaving||refusal(d,'edit.page-view-edit'))break;const id=pageView?.page;if(!id||!project.pages.some(p=>p.id===id))break;closePageView();if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-view-edit');fitFrame(id);break;}
-    case 'page': {const id=el.dataset.id!;if(id!==project.activePageId)commit(() => { project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? ''; }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
+    case 'page-view-edit': {if(leaving||refusal(d,'edit.page-view-edit'))break;const id=pageView?.page;if(!id||!project.pages.some(p=>p.id===id))break;closePageView();if(id!==project.activePageId||project.starter===id)commit(() => { revealStarter(project,id); if(id!==project.activePageId){project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? '';} }, d, 'edit.page-view-edit');fitFrame(id);break;}
+    case 'page': {const id=el.dataset.id!;if(id!==project.activePageId||project.starter===id)commit(() => { revealStarter(project,id); if(id!==project.activePageId){project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? '';} }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}

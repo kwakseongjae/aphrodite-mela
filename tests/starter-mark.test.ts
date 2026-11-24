@@ -12,7 +12,7 @@ import {runBatch} from '../src/agent/apply.ts';
 import {begin, end, newHistory, stepForScreen, type History} from '../src/ledger/session.ts';
 import {compact} from '../src/ledger/ledger.ts';
 import {ensureSpace, openingCamera} from '../src/editor/space.ts';
-import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames} from '../src/editor/starter.ts';
+import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown, placeNewFrames, revealStarter} from '../src/editor/starter.ts';
 import type {Author} from '../src/ledger/types.ts';
 import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
 import {cloneProject} from '../src/workspace/library.ts';
@@ -188,4 +188,17 @@ test('a page added, copied or drafted on a new board takes the board\'s first pl
 test('a board opened with no camera of its own starts at its start, and waits to be fitted until it shows a frame', () => {
   assert.deepEqual(openingCamera(undefined), {camera: {x: 0, y: 0, zoom: 1}, fit: true}, 'not the camera of the board looked at before');
   assert.deepEqual(openingCamera({x: -900, y: 40, zoom: 0.5}), {camera: {x: -900, y: 40, zoom: 0.5}, fit: false});
+});
+
+test('the person going to the hidden page (Edit in the app) shows it, beside the page that took its place, in that step', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+  const [starter, html] = [p.pages[0].id, p.pages[1].id];
+  edit(h, p, q => { assert.equal(revealStarter(q, html), false, 'going to another page leaves it hidden'); });
+  assert.equal(p.starter, starter);
+  edit(h, p, q => { assert.equal(revealStarter(q, starter), true); });
+  assert.equal(p.starter, undefined);
+  assert.deepEqual(visiblePages(p).map(x => x.id), [starter, html]);
+  assert.equal(overlap(p, starter, html), false);
 });

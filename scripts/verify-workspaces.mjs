@@ -275,5 +275,15 @@ check('a page added to a new board takes the board\'s first place', async () => 
   await sleep(700);
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.space-frame:not([hidden])')].map(f => f.style.left)`), ['0px']);
 });
+check('Edit in the app, from the hidden page seen on its own, shows it on the board beside the page there', async () => {
+  const hidden = await evaluate(`document.querySelector('.space-frame[hidden]')?.dataset.pageId`);
+  assert.ok(hidden, 'the board has its hidden page');
+  await personPresses('page-view', {id: hidden}); await sleep(500);
+  assert.equal(await evaluate(`!!document.querySelector('.page-view')`), true);
+  await personPresses('page-view-edit'); await sleep(700);
+  assert.equal(await evaluate(`document.querySelector('.space-frame[data-page-id="${hidden}"]')?.hidden`), false, 'the page is on the board');
+  assert.equal(await sideBySide(), true);
+  assert.equal(await inView(hidden), true, 'and in view');
+});
 
 await runChecks(checks, close);

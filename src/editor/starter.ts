@@ -44,6 +44,12 @@ export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'spa
   for (const page of project.pages) if (isStarterPage(project, page)) delete frames[page.id];
   return {frames};
 }
+/** The person going to the hidden page (Edit in the app, a link to it on the board): it shows from then on. True when it was hidden. */
+export function revealStarter(project: Pick<Project, 'starter'>, id: string): boolean {
+  if (project.starter !== id) return false;
+  delete project.starter;
+  return true;
+}
 /** Where a new frame goes, whoever makes it: right of the frames the board shows, on their top row. */
 export function placeFrame(project: Pick<Project, 'pages' | 'starter' | 'space'>, preset: FramePreset, width?: number): FrameLayout {
   return nextFramePosition(placementSpace(project), preset, width);
@@ -57,7 +63,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const box = (f: FrameLayout) => ({x: f.x, y: f.y, right: f.x + frameWidth(f), bottom: f.height === undefined ? Infinity : f.y + f.height});
 /**
  * Where a change leaves the mark, `before` being the board as the change found it. A change that reaches the marked page
- * (a section, its name, its frame's size or place) or takes it away drops the mark, and it does not come back: an undo
+ * (a section, its name, its frame's size or place) or takes it away drops the mark, as does the person going to it (revealStarter), and it does not come back: an undo
  * of that change leaves the page showing. A page that shows where another frame already sits is put beside the frames,
  * in the same change, so the person can take it back. True when the mark was dropped.
  */
@@ -65,7 +71,7 @@ export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter
   const id = before.starter;
   if (id === undefined) return false;
   const was = before.pages.find(p => p.id === id), now = after.pages.find(p => p.id === id), frame = before.space?.frames[id];
-  if (was && now && same(was, now) && (frame === undefined || same(frame, after.space?.frames[id]))) return false;
+  if (after.starter === id && was && now && same(was, now) && (frame === undefined || same(frame, after.space?.frames[id]))) return false;
   delete after.starter;
   const at = now && after.space?.frames[id];
   if (!at) return true;
