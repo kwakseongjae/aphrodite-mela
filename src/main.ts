@@ -70,6 +70,7 @@ import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,me
 import {morph,frameKey} from './editor/board';
 import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames,revealStarter,fullBoard} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
+import {saveBadgeHtml,saveState,type SaveState} from './editor/save-badge';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
 import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carriedNow,heldFromAgent,contentId,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
@@ -928,7 +929,7 @@ function render() {
       <button type="button" class="panel-collapse ui-icon-btn" data-action="panel-collapse" data-side="left" aria-label="${ui('Collapse the library','라이브러리 접기')}" title="${ui('Collapse','접기')}">${icon('panel-left-close','ui-icon ui-icon-sm')}</button>
       <div class="panel-head ui-side-head">
         <a class="panel-home" href="#" data-action="home" aria-label="${ui('All projects','전체 프로젝트')}" title="${ui('All projects','전체 프로젝트')}"><img src="/brand/apple-mark.png" width="22" height="22" alt="" draggable="false"></a>
-        <div class="ui-side-title"><button class="panel-project ui-side-name" data-action="project" title="${esc(project.name)}"><span>${esc(project.name)}</span>${icon('chevron-down','ui-icon ui-icon-xs')}</button><span class="panel-save ui-side-sub ${lastSaved?'':'warning'}" title="${control(lastSaved?(nativeDesktop?'Saved to disk':'Saved locally'):'Unsaved')}">${icon(lastSaved?'check':'circle-alert','ui-icon ui-icon-xs')}<span>${lastSaved?(nativeDesktop?ui('Saved on this Mac','이 Mac에 저장됨'):ui('Saved in this browser','이 브라우저에 저장됨')):ui('Not saved yet','아직 저장되지 않음')}</span></span></div>
+        <div class="ui-side-title"><button class="panel-project ui-side-name" data-action="project" title="${esc(project.name)}"><span>${esc(project.name)}</span>${icon('chevron-down','ui-icon ui-icon-xs')}</button>${saveBadge(saveState({saved:lastSaved,failed:!!storageIssue,native:nativeDesktop}))}</div>
       </div>
       <div class="panel-search-row">
         <button type="button" class="panel-search ui-search" data-action="commands" aria-label="${ui('Search commands, components and frames (⌘K)','명령·컴포넌트·프레임 검색 (⌘K)')}">${icon('search','ui-icon ui-icon-sm')}<span class="ui-search-text">${ui('Search commands, components, frames…','명령·컴포넌트·프레임 검색…')}</span><kbd class="ui-kbd">⌘K</kbd></button>
@@ -2513,10 +2514,12 @@ document.addEventListener('keydown', e => {
 installPatternRuntime(document);
 installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
+/** The left panel's line on where the board is saved (src/editor/save-badge.ts). */
+function saveBadge(state:SaveState){return saveBadgeHtml(state,{native:nativeDesktop,ko:uiLanguage==='ko',title:control(state==='saved'?(nativeDesktop?'Saved to disk':'Saved locally'):state==='saving'?'Saving to disk…':'Unsaved')});}
 function diskWarningHtml(){return `<div class="disk-warning ui-strip ui-strip-warn" role="alert">${icon('circle-alert','ui-icon ui-icon-sm')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button class="ui-btn ui-btn-secondary" data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button class="ui-btn ui-btn-secondary" data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
 function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';  /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
-  if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('.save-indicator,[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+  if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
