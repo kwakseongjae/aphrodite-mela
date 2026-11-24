@@ -337,8 +337,8 @@ export type FrameHost = {
   put(file: Blob): Promise<StoredMedia>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
   importFile(ask: {path?: string; libraryId?: string; project?: string; stage?: boolean}): Promise<StoredMedia>;
-  /** Lets go of the files a batch staged (0.3-R fix 2 #20): kept when it landed; when it was refused, removed if it was the first to bring them and nothing has taken them since. */
-  releaseMedia(shas: string[], keep: boolean): Promise<void>;
+  /** Clears the marks a batch left on the files it staged, as it ends (0.3-R fix 2 #20). The files stay: a placed file is never removed (fix 7 #1). */
+  releaseMedia(shas: string[]): Promise<void>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
   mediaUrl(sha: string): Promise<string | undefined>;
   /** How long the address frameMedia would give is, without reading the file; undefined when it would give none. */
@@ -494,7 +494,7 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       return native.invoke<StoredMedia>('board_media_finish', {id});
     },
     importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null, stage: ask.stage ?? false}),
-    releaseMedia: async (shas, keep) => { if (shas.length) await native.invoke('board_media_release', {shas, keep}); },
+    releaseMedia: async shas => { if (shas.length) await native.invoke('board_media_release', {shas}); },
     mediaUrl: where,
     // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,

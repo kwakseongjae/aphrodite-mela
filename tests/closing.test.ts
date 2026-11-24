@@ -82,8 +82,11 @@ test('Codex 5: a destroy that is refused leaves the closer free, and the next cl
 
 test('the desktop handler prevents every close it does not let through, and lets go of its flag when destroy is refused', async () => {
   const {readFileSync} = await import('node:fs');
+  // The handler is closeRequests (closing.ts), the desktop's destroy given to it (0.3-R fix 7 follow-up).
+  const closing = readFileSync(new URL('../src/workspace/closing.ts', import.meta.url), 'utf8');
+  assert.match(closing, /await closer\.request\(async\(\)=>\{closing=true;try\{await destroy\(\);\}catch\(error\)\{closing=false;throw error;\}\}\)\.catch\(error=>\{closing=false;said\(error\);\}\);/);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /await closer\.request\(async\(\)=>\{closing=true;try\{await getCurrentWindow\(\)\.destroy\(\);\}catch\(error\)\{closing=false;throw error;\}\}\)(?:\.catch\([^;]*\))?;/);
+  assert.match(main, /onCloseRequested\(closeRequests\(closer,\(\)=>getCurrentWindow\(\)\.destroy\(\),/);
 });
 
 /* 0.3-R fix 2 #15: a file that could not be kept is asked about again, inside the same question. */

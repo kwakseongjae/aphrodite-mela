@@ -160,9 +160,10 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
     Ok(Stored { sha, mime: mime.to_string(), bytes })
 }
 
-/// Lets go of the files a batch of `session` staged: kept when it landed, removed when it was refused. Only a file still
-/// marked by that session is removed, under the lock every move takes, so a file anything else has brought in since stays.
-pub(crate) fn release(base: &Path, shas: &[String], keep: bool, session: &str) {
+/// Clears the marks a batch of `session` left on the files it staged, as the batch ends, under the lock every move takes. The
+/// files stay, whether it landed or was refused (0.3-R fix 7 #1): a file placed in `board-media/` is never removed by the app,
+/// since a saved board may name the same bytes by their hash.
+pub(crate) fn release(base: &Path, shas: &[String], session: &str) {
     let Ok(_held) = settling(base) else { return };
     for sha in shas {
         let Some(path) = media_file(base, sha) else { continue };
@@ -171,9 +172,6 @@ pub(crate) fn release(base: &Path, shas: &[String], keep: bool, session: &str) {
             continue;
         }
         let _ = fs::remove_file(&marked);
-        if !keep {
-            let _ = fs::remove_file(&path);
-        }
     }
 }
 
@@ -444,13 +442,13 @@ pub async fn board_media_import(app: AppHandle, path: Option<String>, library_id
     }
 }
 
-/// The files an agent's batch staged, kept when it landed and let go of when it was refused (0.3-R fix 2 #20).
+/// Clears the marks of an agent's batch as it ends; its files stay (0.3-R fix 2 #20, fix 7 #1).
 #[tauri::command]
-pub fn board_media_release(app: AppHandle, shas: Vec<String>, keep: bool) -> Result<(), String> {
+pub fn board_media_release(app: AppHandle, shas: Vec<String>) -> Result<(), String> {
     if shas.len() > 64 {
         return Err("a batch brings at most 64 files".into());
     }
-    release(&base(&app)?, &shas, keep, session());
+    release(&base(&app)?, &shas, session());
     Ok(())
 }
 
@@ -617,10 +615,10 @@ mod tests {
             assert!(write_page(dir.path(), page, key, "x").is_err(), "{page} {key}");
         }
     }
-    /* 0.3-R fix 2 #20: an agent's batch stages the files it copies. Refused, it lets go of only the ones it was the first to
-       bring and nothing has taken since; a file that was there already, or that anything else has put since, stays. */
+    /* 0.3-R fix 2 #20, fix 7 #1: an agent's batch stages the files it copies and clears its marks as it ends; every file stays,
+       one it was the first to bring included. */
     #[test]
-    fn a_refused_batch_lets_go_only_of_the_files_it_was_first_to_bring() {
+    fn a_batch_that_ends_clears_its_marks_and_every_file_stays() {
         let dir = tempfile::tempdir().unwrap();
         let file = |name: &str, rest: &[u8]| { let p = dir.path().join(name); fs::write(&p, [&PNG[..], rest].concat()).unwrap(); p };
         let (there, fresh, taken, kept) = (file("there.png", b"there"), file("fresh.png", b"fresh"), file("taken.png", b"taken"), file("kept.png", b"kept"));
@@ -630,10 +628,10 @@ mod tests {
         let taken = store_staged(dir.path(), &taken, "a").unwrap();
         store(dir.path(), &taken_path).unwrap();
         let kept = store_staged(dir.path(), &kept, "a").unwrap();
-        release(dir.path(), &[kept.sha.clone()], true, "a");
-        release(dir.path(), &[there.sha.clone(), fresh.sha.clone(), taken.sha.clone(), kept.sha.clone()], false, "a");
+        release(dir.path(), &[kept.sha.clone()], "a");
+        release(dir.path(), &[there.sha.clone(), fresh.sha.clone(), taken.sha.clone(), kept.sha.clone()], "a");
         assert!(media_file(dir.path(), &there.sha).is_some(), "a file that was there already stays");
-        assert!(media_file(dir.path(), &fresh.sha).is_none(), "the batch's own new file goes");
+        assert!(media_file(dir.path(), &fresh.sha).is_some(), "the batch's own new file stays too (0.3-R fix 7 #1)");
         assert!(media_file(dir.path(), &taken.sha).is_some(), "a file something else put since stays");
         assert!(media_file(dir.path(), &kept.sha).is_some(), "a file of a batch that landed stays");
     }
@@ -675,13 +673,13 @@ mod tests {
         let shared_path = shared.clone();
         let shared = store_staged(dir.path(), &shared, "a").unwrap();
         store(dir.path(), &shared_path).unwrap();
-        release(dir.path(), &[shared.sha.clone()], false, "a");
+        release(dir.path(), &[shared.sha.clone()], "a");
         assert!(media_file(dir.path(), &shared.sha).is_some(), "the other one took it, so it stays");
         let alone = store_staged(dir.path(), &alone, "a").unwrap();
-        release(dir.path(), &[alone.sha.clone()], false, "b");
+        release(dir.path(), &[alone.sha.clone()], "b");
         assert!(media_file(dir.path(), &alone.sha).is_some(), "another session's refusal does not touch it");
-        release(dir.path(), &[alone.sha.clone()], false, "a");
-        assert!(media_file(dir.path(), &alone.sha).is_none(), "its own refusal does");
+        release(dir.path(), &[alone.sha.clone()], "a");
+        assert!(media_file(dir.path(), &alone.sha).is_some(), "nor does its own: a placed file stays (0.3-R fix 7 #1)");
     }
 
     /* 0.3-R fix 3 #14: each Aphrodite keeps the copies its frames load in a folder of its own, held by a lock for as long as
@@ -706,5 +704,18 @@ mod tests {
         assert!(!theirs.exists(), "a folder whose owner ended goes, though a process with the same pid runs");
         assert!(mine.exists() && again.exists());
     }
-
+    /* 0.3-R fix 7 #1: a saved board names a picture by its hash and came without its bytes; a batch brings those very bytes and
+       is refused. The picture stays: a refused batch clears its marks, and no placed file is removed. */
+    #[test]
+    fn a_refused_batch_leaves_the_file_a_saved_board_names_by_its_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("named.png");
+        fs::write(&src, [&PNG[..], b"named by a saved board"].concat()).unwrap();
+        let named = store_staged(dir.path(), &src, "a").unwrap();
+        let kept = media_file(dir.path(), &named.sha).unwrap();
+        assert!(mark(dir.path(), &kept).unwrap().exists());
+        release(dir.path(), &[named.sha.clone()], "a");
+        assert!(kept.exists(), "the picture stays");
+        assert!(!mark(dir.path(), &kept).unwrap().exists(), "its mark is cleared");
+    }
 }

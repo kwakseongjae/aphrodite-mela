@@ -110,7 +110,8 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
-import {windowCloser,SAVE_LIMIT,StillSaving,type CloseAnswer} from './workspace/closing';
+import {bringIn} from './workspace/bring-in';
+import {windowCloser,closeRequests,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -497,7 +498,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   });
 }
 /** A wait in the line of leavings, given the time a save is (0.3-R fix 6 #2): past it the turn gives up, and the editor takes input again. */
-async function bounded<T>(wait:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([wait,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Unmissable(ui(`It did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the screen is yours again; it may still finish.`,`${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 화면을 돌려드립니다. 곧 끝날 수도 있습니다.`))),SAVE_LIMIT);})]);}finally{clearTimeout(timer);}}
+async function bounded<T>(wait:Promise<T>,ms=SAVE_LIMIT,late:()=>Error=()=>new Unmissable(ui(`It did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the screen is yours again; it may still finish.`,`${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 화면을 돌려드립니다. 곧 끝날 수도 있습니다.`))):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([wait,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(late()),Math.max(0,ms));})]);}finally{clearTimeout(timer);}}
 /**
  * Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing.
  * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
@@ -512,7 +513,7 @@ async function bounded<T>(wait:Promise<T>):Promise<T>{let timer:ReturnType<typeo
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();return true;});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -563,14 +564,17 @@ async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   if(refused)throw new Error(refused);
   try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await bounded(flushDisk());}
   // Only this board comes out again: whatever else changed in the library meanwhile stays.
-  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error;}
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error instanceof Unmissable?error:new Unmissable(error instanceof Error?error.message:String(error));}
   // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
   let missing=0;
-  if(nativeDesktop){for(const pic of read.pictures){try{await bounded(invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}));}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  let coming=0;
+  // They share the turn's time; what is not in by then goes on coming in after it, and the board is drawn again when it is, any that failed said (0.3-R fix 7 follow-up).
+  if(nativeDesktop){const brought=bringIn(read.pictures,pic=>invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}),SAVE_LIMIT);const now=await bounded(brought.now,SAVE_LIMIT+1_000);missing=now.failed;coming=now.waiting;if(read.pictures.length)forgetLocal();
+    if(coming)void brought.rest.then(failed=>{forgetLocal();if(screen==='editor'&&project.id===read.project.id)render();const more=failed-now.failed;if(more)notice(ui(`${more} picture(s) from the board's image library could not be put in this board's library and show as missing`,`보드의 이미지 라이브러리 그림 ${more}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`));});}
   else missing=read.pictures.length;
-  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
+  return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):'',coming?ui(`${coming} picture(s) from its image library are still coming in`,`이미지 라이브러리 그림 ${coming}개는 아직 들어오는 중입니다`):''].filter(Boolean);
 }
 /** The board on screen, and what did not come with it said. */
 function showReadBoard(read:ReadBoard,notes:string[]){
@@ -2008,7 +2012,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   for(const [i,m] of Object.entries(media)){
     const sha=m.src.slice('media:'.length);let no=heldFromAgent(project,sha);
     if(!no&&m.mime.startsWith('image/')&&project.leftOut?.some(f=>f.startsWith('local:'))){const bytes=await frameHost.read(sha);if(bytes)no=heldFromAgent(project,`local:${contentId(bytes)}`);}
-    if(no){await frameHost.releaseMedia(Object.values(media).map(x=>x.src.slice('media:'.length)),false).catch(()=>{});return {error:`ops[${i}]: ${no}`,failed_at:Number(i),part:'ops',status:403,applied:0};}
+    if(no){await frameHost.releaseMedia(Object.values(media).map(x=>x.src.slice('media:'.length))).catch(()=>{});return {error:`ops[${i}]: ${no}`,failed_at:Number(i),part:'ops',status:403,applied:0};}
   }
   // The files the batch staged are kept only if it lands, at this one place, whichever way it ends (0.3-R fix 2 #20).
   const staged=Object.values(media).map(m=>m.src.slice('media:'.length));
@@ -2045,9 +2049,9 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
     }
     // `link` opens what the batch made, or the page open, in the app: the person can press it in the terminal (src/board-file.ts readOpenLink).
     return {ok:true,applied:batch.ops.length+batch.patch.length,...(created.length?{created_pages:created.map(id=>({page_id:id,name:project.pages.find(p=>p.id===id)?.name}))}:{}),link:openLink(project.id,created[0]??project.activePageId),receipt:changeReceipt(before??project,project),...revisionInfo(),state:agentState(d.author.name)};
-  // A batch lets go of its marks as it ends: it keeps its files when it landed, and removes those it was the first to bring when
-  // it did not. Nothing else removes a board's file; what a process that ended left stays (0.3-R fix 6 #1).
-  })();}finally{await frameHost.releaseMedia(staged,answer?.ok===true).catch(()=>{});}
+  // A batch clears its marks as it ends, landed or refused, and its files stay: a saved board may name the same bytes by
+  // their hash, so no placed file is removed (0.3-R fix 6 #1, fix 7 #1).
+  })();}finally{await frameHost.releaseMedia(staged).catch(()=>{});}
   return answer;
 }
 
@@ -2560,16 +2564,8 @@ async function boot(){
          person must be able to leave — a window that will not shut can only be force-quit, so a
          failure asks the person, in the system's own dialog, whether to keep the board as a file, close unsaved or stay (closer). Every
          request it holds is prevented, or the window would go on its own. */
-      let closing=false;
-      await getCurrentWindow().onCloseRequested(async event=>{
-        if(closing)return;
-        // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
-        saveTyping();
-        if(lastSaved&&!leaving&&!closer.busy())return;
-        event.preventDefault();
-        // The flag lets the destroy's own close through; a refused destroy lets go of it, so every close after it is held again.
-        await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}}).catch(error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)));
-      });
+      // Every close is held and goes through the one closer, a saved board's too; what is being typed is saved first (closing.ts closeRequests).
+      await getCurrentWindow().onCloseRequested(closeRequests(closer,()=>getCurrentWindow().destroy(),error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)),saveTyping));
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);

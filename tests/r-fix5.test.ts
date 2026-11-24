@@ -64,5 +64,5 @@ test('a failed restart, a leaving that could not save, and a refused close are n
   const leave = main.slice(main.indexOf('function leave<T>('), main.indexOf('\n}\n', main.indexOf('function leave<T>(')));
   assert.doesNotMatch(leave, /new Error\(/, 'every refusal of a leaving is one the person must see');
   assert.match(main, /\(error instanceof Unmissable\?notice:toast\)\(error instanceof Error \? error\.message/, 'and the press that waited for it says it as a notice');
-  assert.match(main, /await closer\.request\(async\(\)=>\{closing=true;[^\n]*\}\)\.catch\(error=>notice\(/, 'a close the system refused is said too');
+  assert.match(main, /onCloseRequested\(closeRequests\(closer,\(\)=>getCurrentWindow\(\)\.destroy\(\),error=>notice\(/, 'a close the system refused is said too');
 });

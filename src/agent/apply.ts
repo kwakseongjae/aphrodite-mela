@@ -283,7 +283,7 @@ export async function importMedia(ops: Op[], surface: Surface, host: Pick<FrameH
       if (!url) throw new Error('the file was not kept');
       const size = await measure(url, stored.mime);
       media[i] = {src: `media:${stored.sha}`, mime: stored.mime, width: size.width, height: size.height, ...(size.duration !== undefined ? {duration: size.duration} : {})};
-    } catch (error) { await host.releaseMedia?.(staged, false).catch(() => {}); return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
+    } catch (error) { await host.releaseMedia?.(staged).catch(() => {}); return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
   }
   return {media};
 }
