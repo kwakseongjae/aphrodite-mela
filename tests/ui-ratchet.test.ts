@@ -23,7 +23,7 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  * screen to src/ui never lowers them, and what a design may look like is not this system's to pin.
  */
 const pins:Record<string,{colours:number,sizes:number,set:string}>={
-  'agent/agent.css':{colours:10,sizes:2,set:'fc3b5d95'},
+  'agent/agent.css':{colours:0,sizes:2,set:'fcbaef50'},
   'design/component-explorer.css':{colours:91,sizes:15,set:'e2e8755c'},
   'design/studio.css':{colours:24,sizes:11,set:'34c771f1'},
   'editor/pointer-editor.css':{colours:8,sizes:2,set:'d18413dc'},
@@ -133,4 +133,25 @@ test('no older stylesheet gains a colour or a font size, and one that loses one 
     if(pin)report.push(...drift(file,readFileSync(new URL(file,src),'utf8'),pin));
   }
   assert.deepEqual(report,[]);
+});
+
+/**
+ * Colour variables an older sheet may use: the system's own, and the person's design's own (--paper, --ink, --brand,
+ * --swatch: set on an element by the markup, so a preview shows that design's colours, not the app's). --muted, --green
+ * and the like are raw colours under another name.
+ */
+const designVariables=['paper','ink','brand','on-brand','swatch'];
+export function foreignColourVariables(css:string){
+  const colourProp=/^(color|background(-color|-image)?|border(-(top|right|bottom|left))?(-color)?|outline(-color)?|box-shadow|text-decoration(-color)?|caret-color|fill|stroke|column-rule(-color)?|accent-color)$/;
+  const found=new Set<string>();
+  for(const {prop,value} of declarations(css))if(colourProp.test(prop))for(const m of value.matchAll(/var\(\s*--([\w-]+)/g))if(!m[1].startsWith('ui-')&&!designVariables.includes(m[1]))found.add(prop+': --'+m[1]);
+  return [...found];
+}
+
+/* 0.3-L4 ④: an older sheet whose colours have all come to the tokens stays there. No raw colour (the pin is 0) and no colour variable but --ui-. */
+test('an older sheet at no colours paints only with the system tokens',()=>{
+  assert.deepEqual(foreignColourVariables('.a{color:var(--muted);background:var(--ui-bg-panel);border:1px solid var(--border);width:var(--w)}'),['color: --muted','border: --border']);
+  const zero=Object.entries(pins).filter(([,p])=>p.colours===0).map(([f])=>f);
+  assert.ok(zero.includes('agent/agent.css'));
+  assert.deepEqual(zero.flatMap(f=>foreignColourVariables(readFileSync(new URL(f,src),'utf8')).map(x=>f+': '+x)),[]);
 });
