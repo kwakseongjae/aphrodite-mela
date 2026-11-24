@@ -1583,9 +1583,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const bytes=new Uint8Array(await file.arrayBuffer());
       let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
       const scope=el.dataset.scope==='project'?project.id:undefined;
-      const added=await invoke<{id:string}>('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary),project:scope});
-      // A picture the person adds is theirs to send with the board, one it came without included (0.3-R ④).
-      if(screen==='editor'&&added?.id&&project.leftOut){carriedNow(project,[`local:${added.id}`]);persist();}
+      await invoke<{id:string}>('image_library_import',{name:file.name.replace(/\.[^.]+$/,''),base64:btoa(binary),project:scope});
+      // Added to the library, a picture the board came without still stays out of what is sent: placing it is what sends it (0.3-R fix 5 #3).
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;

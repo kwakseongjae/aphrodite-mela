@@ -42,3 +42,17 @@ test('a save that lands as the time runs out closes the window once', async () =
   await wait(30);
   assert.equal(gone, 1);
 });
+
+/* 3: adding a picture to the image library does not let it go out with the board; only placing it does: a drop or a paste,
+   or pressing the picture to put it on the board. That is what the export's notice tells the person to do. */
+test('only placing a picture on the board takes it off the list, as the notice says; adding it to the library does not', () => {
+  const where = (at: number) => {
+    const fn = main.lastIndexOf('\nasync function ', at), named = main.slice(fn + 16, main.indexOf('(', fn + 16));
+    const kase = main.lastIndexOf("case '", at), label = main.slice(kase + 6, main.indexOf("'", kase + 6));
+    return named === 'putMedia' && main.indexOf('\n}\n', fn) > at ? 'putMedia' : label;
+  };
+  assert.deepEqual([...main.matchAll(/carriedNow\(/g)].map(m => where(m.index!)).sort(), ['apply-local', 'putMedia']);
+  const added = main.slice(main.indexOf("case 'local-import':"), main.indexOf("\n    case '", main.indexOf("case 'local-import':") + 20));
+  assert.doesNotMatch(added, /carriedNow|leftOut/);
+  assert.match(main, /To send one, put it on the board again\./, 'the notice asks for placing, which is what frees it');
+});

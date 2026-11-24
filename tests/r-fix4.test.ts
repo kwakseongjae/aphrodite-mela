@@ -9,8 +9,8 @@ const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 const sourceOf = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
 /* 1 (high): only the person's own hand takes a file off the list of what the board came without. Every place that does is one
-   of the person's three: a drop or a paste, pressing a library picture, and a picture the person adds to the library. Nothing
-   an agent runs does, and an agent's picture added to the library is answered with what the board holds back. */
+   of the person's own placing: a drop or a paste, or pressing a library picture (adding one to the library is not, fix 5 #3).
+   Nothing an agent runs does, and an agent's picture added to the library is answered with what the board holds back. */
 test('only the person\'s three ways take a file off the list; no agent command does', () => {
   const where = (at: number) => {
     const fn = main.lastIndexOf('\nasync function ', at), named = main.slice(fn + 16, main.indexOf('(', fn + 16));
@@ -18,7 +18,8 @@ test('only the person\'s three ways take a file off the list; no agent command d
     return named === 'putMedia' && main.indexOf('\n}\n', fn) > at ? 'putMedia' : label;
   };
   const sites = [...main.matchAll(/carriedNow\(/g)].map(m => where(m.index!));
-  assert.deepEqual(sites.sort(), ['apply-local', 'local-import', 'putMedia']);
+  // Adding a picture to the library frees nothing either (0.3-R fix 5 #3): only placing it does.
+  assert.deepEqual(sites.sort(), ['apply-local', 'putMedia']);
   const agent = main.slice(main.indexOf('async function runAgentCommand('), main.indexOf('\n}\n', main.indexOf('async function runAgentCommand(')));
   assert.doesNotMatch(agent, /carriedNow\(/, 'nothing an agent runs');
   for (const path of ['src/agent/apply.ts', 'src/agent/ops.ts', 'src/agent/bridge.ts', 'src/agent/contract.ts', 'mcp/aphrodite-mcp/tools.mjs']) assert.doesNotMatch(sourceOf(path), /carriedNow\(/, path);
