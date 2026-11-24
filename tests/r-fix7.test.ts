@@ -59,3 +59,9 @@ test('every close request is held and goes through the closer', () => {
   assert.ok(handler.indexOf('event.preventDefault();') > 0 && handler.indexOf('event.preventDefault();') < handler.indexOf('if(closing)return;'), 'held first, whatever the board');
   assert.doesNotMatch(handler, /if\(lastSaved[^)]*\)return;/, 'a saved board is not let through to close on its own');
 });
+
+/* 4: a board file whose write to the disk is refused says so as a notice, even over a request to edit. */
+test('a board file\'s refused disk write is one the person must not miss', () => {
+  const place = main.slice(main.indexOf('async function placeReadBoard('), main.indexOf('\n}\n', main.indexOf('async function placeReadBoard(')));
+  assert.match(place, /\/\* the not-saved warning says so \*\/\}throw error instanceof Unmissable\?error:new Unmissable\(error instanceof Error\?error\.message:String\(error\)\);\}/);
+});

@@ -558,7 +558,7 @@ async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   if(refused)throw new Error(refused);
   try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await bounded(flushDisk());}
   // Only this board comes out again: whatever else changed in the library meanwhile stays.
-  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error;}
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error instanceof Unmissable?error:new Unmissable(error instanceof Error?error.message:String(error));}
   // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
