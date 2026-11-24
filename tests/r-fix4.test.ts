@@ -62,3 +62,16 @@ test('the tool and the guide each say what the closing 423 and the held-back 403
   }
   assert.equal(typeof guideFor, 'function');
 });
+
+/* 5 (low): a refusal that names the board open now says it through MCP too, where only the error's words reach the agent. */
+import {refusalText} from '../mcp/aphrodite-mcp/tools.mjs';
+test('MCP passes on a refusal with the board that is open now, in its words', () => {
+  assert.equal(typeof refusalText, 'function', 'tools.mjs exports refusalText');
+  const said = refusalText({error: 'another board was opened while this open waited its turn, so it was not opened.', status: 409, open: {project_id: 'p-1', name: 'Shop "A"'}}, 409);
+  assert.match(said, /^another board was opened/);
+  assert.match(said, /Shop "A"/);
+  assert.match(said, /p-1/);
+  assert.equal(refusalText({error: 'plain'}, 409), 'plain');
+  assert.equal(refusalText({}, 500), 'Aphrodite refused that (HTTP 500).');
+  assert.match(sourceOf('mcp/aphrodite-mcp/index.mjs'), /return \{isError: true, text: refusalText\(payload, response\.status\)\};/);
+});

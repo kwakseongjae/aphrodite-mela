@@ -24,5 +24,7 @@ export declare const tools: Tool[];
 export declare const toolByName: Record<string, Tool>;
 export declare function toolManifest(): Omit<Tool, 'route' | 'params' | 'body'>[];
 export declare const FALLBACK_CALLER: string;
+/** A refusal as the agent reads it, with the board open now when the refusal names it. */
+export declare function refusalText(payload: {error?: string; status?: number; open?: unknown} | undefined, status: number): string;
 /** The client's own name from initialize, cleaned for the X-Aphrodite-Agent header. */
 export declare function callerName(clientInfo: {name?: unknown; version?: unknown} | undefined): string;

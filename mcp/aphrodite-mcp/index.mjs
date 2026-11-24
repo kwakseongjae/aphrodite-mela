@@ -14,7 +14,7 @@ import {createInterface} from 'node:readline';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {toolManifest, toolByName, callerName, FALLBACK_CALLER} from './tools.mjs';
+import {toolManifest, toolByName, callerName, FALLBACK_CALLER, refusalText} from './tools.mjs';
 import {promptManifest, promptByName} from './prompts.mjs';
 
 const NAME = 'aphrodite';
@@ -120,8 +120,8 @@ async function callTool(name, args) {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }
   if (!response.ok) {
-    // The app's refusals already explain themselves; pass them through unchanged.
-    return {isError: true, text: payload.error ?? `Aphrodite refused that (HTTP ${response.status}).`};
+    // The app's refusals explain themselves; passed through, with the board open now when one names it.
+    return {isError: true, text: refusalText(payload, response.status)};
   }
   // A document is meant to be read: returning the guide inside a JSON envelope would hand the model
   // a string with escaped newlines instead of prose. Everything else is data, and stays JSON.

@@ -28,6 +28,17 @@ export function callerName(clientInfo) {
  * routes live there, beside the grade and the controls of the same command, and this list is their
  * projection. A test fails if the two ever differ.
  */
+/**
+ * A refusal as the agent reads it: the app's own words, and the board open now when the refusal names it (0.3-R fix 4 #5),
+ * since only words reach an agent through MCP.
+ */
+export function refusalText(payload, status) {
+  const said = payload?.error ?? `Aphrodite refused that (HTTP ${status}).`;
+  const open = payload?.open;
+  if (!open || typeof open !== 'object' || typeof open.name !== 'string') return said;
+  return `${said} The board open now is "${open.name.slice(0, 200)}"${typeof open.project_id === 'string' ? ` (project_id ${open.project_id.slice(0, 200)})` : ''}.`;
+}
+
 export const tools = mcpTools();
 
 export const toolByName = Object.fromEntries(tools.map(t => [t.name, t]));
