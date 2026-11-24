@@ -51,3 +51,11 @@ test('a window that never goes gives everything back, said as refused; the pictu
   assert.match(place, /const until=Date\.now\(\)\+SAVE_LIMIT;for\(const pic of read\.pictures\)\{if\(Date\.now\(\)>=until\)\{missing\+\+;continue;\}try\{await bounded\(invoke\('image_library_import'.*?\),until-Date\.now\(\)\)/, 'one limit for all its pictures');
   assert.doesNotMatch(readFileSync(join(root, 'tests/r-fix6.test.ts'), 'utf8'), /destroy\\\(\\\)\)/, 'and no wait is let off the check');
 });
+
+/* 3: every close the system asks for is held and goes through the one closer, a saved board's too, and one asked while the
+   window is already going asks nothing more of it. */
+test('every close request is held and goes through the closer', () => {
+  const handler = main.slice(main.indexOf('onCloseRequested(async event=>{'), main.indexOf('\n      });', main.indexOf('onCloseRequested(async event=>{')));
+  assert.ok(handler.indexOf('event.preventDefault();') > 0 && handler.indexOf('event.preventDefault();') < handler.indexOf('if(closing)return;'), 'held first, whatever the board');
+  assert.doesNotMatch(handler, /if\(lastSaved[^)]*\)return;/, 'a saved board is not let through to close on its own');
+});

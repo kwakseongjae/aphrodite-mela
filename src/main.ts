@@ -2552,12 +2552,13 @@ async function boot(){
          request it holds is prevented, or the window would go on its own. */
       let closing=false;
       await getCurrentWindow().onCloseRequested(async event=>{
+        // Every close is held and goes through the one closer, a saved board's too (0.3-R fix 7 #3): one asked while the window
+        // is already going asks nothing more of it.
+        event.preventDefault();
         if(closing)return;
         // What is being typed is saved first, as when a board is left: a field still focused has not told lastSaved.
         saveTyping();
-        if(lastSaved&&!leaving&&!closer.busy())return;
-        event.preventDefault();
-        // The flag lets the destroy's own close through; a refused destroy lets go of it, so every close after it is held again.
+        // The flag marks the window as going; a refused destroy lets go of it, so the next close is asked again.
         await closer.request(async()=>{closing=true;try{await getCurrentWindow().destroy();}catch(error){closing=false;throw error;}}).catch(error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)));
       });
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
