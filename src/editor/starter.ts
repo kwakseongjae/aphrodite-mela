@@ -6,7 +6,7 @@
  * leave it out, as they leave out `leftOut`. A board without it (an older one, one received without it, the sample)
  * hides nothing.
  */
-import {initialProject, type Page, type Project} from '../model';
+import {currentPage, initialProject, type Page, type Project} from '../model';
 import {clip} from '../text';
 import {frameWidth, nextFramePosition, type FrameLayout, type FramePreset, type Space} from './space';
 
@@ -28,6 +28,15 @@ export function visiblePages(project: Pick<Project, 'pages' | 'starter'>): Page[
 /** The one condition the section tools are shown on: a section page the person can see. */
 export function hasSectionPage(project: Pick<Project, 'pages' | 'starter'>): boolean {
   return visiblePages(project).some(p => p.kind === undefined);
+}
+/** What the screen means by "this page" (preview, export): the open page when it shows, else the first that does. The board's open page is left as it is. */
+export function shownPage(project: Pick<Project, 'pages' | 'starter' | 'activePageId'>): Page {
+  const open = currentPage(project as Project);
+  return isStarterPage(project, open) ? visiblePages(project)[0] ?? open : open;
+}
+/** The page to open once the open one is gone: the first the board shows, else the first there is. */
+export function firstShown(project: Pick<Project, 'pages' | 'starter'>): Page {
+  return visiblePages(project)[0] ?? project.pages[0];
 }
 /** The board as placing the next item reads it: every frame but the starter's, which is not there to the eye. */
 export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'space'>): Space {

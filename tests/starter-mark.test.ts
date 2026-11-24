@@ -12,7 +12,7 @@ import {runBatch} from '../src/agent/apply.ts';
 import {begin, end, newHistory, stepForScreen, type History} from '../src/ledger/session.ts';
 import {compact} from '../src/ledger/ledger.ts';
 import {ensureSpace} from '../src/editor/space.ts';
-import {newBoard, isStarterPage, visiblePages, hasSectionPage} from '../src/editor/starter.ts';
+import {newBoard, isStarterPage, visiblePages, hasSectionPage, shownPage, firstShown} from '../src/editor/starter.ts';
 import type {Author} from '../src/ledger/types.ts';
 import {readBoardFile, writeBoardFile} from '../src/board-file.ts';
 import {cloneProject} from '../src/workspace/library.ts';
@@ -153,4 +153,24 @@ test('a starter that shows where nothing else is stays where it was', () => {
   const h = newHistory(), p = opened(newBoard('Empty'));
   edit(h, p, q => { q.pages[0].blocks.push(makeBlock('hero')); });
   assert.deepEqual([p.space!.frames[p.pages[0].id].x, p.space!.frames[p.pages[0].id].y], [0, 0]);
+});
+
+test('preview and export mean the page the board shows: the open one when it shows, else the first that does', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  assert.equal(shownPage(p).id, p.pages[0].id, 'an empty board has only its hidden page to mean');
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+  assert.equal(p.activePageId, p.pages[0].id, 'making a page does not open it: the hidden page is still the open one');
+  assert.equal(shownPage(p).name, 'Briefing', 'the page on the board is the one previewed and exported');
+  assert.equal(p.activePageId, p.pages[0].id, 'and the board\'s open page is left as it is');
+});
+
+test('deleting a page opens the first page the board shows, not the hidden one', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'One', html: PAGE}, {op: 'html_page', name: 'Two', html: PAGE}]});
+  edit(h, p, q => { q.activePageId = q.pages[1].id; });
+  edit(h, p, q => { q.pages = q.pages.filter(x => x.id !== q.activePageId); q.activePageId = firstShown(q).id; });
+  assert.equal(p.pages.find(x => x.id === p.activePageId)!.name, 'Two');
+  assert.equal(p.starter, p.pages[0].id, 'opening another page leaves the hidden one hidden');
 });
