@@ -88,6 +88,7 @@ import {
   WandSparkles,
   X,
   RotateCw,
+  Unplug,
 } from 'lucide';
 
 export const icons = {
@@ -178,6 +179,7 @@ export const icons = {
   ToggleRight,
   Trash2,
   Upload,
+  Unplug,
   WandSparkles,
   X,
 };

@@ -28,7 +28,7 @@ const pins:Record<string,{colours:number,sizes:number,set:string}>={
   'design/studio.css':{colours:0,sizes:11,set:'1590246b'},
   'editor/pointer-editor.css':{colours:0,sizes:2,set:'83ba3aab'},
   'reference.css':{colours:0,sizes:7,set:'0d8ba2d0'},
-  'style.css':{colours:131,sizes:19,set:'8f65a5fc'},
+  'style.css':{colours:0,sizes:18,set:'da9bb4be'},
   'workspace/vault.css':{colours:0,sizes:0,set:'0e7d07ee'},
 };
 

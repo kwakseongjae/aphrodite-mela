@@ -36,3 +36,47 @@
 .ui-modal .export-contents > span { display: inline-flex; align-items: center; gap: var(--ui-space-1); }
 .ui-modal .export-fine { margin: var(--ui-space-2) 0 0; }
 .ui-modal .export-actions { flex-wrap: wrap; }
+
+/* The left panel: the board's name and where it is saved, the search, this board's pages, the section tools, and the drop hint at its foot. */
+.ui-side.library .panel-home { display: inline-flex; flex-shrink: 0; align-self: flex-start; margin-top: var(--ui-space-1); border-radius: var(--ui-radius-1); }
+.ui-side.library .panel-home img { display: block; width: var(--ui-icon-20); height: var(--ui-icon-20); }
+.ui-side.library .panel-project { appearance: none; display: inline-flex; align-self: flex-start; justify-content: flex-start; align-items: center; gap: var(--ui-space-1); max-width: 100%; padding: 0; border: 0; background: none; color: var(--ui-text-1); font-family: inherit; text-align: left; cursor: default; }
+.ui-side.library .panel-project > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-side.library .panel-project > .ui-icon { flex-shrink: 0; color: var(--ui-text-2); }
+.ui-side.library .panel-save.warning > .ui-icon { color: var(--ui-warn-text); }
+.ui-side.library .panel-search-row { flex-shrink: 0; padding: var(--ui-space-3) var(--ui-space-3) 0; }
+.ui-side.library .section-label { flex-shrink: 0; padding: var(--ui-space-4) var(--ui-space-2) var(--ui-space-1) var(--ui-space-4); }
+.ui-side.library .pages-list { flex-shrink: 0; max-height: calc(var(--ui-control-md) * 6); overflow: auto; padding: 0 var(--ui-space-2) var(--ui-space-2); }
+.ui-side.library .page-row { display: flex; align-items: center; gap: var(--ui-space-1); }
+.ui-side.library .page-row > .ui-row { flex: 1 1 auto; min-width: 0; }
+.ui-side.library .library-tabs { flex-shrink: 0; border-top: var(--ui-hairline) solid var(--ui-line); }
+.ui-side.library .library-bottom { flex-shrink: 0; align-items: center; }
+.ui-side.library .library-bottom > .ui-icon { flex-shrink: 0; color: var(--ui-text-2); }
+.ui-side.library .library-drop { flex: 1 1 auto; min-width: 0; }
+
+/* The strips over the board: connected, agent mode, a save that did not reach the disk. */
+.ui-strip.connect-banner, .ui-strip.agent-banner { position: relative; z-index: 70; flex-shrink: 0; }
+.ui-strip.disk-warning { flex-shrink: 0; }
+.ui-strip code { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); color: var(--ui-text-2); }
+.ui-strip b { font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
+.ui-strip .ui-strip-changes b { color: inherit; }
+.ui-strip .connect-sep, .ui-strip .agent-banner-sep { color: var(--ui-text-2); }
+.ui-strip .connect-note, .ui-strip .agent-banner-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-strip.disk-warning > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-strip .disk-warning-actions { display: flex; gap: var(--ui-space-2); }
+.ui-strip .ui-btn > .ui-kbd { margin-left: var(--ui-space-1); }
+
+/* The agent connection dialog. */
+.ui-modal .connect-lead { margin: 0 0 var(--ui-space-4); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-2); word-break: keep-all; }
+.ui-modal .connect-switch { display: flex; align-items: center; gap: var(--ui-space-4); padding: var(--ui-space-4); }
+.ui-modal .connect-switch > div { flex: 1 1 auto; min-width: 0; }
+.ui-modal .connect-switch strong { display: block; font-size: var(--ui-text-13); line-height: var(--ui-lh-13); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
+.ui-modal .connect-switch small { display: block; margin-top: var(--ui-space-1); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-modal .connect-allowed { margin: var(--ui-space-3) 0 0; padding: 0; list-style: none; }
+.ui-modal .connect-allowed li { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); padding: var(--ui-space-2) var(--ui-space-2) var(--ui-space-2) var(--ui-space-4); }
+.ui-modal .connect-allowed li + li { border-top: var(--ui-hairline) solid var(--ui-line); }
+.ui-modal .connect-allowed li > span { display: flex; align-items: baseline; gap: var(--ui-space-2); min-width: 0; }
+.ui-modal .connect-allowed strong { font-size: var(--ui-text-13); font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
+.ui-modal .connect-allowed code { font-family: var(--ui-font-mono); font-size: var(--ui-text-12); color: var(--ui-text-2); }
+.ui-modal .connect-mode-note { margin: var(--ui-space-4) 0 0; }
+.ui-modal-body > details { margin: var(--ui-space-4) 0 0; font-size: var(--ui-text-13); color: var(--ui-text-2); }
