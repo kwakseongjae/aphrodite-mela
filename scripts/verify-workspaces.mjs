@@ -269,7 +269,8 @@ check('with the hidden page still the open one, export offers the agent\'s page 
 });
 check('a section the agent adds to the open page shows that page beside the agent\'s, not under it', async () => {
   await sleep(5300);
-  const added = await agent('apply', {reason: 'verify-workspaces: a section on the open page.', base_revision: (await agent('changes', {limit: 1})).revision, ops: [{op: 'add', component_kind: 'hero'}]});
+  // No base_revision: a batch sent with one names its page, and this one goes to the page open, the hidden one.
+  const added = await agent('apply', {reason: 'verify-workspaces: a section on the open page.', ops: [{op: 'add', component_kind: 'hero'}]});
   assert.equal(added.ok, true, JSON.stringify(added));
   await sleep(800);
   assert.equal(await sideBySide(), true);
