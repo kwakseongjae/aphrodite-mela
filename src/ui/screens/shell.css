@@ -43,6 +43,10 @@
 .ui-modal .export-contents > span { display: inline-flex; align-items: center; gap: var(--ui-space-1); }
 .ui-modal .export-fine { margin: var(--ui-space-2) 0 0; }
 .ui-modal .export-actions { flex-wrap: wrap; }
+/* A board with no section page: the open page as one HTML file, and the board as one file. */
+.ui-modal .export-choices { display: grid; gap: var(--ui-space-3); }
+.ui-modal .export-choices > .export-page { margin: 0; }
+.ui-modal .export-board { display: grid; grid-template-columns: var(--ui-control-md) minmax(0, 1fr); column-gap: var(--ui-space-3); align-items: start; padding: var(--ui-space-4); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); }
 
 /* The left panel: the board's name and where it is saved, the search, this board's pages, the section tools, and the drop hint at its foot. */
 .ui-side.library .panel-home { display: inline-flex; flex-shrink: 0; align-self: flex-start; margin-top: var(--ui-space-1); border-radius: var(--ui-radius-1); }
