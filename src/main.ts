@@ -107,7 +107,7 @@ import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
 import {DurableQueue} from './workspace/durable';
-import {windowCloser,SAVE_LIMIT,StillSaving,type CloseAnswer} from './workspace/closing';
+import {windowCloser,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
 let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
 /* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
    written to disk: stamping a fresh empty store over the situation is exactly what we are here to
@@ -492,7 +492,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
   });
 }
 /** A wait in the line of leavings, given the time a save is (0.3-R fix 6 #2): past it the turn gives up, and the editor takes input again. */
-async function bounded<T>(wait:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([wait,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Unmissable(ui(`It did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the screen is yours again; it may still finish.`,`${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 화면을 돌려드립니다. 곧 끝날 수도 있습니다.`))),SAVE_LIMIT);})]);}finally{clearTimeout(timer);}}
+async function bounded<T>(wait:Promise<T>,ms=SAVE_LIMIT,late:()=>Error=()=>new Unmissable(ui(`It did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the screen is yours again; it may still finish.`,`${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 화면을 돌려드립니다. 곧 끝날 수도 있습니다.`))):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([wait,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(late()),Math.max(0,ms));})]);}finally{clearTimeout(timer);}}
 /**
  * Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing.
  * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
@@ -507,7 +507,7 @@ async function bounded<T>(wait:Promise<T>):Promise<T>{let timer:ReturnType<typeo
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await destroy();return true;});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -563,7 +563,7 @@ async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
   let missing=0;
-  if(nativeDesktop){for(const pic of read.pictures){try{await bounded(invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}));}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  if(nativeDesktop){const until=Date.now()+SAVE_LIMIT;for(const pic of read.pictures){if(Date.now()>=until){missing++;continue;}try{await bounded(invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}),until-Date.now());}catch{missing++;}}if(read.pictures.length)forgetLocal();}
   else missing=read.pictures.length;
   return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
 }

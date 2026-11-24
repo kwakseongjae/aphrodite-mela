@@ -14,14 +14,19 @@ export class StillSaving extends Error {}
 export class WindowRefused extends Error {}
 /** How long a close waits for the save before it asks. */
 export const SAVE_LIMIT=10_000;
-export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void|boolean>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT):WindowCloser{
+/** `goLimit`: how long the window is given to go once asked; past it the close is over and said as refused (0.3-R fix 7 #2). */
+export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void|boolean>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT,goLimit=SAVE_LIMIT):WindowCloser{
   let run:Promise<void>|undefined;
   return{
     request(destroy){if(run)return run;
       run=(async()=>{
         let late=false,saved=false,timer:ReturnType<typeof setTimeout>|undefined;
         // The window's going is asked for once, whoever asks for it (0.3-R fix 5 #2).
-        let going:Promise<void>|undefined;const go=()=>going??=destroy().catch(error=>{throw new WindowRefused(error instanceof Error?error.message:String(error));});
+        let going:Promise<void>|undefined;
+        const go=()=>going??=(async()=>{let stop:ReturnType<typeof setTimeout>|undefined;
+          try{await Promise.race([destroy(),new Promise<never>((_,reject)=>{stop=setTimeout(()=>reject(new WindowRefused(`the window did not close in ${Math.round(goLimit/1000)} seconds`)),goLimit);})]);}
+          catch(error){throw error instanceof WindowRefused?error:new WindowRefused(error instanceof Error?error.message:String(error));}
+          finally{clearTimeout(stop);}})();
         const timeUp=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{late=true;reject(new StillSaving(`the save did not finish in ${Math.round(limit/1000)} seconds`));},limit);});
         // `answered` tells a close whose turn comes after its time is up that the person has been asked: it does nothing then (0.3-R fix 3 #8).
         // A close that saved says so (true), whether or not its time was up by then.

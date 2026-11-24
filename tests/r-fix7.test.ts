@@ -33,3 +33,21 @@ test('nothing in the app removes a file placed in board-media', () => {
   }
   assert.match(main, /\}finally\{await frameHost\.releaseMedia\(staged\)\.catch\(\(\)=>\{\}\);\}/);
 });
+
+/* 2: what holds the editor or the close is bounded as a whole: the image library's pictures of a board file share one limit,
+   and a window that does not go when asked (closing, or restarting) gives the screen back and is said as refused. */
+import {windowCloser, WindowRefused, type CloseAnswer} from '../src/workspace/closing.ts';
+test('a window that never goes gives everything back, said as refused; the pictures of a board file share one limit', async () => {
+  const never = () => new Promise<void>(() => {});
+  const prompt = windowCloser(async destroy => { await destroy(); return true; }, async (): Promise<CloseAnswer> => 'discard', async () => false, 1_000, 30);
+  await assert.rejects(prompt.request(never), WindowRefused);
+  assert.equal(prompt.busy(), false, 'a close that went nowhere is over');
+  const asked = windowCloser(() => new Promise(() => {}), async (): Promise<CloseAnswer> => 'discard', async () => false, 20, 30);
+  await assert.rejects(asked.request(never), WindowRefused, 'Close without saving too');
+  assert.equal(asked.busy(), false);
+  const close = main.slice(main.indexOf('function closeWindow('), main.indexOf('\n', main.indexOf('function closeWindow(')));
+  assert.match(close, /await bounded\(destroy\(\),SAVE_LIMIT,\(\)=>new WindowRefused\(/, 'the close\'s own turn waits for the window a bounded time');
+  const place = main.slice(main.indexOf('async function placeReadBoard('), main.indexOf('\n}\n', main.indexOf('async function placeReadBoard(')));
+  assert.match(place, /const until=Date\.now\(\)\+SAVE_LIMIT;for\(const pic of read\.pictures\)\{if\(Date\.now\(\)>=until\)\{missing\+\+;continue;\}try\{await bounded\(invoke\('image_library_import'.*?\),until-Date\.now\(\)\)/, 'one limit for all its pictures');
+  assert.doesNotMatch(readFileSync(join(root, 'tests/r-fix6.test.ts'), 'utf8'), /destroy\\\(\\\)\)/, 'and no wait is let off the check');
+});

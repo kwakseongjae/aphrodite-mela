@@ -60,7 +60,7 @@ test('nothing that holds the editor waits without a time limit', () => {
     for (const call of body.matchAll(/^\s*(?:async\s*)?\(\)=>(\w+)\(/g)) held.push({where: call[1], body: fnBody(call[1])});
   }
   assert.ok(held.length >= 10, `found ${held.length}`);
-  const allowed = /^await (?:within\(|bounded\(|go\(\)|destroy\(\)|new Promise\(r=>setTimeout\(r,\d)/;
+  const allowed = /^await (?:within\(|bounded\(|go\(\)|new Promise\(r=>setTimeout\(r,\d)/;
   const unbounded = held.flatMap(h => [...h.body.matchAll(/await [^;]{0,40}/g)].filter(w => !allowed.test(w[0])).map(w => `${h.where}: ${w[0]}`));
   assert.deepEqual(unbounded, []);
   const open = fnBody('openBoardFileNow');
