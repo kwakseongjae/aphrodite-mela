@@ -104,5 +104,5 @@ test('every way a board goes out holds back what it came without, and every way 
   assert.match(main, /exportPage\(pageSource\(page\),choice,go\.host\),name,go\.host\)/, 'the page, and the videos beside it');
   assert.match(main, /exportPage\(pageSource\(page\), exportChoice, outgoing\(project, frameHost\)\.host/, 'and the page the export window shows');
   assert.equal((main.match(/carriedNow\(project,Object\.values\(media\)/g) ?? []).length, 1, 'a drop or paste; an agent\'s media_add never (0.3-R fix 3 #7)');
-  assert.equal((main.match(/carriedNow\(project,\[`local:/g) ?? []).length, 2, 'a picture the person or an agent adds to the library');
+  assert.equal((main.match(/carriedNow\(project,\[`local:/g) ?? []).length, 1, 'a picture the person adds to the library; an agent\'s never (0.3-R fix 4 #1)');
 });

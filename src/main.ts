@@ -2178,16 +2178,18 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
       }
       case 'library':{
         if(!nativeDesktop)return {error:'the image library is desktop only'};
+        // An agent's picture added to the library never takes it off the list of what the board came without (0.3-R fix 4 #1): the answer says so.
+        let held:string|undefined;
         const scope=c.scope==='project'?project.id:undefined;
         if(c.action==='delete'){try{await invoke('image_library_delete',{id:c.id,project:project.id});}catch(error){return {error:String(error)};}forgetLocal(c.id);recordRun('agent:library-delete',{id:c.id},d);}
-        if(c.action==='import'){try{const added=await invoke<{id:string}>('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});if(added?.id&&project.leftOut){carriedNow(project,[`local:${added.id}`]);persist();}}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope},d);}
+        if(c.action==='import'){try{const added=await invoke<{id:string}>('image_library_import',{name:c.name,base64:(c.base64??'').replace(/\s+/g,''),project:scope});if(added?.id){const kept=heldFromAgent(project,`local:${added.id}`);if(kept)held=kept;}}catch(error){return {error:String(error)};}recordRun('agent:library-import',{name:c.name,scope:c.scope},d);}
         // Listing is a read: it must not redraw the screen under the person's hands.
         if(c.action==='list'){await loadLocalLibrary(true);}else{forgetLocal();await loadLocalLibrary(true);refreshLibraryPanel();render();}
         /* The fifty photographs the app ships with are in the person's picker but were invisible
            here, so an agent asked to place a picture could only see whatever happened to be in the
            local folder — two demo files, in the run that found this. They are read-only and carry
            a `sample:` id rather than a file id, which is also what `add`/`update` accept as image. */
-        return {ok:true,dir:localLibrary?.dir??'',
+        return {ok:true,...(held?{held_back:held}:{}),dir:localLibrary?.dir??'',
           images:[
             ...readableImages(localLibrary).map(i=>({id:i.id,scope:i.scope,name:i.name,width:i.width,height:i.height,mime:i.mime})),
             ...sampleImages.map(sm=>({id:`sample:${sm.id}`,scope:'sample' as const,name:uiLanguage==='ko'?sm.ko:sm.en,category:sm.category,wide:sm.wide,mime:'image/webp'})),
