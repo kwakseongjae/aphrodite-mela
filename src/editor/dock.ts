@@ -30,6 +30,11 @@ export const dockGroups:readonly DockGroup[]=[
   ]},
 ];
 
+/** The tools that work on sections (0.3-L4b): without a section page on the board they are not on the dock, and their keys do nothing. */
+export const sectionTools:ReadonlySet<string>=new Set(['add','reference','vibe']);
+/** The groups as the dock shows them: with no section page, the section tools are left out, and a group left empty goes. */
+function shownGroups(sections:boolean):readonly DockGroup[]{return sections?dockGroups:dockGroups.map(g=>({...g,items:g.items.filter(i=>!sectionTools.has(i.id))})).filter(g=>g.items.length);}
+
 /** Flat list of every dock item. Other modules and `dockShortcut` still read this. */
 export const dockTools:readonly DockItem[]=dockGroups.flatMap(g=>g.items);
 
@@ -83,9 +88,9 @@ function zoomMenu(ko:boolean){
   return `<div class="dock-menu ui-menu" role="menu" data-group="zoom">${items}</div>`;
 }
 
-export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number;openGroup?:string}):string{
+export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number;openGroup?:string;sections?:boolean}):string{
   const ko=state.language==='ko';
-  const tools=dockGroups.map(group=>{
+  const tools=shownGroups(state.sections??true).map(group=>{
     const current=currentItem(group,state.activeTool);
     const open=state.openGroup===group.id;
     const caret=group.items.length>1?caretButton(group.id,open,ko):'';
@@ -98,9 +103,9 @@ export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:st
 }
 
 /** Maps a bare key press (no modifiers, outside inputs) to a dock tool or mode. Returns null when unmapped. */
-export function dockShortcut(key:string):{tool?:DockTool;mode?:EditorMode}|null{
+export function dockShortcut(key:string,sections=true):{tool?:DockTool;mode?:EditorMode}|null{
   const k=key.toUpperCase();
-  const tool=dockTools.find(t=>t.key===k);if(tool)return {tool};
+  const tool=dockTools.find(t=>t.key===k&&(sections||!sectionTools.has(t.id)));if(tool)return {tool};
   const mode=editorModes.find(m=>modeCopy[m].key===k);if(mode)return {mode};
   return null;
 }

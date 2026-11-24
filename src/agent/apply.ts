@@ -14,6 +14,7 @@ import {patternVariants} from '../patterns';
 import {sampleSrc} from '../design/sample-images';
 import {localRef} from '../design/local-images';
 import {ensureSpace, framePresets, nextFramePosition} from '../editor/space';
+import {placementSpace} from '../editor/starter';
 import {applyPatch, PatchError, type PatchOp} from '../ledger/patch';
 import {designOf, LEDGER_RESERVE} from '../ledger/ledger';
 import {unknownValue} from './errors';
@@ -26,7 +27,8 @@ import {commandById, type Surface} from './commands.mjs';
  * `designChars` is how long the resulting design serializes to, for measuring what saving takes.
  */
 export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
-type Focus = {selected: string; created: string[]};
+/** `ledger` is the board's, read only to tell its untouched starter page (src/editor/starter.ts): the batch works on the design alone. */
+type Focus = {selected: string; created: string[]; ledger?: Project['ledger']};
 
 /** A free page's html, written by an op: held to what a page may store, or an error sentence. */
 function setHtml(target: Page, html: string): string | undefined {
@@ -49,7 +51,7 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
     if (refused) return refused;
     ensureSpace(project);
     project.pages.push(created);
-    const frame = nextFramePosition(project.space!, op.width === undefined ? 'desktop' : 'custom', op.width);
+    const frame = nextFramePosition(placementSpace({...project, ledger: focus.ledger}), op.width === undefined ? 'desktop' : 'custom', op.width);
     project.space!.frames[created.id] = op.height === undefined ? frame : {...frame, height: op.height};
     focus.created.push(created.id);
     return undefined;
@@ -85,7 +87,7 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
   const created: Page = {id: uid(), name: clip(name, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
-  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(project.space!, 'desktop'));
+  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(placementSpace({...project, ledger: focus.ledger}), 'desktop'));
   focus.created.push(created.id);
   return undefined;
 }
@@ -166,7 +168,7 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
     const created: Page = {id: uid(), name: op.name, blocks: []};
     project.pages.push(created);
     focus.created.push(created.id);
-    project.space!.frames[created.id] = nextFramePosition(project.space!, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
+    project.space!.frames[created.id] = nextFramePosition(placementSpace({...project, ledger: focus.ledger}), op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
     project.activePageId = created.id;
     return undefined;
   }
@@ -209,7 +211,7 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
 
 function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia>, places: Record<number, {x: number; y: number}>): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
-  const focus: Focus = {selected, created: []};
+  const focus: Focus = {selected, created: [], ledger: project.ledger};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};

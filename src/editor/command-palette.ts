@@ -6,9 +6,13 @@ import type {Language} from '../i18n';
 /** One entry of the in-app command palette. `action`/`data` map 1:1 to the existing data-action dispatcher. */
 export type Command={id:string;action:string;data?:Record<string,string>;en:string;ko:string;group:'navigate'|'add'|'edit'|'design'|'review'|'file';keys?:string;hint?:{en:string;ko:string};keywords?:string[];related?:boolean};
 
-export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[]};
+export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean};
+
+/** The rows that work on sections (0.3-L4b): left out while the board has no section page, like their dock buttons. */
+const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference','moa']);
 
 export function commandTable(ctx:PaletteContext):Command[]{
+  const sections=ctx.sections??true;
   const kinds=ctx.kinds??catalog;
   const add:Command[]=kinds.filter(c=>!c.kind.startsWith('moa')).map(c=>({id:`add-${c.kind}`,action:'add',data:{kind:c.kind},en:`Add ${c.name}`,ko:`${c.name} 추가`,group:'add' as const}));
   const base:Command[]=[
@@ -42,6 +46,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'content-language',action:'language-settings',en:'Content language settings',ko:'콘텐츠 언어 설정',group:'file'},
     {id:'tour',action:'tour-start',en:'Show the editor tour again',ko:'에디터 둘러보기 다시 보기',group:'navigate'},
     {id:'welcome',action:'welcome-show',en:'Show the welcome sheet again',ko:'환영 화면 다시 보기',group:'navigate'},
+    {id:'archive',action:'tab',data:{tab:'archive'},en:'Open the Archive (saved references)',ko:'Archive 열기 (모아 둔 레퍼런스)',group:'file',keywords:['archive','아카이브','레퍼런스','참고']},
     ...(ctx.pages??[]).filter(p=>!p.active).map(p=>({id:`frame-${p.id}`,action:'page',data:{id:p.id,nav:'fit'},en:`Go to frame · ${p.name}`,ko:`프레임으로 이동 · ${p.name}`,group:'navigate' as const,keywords:['프레임','페이지']})),
     {id:'desktop',action:'desktop',en:'Desktop viewport',ko:'데스크톱 뷰포트',group:'review',hint:ctx.viewport==='desktop'?{en:'current',ko:'현재'}:undefined},
     {id:'mobile',action:'mobile',en:'Mobile viewport (390px)',ko:'모바일 뷰포트 (390px)',group:'review',hint:ctx.viewport==='mobile'?{en:'current',ko:'현재'}:undefined},
@@ -57,7 +62,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'move-up',action:'move-up',en:'Move selected component up',ko:'선택한 컴포넌트 위로',group:'edit',keys:'⌥↑'},
     {id:'move-down',action:'move-down',en:'Move selected component down',ko:'선택한 컴포넌트 아래로',group:'edit',keys:'⌥↓'},
   );
-  return [...base,...add];
+  return sections?[...base,...add]:base.filter(c=>!sectionCommands.has(c.id));
 }
 
 export function normalizeQuery(s:string){return s.normalize('NFC').toLowerCase().replace(/[\s·\-_]/g,'');}
