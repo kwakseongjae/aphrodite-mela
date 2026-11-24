@@ -168,6 +168,126 @@ check('an agent cannot put the approval back with redo, nor take it away with un
   assert.equal(await approval(), 'approved');
 });
 
+
+/* 0.3-R ①: an approval is the person's. A patch that puts the content back after a change leaves the board a draft. */
+check('Codex route 1: a patch that puts the brief back after a change leaves the approved board a draft', async () => {
+  assert.equal(await approval(), 'approved', 'the person approved it above');
+  const was = (await agent('contract', {format: 'detailed'})).project.brief;
+  for (const value of ['A brief the agent tried', was]) {
+    const r = await agent('apply', {reason: WHY, patch: [{op: 'set', on: 'project', field: 'brief', value}]});
+    assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+    assert.equal(await approval(), 'draft', `after the brief became ${JSON.stringify(value)}`);
+  }
+  assert.equal((await agent('contract')).project.approved, false);
+});
+
+/* 0.3-R ②: the revision binds the board and its frames as well as the design. */
+const library = () => evaluate(`JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.map(e => ({id: e.project.id, name: e.project.name}))`);
+check('a revision read on one board is refused on a copy with the same design (409, nothing changes)', async () => {
+  const a = await agent('contract');
+  const id = a.project.project_id, name = a.project.name, revision = a.revision;
+  await pressDoor('home');
+  await sleep(400);
+  await pressDoor('hub-duplicate', {id});
+  await sleep(300);
+  const copy = (await library()).find(e => e.id !== id && e.name === `${name} copy`);
+  assert.ok(copy, 'the person duplicated it');
+  await pressDoor('hub-rename', {id: copy.id});
+  await sleep(250);
+  assert.equal(await personSubmits('#hub-rename-form', {name}), true);
+  await sleep(300);
+  await pressDoor('hub-open', {id: copy.id});
+  await sleep(500);
+  const b = await agent('contract');
+  assert.equal(b.project.project_id, copy.id, 'the copy is open');
+  assert.deepEqual([b.project.name, b.pages.map(p => p.page_id)], [name, a.pages.map(p => p.page_id)], 'with the same name and the same pages');
+  await sleep(5_200);
+  const {seq} = await agent('changes', {limit: 1});
+  const refused = await agent('apply', {reason: WHY, base_revision: revision, patch: [{op: 'set', on: 'project', field: 'brief', value: 'Meant for the other board'}]});
+  assert.equal(refused.status, 409, JSON.stringify(refused).slice(0, 300));
+  assert.equal((await agent('changes', {limit: 1})).seq, seq, 'nothing changed');
+  assert.notEqual((await agent('contract', {format: 'detailed'})).project.brief, 'Meant for the other board');
+  // The copy keeps the history it was made from, so A's revision is in it: the 409 lists what changed since (the rename).
+  assert.ok(refused.changes.some(c => c.source === 'home:rename'), JSON.stringify(refused.changes).slice(0, 300));
+  const unknown = await agent('changes', {since: 'r2:0:0:0'});
+  assert.deepEqual([unknown.unknown_since, unknown.changes.length], [true, 0], 'a revision no history here holds is said to be unknown, with no changes');
+});
+
+check('a revision read before the person resized a frame is refused (409, nothing changes)', async () => {
+  const {revision} = await agent('contract');
+  // The frame's size menu, with the person's own mouse; a window wide enough for the menu to open on screen.
+  await send('Emulation.setDeviceMetricsOverride', {width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false});
+  await sleep(300);
+  const mouse = async selector => {
+    const p = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.scrollIntoView({block: 'center', inline: 'center'}); const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; return el.contains(document.elementFromPoint(x, y)) ? {x, y} : null; })()`);
+    assert.ok(p, `${selector} is on screen and nothing covers it`);
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+    await sleep(300);
+  };
+  await mouse('.space-frame.active details.menu-select summary');
+  await mouse('.space-frame.active .menu-select-list [data-value="mobile"]');
+  await send('Emulation.clearDeviceMetricsOverride');
+  const after = await agent('contract');
+  assert.equal(after.pages[0].frame.preset, 'mobile', 'the person resized the frame');
+  assert.notEqual(after.revision, revision);
+  await sleep(5_200);
+  const {seq} = await agent('changes', {limit: 1});
+  const page_id = after.pages[0].page_id;
+  const refused = await agent('apply', {reason: WHY, base_revision: revision, page_id, ops: [{op: 'frame', preset: 'desktop'}]});
+  assert.equal(refused.status, 409, JSON.stringify(refused).slice(0, 300));
+  assert.equal((await agent('changes', {limit: 1})).seq, seq, 'nothing changed');
+  assert.equal((await agent('contract')).pages[0].frame.preset, 'mobile');
+  const sent = await agent('apply', {reason: WHY, base_revision: refused.revision, page_id, ops: [{op: 'frame', preset: 'desktop'}]});
+  assert.ok(sent.ok, `sent again with the revision the 409 gave, it lands: ${JSON.stringify(sent).slice(0, 300)}`);
+  assert.equal(sent.receipt.savedRevision, sent.revision, 'the receipt and the reply name the same revision');
+  const last = (await agent('changes', {since: sent.seq - 1})).changes.at(-1);
+  assert.equal(last.revision, sent.revision, 'and so does the ledger');
+});
+
+/* 0.3-R fix 1 #12: an edit and a system change written against the revision read before the person typed are refused,
+   and change nothing: the person's words are saved first, as their own change, and the revision then is not the one read.
+   Each call meets words of its own not yet saved (fix 2 #12), so taking out either late check fails this. */
+check('edit and system sent with the revision read before the person typed are refused with a 409, and the board keeps what they typed', async () => {
+  await send('Emulation.clearDeviceMetricsOverride');
+  await sleep(5_200);
+  const added = await agent('apply', {reason: WHY, ops: [{op: 'add', component_kind: 'hero'}]});
+  assert.ok(added.ok, JSON.stringify(added).slice(0, 200));
+  const block = added.receipt.changedNodes[0]?.id;
+  assert.ok(block, 'a block to edit');
+  const system = (await agent('contract')).system.id;
+  // Each call starts from its own revision and words typed after it and not yet saved (0.3-R fix 2 #12): the one before it
+  // has saved the earlier words, so only the check made after the commit can refuse each.
+  for (const [kind, payload, words] of [['edit', {reason: WHY, blockId: block, field: 'title', text: 'Agent title'}, ' typed'], ['system', {reason: WHY, id: system === 'toss' ? 'mono' : 'toss'}, ' again']]) {
+    await pressDoor('select', {id: block});
+    await sleep(300);
+    const {revision} = await agent('changes', {limit: 1});
+    assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
+    await send('Input.insertText', {text: words});
+    await sleep(5_200);
+    const r = await agent(kind, {...payload, base_revision: revision});
+    assert.equal(r.status, 409, `${kind}: ${JSON.stringify(r).slice(0, 200)}`);
+  }
+  const after = await agent('contract');
+  assert.equal(after.system.id, system, 'the system is as it was');
+  assert.match(await evaluate(`document.querySelector('[data-block-id="${block}"]')?.textContent ?? ''`), /typed again/, 'and the title is what the person typed');
+});
+
+/* 0.3-R ③: the desktop cannot save half of a surrogate pair on its own, and a refused write holds up every write after it. */
+check('an agent\'s text holding half of a surrogate pair is refused on its value, wherever it is, and nothing changes', async () => {
+  const {seq} = await agent('changes', {limit: 1});
+  for (const [kind, payload] of [
+    ['apply', {reason: WHY, patch: [{op: 'set', on: 'project', field: 'brief', value: 'a \ud800 b'}]}],
+    ['apply', {reason: 'Why \udc00', ops: [{op: 'add', component_kind: 'hero'}]}],
+    ['edit', {reason: WHY, field: 'title', text: 'x\ud83d'}],
+    ['system', {reason: WHY, tokens: {accent: '#123456'}, name: 'Half \ud800'}],
+  ]) {
+    const r = await agent(kind, payload);
+    assert.equal(r.status, 400, `${kind}: ${JSON.stringify(r).slice(0, 200)}`);
+    assert.match(r.error, /half of a surrogate pair/);
+  }
+  assert.equal((await agent('changes', {limit: 1})).seq, seq, 'nothing changed');
+});
+
 check('reading needs no door, writing does', async () => {
   await pressDoor('agent-disconnect');
   await sleep(200);

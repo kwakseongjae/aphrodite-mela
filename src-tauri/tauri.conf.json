@@ -27,7 +27,7 @@
         "enable": true,
         "scope": [
           "$APPDATA/board-media/*",
-          "$APPDATA/free-pages/*"
+          "$APPDATA/free-pages/**"
         ]
       },
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"

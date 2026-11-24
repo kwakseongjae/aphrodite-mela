@@ -147,6 +147,7 @@ test('a new field on Project or Page cannot slip past the ledger unnoticed', asy
   const notDesign: Record<string, string> = {
     version: 'fixed at 1', id: 'never changes', pages: 'diffed by its own ops', system: 'diffed field by field',
     shelf: 'kept beside the canvas; canvas undo has never touched it', ledger: 'the record itself',
+    leftOut: 'what a received board came without, written by the reader for exports to hold back (0.3-R ④); not design',
   };
   for (const field of fieldsOf('Project')) assert.ok((projectFields as readonly string[]).includes(field) || field in notDesign, `Project.${field} is neither diffed nor excused`);
   const pageNotDesign: Record<string, string> = {id: 'never changes', blocks: 'diffed by its own ops'};

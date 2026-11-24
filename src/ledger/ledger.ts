@@ -12,12 +12,14 @@
  * - The undo entry stays in memory with the ops exactly as they were, pictures included, so undo is
  *   exact for the last `UNDO_LIMIT` changes.
  */
-import {fingerprint, MAX_PROJECT, type Project} from '../model';
+import {agentRevision, MAX_PROJECT, type Project} from '../model';
 import {anchorsOf, diffProject, isViewOnly, type PatchOp} from './patch';
 import {capAnchors, compact, forSaving, MAX_REASON, sizeOf, slim, type Author, type Change, type Ledger} from './types';
+import {clip, wholeText} from '../text';
 export {readLedger, compact, slim, forSaving, capAnchors, MAX_ANCHORS, LEDGER_BUDGET, LEDGER_RESERVE, MAX_REASON, UNKNOWN, type Author, type Change, type Ledger} from './types';
 
-export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]};
+/** `cleared`: the change cleared the approval as the system does (src/ledger/session.ts), and wrote none of its own. */
+export type UndoEntry = {seq: number; ops: PatchOp[]; inverse: PatchOp[]; cleared?: true};
 
 export const UNDO_LIMIT = 200;
 
@@ -47,19 +49,20 @@ export type ChangeMeta = {author: Author; source: string; reason?: string; undoe
 export function record(ledger: Ledger, before: Project, after: Project, meta: ChangeMeta, ops = diffProject(before, after)): {change: Change; undo: UndoEntry} | null {
   if (!ops.length) return null;
   const seq = ledger.seq + 1;
-  const reason = meta.reason?.trim().slice(0, MAX_REASON);
+  // Cut on whole characters and mended: what is recorded is saved, and the save takes no half of a pair (src/text.ts).
+  const reason = meta.reason === undefined ? undefined : clip(wholeText(meta.reason.trim()), MAX_REASON);
   const change: Change = {
     id: meta.id ?? crypto.randomUUID(),
     ...(ledger.changes.length ? {parent: ledger.changes[ledger.changes.length - 1].id} : {}),
     seq,
     at: meta.at ?? new Date().toISOString(),
-    author: {kind: meta.author.kind, name: meta.author.name.slice(0, 100)},
-    source: meta.source.slice(0, 80),
+    author: {kind: meta.author.kind, name: clip(wholeText(meta.author.name), 100)},
+    source: clip(wholeText(meta.source), 80),
     ...(reason ? {reason} : {}),
     ops: slim(forSaving(ops)),
     anchors: anchored(ops),
-    baseRevision: fingerprint(before),
-    revision: fingerprint(after),
+    baseRevision: agentRevision(before),
+    revision: agentRevision(after),
     view: isViewOnly(ops, before, after),
     ...(meta.undoes !== undefined ? {undoes: meta.undoes} : {}),
     ...(meta.redoes !== undefined ? {redoes: meta.redoes} : {}),
@@ -74,19 +77,28 @@ export function record(ledger: Ledger, before: Project, after: Project, meta: Ch
 
 /**
  * The changes after a point, oldest first. `since` is a sequence number, or a revision — then the
- * point is the last change that produced it. View-only changes are left out unless asked for.
+ * point is the last change that produced it, or the first kept change that started from it. A revision
+ * neither names is not one this ledger keeps (older than what is kept, or another board's): `known` is
+ * false and no changes are given, so the reader reads the board again rather than take a history from
+ * its start as what changed since. View-only changes are left out unless asked for. Revisions written
+ * before 0.3-R (the design's fingerprint, src/model.ts) are found as they were written. `current` is the revision the
+ * board is at now, known with nothing after it.
  */
-export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number} = {}): {changes: Change[]; more: boolean; from: number} {
+export function changesSince(ledger: Ledger | undefined, since: number | string | undefined, options: {includeView?: boolean; limit?: number; moved?: boolean; current?: string} = {}): {changes: Change[]; more: boolean; from: number; known: boolean} {
   const all = ledger?.changes ?? [];
   let from = 0;
+  // The revision the board is at now is known, with nothing after it, history or none (0.3-R fix 1 #7).
+  if (typeof since === 'string' && since === options.current) return {changes: [], more: false, from: all.length ? all[all.length - 1].seq : ledger?.seq ?? 0, known: true};
   if (typeof since === 'number') from = since;
   else if (typeof since === 'string') {
-    const hit = [...all].reverse().find(c => c.revision === since);
-    from = hit ? hit.seq : all.length ? all[0].seq - 1 : 0;
+    const hit = [...all].reverse().find(c => c.revision === since) ?? all.find(c => c.baseRevision === since);
+    if (!hit) return {changes: [], more: false, from: all.length ? all[all.length - 1].seq : 0, known: false};
+    from = hit.revision === since ? hit.seq : hit.seq - 1;
   }
-  const after = all.filter(c => c.seq > from && (options.includeView || !c.view));
+  // `moved`: a view change that moved the revision (a frame dragged) is listed too, as a 409 needs to say what moved it.
+  const after = all.filter(c => c.seq > from && (options.includeView || !c.view || (options.moved && c.revision !== c.baseRevision)));
   const limit = options.limit ?? 50;
-  return {changes: after.slice(0, limit), more: after.length > limit, from};
+  return {changes: after.slice(0, limit), more: after.length > limit, from, known: true};
 }
 
 /**

@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import {openApp, runChecks, sleep, waitFor} from './lib/headless.mjs';
 
-const {agent, personClicks, personPresses, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
+const {agent, personClicks, personPresses, personSubmits, personTypes, evaluate, send, close} = await openApp({port: 4183, cdp: 9334, profile: '/tmp/aphrodite-authority-profile'});
 const checks = [];
 const check = (name, fn) => checks.push([name, fn]);
 /** `edit` needs a reason since 0.3-2b; what is checked here is the door, not the reason. */
@@ -351,7 +351,7 @@ check('an allowed agent cannot send a page or the board as a file, open the file
   const page = made.created_pages[0].page_id;
   const state = async () => ({seq: (await agent('changes', {limit: 1, include_view: true}, 'claude-code')).seq, page: await evaluate('document.querySelector("#app").dataset.frame'), made: await evaluate('window.__made'), picker: await evaluate('!!document.querySelector("input[data-upload]")')});
   const before = await state();
-  for (const [action, data] of [['page-view-edit', {id: page}], ['page-view-edit', {id: 'missing'}], ['download-page-html', {}], ['download-board-file', {}], ['import-project', {}]]) {
+  for (const [action, data] of [['page-view-edit', {id: page}], ['page-view-edit', {id: 'missing'}], ['download-page-html', {}], ['download-board-file', {}], ['import-project', {}], ['disk-reload', {}], ['update-relaunch', {}]]) {
     const r = await agent('act', {action, data}, 'claude-code');
     assert.equal(r.status, 403, `${action} ${JSON.stringify(data)}: ${JSON.stringify(r)}`);
     assert.match(r.error, /the person's to do/);
@@ -366,6 +366,146 @@ check('an allowed agent cannot send a page or the board as a file, open the file
   await sleep(300);
   const after = await state();
   assert.deepEqual({...after, seq: after.seq}, {...before, seq: before.seq + 0}, `nothing moved: ${JSON.stringify({before, after})}`);
+});
+
+
+/* 0.3-R ①: an approval is the person's. Nothing but their own approve, and their own undo or redo, gives a board an
+   approval it did not have: a fingerprint the content no longer matches goes with the change that made it stale. */
+const approval = () => evaluate(`document.querySelector('#app').dataset.approval`);
+/** The person's own mouse on a button drawn on the screen (a trusted click), wherever it is. */
+const pressOn = async selector => {
+  const p = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('nothing matches ${selector}'); el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const hit = document.elementFromPoint(x, y); if (!el.contains(hit)) throw new Error('${selector} is covered by ' + hit?.outerHTML.slice(0, 120)); return {x, y}; })()`);
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'])
+    await send('Input.dispatchMouseEvent', {type, x: p.x, y: p.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1});
+  await sleep(300);
+};
+/** The person's own ⌘Z or ⇧⌘Z, on the canvas. */
+const personUndo = async (shift = false) => {
+  await evaluate(`document.activeElement?.blur?.(), true`);
+  await send('Input.dispatchKeyEvent', {type: 'rawKeyDown', key: 'z', code: 'KeyZ', modifiers: 4 | (shift ? 8 : 0), windowsVirtualKeyCode: 90});
+  await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'z', code: 'KeyZ', modifiers: 4 | (shift ? 8 : 0), windowsVirtualKeyCode: 90});
+  await sleep(300);
+};
+const brief = async () => (await agent('contract', {format: 'detailed'}, 'claude-code')).project.brief;
+const setBrief = async text => {
+  await sleep(5_200); // the person's last press holds the screen for a moment
+  const r = await agent('apply', {reason: WHY, patch: [{op: 'set', on: 'project', field: 'brief', value: text}]}, 'claude-code');
+  assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+  return r;
+};
+let originalBrief = '';
+
+check('Codex route 1: an agent that puts the brief back after a change leaves the board a draft', async () => {
+  assert.equal(await writes('claude-code'), 'on', 'claude-code may write');
+  if (await evaluate('document.querySelector("#app").dataset.screen') !== 'editor') { await personClicks('welcome-sample'); await waitFor(() => evaluate('document.querySelector("#app").dataset.screen === "editor"'), 'a board open'); }
+  originalBrief = await brief();
+  await pressOn('.review-card [data-action="approve"]');
+  assert.equal(await approval(), 'approved', 'the person approved with their own mouse');
+  await setBrief('Changed by the agent');
+  assert.equal(await approval(), 'draft');
+  const {seq} = await agent('changes', {limit: 1}, 'claude-code');
+  const changed = (await agent('changes', {since: seq - 1}, 'claude-code')).changes.at(-1);
+  assert.match(changed.reason ?? '', /Approval cleared/, `the change that made it stale says it cleared the approval: ${JSON.stringify(changed).slice(0, 600)}`);
+  assert.ok(changed.ops.some(op => op.field === 'approvedFingerprint'), 'and the clearing is in that change');
+  await setBrief(originalBrief);
+  assert.equal(await brief(), originalBrief, 'the content is back');
+  assert.equal(await approval(), 'draft', 'and the board is a draft');
+  assert.equal((await agent('contract', {}, 'claude-code')).project.approved, false);
+});
+
+check('Codex route 2: the person\'s own ⌘Z brings the approval back; an agent\'s undo or redo brings back content only', async () => {
+  await pressOn('.review-card [data-action="approve"]');
+  assert.equal(await approval(), 'approved');
+  await setBrief('Changed once more');
+  await personUndo();
+  assert.equal(await brief(), originalBrief);
+  assert.equal(await approval(), 'approved', 'their own undo is theirs to bring an approval back with');
+  await setBrief('Changed by the agent again');
+  const undone = await agent('act', {action: 'undo'}, 'claude-code');
+  assert.ok(!undone.error, `an agent may take back an edit on an approved board: ${JSON.stringify(undone).slice(0, 200)}`);
+  assert.equal(await brief(), originalBrief, 'the content came back');
+  assert.equal(await approval(), 'draft', 'the approval did not');
+  await agent('key', {key: 'z', meta: true, shift: true}, 'claude-code');
+  await sleep(200);
+  assert.equal(await brief(), 'Changed by the agent again', 'its redo');
+  await agent('key', {key: 'z', meta: true}, 'claude-code');
+  await sleep(200);
+  assert.equal(await brief(), originalBrief);
+  assert.equal(await approval(), 'draft', 'and its undo after the redo, content only');
+});
+
+check('the export window\'s Approve now approves only the board it showed (0.2.5 H2)', async () => {
+  assert.equal(await approval(), 'draft');
+  await personPresses('export');
+  await sleep(300);
+  await setBrief('Changed while the window was open');
+  const drawn = () => evaluate(`document.querySelector('#modal-root [data-action="approve-export"]')?.dataset.shown ?? ''`);
+  const stale = await drawn();
+  await pressOn('#modal-root [data-action="approve-export"]');
+  assert.equal(await approval(), 'draft', 'the board changed after the window drew it, so the press approves nothing');
+  // The press is handled after a wait or two; on a busy machine 300 ms is not always enough for the window to be drawn
+  // again, and a second press on the window still drawn over the old board is rightly refused (Fable's run, 9724b9f).
+  await waitFor(async () => { const now = await drawn(); return now && now !== stale; }, 'the window drawn again over the board as it is');
+  await pressOn('#modal-root [data-action="approve-export"]');
+  await waitFor(async () => (await approval()) === 'approved', 'drawn again, the next press approves what is shown');
+  await key('Escape', 'Escape', 27);
+});
+
+/* 0.3-R fix 1 #4: an edit in the inspector redraws the canvas alone; the card follows it, so the person's first press approves. */
+check('right after the person edits a title, Approve direction approves with one press', async () => {
+  for (let i = 0; i < 3 && await evaluate('document.querySelector("#modal-root").children.length'); i++) { await evaluate('document.querySelector("#modal-root [data-action=close-modal]")?.click(), true'); await sleep(300); }
+  assert.equal(await evaluate('document.querySelector("#modal-root").children.length'), 0, 'no dialog is open');
+  const id = await evaluate(`document.querySelector('.space-frame.active [data-block-id]').dataset.blockId`);
+  await personPresses('select', {id}); await sleep(400);
+  assert.equal(await evaluate(`(() => { const t = document.querySelector('[data-field="title"]'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); return document.activeElement === t; })()`), true);
+  await send('Input.insertText', {text: ' edited'});
+  await evaluate('document.activeElement.blur(), true');
+  await sleep(300);
+  assert.equal(await approval(), 'draft');
+  await pressOn('.review-card [data-action="approve"]');
+  assert.equal(await approval(), 'approved', 'one press');
+});
+
+check('off the editor no board is open: a rename on Home stays, and nothing an agent does writes the copy left in memory back', async () => {
+  assert.equal(await approval(), 'approved');
+  const contract = await agent('contract', {}, 'claude-code');
+  const id = contract.project.project_id, name = contract.project.name;
+  const page = contract.pages[0].page_id;
+  const stored = () => evaluate(`(() => { const e = JSON.parse(localStorage.getItem('aphrodite-project-library-v1')).entries.find(e => e.project.id === ${JSON.stringify(id)}); return e && {name: e.project.name, approved: e.project.approvedFingerprint ?? null, last: e.project.ledger?.changes.at(-1) ?? null}; })()`);
+  await sleep(5_200);
+  const refused = await agent('act', {action: 'hub-delete-confirm', data: {id}}, 'claude-code');
+  assert.equal(refused.status, 409, `Home's delete is not run from the editor: ${JSON.stringify(refused)}`);
+  // 0.3-R fix 1 #5: nor Home's open, which would switch boards under the person.
+  assert.equal((await agent('act', {action: 'hub-open', data: {id}}, 'claude-code')).status, 409, 'Home\'s open is not run from the editor');
+  assert.ok(await stored(), 'the board is still in the library');
+  await personPresses('home');
+  await waitFor(() => evaluate('document.querySelector("#app").dataset.screen === "home"'), 'Home');
+  await personPresses('hub-rename', {id});
+  await sleep(250);
+  assert.equal(await personSubmits('#hub-rename-form', {name: 'Renamed on Home'}), true);
+  await sleep(400);
+  let entry = await stored();
+  assert.equal(entry.name, 'Renamed on Home');
+  assert.equal(entry.approved, null, 'renamed, it is a draft');
+  assert.equal(entry.last.source, 'home:rename', 'and the rename is in that board\'s ledger');
+  assert.match(entry.last.reason, /Approval cleared/);
+  await sleep(5_200);
+  for (const [kind, payload] of [['act', {action: 'page', data: {id: page}}], ['act', {action: 'export'}], ['command', {query: 'undo'}], ['apply', {reason: WHY, ops: [{op: 'frame', preset: 'mobile'}]}]]) {
+    const r = await agent(kind, payload, 'claude-code');
+    assert.ok(r.error, `${kind} ${JSON.stringify(payload)} on Home reaches no board: ${JSON.stringify(r).slice(0, 200)}`);
+  }
+  await sleep(300);
+  assert.equal(await evaluate('document.querySelector("#modal-root").children.length'), 0, 'no window of the board was opened on Home');
+  entry = await stored();
+  assert.deepEqual([entry.name, entry.approved], ['Renamed on Home', null], 'the library holds what the person did');
+  await personPresses('hub-rename', {id});
+  await sleep(250);
+  assert.equal(await personSubmits('#hub-rename-form', {name}), true);
+  await sleep(400);
+  assert.equal((await stored()).approved, null, 'the name put back brings no approval back');
+  await personPresses('hub-open', {id});
+  await waitFor(() => evaluate('document.querySelector("#app").dataset.screen === "editor"'), 'the board open again');
+  assert.equal(await approval(), 'draft');
 });
 
 check('disconnecting forgets the name, and the next request asks again', async () => {

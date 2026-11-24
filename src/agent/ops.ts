@@ -16,7 +16,9 @@ import {framePresets, type FramePreset} from '../editor/space';
 import type {PatchOp, TextHunk} from '../ledger/patch';
 import {MAX_REASON} from '../ledger/types';
 import {MAX_PAGE_HTML} from '../free-page';
-import {MAX_PAGE_NAME} from '../model';
+import {MAX_PAGE_NAME, PAGE_KEYS, BLOCK_KEYS} from '../model';
+/** The first key of `value` that `known` does not name, or undefined. */
+const unknownKeys = (value: Record<string, unknown>, known: ReadonlySet<string>) => Object.keys(value).find(k => !known.has(k));
 
 export type OpKind = 'add' | 'update' | 'move' | 'delete' | 'frame' | 'page' | 'html_page' | 'html_set' | 'html_replace' | 'media_add';
 export type Op =
@@ -315,7 +317,7 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
       if (on === 'system') return {op: {op: 'set', on: 'system', field, ...tail}};
       const page = id('page_id');
       if (typeof page !== 'string') return page;
-      if (on === 'page') return {op: {op: 'set', on: 'page', page_id: page, field: field as never, ...tail}};
+      if (on === 'page') { if (!PAGE_KEYS.has(field) || field === 'id' || field === 'blocks') return {error: `${where} sets "${field}", which is not a page field an op sets.`}; return {op: {op: 'set', on: 'page', page_id: page, field: field as never, ...tail}}; }
       const block = id('block_id');
       if (typeof block !== 'string') return block;
       return {op: {op: 'set', on: 'block', page_id: page, block_id: block, field, ...tail}};
@@ -323,6 +325,8 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
     case 'insert_page': {
       const index = position(), page = object('page'), err = bad(index, page);
       if (err) return err;
+      const extra = unknownKeys(page as Record<string, unknown>, PAGE_KEYS) ?? (Array.isArray((page as {blocks?: unknown}).blocks) ? ((page as {blocks: unknown[]}).blocks).map(b => b && typeof b === 'object' ? unknownKeys(b as Record<string, unknown>, BLOCK_KEYS) : undefined).find(Boolean) : undefined);
+      if (extra) return {error: `${where} carries "${extra}", which no page or component has. Send only what aphrodite_get_changes shows a page holding.`};
       return {op: {op: 'insert_page', index: index as number, page: page as never}};
     }
     case 'remove_page': {
@@ -337,6 +341,8 @@ function parsePatchOne(raw: unknown, index: number): {op: PatchOp} | {error: str
     case 'insert_block': {
       const page = id('page_id'), index = position(), block = object('block'), err = bad(page, index, block);
       if (err) return err;
+      const extra = unknownKeys(block as Record<string, unknown>, BLOCK_KEYS);
+      if (extra) return {error: `${where}.block carries "${extra}", which no component has. Send only what aphrodite_get_changes shows a component holding.`};
       return {op: {op: 'insert_block', page_id: page as string, index: index as number, block: block as never}};
     }
     case 'remove_block': {
@@ -376,6 +382,23 @@ export type Batch = {ops: Op[]; patch: PatchOp[]; pageId?: string; reason: strin
  * Validates everything `aphrodite_apply_edits` was sent, before a single thing is changed: the ops,
  * the patch, the reason, and the revision the agent last read.
  */
+/**
+ * What a batch sent with base_revision leaves to where the person is looking (0.3-R fix 1 #6), or undefined. The revision
+ * does not move when the person opens another page or selects another component, so an op that works on "the page open"
+ * or on "selection" could land somewhere the agent never read: with a revision, it names its page (page_id) and its
+ * component (block_id). A page the batch makes names itself for the ops after it.
+ */
+function leansOnView(ops: Op[], pageId: string | undefined): string | undefined {
+  let made = false;
+  for (const [i, op] of ops.entries()) {
+    // A page the batch makes is its page from there on; the selection is never one it read (fix 2 #6: the whole batch is looked at).
+    if (op.op === 'page' && op.page_id === undefined) { made = true; continue; }
+    if ('block_id' in op && op.block_id === SELECTION) return `ops[${i}].block_id is "${SELECTION}". A batch sent with base_revision names its component: use the block_id from aphrodite_get_contract.`;
+    if (!pageId && !made && (['add', 'update', 'move', 'delete'].includes(op.op) || (op.op === 'frame' && op.page_id === undefined))) return `ops[${i}] works on the page open, which can change without the revision changing. A batch sent with base_revision names its page: add "page_id" from aphrodite_get_contract.`;
+  }
+  return undefined;
+}
+
 export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
   const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
   const reason = typeof p.reason === 'string' ? p.reason.trim() : '';
@@ -386,9 +409,11 @@ export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
     baseRevision = str(p.base_revision, 100);
     if (!baseRevision) return {error: 'base_revision must be the revision string from aphrodite_get_contract or aphrodite_get_changes.'};
   }
+  // Either half sent in any other shape refuses the whole batch, before anything is read of the other (0.3-R): one half is never run alone.
+  if (p.patch !== undefined && !Array.isArray(p.patch)) return {error: 'patch must be a list of ops, as aphrodite_get_changes returns them.'};
+  if (p.ops !== undefined && !Array.isArray(p.ops)) return {error: 'ops must be a list of operations: "ops": [{"op": "add", "component_kind": "hero"}].'};
   const hasOps = Array.isArray(p.ops) && p.ops.length > 0, hasPatch = Array.isArray(p.patch) && p.patch.length > 0;
   if (!hasOps && !hasPatch) {
-    if (p.patch !== undefined && !Array.isArray(p.patch)) return {error: 'patch must be a list of ops, as aphrodite_get_changes returns them.'};
     return {error: missingField('ops', '"ops": [{"op": "add", "component_kind": "hero"}]') + ' (Or "patch", for ops taken from aphrodite_get_changes.)'};
   }
   let ops: Op[] = [], pageId: string | undefined;
@@ -398,15 +423,21 @@ export function parseBatch(payload: unknown): {batch: Batch} | {error: string} {
     ops = hasOps ? parsed.ops : [];
     pageId = parsed.pageId;
   }
+  if (baseRevision) { const unnamed = leansOnView(ops, pageId); if (unnamed) return {error: unnamed}; }
   const patch: PatchOp[] = [];
   if (hasPatch) {
     const list = p.patch as unknown[];
     if (list.length > MAX_PATCH) return {error: `${list.length} patch ops is more than the ${MAX_PATCH} allowed in one call. Split it.`};
     for (const [index, raw] of list.entries()) {
+      // The clearing a recorded edit carried (0.3-R fix 1 #9) is the edit's to make again: left out here, it comes with the edit
+      // whenever the edit changes what was approved. Alone it would take an approval away, and is refused below as before.
+      const o = raw as Record<string, unknown> | null;
+      if (o && o.op === 'set' && o.on === 'project' && o.field === 'approvedFingerprint' && o.unset === true && o.value === undefined && list.some(other => other !== raw)) continue;
       const parsed = parsePatchOne(raw, index);
       if ('error' in parsed) return parsed;
       patch.push(parsed.op);
     }
+    if (!patch.length && !ops.length) return {error: 'patch only clears the approval. Approving a direction, and taking it back, is the person\'s decision, and no tool here can make it.'};
   }
   return {batch: {ops, patch, ...(pageId ? {pageId} : {}), reason, ...(baseRevision ? {baseRevision} : {})}};
 }

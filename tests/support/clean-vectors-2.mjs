@@ -11,6 +11,11 @@ export function myVectors(HP, TP) {
     // --- DOM clobbering of the cleaner's own reads (SANITIZE_DOM: false keeps name="...") ---
     'clobber-docEl-form': id => doc('', '<form name="documentElement"><p>words</p>' + CSS(id) + '<div style="width:9px;height:9px;background-image:image-set(\'' + H + id + '-is\' 1x)">x</div></form>'),
     'clobber-head-form': id => doc(CSS(id), '<form name="head"></form><p>words</p>'),
+    // 0.3-R ⑦ (P3 third review L-3): the two of that review's 42 not moved here before.
+    // the same clobber holding what DOMPurify is for: a refresh, a preconnect, an http picture, a handler and a script
+    'clobber-docEl-all': id => doc('', '<form name="documentElement"><p>w</p><meta http-equiv="refresh" content="0;url=' + H + id + '-r"><link rel="preconnect" href="http://127.0.0.1:' + TP + '/"><img src="' + H + id + '-img"><img src="x" onerror="fetch(\'' + H + id + '-on\')"><script>fetch("' + H + id + '-js")</script><a href="javascript:fetch(\'' + H + id + '-ja\')">j</a>' + CSS(id) + '</form>'),
+    // the policy pushed into the body by name="head", with the style after it: whether a body CSP meta holds
+    'clobber-head-body-css': id => doc('', '<form name="head"></form><p>words</p>' + CSS(id) + '<div style="width:9px;height:9px;background-image:image-set(\'' + H + id + '-is\' 1x)">x</div>'),
     'clobber-docEl-img': id => doc('', '<img name="documentElement">' + CSS(id)),
     'clobber-img-head': id => doc('', '<img name="head"><p>y</p>' + CSS(id)),
     'clobber-qsa': id => doc(CSS(id), '<form name="querySelectorAll"></form>'),

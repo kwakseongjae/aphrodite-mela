@@ -36,7 +36,8 @@ test('ops, a patch, or both — but not neither', () => {
   assert.ok('error' in parseBatch({reason: REASON, ops: [], patch: []}));
   const patchOnly = batch({reason: REASON, patch: [{op: 'set', on: 'project', field: 'name', value: 'Renamed'}]});
   assert.deepEqual([patchOnly.ops.length, patchOnly.patch.length], [0, 1]);
-  assert.equal(batch({reason: REASON, base_revision: '12:ab:cd', ops: [{op: 'delete', block_id: 'x'}]}).baseRevision, '12:ab:cd');
+  // 0.3-R fix 1 #6: sent with a revision, a batch names the page its section ops work on.
+  assert.equal(batch({reason: REASON, base_revision: '12:ab:cd', page_id: 'p1', ops: [{op: 'delete', block_id: 'x'}]}).baseRevision, '12:ab:cd');
 });
 
 test('a patch cannot approve, cannot replay a left-out picture, and keeps to its shape', () => {

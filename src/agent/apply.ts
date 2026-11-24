@@ -6,6 +6,7 @@
  * returns a new project: the one passed in is never touched, so a failed batch has nothing to put back.
  * `main.ts` calls it inside `commit()`, which records the result in the ledger as one change.
  */
+import {clip} from '../text';
 import {currentPage, makeBlock, parseProject, safeImage, uid, MAX_PROJECT, MAX_PAGES, MAX_PAGE_NAME, type BlockKind, type Page, type Project} from '../model';
 import {supportsProvider} from '../providers';
 import {canParent} from '../layout';
@@ -82,7 +83,7 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
   if (project.pages.length >= MAX_PAGES) return `this project already has ${MAX_PAGES} pages and media items, which is the limit.`;
   ensureSpace(project);
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
-  const created: Page = {id: uid(), name: name.slice(0, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
+  const created: Page = {id: uid(), name: clip(name, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
   project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? nextFramePosition(project.space!, 'desktop'));
   focus.created.push(created.id);
@@ -177,6 +178,26 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
 }
 
 /**
+ * A batch run once ahead with a stand-in for each file media_add would copy (0.3-R): what will be refused anyway (a full
+ * board, a page that is not there, a bad op anywhere in it) is refused before a file is copied. What only the copy can
+ * tell (the file itself, its size) is found after, and a file copied for a batch that then fails stays, named by no
+ * board, as a board file's do (src/main.ts placeReadBoard). Undefined when the batch would land.
+ */
+export function preflightBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, fits?: (result: Extract<BatchResult, {ok: true}>) => string | undefined): Extract<BatchResult, {ok: false}> | undefined {
+  if (!batch.ops.some(o => o.op === 'media_add')) return undefined;
+  // The stand-in is the shortest entry a file can have (a one-pixel picture), so only a batch that could not fit whatever the
+  // files are is refused before they are copied (0.3-R fix 3 #13); the exact entry is measured once they are in, before the
+  // staged files are kept (src/main.ts applyBatch).
+  const standIn: Record<number, PageMedia> = {};
+  for (const [i, op] of batch.ops.entries()) if (op.op === 'media_add') standIn[i] = {src: `media:${'0'.repeat(64)}`, mime: 'image/png', width: 1, height: 1};
+  const result = runBatch(project, batch, selected, standIn);
+  if (!result.ok) return result;
+  // What the library holds is known before a file is copied, and asked here.
+  const refused = fits?.(result);
+  return refused ? {ok: false, index: -1, part: 'ops', error: refused} : undefined;
+}
+
+/**
  * A batch: the ops in order, then the patch. All of it lands or none of it does. The ledger is left
  * on the project passed in; the caller carries it over.
  */
@@ -247,18 +268,20 @@ export function heldBatch<B extends {ops: Op[]; pageId?: string}>(batch: B, proj
  * `reads`), and that is decided before the host is asked to read anything. `measure` reads a kept file's
  * size, which needs the page (src/main.ts mediaSize).
  */
-export async function importMedia(ops: Op[], surface: Surface, host: Pick<FrameHost, 'importFile' | 'mediaUrl'>, projectId: string, measure: (url: string, mime: string) => Promise<{width: number; height: number; duration?: number}>): Promise<{media: Record<number, PageMedia>} | {error: string; status?: number; failed_at?: number}> {
+export async function importMedia(ops: Op[], surface: Surface, host: Pick<FrameHost, 'importFile' | 'mediaUrl'> & Partial<Pick<FrameHost, 'releaseMedia'>>, projectId: string, measure: (url: string, mime: string) => Promise<{width: number; height: number; duration?: number}>): Promise<{media: Record<number, PageMedia>} | {error: string; status?: number; failed_at?: number}> {
   const reads = commandById['edit.apply'].reads!;
   if (!reads.surfaces.includes(surface) && ops.some(o => o.op === 'media_add' && o.path !== undefined)) return {error: `media_add reads a file by its path only for an agent running on this Mac (${reads.surfaces.join(', ')}); from here, name a picture in the image library with library_id.`, status: 403};
-  const media: Record<number, PageMedia> = {};
+  const media: Record<number, PageMedia> = {}, staged: string[] = [];
   for (const [i, op] of ops.entries()) {
     if (op.op !== 'media_add') continue;
     try {
-      const stored = await host.importFile({path: op.path, libraryId: op.library_id, project: projectId}), url = await host.mediaUrl(stored.sha);
+      // Staged until the batch lands or is refused (0.3-R fix 2 #20): what a file is is known only once it is in.
+      const stored = await host.importFile({path: op.path, libraryId: op.library_id, project: projectId, stage: true});staged.push(stored.sha);
+      const url = await host.mediaUrl(stored.sha);
       if (!url) throw new Error('the file was not kept');
       const size = await measure(url, stored.mime);
       media[i] = {src: `media:${stored.sha}`, mime: stored.mime, width: size.width, height: size.height, ...(size.duration !== undefined ? {duration: size.duration} : {})};
-    } catch (error) { return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
+    } catch (error) { await host.releaseMedia?.(staged).catch(() => {}); return {error: `ops[${i}]: ${error instanceof Error ? error.message : String(error)}`, failed_at: i}; }
   }
   return {media};
 }

@@ -14,7 +14,7 @@
 import createDOMPurify, {type Config, type DOMPurify} from 'dompurify';
 import {CLEAN_FORBID_TAGS, CLEAN_FORBID_ATTR, keepsAttribute, STATIC_PAGE_CSP} from './page-export';
 
-const CONFIG: Config = {
+export const CLEAN_CONFIG: Config = {
   WHOLE_DOCUMENT: true,
   RETURN_DOM: true,
   USE_PROFILES: {html: true, svg: true, svgFilters: true},
@@ -28,7 +28,8 @@ const CONFIG: Config = {
   // DOMPurify's SANITIZE_DOM drops every id or name the app's own document has, a heading's id="title" a link goes to
   // included. Ours is narrower (the hook below): only a name the document or a form would expose, as one of its own.
   SANITIZE_DOM: false,
-  CUSTOM_ELEMENT_HANDLING: {tagNameCheck: /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/, attributeNameCheck: /^(?!on)[a-z][a-z0-9-]*$/, allowCustomizedBuiltInElements: false},
+  // A name an export's stand-in for a file could take is not a page's to use (0.3-R): the stand-in is put in after this check.
+  CUSTOM_ELEMENT_HANDLING: {tagNameCheck: /^(?!aphrodite-media-)[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/, attributeNameCheck: /^(?!on)[a-z][a-z0-9-]*$/, allowCustomizedBuiltInElements: false},
 };
 
 /* captured: begin — the only place a document or a node is read or changed directly. */
@@ -162,7 +163,7 @@ export function cleanPage(source: string, nonce?: string): string {
   const d = dom();
   let cleaned: Element;
   standIn = nonce;
-  try { cleaned = cleaner().sanitize(source, CONFIG) as unknown as Element; } finally { standIn = undefined; }
+  try { cleaned = cleaner().sanitize(source, CLEAN_CONFIG) as unknown as Element; } finally { standIn = undefined; }
   const doc = d.blank();
   const root = d.adopt(doc, cleaned) as Element;
   d.replace(doc, root, d.root(doc));

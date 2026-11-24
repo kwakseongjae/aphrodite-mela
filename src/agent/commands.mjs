@@ -31,7 +31,7 @@ const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint:
 const NOTHING = {type: 'object', properties: {}, additionalProperties: false};
 /** What an edit that is `reason: 'required'` and `revision: 'checked'` takes besides its own input. */
 const REASON = {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'};
-const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). If the project has changed since, nothing is changed and the reply lists what changed.'};
+const BASE_REVISION = {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is changed and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection.'};
 /** A screen verb's reason is optional: it is kept with the change the verb reaches, when there is one. */
 const OPTIONAL_REASON = {type: 'string', maxLength: 500, description: 'Optional. One sentence for the person on why, kept with the change this makes.'};
 const UI = {ui: true, mcp: false, loopback: false, inApp: false};
@@ -184,7 +184,7 @@ export const commands = [
     input: {
       type: 'object',
       properties: {
-        since: {type: ['integer', 'string'], description: 'A seq from an earlier reply, or a revision string. Leave it out for the start of the record.'},
+        since: {type: ['integer', 'string'], description: 'A seq from an earlier reply, or a revision string. Leave it out for the start of the record. A revision this board\'s history does not hold comes back with no changes and unknown_since: read the contract again.'},
         include_view: {type: 'boolean', description: 'Also list changes that only moved the view. Off by default.'},
         limit: {type: 'integer', minimum: 1, maximum: 200, description: 'At most this many (default 50). The reply says more: true when there are more.'},
       },
@@ -210,7 +210,7 @@ export const commands = [
         'Pictures someone uploaded are not sent; an op shows {"$omitted": "data-url", "bytes": …} in their place. Ops can be sent back as `patch` to aphrodite_apply_edits to replay a change elsewhere.',
         'A reply carries at most 200,000 characters of ops; past that the biggest changes come with `ops_omitted` and their `size` instead, and `note` says so. Read the page as it is now with aphrodite_get_page_html.',
         '',
-        'Example: {"since": 12} — or {} for the latest 50, or {"since": "1830:4fa1c2:9b0e11"} with a revision you were given.',
+        'Example: {"since": 12} — or {} for the latest 50, or {"since": "r2:1830:4fa1c2:9b0e11"} with a revision you were given.',
       ].join('\n'),
       annotations: {title: 'Read what changed', ...READ},
       params: args => ({since: args.since, include_view: args.include_view, limit: args.limit}),
@@ -448,7 +448,7 @@ export const commands = [
               variant: {type: 'string', description: 'add/update: a variant that kind accepts. On update it changes the layout and keeps the words — you do not delete and re-add to restyle a component.'},
               before_block_id: {type: 'string', description: 'add: place it before this component instead of at the end.'},
               content: {type: 'object', description: 'add: initial copy — title, text, label, eyebrow, description.'},
-              block_id: {type: 'string', description: 'update/move/delete: which component, or "selection".'},
+              block_id: {type: 'string', description: 'update/move/delete: which component, or "selection" in a call without base_revision.'},
               fields: {type: 'object', description: 'update: the copy to set — title, text, label, eyebrow, description. Optional when you are only changing the variant.'},
               direction: {type: 'string', enum: ['up', 'down'], description: 'move: which way in the page order.'},
               preset: {type: 'string', enum: ['desktop', 'tablet', 'mobile', 'custom'], description: 'frame/page: the size to give the page.'},
@@ -459,7 +459,7 @@ export const commands = [
         },
         page_id: {type: 'string', description: 'The page to edit. Defaults to the one the person is on.'},
         reason: {type: 'string', maxLength: 500, description: 'Required. One sentence for the person on why you are making this change. It is shown beside the change.'},
-        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). If the project has changed since, nothing is applied and the reply lists what changed.'},
+        base_revision: {type: 'string', description: 'The revision you last read (aphrodite_get_changes or aphrodite_get_contract). It names this board, its design and its frames: if any has changed since, nothing is applied and the reply lists what changed. A write sent without base_revision is not checked against what changed since: read first, and send the revision you read. With it, name the page (page_id) and each component (block_id) rather than leaning on the page open or the selection.'},
         patch: {type: 'array', maxItems: 400, items: {type: 'object'}, description: 'Ops exactly as aphrodite_get_changes returns them, to replay a change. Applied after ops. Cannot approve anything.'},
       },
       required: ['reason'],
@@ -490,12 +490,13 @@ export const commands = [
         'Ops from aphrodite_get_changes can be sent back as `patch` to replay a change; use `ops` for anything you are deciding yourself.',
         '',
         'Send everything one change needs in a single call. The whole list lands as one undo step and one receipt, so the person can take back your work in one press — and if any operation is wrong, none of them are applied and the reply says which one failed.',
-        'Target a component by block_id from aphrodite_get_contract, or by the literal "selection" for whatever the person has selected.',
+        'Target a component by block_id from aphrodite_get_contract, or, in a call without base_revision, by the literal "selection" for whatever the person has selected.',
         'It cannot approve a direction: that decision stays a human one and no tool here can make it.',
         'Editing needs the person to have opened the door (Connected mode, or Agent mode). If it is closed you get a 423 and a sentence to pass on to them; do not retry in a loop.',
+        'A 423 saying Aphrodite closes or restarts means nothing was changed: try again shortly. A 403 for a file the board came without means only the person can put it on the board: ask them to.',
         '',
-        'Example: {"reason": "The briefing now covers this week.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
-        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "1830:4fa1c2:9b0e11", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "selection", "fields": {"label": "See the range"}}]}',
+        'Example: {"reason": "The briefing now covers this week.", "base_revision": "r2:1830:4fa1c2:9b0e11", "ops": [{"op": "html_replace", "page_id": "abc-1", "find": "<h1>Week 46</h1>", "replace": "<h1>Week 47</h1>"}]}',
+        'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "page_id": "home-1", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "b-7f3a", "fields": {"label": "See the range"}}]}',
       ].join('\n'),
       annotations: {title: 'Change the design', ...WRITE},
       body: args => ({ops: args.ops, patch: args.patch, page_id: args.page_id, reason: args.reason, base_revision: args.base_revision}),
@@ -879,7 +880,7 @@ export const commands = [
         'Anything in `tokens` that is not a real colour is dropped rather than trusted.',
         'Changing the design needs the door open.',
         '',
-        'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "1830:4fa1c2:9b0e11"}',
+        'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "r2:1830:4fa1c2:9b0e11"}',
       ].join('\n'),
       annotations: {title: 'Change the design system', ...WRITE},
       body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens, reason: args.reason, base_revision: args.base_revision}),
@@ -1221,10 +1222,11 @@ export const commands = [
     input: {type: 'object', properties: {name: {type: 'string'}}, required: ['name'], additionalProperties: false},
     reason: 'none',
     revision: 'none',
-    ledger: sources('editor:change'),
+    /* Renaming from Home changes the board's name too, so it is recorded in that board's ledger (0.3-R). */
+    ledger: sources('editor:change', 'home:rename'),
     author: 'transport',
     surfaces: UI,
-    controls: [form('rename-form')],
+    controls: [form('rename-form'), form('hub-rename-form')],
   },
   {
     id: 'edit.content-language',
@@ -1323,6 +1325,8 @@ export const commands = [
     controls: [
       action('save-project'), action('disk-backup'), action('save-design'), action('save-omd-issue'), action('assembly-brief'),
       action('assembly-log'), action('proposal-export'), action('hub-backup'), action('hub-recovery'), action('vault-download'), action('vault-export'),
+      /* The person's answer to a close that could not save (0.3-R ⑤): keep the board as a file, then close. */
+      listener('close-keep'),
     ],
   },
   {
@@ -1374,7 +1378,7 @@ export const commands = [
     input: {type: 'object', properties: {id: {type: 'string'}}, required: ['id'], additionalProperties: false},
     ...plain,
     surfaces: UI,
-    controls: [action('hub-rename'), form('hub-rename-form'), action('hub-pin'), action('hub-archive'), action('hub-move'), action('hub-delete'), action('hub-delete-confirm')],
+    controls: [action('hub-rename'), action('hub-pin'), action('hub-archive'), action('hub-move'), action('hub-delete'), action('hub-delete-confirm')],
   },
   {
     id: 'outside.workspace',
@@ -1442,16 +1446,30 @@ export const commands = [
     ...plain,
     surfaces: UI,
     controls: [
-      action('update-install'), action('update-relaunch'), action('update-download'), action('update-open'), action('update-reveal'),
+      action('update-install'), action('update-download'), action('update-open'), action('update-reveal'),
       action('update-notes'), action('update-later'), action('update-dismiss'), action('update-never'), listener('update-check'),
     ],
   },
   {
+    /* Starting the app again reads the board on disk in place of the one on screen (0.3-R fix 2 #1): the person's alone,
+       and it saves first, as closing the window does. */
+    id: 'outside.relaunch',
+    label: {en: 'Restart into the new version', ko: '새 버전으로 다시 시작'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('update-relaunch')],
+  },
+  {
+    /* The saved copy, an approved one included, put back over the board on screen (0.3-R fix 1): the person's alone. */
     id: 'outside.disk-reload',
     label: {en: 'Reload the saved copy from disk', ko: '디스크에서 다시 불러오기'},
     grade: 'outside',
     input: NOTHING,
     ...plain,
+    author: 'person-only',
     surfaces: UI,
     controls: [action('disk-reload')],
   },

@@ -41,3 +41,11 @@ test('the plugins the app imports are the plugins it is allowed to use',() => {
     );
   }
 });
+
+/* 0.3-R ⑤: the close that could not save asks in the system's own dialog. Each dialog the app opens needs its own grant,
+   or the question never shows and the window can neither save nor go. */
+test('every dialog the app opens is one it is allowed to open',() => {
+  const named = [...code.matchAll(/\{([^{}]*)\}\s*=\s*await import\('@tauri-apps\/plugin-dialog'\)|import\s*\{([^{}]*)\}\s*from\s*'@tauri-apps\/plugin-dialog'/g)].flatMap(m => (m[1] ?? m[2]).split(',').map(s => s.trim().split(/\s+as\s+/)[0]).filter(Boolean));
+  assert.ok(named.includes('message'), 'the close asks with message()');
+  for (const name of named) assert.ok(granted.includes(`dialog:allow-${name}`), `src opens the ${name} dialog but capabilities/default.json does not allow dialog:allow-${name}`);
+});

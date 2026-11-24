@@ -15,6 +15,7 @@ import {patternVariants} from '../patterns';
 import {frameWidth} from '../editor/space';
 import {fontStack} from '../design/fonts';
 import {htmlWindow, isFreePage, pageText, HTML_WINDOW} from '../free-page';
+import {clip} from '../text';
 
 export type ContractFormat = 'concise' | 'detailed';
 export type ContractOptions = {format?: ContractFormat; pageId?: string; maxPages?: number; maxBlocks?: number};
@@ -110,7 +111,7 @@ export function designContract(project: Project, selectedId: string, options: Co
   }
   const pages = asked.slice(0, maxPages);
   const selected = project.pages.flatMap(p => p.blocks).find(b => b.id === selectedId);
-  const brief = format === 'detailed' ? project.brief : project.brief.slice(0, BRIEF_CHARS);
+  const brief = format === 'detailed' ? project.brief : clip(project.brief, BRIEF_CHARS);
   const out: Record<string, unknown> = {
     schema: 'aphrodite.contract/1',
     project: {
@@ -197,7 +198,7 @@ export function pageTextRead(project: Project, ask: {pageId: string}) {
   const found = freePage(project, ask.pageId);
   if ('error' in found) return found;
   const text = pageText(found.page.html);
-  return {ok: true as const, page_id: found.page.id, name: found.page.name, text: text.slice(0, HTML_WINDOW), ...(text.length > HTML_WINDOW ? {more: true, length: text.length} : {})};
+  return {ok: true as const, page_id: found.page.id, name: found.page.name, text: clip(text, HTML_WINDOW), ...(text.length > HTML_WINDOW ? {more: true, length: text.length} : {})};
 }
 
 /**

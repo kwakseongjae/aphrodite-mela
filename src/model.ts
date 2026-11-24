@@ -26,12 +26,23 @@ export type VibeReceipt = {packId:string;changedFields:number;source:'local-auth
 export type PageProposal={fromPageId:string;label:string;kind:'reference-direction'|'vibe'|'agent'};
 /** A section page has `blocks`. A free page (`kind: 'html'`) and a media item (`kind: 'media'`) keep `blocks: []` and hold their content in `html` or `media` (src/free-page.ts). */
 export type Page = { id: string; name: string; blocks: Block[]; referenceEvidence?: ReferenceEvidence; vibeReceipt?:VibeReceipt; proposal?:PageProposal; kind?: PageKind; html?: string; media?: PageMedia };
-/** `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. */
-export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger };
+/**
+ * `ledger` is the record of every change (src/ledger). It is not design: fingerprints and diffs leave it out. Nor is
+ * `leftOut` (0.3-R ④): the files, by hash or `local:` id, a received board named and did not carry, which no export sends.
+ */
+export type Project = { version: 1; id: string; name: string; brief: string; system: DesignSystem; pages: Page[]; activePageId: string; reference?: string; approvedFingerprint?: string; contentLanguage?:'en'|'ko'; shelf?:ShelfChoice[]; space?:Space; ledger?:Ledger; leftOut?:string[] };
 export const uid = () => crypto.randomUUID();
 /** How many pages (and media items) a project holds, and how long a page's name may be. */
 export const MAX_PAGES = 30;
 export const MAX_PAGE_NAME = 100;
+/** What a page has (the Page type): a read keeps these and nothing else, an agent may put in nothing else. */
+export const PAGE_KEYS: ReadonlySet<string> = new Set(['id', 'name', 'blocks', 'referenceEvidence', 'vibeReceipt', 'proposal', 'kind', 'html', 'media']);
+/** What a block has (the Block type): an agent may put in nothing else. */
+export const BLOCK_KEYS: ReadonlySet<string> = new Set(['id', 'kind', 'title', 'text', 'label', 'image', 'filled', 'variant', 'eyebrow', 'description', 'itemImages', 'options', 'provider', 'theme', 'parentId', 'layout']);
+/** How many files a board may be marked as having come without (0.3-R ④). */
+export const MAX_LEFT_OUT = 10_000;
+/** In place of the list (0.3-R fix 2 #13): the board came without files no list could hold, so none of this Mac's goes out with it. */
+export const LEFT_OUT_ALL = '*';
 export const systems: DesignSystem[] = [
   ...ownSystems,
   {id:'mui',name:'Material · MUI',description:'Official React adapters + project tokens',accent:'#1976d2',background:'#ffffff',foreground:'#1b1b1f',radius:4,font:'sans',source:'MUI official package adapters for Button, TextField, Card. Remaining compositions are Aphrodite originals.'},
@@ -74,15 +85,39 @@ export function initialProject(): Project {
   return { version: 1, id: uid(), name: 'Form & Field', brief: 'A warm, editorial furniture store. Natural materials, thoughtful objects, and a slower way of living.', system: { ...systems.find(s=>s.id==='atelier')! }, pages: [{ id, name: 'Home', blocks: (['navigation', 'hero', 'features', 'products', 'footer'] as BlockKind[]).map(k => makeBlock(k, true)) }], activePageId: id };
 }
 export function currentPage(p: Project) { return p.pages.find(x => x.id === p.activePageId)!; }
-export function fingerprint(p: Project): string {
+function hashOf(value: string): string {
   // Local change detector, not a security signature. Two independent 32-bit accumulators
   // avoid duplicating multi-megabyte uploaded images in storage and history snapshots.
-  const value = JSON.stringify({ name: p.name, brief: p.brief, system: p.system, pages: p.pages, reference: p.reference, contentLanguage:p.contentLanguage });
   let a = 2166136261, b = 5381;
   for (let i = 0; i < value.length; i++) { a = Math.imul(a ^ value.charCodeAt(i), 16777619); b = Math.imul(b, 33) ^ value.charCodeAt(i); }
   return `${value.length}:${(a >>> 0).toString(16)}:${(b >>> 0).toString(16)}`;
 }
-export function isApproved(p: Project) { return p.approvedFingerprint === fingerprint(p); }
+const designFields = (p: Project) => ({ name: p.name, brief: p.brief, system: p.system, pages: p.pages, reference: p.reference, contentLanguage:p.contentLanguage });
+/** The design's revision as it has always been read: the JSON as the keys happen to fall. Approvals made before 0.3-R hold this. */
+export function fingerprint(p: Project): string { return hashOf(JSON.stringify(designFields(p))); }
+/** JSON with every object's keys in order: the same design reads the same, whichever order its keys were made in. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, (v as Record<string, unknown>)[k]])) : v);
+}
+/**
+ * What an approval holds (0.3-R): the design, read so that key order does not count. A store that sorts keys, or an undo
+ * that puts a field back after the others, gives back the design the person approved, and the approval holds for it.
+ */
+export function approvalPrint(p: Project): string { return `c1:${hashOf(canonicalJson(designFields(p)))}`; }
+/**
+ * The revision an agent reads and sends back as base_revision (0.3-R): the board, its design, and every frame's place
+ * and size in page order, which is all a batch can change (a patch can replace the whole space). A copy of a board, or
+ * a frame resized or moved since it was read, is another revision. Key order does not count. Not what an approval
+ * holds: that is `approvalPrint`, of the design alone, and stays as it is.
+ */
+export function agentRevision(p: Project): string { return `r2:${hashOf(canonicalJson({ board: p.id, design: designFields(p), frames: p.pages.map(page => p.space?.frames[page.id] ?? null) }))}`; }
+/** An approval written before 0.3-R (`fingerprint`) still holds; a read gives it back as an `approvalPrint`. */
+export function isApproved(p: Project) { const held = p.approvedFingerprint; return held !== undefined && (held === approvalPrint(p) || held === fingerprint(p)); }
+/**
+ * The invariant (0.3-R): a fingerprint that is kept matches the board it is on. One the content no longer matches is dropped
+ * where the board changes, is read or is saved, so content that comes back, by whoever, comes back a draft. True when it dropped one.
+ */
+export function dropStaleApproval(p: Project): boolean { if (p.approvedFingerprint === undefined || isApproved(p)) return false; delete p.approvedFingerprint; return true; }
 export function assemble(brief: string): BlockKind[] {
   if (/shop|store|furniture|commerce|가구|쇼핑|스토어|상품/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'features', 'footer'];
   if (/portfolio|studio|포트폴리오|스튜디오/.test(brief.toLowerCase())) return ['navigation', 'hero', 'products', 'testimonial', 'footer'];
@@ -102,12 +137,17 @@ export const MAX_PROJECT = 20_000_000;
 export function parseProject(raw: string): Project {
   if (raw.length > MAX_PROJECT) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
+  // Judged on the content as it came, before anything below tidies it: what was approved stays approved, in the form key order cannot break.
+  const approved = typeof p?.approvedFingerprint === 'string' && isApproved(p);
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
   if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > MAX_PAGES) throw new Error('지원하지 않는 프로젝트 형식입니다.');
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
+  // A list that cannot be trusted whole holds back every file (0.3-R fix 2 #13): it is never cut, and never a reason to refuse the board.
+  if(p.leftOut!==undefined&&(!Array.isArray(p.leftOut)||p.leftOut.length>MAX_LEFT_OUT||!p.leftOut.every(f=>typeof f==='string'&&(f===LEFT_OUT_ALL||/^(?:[0-9a-f]{64}|local:[0-9a-f]{16})$/.test(f)))))p.leftOut=[LEFT_OUT_ALL];
+  else if(p.leftOut?.includes(LEFT_OUT_ALL))p.leftOut=[LEFT_OUT_ALL];
   if(p.space!==undefined){const space=sanitizeSpace(p.space);if(space)p.space=space;else delete p.space;}
   if (s.headingFamily !== undefined) { const clean = sanitizeFamily(s.headingFamily); if (clean) s.headingFamily = clean; else delete s.headingFamily; }
   if (s.bodyFamily !== undefined) { const clean = sanitizeFamily(s.bodyFamily); if (clean) s.bodyFamily = clean; else delete s.bodyFamily; }
@@ -129,6 +169,8 @@ export function parseProject(raw: string): Project {
   for (const page of p.pages) {
     if (!page || !validId(page.id) || ids.has(page.id) || !str(page.name, MAX_PAGE_NAME) || !Array.isArray(page.blocks) || page.blocks.length > 100) throw new Error('페이지 형식이 올바르지 않습니다.');
     ids.add(page.id);
+    // A page keeps what a page has and nothing else (0.3-R fix 1 #3): a change's record sees every field it keeps, so an undo gives back exactly what was approved.
+    for (const key of Object.keys(page)) if (!PAGE_KEYS.has(key)) delete (page as Record<string, unknown>)[key];
     const shape = pageShapeProblem(page);
     if (shape) throw new Error(`페이지 형식이 올바르지 않습니다: ${shape}.`);
     if(page.proposal!==undefined&&(!validId(page.proposal.fromPageId)||!str(page.proposal.label,100)||!['reference-direction','vibe','agent'].includes(page.proposal.kind)))throw new Error('페이지 제안 형식이 올바르지 않습니다.');
@@ -154,7 +196,16 @@ export function parseProject(raw: string): Project {
   // A saved ledger that does not hold together is dropped, never a reason to refuse the project.
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
-  return { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{})};
+  const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{})};
+  // A fingerprint written before 0.3-R was checked by the reader after it tidied the design (a type role's keys, say):
+  // it is checked against the design as read too, so what an older reader showed as approved stays approved (fix 1 #8).
+  const held = typeof p.approvedFingerprint === 'string' ? p.approvedFingerprint : undefined;
+  if (approved || (held !== undefined && (held === fingerprint(read) || held === approvalPrint(read)))) read.approvedFingerprint = approvalPrint(read);
+  return read;
+}
+/** A design system in the shape a read keeps (parseProject): a board's approval is over what is saved, not over names a read would drop. */
+export function canonicalSystem(system: DesignSystem): DesignSystem {
+  return parseProject(JSON.stringify({ version: 1, id: 'system', name: 'system', brief: '', system, pages: [{ id: 'page', name: 'page', blocks: [] }], activePageId: 'page' })).system;
 }
 export function importDesignMarkdown(markdown: string, name: string, base: DesignSystem): DesignSystem {
   if (markdown.length > 200000) throw new Error('DESIGN.md는 200KB 이하여야 합니다.');

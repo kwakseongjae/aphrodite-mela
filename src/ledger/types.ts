@@ -44,6 +44,13 @@ export type Change = {
 };
 export type Ledger = {seq: number; changes: Change[]};
 export const MAX_REASON = 500;
+/**
+ * The note a change carries when the approval went with it (0.3-R): its content no longer matched the fingerprint, or
+ * someone other than the person would have brought an approval the board did not have. Approving is the person's alone.
+ */
+export const APPROVAL_CLEARED = 'Approval cleared: only the person brings an approval back.';
+/** Who clears an approval the library's edge finds stale, read or saved (0.3-R fix 1 #9): not the person, not an agent. */
+export const SYSTEM: Author = {kind: 'unknown', name: 'system'};
 /** Saved ledger budget per project. Local storage in a browser holds about five million characters for everything. */
 export const LEDGER_BUDGET = 1_200_000;
 /**

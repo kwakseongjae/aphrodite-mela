@@ -45,7 +45,7 @@ const INTERNAL_COMMANDS=[
   'page_wall_status',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
-  'board_media_begin','board_media_chunk','board_media_finish',
+  'board_media_begin','board_media_chunk','board_media_finish','board_media_release',
 ];
 /**
  * Tauri commands that read a file outside the app's own folders, at a path an agent names (0.3-P2-fix1):
@@ -99,6 +99,8 @@ const LISTENERS:Record<string,{file:string;marker:string}>={
   'opened':{file:'main.ts',marker:"tauriListen('aphrodite-opened'"},
   // A board file dropped on the board (0.3-P3-fix3 #7): the person's import, on the import row.
   'board-drop':{file:'main.ts',marker:"for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board)))"},
+  // 0.3-R ⑤: a close that could not save asks the person, and their "keep as a file" saves the board before the window goes.
+  'close-keep':{file:'main.ts',marker:"const closer=windowCloser(closeWindow,askClose,"},
 };
 /** Helpers that are the app's own saving, run by every edit rather than by any one command. */
 const EXEMPT:Record<string,string>={

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {initialProject, parseProject, fingerprint, makeBlock, type Project} from '../src/model.ts';
+import {initialProject, parseProject, fingerprint, agentRevision, makeBlock, type Project} from '../src/model.ts';
 import {applyPatch} from '../src/ledger/patch.ts';
 import {changesSince, compact, designOf, emptyLedger, hasOmitted, LEDGER_BUDGET, readLedger, record, slim, UNDO_LIMIT, type Author, type Ledger} from '../src/ledger/ledger.ts';
 import {begin, end, newHistory, step} from '../src/ledger/session.ts';
@@ -23,7 +23,8 @@ function edit(p: Project, h: ReturnType<typeof newHistory>, change: (p: Project)
 test('an edit becomes one change with who, where, why and both revisions', () => {
   const p = initialProject(), h = newHistory();
   const hero = p.pages[0].blocks[1];
-  const before = fingerprint(p);
+  // 0.3-R ②: the revisions an agent reads, the board and its frames with the design.
+  const before = agentRevision(p);
   const c = edit(p, h, x => { x.pages[0].blocks[1].title = 'Light, made meaningful'; }, {author: bot, source: 'agent:apply', reason: 'The first line says what the shop sells.'})!;
   assert.equal(c.seq, 1);
   assert.deepEqual(c.author, bot);
@@ -31,7 +32,7 @@ test('an edit becomes one change with who, where, why and both revisions', () =>
   assert.equal(c.reason, 'The first line says what the shop sells.');
   assert.deepEqual(c.anchors, {pages: [p.pages[0].id], nodes: [hero.id]});
   assert.equal(c.baseRevision, before);
-  assert.equal(c.revision, fingerprint(p));
+  assert.equal(c.revision, agentRevision(p));
   assert.equal(c.view, false);
   assert.equal(p.ledger!.changes.length, 1);
 });
@@ -139,7 +140,7 @@ test('a project is the baseline from the moment it opens, so a change before the
   edit(p, h, x => { x.name = 'First'; });
   assert.deepEqual(p.ledger!.changes.map(c => c.source), ['untracked', 'editor:change']);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /function openProject\(next:Project\)\{if\(screen==='editor'\)saveTyping\(\);project=parseProject\(JSON\.stringify\(next\)\);selected='';ensureSpace\(project\);edits=newHistory\(project\);/, 'main.ts opens every project that way, its frames laid out first');
+  assert.match(main, /function openProject\(next:Project\)\{editSession\+\+;if\(screen==='editor'\)saveTyping\(\);project=parseProject\(JSON\.stringify\(next\)\);selected='';ensureSpace\(project\);edits=newHistory\(project\);/, 'main.ts opens every project that way, its frames laid out first');
 });
 
 test('an untracked change is nobody\'s, not the next editor\'s, and redo does not survive it', () => {
@@ -265,7 +266,7 @@ test('changes since a sequence number or a revision, view left out unless asked'
   const p = initialProject(), h = newHistory();
   p.pages.push({id: 'second', name: 'Second', blocks: []});
   edit(p, h, x => { x.name = 'A'; });
-  const mark = fingerprint(p);
+  const mark = agentRevision(p);
   edit(p, h, x => { x.activePageId = 'second'; });
   edit(p, h, x => { x.name = 'B'; });
   edit(p, h, x => { x.name = 'C'; });

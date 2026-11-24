@@ -9,6 +9,7 @@
     "core:window:allow-close",
     "core:window:allow-destroy",
     "dialog:allow-save",
+    "dialog:allow-message",
     "fs:allow-write-file",
     "updater:default",
     "process:allow-restart"

@@ -80,6 +80,7 @@ fn main() {
             board::board_media_stat,
             board::board_media_read,
             board::board_media_import,
+            board::board_media_release,
             board::board_media_path,
             board::free_page_write,
             opened::opened_take,

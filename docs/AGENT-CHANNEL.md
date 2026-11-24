@@ -14,6 +14,7 @@ The channel is **open from launch**. An agent on this Mac can read the project w
 - **사람이 항상 이긴다.** 연결 모드에서 사람이 타이핑하거나 클릭하면 리스가 즉시 사람에게 돌아가고, 에이전트의 다음 쓰기는 409를 받는다. 몇 초 조용하면 다시 열린다. 에이전트의 리스도 90초 무활동이면 풀린다.
 - **호출자 이름**: `X-Aphrodite-Agent: claude-code` 헤더로 자기 이름을 밝힌다. 영수증마다 `by`로 남는다. `human`은 쓸 수 없다.
 - 승인(Approve direction)은 채널에 존재하지 않는다. 제어는 `end`로 내려놓을 수만 있고, `start`는 없다.
+- **알려진 한계(0.3-R):** 화면을 직접 조작하는 도구(컴퓨터 사용, 손쉬운 사용 API 등 OS 수준의 마우스·키보드)의 누름은 앱이 사람의 손과 구별하지 못한다. 그런 도구로 승인 단추나 ⌘Z를 누르면 사람의 것으로 기록된다. 승인이 사람만의 것이라는 규칙이 막는 것은 앱의 에이전트 연결(MCP·loopback HTTP·앱 안 에이전트)로 들어온 명령이다.
 
 ## Agent mode — 완전 위임
 
@@ -60,6 +61,8 @@ The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready
 | `POST /agent/system` | `{"id":"toss","reason":"…"}` · `{"markdown":"…DESIGN.md…","name":"…","reason":"…"}` · `{"tokens":{"accent":"#344e41"},"reason":"…"}` | 디자인 시스템을 바꾼다. 내장 8개(`mui` `shadcn` `seed` `astryx` `atelier` `karrot` `toss` `mono`), DESIGN.md 가져오기, 토큰 개별 지정. **모든 페이지의 모든 블록이 다시 칠해지는 가장 큰 편집**이라 한 번의 변경·한 번의 실행 취소로 들어간다. 색이 아닌 값은 버린다. `reason`은 필수이고 원장에 `agent:system`으로 남는다. `base_revision`이 지금보다 낡았으면 `apply`처럼 `409`와 그 사이의 변경을 돌려준다. | 쓰기 |
 | `POST /agent/export` | `{"format":"contract"}`(기본) · `{"format":"files"}` | 빌드 계약. 기본은 **글**이다 — `PROMPT.md`·`DESIGN.md`·`tokens.json`·SCENE을 그대로 돌려준다(에이전트는 zip을 못 연다). `files`는 번들을 저장 대화상자로 쓴다. 응답의 `approved`가 `false`면 **초안이라고 말해야 한다** — 승인은 사람의 클릭이고 채널로는 안 된다. | 쓰기 |
 | `POST /agent/end` | — | Ends Agent mode from the agent side (`ended-by-agent`). `{ok, ended:true}`. 평소(design)에는 끝낼 것이 없어 **409**. | 모드가 켜져 있을 때만 |
+
+`apply`의 `media_add`가 복사한 파일은 묶음이 끝날 때까지 대기 표시를 달고, 묶음이 끝나면 들어갔든 거절됐든 표시만 지운다. `board-media`에 놓인 파일은 앱이 지우지 않는다(저장된 보드가 같은 해시를 부를 수 있다). 앱이 묶음 도중에 비정상 종료되면 대기 표시와 그 파일이 남을 수 있다(남는 파일은 해롭지 않다).
 
 `apply`가 받는 op는 여섯 가지다 (`src/agent/ops.ts`):
 

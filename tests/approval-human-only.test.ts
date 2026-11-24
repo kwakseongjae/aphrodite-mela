@@ -191,7 +191,8 @@ test('approvedFingerprint is written in exactly one place in main.ts',()=>{
   const sets=main.match(/approvedFingerprint\s*=(?!=)/g)??[];
   assert.equal(sets.length,1,`found ${sets.length} assignments; every approval must pass the one guarded case`);
   // ...and it is recorded as the approve row, which commit() refuses to anyone but the person.
-  assert.match(main,/commit\(\(\) => \{ project\.approvedFingerprint = fingerprint\(project\); \}, d, 'human\.approve'\)/);
+  // 0.3-R: in the form key order cannot break, and only over the board the button was drawn for (0.2.5 H2).
+  assert.match(main,/commit\(\(\) => \{ if\(el\.dataset\.shown!==shownState\(\)\)\{seen=false;return;\} project\.approvedFingerprint = approvalPrint\(project\); \}, d, 'human\.approve'\)/);
 });
 
 /* Undo and redo reach approval through history rather than a button: session.ts refuses an agent's
@@ -203,7 +204,7 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
   const body=main.slice(start,main.indexOf('\n}',start));
   assert.match(body,/stepForScreen\(project,direction,edits,d\.author\)/,'the step is asked as whoever asked for it, the way the screen takes it');
   assert.ok(body.indexOf('refusal(d')<body.indexOf('stepForScreen('),'and nobody named takes no step');
-  assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefused=error\.message;return;\}/,'refused before the stack is popped');
+  assert.match(body,/if\(error instanceof HumanOnlyStep\)\{stepRefusals\.set\(d,error\.message\);return;\}/,'refused before the stack is popped, kept with the command that asked');
   assert.ok(body.indexOf('HumanOnlyStep')<body.indexOf('.pop()'));
   // 0.3-P1 Codex 4th review: a step whose design cannot be saved moves nothing, and the whole project — history included — is not parsed before the save fits it.
   assert.ok(body.indexOf('StepDoesNotFit')>0&&body.indexOf('StepDoesNotFit')<body.indexOf('.pop()'),'a step that does not fit is not popped');
@@ -213,8 +214,9 @@ test('history() keeps the stacks on a refused step and leaves the reason for the
 test('runAgentCommand returns a refused step as the gate\'s 403',()=>{
   const start=main.indexOf('async function runAgentCommand');
   const body=main.slice(start,main.indexOf('\n}',start));
-  assert.match(body,/const d=agentDispatch\(who,[^\n]*\n\s*stepRefused='';/,'a stale refusal never answers the next command');
-  assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*if\(stepRefused\)\{const error=stepRefused;stepRefused='';return \{error,status:403\};\}/,'checked after the wait, so a click has landed');
+  // 0.3-R (0.2.5 check6): kept with the command's own Dispatch, so a refusal never answers another command running beside it.
+  assert.doesNotMatch(main,/stepRefused/,'no refusal is kept where any command could read it');
+  assert.match(body,/await new Promise\(r=>setTimeout\(r,60\)\);\n.*\n\s*const refusedStep=stepRefusals\.get\(d\);if\(refusedStep\)return \{error:refusedStep,status:403\};/,'checked after the wait, so a click has landed');
 });
 
 test('undo and redo name who asked: the key handler by the event, action() before its first await',()=>{
@@ -243,4 +245,19 @@ test('the ledger\'s patch, accepted back through apply_edits, cannot set the app
   }
   const unset=parseBatch({reason:'Replaying a change.',patch:[{op:'set',on:'project',field:'approvedFingerprint',unset:true}]});
   assert.ok('error' in unset,'nor can a patch clear it');
+});
+
+/* 0.3-R (0.2.5 check6): off the editor no board is open, and an agent's reads do not read out the board left in memory. */
+test('on Home an agent reads no revision and no references kept for the board left in memory',()=>{
+  assert.match(main,/function agentState\(who=''\)\{return \{ok:true,\.\.\.\(screen==='editor'\?revisionInfo\(\):\{\}\),/,'state names no revision on Home');
+  const start=main.indexOf("case 'references':{");
+  const body=main.slice(start,main.indexOf("case 'taste':",start));
+  assert.match(body,/archive\.entries\(\)\.filter\(r=>screen==='editor'\|\|r\.scope!=='project'\)/,'references kept for one board are read only while it is open');
+});
+
+test('a library whose read tidied an approval is written back once, and a store that refuses that write does not stop the app', () => {
+  assert.match(main, /if\(readTidied\(library\)&&!nativeDesktop\)try\{writeLibraryText\(localStorage,JSON\.stringify\(library\)\);\}catch\{/);
+  // 0.3-R fix 1 #10: through queueLibrary, held to what the desktop can save.
+  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)&&!vanished\)queueLibrary\(library\);/, 'the desktop at start');
+  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)\)queueLibrary\(library\);/, 'and when it reads the disk again');
 });

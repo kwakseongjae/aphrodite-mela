@@ -105,7 +105,9 @@ function tagEnd(html: string, open: number): number {
   }
   return -1;
 }
-const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'head']);
+const SKIPPED = new Set(['script', 'style', 'template', 'noscript', 'svg', 'title']);
+/** What a head holds and is not text. Any other tag, or any words, ends a head the page left open, as a browser ends it (0.3-R). */
+const HEAD_ONLY = new Set(['base', 'basefont', 'bgsound', 'link', 'meta']);
 const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'caption', 'dd', 'details', 'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'tfoot', 'thead', 'ul']);
 
 /**
@@ -115,7 +117,8 @@ const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'br', 'capt
  */
 export function pageText(html: string): string {
   const paragraphs: string[] = [];
-  let words = '', lead = '', cells = 0;
+  let words = '', lead = '', cells = 0, inHead = false;
+  const text = (passage: string) => { if (inHead && /\S/.test(passage)) inHead = false; if (!inHead) words += passage; };
   const flush = () => {
     const text = decoded(words).replace(/\s+/g, ' ').trim();
     if (text && /[^|\s]/.test(text)) paragraphs.push(lead + text);
@@ -123,8 +126,8 @@ export function pageText(html: string): string {
   };
   for (let i = 0; i < html.length;) {
     const open = html.indexOf('<', i);
-    if (open < 0) { words += html.slice(i); break; }
-    words += html.slice(i, open);
+    if (open < 0) { text(html.slice(i)); break; }
+    text(html.slice(i, open));
     if (html.startsWith('<!--', open)) { const close = html.indexOf('-->', open + 4); i = close < 0 ? html.length : close + 3; words += ' '; continue; }
     if (html[open + 1] === '!' || html[open + 1] === '?') { const close = html.indexOf('>', open); i = close < 0 ? html.length : close + 1; continue; }
     const tag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(html.slice(open, open + 40));
@@ -133,6 +136,9 @@ export function pageText(html: string): string {
     if (close < 0) break;
     i = close + 1;
     const closing = tag[1] === '/', name = tag[2].toLowerCase();
+    if (name === 'head') { inHead = !closing; continue; }
+    if (inHead && (HEAD_ONLY.has(name) || (closing && name !== 'html'))) continue;
+    if (!SKIPPED.has(name)) inHead = false;
     if (!closing && SKIPPED.has(name)) {
       const end = new RegExp(`</${name}\\s*>`, 'gi');
       end.lastIndex = i;
@@ -228,16 +234,19 @@ export function contentKey(text: string): string {
  * frame be sent nowhere. The frame's scripts run under this policy as well as their own, so it allows
  * what the frame's does and no more.
  */
-export function renderShell(doc: string, origins: readonly string[]): string {
-  const media = ['data:', ...origins].join(' ');
+export function renderShell(doc: string, origins: readonly string[], files?: readonly string[]): string {
   for (const origin of origins) if (!MEDIA_ORIGIN.test(origin)) throw new Error(`not a media origin a frame may load from: ${origin}`);
+  // Given `files`, the shell may load those addresses and no other (0.3-R fix 3 #7): a page that makes an address at run time
+  // for a file it was not given draws nothing. Each is one of the origins' own, with nothing in it a policy reads as a break.
+  const named = files?.filter(f => /^(?:asset|https?):\/\/[^\s"'()<>\\;,]+$/.test(f) && origins.some(o => f.startsWith(o.endsWith(':') ? `${o}//` : `${o}/`)));
+  const media = ['data:', ...(named ?? origins)].join(' ');
   const csp = [`default-src 'none'`, `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, `img-src ${media}`, `media-src ${media}`, 'font-src data:', `connect-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`, `webrtc 'block'`].join('; ');
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style><iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc="${attribute(doc)}"></iframe>`;
 }
 /** The render page for a free page, its media found the way its board frame finds them. */
 export async function renderDocument(page: {html: string}, host: Pick<FrameHost, 'origins' | 'frameCost' | 'frameMedia'>): Promise<string> {
   const {found} = await pageMedia(page.html, host);
-  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins);
+  return renderShell(framedDocument(page.html, {media: sha => found.get(sha), origins: host.origins}), host.origins, [...new Set(found.values())].filter(a => !a.startsWith('data:')));
 }
 
 /** One file on a board holds at most this many bytes (src-tauri/src/board.rs keeps the same). */
@@ -327,7 +336,9 @@ export type FrameHost = {
   /** Keeps a file the person put on the board, under the hash of its bytes. */
   put(file: Blob): Promise<StoredMedia>;
   /** Copies a file an agent names onto the board: a path on this Mac or a picture in the image library. Desktop only. */
-  importFile(ask: {path?: string; libraryId?: string; project?: string}): Promise<StoredMedia>;
+  importFile(ask: {path?: string; libraryId?: string; project?: string; stage?: boolean}): Promise<StoredMedia>;
+  /** Clears the marks a batch left on the files it staged, as it ends (0.3-R fix 2 #20). The files stay: a placed file is never removed (fix 7 #1). */
+  releaseMedia(shas: string[]): Promise<void>;
   /** The address the app itself shows a board file at, or undefined when this board has no such file. */
   mediaUrl(sha: string): Promise<string | undefined>;
   /** How long the address frameMedia would give is, without reading the file; undefined when it would give none. */
@@ -425,6 +436,7 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
       return {sha, mime, bytes: file.size};
     },
     importFile: async () => { throw new Error('the browser build cannot read files on this Mac; drop the file onto the board, or use the desktop app.'); },
+    releaseMedia: async () => {},
     mediaUrl: async sha => { const known = urls.get(sha); if (known) return known; const blob = await read(sha); if (!blob) return undefined; const url = URL.createObjectURL(blob); urls.set(sha, url); return url; },
     stat: async sha => { const blob = await read(sha); return blob ? {mime: blob.type, bytes: blob.size} : undefined; },
     read: async sha => { const blob = await read(sha); return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined; },
@@ -449,6 +461,8 @@ const PIECE = 8 * 1024 * 1024;
 export function desktopFrameHost(native: Native, timing: {deadline: number} = {deadline: WALL_DEADLINE}): FrameHost {
   const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
   let settled: boolean | undefined, asking: Promise<boolean> | undefined, asks = 0;
+  /** The copy each frame of this window shows, by file name: a write names them, so the desktop never clears one under a frame (0.3-R fix 2 #21). */
+  const shown = new Map<HTMLIFrameElement, string>();
   /* One asking of the wall, under one deadline: the status, then a frame made the way free pages are made,
      asked what it has. Whatever comes after the deadline is ignored, and the frame is taken away either way.
      A no from silence or an error is not final (pageWall asks again); one read back from WebKit is. */
@@ -479,7 +493,8 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
       for (let at = 0; at < file.size; at += PIECE) await native.invoke('board_media_chunk', new Uint8Array(await file.slice(at, at + PIECE).arrayBuffer()), {headers: {'upload-id': id}});
       return native.invoke<StoredMedia>('board_media_finish', {id});
     },
-    importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null}),
+    importFile: ask => native.invoke<StoredMedia>('board_media_import', {path: ask.path ?? null, libraryId: ask.libraryId ?? null, project: ask.project ?? null, stage: ask.stage ?? false}),
+    releaseMedia: async shas => { if (shas.length) await native.invoke('board_media_release', {shas}); },
     mediaUrl: where,
     // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,
@@ -488,7 +503,16 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     frameMedia: where,
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
     // reaches this Mac later changes the document, and so the copy.
-    load: async (frame, page, _key, doc) => { frame.src = native.fileSrc(await native.invoke<string>('free_page_write', {page, key: contentKey(doc), html: doc})); },
+    load: async (frame, page, _key, doc) => {
+      const key = contentKey(doc);
+      // Named by the frames in the window now; one taken out for a moment keeps its entry for when it is back, and only a
+      // list grown long lets go of the frames not in the window.
+      if (shown.size > 1024) for (const f of shown.keys()) if (!f.isConnected) shown.delete(f);
+      const live = new Set([...shown].filter(([f]) => f !== frame && f.isConnected).map(([, name]) => name));
+      const path = await native.invoke<string>('free_page_write', {page, key, html: doc, shown: [...live]});
+      shown.set(frame, `${page}~${key}.html`);
+      frame.src = native.fileSrc(path);
+    },
     pageWall: () => settled !== undefined ? Promise.resolve(settled) : asking ??= ask().then(answer => {
       asking = undefined;
       if (answer.final || ++asks >= WALL_ASKS) settled = answer.holds;
@@ -526,7 +550,8 @@ export function linkOut(raw: string): {host: string; href: string; shown: string
   return {host, href, shown};
 }
 
-const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
+/** Whether `at` falls between the two halves of a pair: a high half just before it and a low half at it. A half on its own is a unit of its own (0.3-R). */
+const splitsPair = (text: string, at: number) => { const c = text.charCodeAt(at), b = text.charCodeAt(at - 1); return c >= 0xdc00 && c <= 0xdfff && b >= 0xd800 && b <= 0xdbff; };
 
 /**
  * Part of a page's html, from `start` up to `end` (character offsets, end not included), at most
@@ -536,7 +561,17 @@ const lowSurrogate = (text: string, at: number) => { const c = text.charCodeAt(a
 export function htmlWindow(html: string, range: {start?: number; end?: number} = {}, limit = HTML_WINDOW) {
   let start = Math.min(Math.max(0, Math.floor(range.start ?? 0)), html.length);
   let end = Math.min(html.length, Math.max(start, Math.floor(range.end ?? html.length)), start + limit);
-  if (start > 0 && start < html.length && lowSurrogate(html, start)) start--;
-  if (end > start && end < html.length && lowSurrogate(html, end)) end--;
+  if (start > 0 && start < html.length && splitsPair(html, start)) start--;
+  if (end > start && end < html.length && splitsPair(html, end)) end--;
   return {start, end, length: html.length, more: end < html.length, html: html.slice(start, end)};
+}
+
+/** The files a project names: its media items' and every `media:<sha256>` in its pages' html. */
+export function filesNamed(project: {pages: {media?: PageMedia; kind?: PageKind; html?: string}[]}): string[] {
+  const named = new Set<string>();
+  for (const page of project.pages) {
+    if (page.media) named.add(page.media.src.slice('media:'.length));
+    if (page.kind === 'html' && typeof page.html === 'string') for (const sha of mediaNamed(page.html)) named.add(sha);
+  }
+  return [...named];
 }

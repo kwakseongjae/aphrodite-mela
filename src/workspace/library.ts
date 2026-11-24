@@ -1,36 +1,68 @@
-import {parseProject,uid,MAX_PROJECT,type Project} from '../model';
-import {halfPairIn} from '../text';
-import {fitSaved} from '../ledger/ledger';
-import {LEDGER_RESERVE,readLedger} from '../ledger/types';
+import {dropStaleApproval,parseProject,uid,MAX_PROJECT,MAX_LEFT_OUT,type Project} from '../model';
+import {filesNamed} from '../free-page';
+import {localRefsIn} from '../design/local-images';
+import {halfPairIn,clip} from '../text';
+import {designOf,emptyLedger,fitSaved,record} from '../ledger/ledger';
+import {APPROVAL_CLEARED,LEDGER_RESERVE,SYSTEM,readLedger} from '../ledger/types';
 import {DEFAULT_WORKSPACE_ID} from './workspaces';
 export const LIBRARY_KEY='aphrodite-project-library-v1';
 export const LEGACY_KEY='aphrodite-mela-project-v1';
 const WORKSPACE_ID=/^[a-zA-Z0-9_-]{1,60}$/;
-export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string;workspaceId?:string};
+/** `clearedApproval`: when the system dropped a stale approval whose clearing found no room in the board's own history (0.3-R fix 3 #4). */
+export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string;workspaceId?:string;clearedApproval?:string};
 export type Library={version:1;entries:ProjectEntry[]};
 export type LocalStore=Pick<Storage,'getItem'|'setItem'>;
 function requireWorkspaceId(id:string){if(!WORKSPACE_ID.test(id))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');return id;}
+/** Libraries whose read held an approval differently from what was stored (0.3-R): a stale one dropped, an old one in its new form. */
+const tidied=new WeakSet<Library>();
+/**
+ * Whether reading this library changed an approval from what is stored. The app writes such a library once, at once, so
+ * the store holds what the screen shows (a Files sync compares the two and would otherwise call the board changed).
+ */
+export const readTidied=(library:Library):boolean=>tidied.has(library);
+/**
+ * A stale fingerprint the library's edge dropped (a read, or a save of a board some path left it on) is recorded in that board's
+ * own ledger, by the system, as every other clearing is recorded with its change (0.3-R fix 1 #9).
+ */
+function noteCleared(project:Project,held:unknown):boolean{
+  if(typeof held!=='string'||project.approvedFingerprint!==undefined)return false;
+  if(!project.ledger)project.ledger=emptyLedger();
+  record(project.ledger,{...designOf(project),approvedFingerprint:held},designOf(project),{author:SYSTEM,source:'library:tidy',reason:APPROVAL_CLEARED});
+  return true;
+}
+/** A clearing the history had no room for, near the cap, is kept in the library's entry beside the board (0.3-R fix 3 #4). */
+function keptClearing(saved:Project,cleared:boolean,at:string):{clearedApproval?:string}{
+  return cleared&&saved.ledger?.changes.at(-1)?.reason!==APPROVAL_CLEARED?{clearedApproval:at}:{};
+}
 export function readLibrary(storage:LocalStore):Library{
   const raw=storage.getItem(LIBRARY_KEY);
   if(raw!==null){
     if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 원본은 보존됩니다.');
     const value=JSON.parse(raw);
     if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>200)throw new Error('프로젝트 보관함 형식을 읽지 못했습니다.');
-    const seen=new Set<string>();
+    const seen=new Set<string>();let changed=false;
     const entries=value.entries.map((e:ProjectEntry)=>{
       if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
-      const project=parseProject(JSON.stringify(e.project));
+      if(e.clearedApproval!==undefined&&(typeof e.clearedApproval!=='string'||!Number.isFinite(Date.parse(e.clearedApproval))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      let project=parseProject(JSON.stringify(e.project));const cleared=noteCleared(project,e.project?.approvedFingerprint);
+      // What the read added (the approval in today's form, a clearing recorded) is held to what a project holds before the library is written back (0.3-R fix 2 #19).
+      if(JSON.stringify(project).length>MAX_PROJECT)project=parseProject(savedText(project));
       if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
-      return {...e,project};
-    });return {version:1,entries};
+      if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
+      return {...e,project,...keptClearing(project,cleared,new Date().toISOString())};
+    });const read:Library={version:1,entries};if(changed)tidied.add(read);return read;
   }
   const legacy=storage.getItem(LEGACY_KEY);
   // Read-only migration; preserve the legacy key verbatim as a recovery copy.
-  return {version:1,entries:legacy?[entryFor(parseProject(legacy))]:[]};
+  if(legacy===null)return {version:1,entries:[]};
+  // A stale approval it held is dropped with the clearing in its ledger, as a library read records one (0.3-R fix 2 #9).
+  const project=parseProject(legacy),cleared=noteCleared(project,(JSON.parse(legacy) as {approvedFingerprint?:unknown}).approvedFingerprint);
+  const entry=entryFor(project);
+  return {version:1,entries:[{...entry,...keptClearing(entry.project,cleared,entry.createdAt)}]};
 }
-export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=JSON.stringify(project)):ProjectEntry{
+export function entryFor(project:Project,now=new Date().toISOString(),workspaceId?:string,raw=savedText(project)):ProjectEntry{
   const entry:ProjectEntry={project:parseProject(raw),createdAt:now,updatedAt:now,pinned:false,archived:false};
   if(workspaceId!==undefined)entry.workspaceId=requireWorkspaceId(workspaceId);
   return entry;
@@ -44,10 +76,25 @@ export function upsertProject(library:Library,project:Project,now=new Date().toI
   const existing=library.entries.find(e=>e.project.id===project.id);
   if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
-  let raw=JSON.stringify(project);
-  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);}
-  const next=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
+  // A board some path left on a stale fingerprint gives it up here, in memory and on disk alike, and the clearing is in its ledger.
+  const held=project.approvedFingerprint,cleared=dropStaleApproval(project)&&noteCleared(project,held);
+  const raw=savedText(project);
+  const made=existing?{...existing,project:parseProject(raw),updatedAt:now,...(workspaceId!==undefined?{workspaceId}:{})}:entryFor(project,now,workspaceId,raw);
+  const next={...made,...keptClearing(made.project,cleared,now)};
   return {version:1,entries:existing?library.entries.map(e=>e===existing?next:e):[next,...library.entries]};
+}
+/**
+ * The text a project is written as, held to what a project holds on that text (0.3-R fix 2 #19): after a read has put its approval
+ * in today's form or recorded a clearing, and after a reader has listed the files a board came without. Only the history gives way,
+ * never the approval or that list. A design that leaves no room even for the newest change (0.3-R) is written without a history:
+ * the history in memory keeps its number and the undo its steps, and a board opened again starts its history from nothing, as one
+ * never edited does. Longer than a project holds only when the design alone is; the caller refuses it.
+ */
+export function savedText(project:Project):string{
+  let raw=JSON.stringify(project);
+  if(raw.length>MAX_PROJECT&&project.ledger){fitSaved(project);raw=JSON.stringify(project);
+    if(raw.length>MAX_PROJECT)raw=JSON.stringify({...project,ledger:undefined});}
+  return raw;
 }
 /** What the app's own library file takes at most, in UTF-8 bytes: the number src-tauri/src/workspace.rs refuses to write past (tests/library-limit.test.ts holds the two together). */
 export const LIBRARY_LIMIT_BYTES=40_000_000;
@@ -88,7 +135,19 @@ export function libraryRefusal(library:Library,before:Project,after:Project,{lim
   if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
   return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
 }
-export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,JSON.stringify(library));}
+/** JSON.stringify writes half a pair on its own as an escape, and a backslash typed as text as two: one with an odd run of backslashes before it is such an escape. */
+const LONE_ESCAPE=/(^|[^\\])(\\\\)*\\ud[89a-f][0-9a-f]{2}/i;
+/**
+ * The library as it is saved, refused while it still holds half of a surrogate pair on its own (0.3-R): the desktop's save
+ * would refuse it after it was queued, and a refused write holds up every write after it. Nothing is written, and the
+ * not-saved warning says so; what makes one is mended where a change is recorded (src/ledger/session.ts).
+ */
+export function libraryText(library:Library):string{
+  const raw=JSON.stringify(library);
+  if(LONE_ESCAPE.test(raw))throw new Error(`${halfPairIn(library)??'the library'} holds half of a surrogate pair on its own, which this Mac cannot save.`);
+  return raw;
+}
+export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,libraryText(library));}
 /** The library, already serialized, in one atomic localStorage write: quota errors cannot leave a half-written index. */
 export function writeLibraryText(storage:LocalStore,raw:string):void{
   if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
@@ -114,7 +173,15 @@ export function importedProject(raw:string,library:Library):Project{
   if(ledger){loaded.ledger=ledger;fitSaved(loaded);}
   const project=library.entries.some(e=>e.project.id===loaded.id)?cloneProject(loaded):loaded;
   delete project.approvedFingerprint;
-  return project;
+  // A project file carries no files: every one it names came without it, and none is sent on with it (0.3-R ④).
+  const named=[...filesNamed(project),...localRefsIn(project).map(id=>`local:${id}`)];
+  // Never cut (0.3-R fix 2 #13): a file past the cut would go out with the board.
+  const unique=[...new Set(named)];if(unique.length>MAX_LEFT_OUT)throw new Error(`This project file names ${unique.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}, so it is not imported.`);
+  if(unique.length)project.leftOut=unique;else delete project.leftOut;
+  const text=savedText(project);
+  if(text.length>MAX_PROJECT)throw new Error(`With the files it names listed, this project would be ${text.length.toLocaleString('en')} characters; a project holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
+  // What is given back is read from the very text that was checked, so what is saved and what opens agree (0.3-R fix 3 #12).
+  return parseProject(text);
 }
 /**
  * The board to open by its id as the library has it now, in the workspace it is in now (0.3-P3-fix4): a received board
@@ -125,7 +192,7 @@ export function boardToOpen(library:Library,id:string):{project:Project;workspac
   return entry&&{project:entry.project,workspaceId:entry.workspaceId??DEFAULT_WORKSPACE_ID};
 }
 export function cloneProject(project:Project):Project{
-  const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=`${copy.name} copy`.slice(0,100);delete copy.approvedFingerprint;return copy;
+  const copy=parseProject(JSON.stringify(project));copy.id=uid();copy.name=clip(`${copy.name} copy`,100);delete copy.approvedFingerprint;return copy;
 }
 export type LibraryFilter='recent'|'pinned'|'archived';
 /** Most recently opened first; entries never opened fall back to their last save. */

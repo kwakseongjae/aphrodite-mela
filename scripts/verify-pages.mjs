@@ -656,7 +656,8 @@ check('an agent batch written against the revision before the person’s typing 
   const rev = (await agent('changes', {limit: 1})).revision;
   const id = await typeIntoTitle(' 사람이 친 글');
   await sleep(5_200); // the person's keys hold the screen for five seconds; the field keeps the focus
-  const got = await agent('apply', {reason: WHY, base_revision: rev, ops: [{op: 'update', block_id: id, fields: {title: 'Written by the agent'}}]});
+  const page_id = await evaluate(`document.querySelector('[data-block-id="${id}"]')?.closest('[data-page-id]')?.dataset.pageId`);
+  const got = await agent('apply', {reason: WHY, base_revision: rev, page_id, ops: [{op: 'update', block_id: id, fields: {title: 'Written by the agent'}}]});
   assert.equal(got.status, 409, JSON.stringify(got).slice(0, 300));
   assert.match(await titleOf(id) ?? '', / 사람이 친 글$/, 'the person’s text stands');
   const {changes} = await agent('changes', {limit: 3});
@@ -993,7 +994,8 @@ check('a page sent as one file runs nothing and reaches nothing where it is open
     if (!(await evaluate(`document.querySelector('[data-export-scripts]')?.checked`))) await evaluate(`document.querySelector('[data-export-scripts]').click(), true`);
     await sleep(300);
     await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(300);
-    await personPresses(opening); await sleep(600);
+    // A real press carries what the button was drawn over (0.3-R): the review card's.
+    await personPresses(opening, opening === 'approve' ? {shown: await evaluate(`document.querySelector('.review-card [data-action="approve"]')?.dataset.shown ?? ''`)} : {}); await sleep(600);
     assert.equal(await evaluate(`!!document.querySelector('[data-export-page]')`), opens, `${opening} ${opens ? 'opens the dialog' : 'opens no dialog'}`);
     if (!opens) continue;
     assert.equal(await evaluate(`document.querySelector('[data-export-scripts]').checked`), false, `opened by ${opening}, the dialog leaves the scripts out`);
@@ -1252,7 +1254,7 @@ check('a page sent with its video beside it is a zip of the page and the video, 
 check('a board saved as a board file opens again as a new board, its pages running, its history someone else\'s, and no approval with it', async () => {
   await personPresses('page', {id: viewId}); await sleep(300);
   await personPresses('export'); await sleep(600);
-  if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export'); await sleep(400); }
+  if (await evaluate(`!!document.querySelector('[data-action="approve-export"]')`)) { await personPresses('approve-export', {shown: await evaluate(`document.querySelector('#modal-root [data-action="approve-export"]').dataset.shown`)}); await sleep(400); }
   assert.equal(await evaluate('document.querySelector("#app").dataset.approval'), 'approved', 'the board sent is approved here');
   const save = await downloads();
   const board = await save('download-board-file');
@@ -1680,32 +1682,86 @@ check('closing the window is a leaving: nothing can be typed while its write is 
   await sleep(5_200);
 });
 
-/* 0.3-P3-fix5 #1: closes are one at a time. Two asked while the write is held are one close: its save is refused, so the
-   window stays and says so, and Save project file still keeps the board; a close asked once that is on the screen goes. */
-check('two closes asked while the write is held are one: refused, the window stays and says so, Save project file still works, and a close asked after it closes', async () => {
+/* 0.3-P3-fix5 #1, 0.3-R ⑤: closes are one at a time, and a close that cannot save asks the person (the browser build with
+   confirm(), the desktop in the system's own dialog): staying keeps the window, keeping the board as a file saves it and
+   closes, closing without saving closes. Nothing else closes it unsaved: not a second close, not a warning painted. */
+check('two closes asked while the write is held are one: refused, the person is asked once; staying keeps the window, Save project file still works, keeping a file closes, and closing without saving closes', async () => {
   await sleep(5_200);
   const closed = await evaluate('window.__closed ?? 0');
   await typeIntoTitle(' 닫기 실패');
+  const save = await downloads();
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
   await evaluate(`(() => { const set = Storage.prototype.setItem; window.__restoreSetItem = () => { Storage.prototype.setItem = set; }; Storage.prototype.setItem = function (k, v) { if (k === 'aphrodite-project-library-v1') throw new Error('quota'); return set.call(this, k, v); }; return true; })()`);
   try {
     await evaluate('window.aphroditeHoldWrites(true), true');
     await evaluate('window.aphroditeCloseWindow(), window.aphroditeCloseWindow(), true');
     await sleep(400);
     await evaluate('window.aphroditeHoldWrites(false), true');
-    await waitFor(() => evaluate(`/Could not save before closing|종료 전 저장에 실패/.test(document.querySelector('#toast').textContent)`), 'the warning');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked');
     await sleep(1_000);
-    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'the window stays: neither close went unsaved');
-    const save = await downloads();
+    assert.equal(await evaluate('window.__asked.length'), 2, 'asked once for the two closes (a question, then which way)');
+    assert.match(await evaluate('window.__asked[0]'), /could not be saved before closing|종료 전에 이 보드를 저장하지 못했습니다/);
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'they stayed: the window stays');
     const kept = await save('save-project');
     assert.ok(Buffer.from(kept.bytes).toString('utf8').includes(' 닫기 실패'), 'Save project file keeps the board as it is on screen');
+    const files = await evaluate('window.__downloads.length');
+    await evaluate('window.__answers = [true], true');
     await evaluate('window.aphroditeCloseWindow(), true');
-    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 1, 'the close asked after the warning to go');
-  } finally { await evaluate('window.__restoreSetItem(), true'); }
+    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 1, 'the close that keeps a file to go');
+    assert.ok((await evaluate('window.__downloads.length')) > files, 'the board was kept as a file before the window went');
+    assert.ok(Buffer.from((await evaluate('window.__downloads.at(-1)')).b64, 'base64').toString('utf8').includes(' 닫기 실패'), 'the board as it is on screen');
+    await evaluate('window.__answers = [false, true], true');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(async () => (await evaluate('window.__closed ?? 0')) === closed + 2, 'close without saving to go');
+  } finally { await evaluate('window.__restoreSetItem(), window.confirm = window.__confirm, true'); }
   // The store takes writes again; what was typed lands with the next save, so the checks after start from a saved board.
   await sleep(5_200);
   await typeIntoTitle(' 다시 저장');
   await evaluate('document.activeElement?.blur?.(), true');
   await waitFor(() => evaluate(`localStorage.getItem('aphrodite-project-library-v1').includes('닫기 실패')`), 'the store to have the board again');
+  await sleep(5_200);
+});
+
+/* 0.3-R fix 2 #15: a write that never ends, and the person chooses to stay: the editor takes input again. */
+check('a close whose write never ends asks in bounded time, and when the person stays the editor takes input again', async () => {
+  await sleep(5_200);
+  const closed = await evaluate('window.__closed ?? 0');
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
+  try {
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked', 150);
+    assert.match(await evaluate('window.__asked[0]'), /did not finish|끝나지/, 'and told the save did not finish');
+    await sleep(300);
+    assert.equal(await evaluate('document.querySelector("#app").inert'), false, 'the editor takes input again');
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'and the window stayed');
+    const typed = await typeIntoTitle(' 머무름');
+    // A field's words go into the board when it lets go of the keys, as the person's change.
+    await evaluate('document.activeElement?.blur?.(), true'); await sleep(300);
+    assert.ok((await titleOf(typed) ?? '').endsWith(' 머무름'), 'what the person types goes in');
+  } finally { await evaluate('window.aphroditeHoldWrites(false), window.confirm = window.__confirm, true'); }
+  await evaluate('document.activeElement?.blur?.(), true');
+  await sleep(5_200);
+});
+
+/* 0.3-R fix 3 #8: going Home waits on a write that never ends, a close comes behind it, and the person stays: the editor takes input. */
+check('a leaving whose write never ends gives up in bounded time, so a close behind it and Stay leave an editor that takes input', async () => {
+  await sleep(5_200);
+  const closed = await evaluate('window.__closed ?? 0');
+  await evaluate(`(() => { window.__asked = []; window.__answers = [false, false]; window.__confirm = window.confirm; window.confirm = text => { window.__asked.push(String(text)); return window.__answers.shift() ?? false; }; return true; })()`);
+  try {
+    await evaluate('window.aphroditeHoldWrites(true), true');
+    await personPresses('home');
+    await evaluate('window.aphroditeCloseWindow(), true');
+    await waitFor(() => evaluate('window.__asked.length === 2'), 'the person to be asked', 150);
+    await waitFor(() => evaluate('document.querySelector("#app").inert === false'), 'the editor to take input again', 60);
+    assert.equal(await evaluate('window.__closed ?? 0'), closed, 'the window stayed');
+    assert.equal(await evaluate('!!document.querySelector(".inspector, .space-frame")'), true, 'and the board is still open');
+    const typed = await typeIntoTitle(' 남음');
+    await evaluate('document.activeElement?.blur?.(), true'); await sleep(300);
+    assert.ok((await titleOf(typed) ?? '').endsWith(' 남음'), 'what the person types goes in');
+  } finally { await evaluate('window.aphroditeHoldWrites(false), window.confirm = window.__confirm, true'); }
+  await evaluate('document.activeElement?.blur?.(), true');
   await sleep(5_200);
 });
 

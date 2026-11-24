@@ -127,7 +127,7 @@ const fakeHost = (sizes: Record<string, number | undefined>) => {
   const read: string[] = [];
   let doc = '';
   const host: FrameHost = {
-    origins: [], maxBytes: 1, put: async () => { throw new Error('no'); }, importFile: async () => { throw new Error('no'); }, mediaUrl: async () => undefined, stat: async () => undefined, read: async () => undefined,
+    origins: [], maxBytes: 1, put: async () => { throw new Error('no'); }, importFile: async () => { throw new Error('no'); }, releaseMedia: async () => {}, mediaUrl: async () => undefined, stat: async () => undefined, read: async () => undefined,
     frameCost: async sha => sizes[sha] === undefined ? undefined : 'data:image/png;base64,'.length + Math.ceil(sizes[sha]! / 3) * 4,
     frameMedia: async sha => { read.push(sha); return 'data:image/png;base64,' + 'A'.repeat(Math.ceil(sizes[sha]! / 3) * 4); },
     load: async (_frame, _page, _key, d) => { doc = d; },
@@ -180,7 +180,8 @@ test('a free page is framed only when the wall reads back off and a real frame h
 test('the render shell has one shape, its frame with scripts: there is no scriptless way to draw a free page', () => {
   const doc = framedDocument('<script>1</script>', {media: () => undefined, origins: []});
   assert.match(renderShell(doc, []), new RegExp(`<iframe sandbox="allow-scripts" allow="${FRAME_ALLOW}" srcdoc=`));
-  assert.equal(renderShell.length, 2);
+  // The document, the origins, and the files it may load (0.3-R fix 3 #7): no way to ask for it without scripts.
+  assert.equal(renderShell.length, 3);
   const source = readFileSync(new URL('../src/free-page.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /frameSandbox|sandbox="\$\{/);
 });
