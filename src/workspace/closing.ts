@@ -10,6 +10,8 @@ export type CloseAnswer='save-file'|'discard'|'cancel';
 export type WindowCloser={request(destroy:()=>Promise<void>):Promise<void>;busy():boolean};
 /** A save not finished in its time: it may still land, so it is asked about as still under way, not as failed (0.3-R fix 5 #2). */
 export class StillSaving extends Error {}
+/** The window would not go when asked: the save is not what failed, so it is said as it is, not asked about (0.3-R fix 6 #2). */
+export class WindowRefused extends Error {}
 /** How long a close waits for the save before it asks. */
 export const SAVE_LIMIT=10_000;
 export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void|boolean>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT):WindowCloser{
@@ -19,7 +21,7 @@ export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>bool
       run=(async()=>{
         let late=false,saved=false,timer:ReturnType<typeof setTimeout>|undefined;
         // The window's going is asked for once, whoever asks for it (0.3-R fix 5 #2).
-        let going:Promise<void>|undefined;const go=()=>going??=destroy().catch(error=>{going=undefined;throw error;});
+        let going:Promise<void>|undefined;const go=()=>going??=destroy().catch(error=>{throw new WindowRefused(error instanceof Error?error.message:String(error));});
         const timeUp=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{late=true;reject(new StillSaving(`the save did not finish in ${Math.round(limit/1000)} seconds`));},limit);});
         // `answered` tells a close whose turn comes after its time is up that the person has been asked: it does nothing then (0.3-R fix 3 #8).
         // A close that saved says so (true), whether or not its time was up by then.

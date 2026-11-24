@@ -66,15 +66,15 @@ test('Codex 4: a save that never finishes is asked about in bounded time, and a 
   assert.equal(again.seen.destroyed, 1, 'and close without saving closes');
 });
 
-test('Codex 5: a destroy that is refused leaves the closer free, and the next close asks again rather than going on its own', async () => {
+test('Codex 5: a destroy that is refused leaves the closer free, and the next close goes the ordinary way rather than on its own', async () => {
   let refuse = true, destroyed = 0;
   const destroy = async () => { if (refuse) { refuse = false; throw new Error('destroy refused'); } destroyed++; };
-  const answers: CloseAnswer[] = ['cancel'];
   const asked: unknown[] = [];
-  const closer = windowCloser(async d => { await d(); }, async error => { asked.push(error); return answers.shift() ?? 'cancel'; }, async () => false, 1_000);
-  await closer.request(destroy);
+  const closer = windowCloser(async d => { await d(); }, async error => { asked.push(error); return 'cancel' as CloseAnswer; }, async () => false, 1_000);
+  // 0.3-R fix 6 #2: the refusal is the window's, said as it is; the save is not asked about.
+  await assert.rejects(closer.request(destroy), /destroy refused/);
   assert.equal(closer.busy(), false);
-  assert.match(String(asked[0]), /destroy refused/, 'the refused destroy is said, and the person decides');
+  assert.deepEqual(asked, [], 'nobody is asked about a save that did not fail');
   assert.equal(destroyed, 0);
   await closer.request(destroy);
   assert.equal(destroyed, 1, 'the next close goes the ordinary way');

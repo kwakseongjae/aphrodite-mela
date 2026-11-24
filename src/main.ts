@@ -489,6 +489,8 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
     return await go();
   });
 }
+/** A wait in the line of leavings, given the time a save is (0.3-R fix 6 #2): past it the turn gives up, and the editor takes input again. */
+async function bounded<T>(wait:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([wait,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Unmissable(ui(`It did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the screen is yours again; it may still finish.`,`${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 화면을 돌려드립니다. 곧 끝날 수도 있습니다.`))),SAVE_LIMIT);})]);}finally{clearTimeout(timer);}}
 /**
  * Saving before something that does not leave the board yet (a dialog, a picker): the same steps, changing nothing.
  * While a leaving is under way (one waiting for a dialog to close, say) it only saves, so a dialog's own Save never
@@ -538,6 +540,12 @@ async function openBoardFileNow(bytes:Uint8Array){
   await noDialog();
   const read=await readBoardFile(bytes,frameHost);
   await noDialog();
+  // Its files are placed only once it is known to fit, and before its turn, so copying them never holds the editor (0.3-R fix 6 #2).
+  // If the library then cannot take it, the files placed stay, named by no board (0.3-P3-fix4: taking them back could take one
+  // another board has come to rely on).
+  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+  if(refused)throw new Error(refused);
+  await read.place();
   const notes=await leave(()=>placeReadBoard(read));
   // Shown once no dialog is up, waiting outside the line of leavings as a link does (0.3-P3-fix3 #10).
   for(;;){await noDialog();if(await leave(()=>{if(linkWaits())return false;showReadBoard(read,notes);return true;}))return;}
@@ -546,17 +554,14 @@ async function openBoardFileNow(bytes:Uint8Array){
 async function placeReadBoard(read:ReadBoard):Promise<string[]>{
   const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
-  // Its files are placed only once it is known to fit. If the library cannot take it, the files placed stay, named by no
-  // board (0.3-P3-fix4: taking them back could take one another board has come to rely on), and the library is as it was.
-  await read.place();
-  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await flushDisk();}
+  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await bounded(flushDisk());}
   // Only this board comes out again: whatever else changed in the library meanwhile stays.
-  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await flushDisk();}catch{/* the not-saved warning says so */}throw error;}
+  catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error;}
   // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
   // The image library's pictures it carried go into this board's own library before it is drawn, so they are there on
   // its first screen. One that cannot (and every one in the browser build, which has no image library) is said.
   let missing=0;
-  if(nativeDesktop){for(const pic of read.pictures){try{await invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id});}catch{missing++;}}if(read.pictures.length)forgetLocal();}
+  if(nativeDesktop){for(const pic of read.pictures){try{await bounded(invoke('image_library_import',{name:'board',base64:base64(pic.read()),project:read.project.id}));}catch{missing++;}}if(read.pictures.length)forgetLocal();}
   else missing=read.pictures.length;
   return [read.left.length?ui(`${read.left.length} file(s) in it were left out: ${read.left[0].why}`,`파일 ${read.left.length}개는 뺐습니다: ${read.left[0].why}`):'',missing?ui(`${missing} picture(s) from its image library could not be put in this board's library and show as missing`,`이미지 라이브러리 그림 ${missing}개는 이 보드의 라이브러리에 넣지 못해 없는 것으로 보입니다`):''].filter(Boolean);
 }
@@ -1461,7 +1466,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
     case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
-    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await flushDisk();openProject(sample);});break;}
+    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await bounded(flushDisk());openProject(sample);});break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
     case 'welcome-show': welcomeModal();break;
@@ -1697,7 +1702,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       break;
     }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Project saved','프로젝트를 저장했습니다')); break;
-    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await flushDisk();openProject(loaded);});toast(ui('Project imported unapproved · 기존 프로젝트는 보존됩니다.','프로젝트를 승인되지 않은 상태로 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
+    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await bounded(flushDisk());openProject(loaded);});toast(ui('Project imported unapproved · 기존 프로젝트는 보존됩니다.','프로젝트를 승인되지 않은 상태로 가져왔습니다 · 기존 프로젝트는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('Room for something new.','새로운 것을 위한 자리.'), '기존 프로젝트는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.', `<form id="new-project-form"><label class="form-label">${ui('Project name','프로젝트 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled project"></label><button class="primary-button full-width" type="submit">${ui('Create project','프로젝트 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('A new page. The same point of view.','새 페이지. 같은 관점.'), '프로젝트의 디자인 시스템을 그대로 이어받습니다.', `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Make this page your own.','이 페이지를 당신답게.'), '페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.', `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
@@ -1886,7 +1891,7 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=clip(name,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await flushDisk();openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=initialProject();next.name=clip(name,100);next.brief='';next.pages[0].blocks=[];saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
       if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){toast(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
@@ -2497,7 +2502,7 @@ async function reloadFromDisk(){
   return turn(()=>reloadFromDiskNow());
 }
 async function reloadFromDiskNow(){
-  const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
+  const stored=await bounded(invoke<{revision:number;data:string|null;path:string}>('workspace_read'));
   storagePath=stored.path;
   if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
   diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;
