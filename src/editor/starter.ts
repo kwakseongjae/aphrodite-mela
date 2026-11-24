@@ -8,7 +8,7 @@
  */
 import {initialProject, type Page, type Project} from '../model';
 import {clip} from '../text';
-import type {Space} from './space';
+import {frameWidth, nextFramePosition, type FrameLayout, type FramePreset, type Space} from './space';
 
 /** A new board, as the new-project form makes one: its one section page empty, and marked. */
 export function newBoard(name: string): Project {
@@ -36,10 +36,12 @@ export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'spa
   return {frames};
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const box = (f: FrameLayout) => ({x: f.x, y: f.y, right: f.x + frameWidth(f), bottom: f.height === undefined ? Infinity : f.y + f.height});
 /**
  * Where a change leaves the mark, `before` being the board as the change found it. A change that reaches the marked page
  * (a section, its name, its frame's size or place) or takes it away drops the mark, and it does not come back: an undo
- * of that change leaves the page showing. True when the mark was dropped.
+ * of that change leaves the page showing. A page that shows where another frame already sits is put beside the frames,
+ * in the same change, so the person can take it back. True when the mark was dropped.
  */
 export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter'>, after: Project): boolean {
   const id = before.starter;
@@ -47,5 +49,12 @@ export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter
   const was = before.pages.find(p => p.id === id), now = after.pages.find(p => p.id === id), frame = before.space?.frames[id];
   if (was && now && same(was, now) && (frame === undefined || same(frame, after.space?.frames[id]))) return false;
   delete after.starter;
+  const at = now && after.space?.frames[id];
+  if (!at) return true;
+  const others = Object.fromEntries(Object.entries(after.space!.frames).filter(([k]) => k !== id)), mine = box(at);
+  if (Object.values(others).some(f => { const o = box(f); return mine.x < o.right && o.x < mine.right && mine.y < o.bottom && o.y < mine.bottom; })) {
+    const spot = nextFramePosition({frames: others}, at.preset as FramePreset, at.width);
+    after.space!.frames[id] = {...at, x: spot.x, y: spot.y};
+  }
   return true;
 }

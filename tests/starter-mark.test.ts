@@ -119,3 +119,38 @@ test('the mark goes with the board: saved, copied, and in a board file', async (
   assert.equal(got.project.starter, p.pages[0].id);
   assert.deepEqual(visiblePages(got.project), [], 'a new board sent on as it is opens empty');
 });
+
+/** Two boxes that share some of the board; a section page reaches down as far as its sections go. */
+const overlap = (p: Project, a: string, b: string) => { const box = (id: string) => { const f = p.space!.frames[id], w = f.preset === 'custom' ? f.width ?? 1200 : ({desktop: 1440, tablet: 834, mobile: 390})[f.preset]; return {x: f.x, y: f.y, r: f.x + w, b: f.height === undefined ? Infinity : f.y + f.height}; }; const [m, o] = [box(a), box(b)]; return m.x < o.r && o.x < m.r && m.y < o.b && o.y < m.b; };
+
+test('a section an agent adds to the hidden page shows it beside the page already there, not under it', () => {
+  for (const extra of [{}, {patch: [{op: 'set', on: 'project', field: 'name', value: 'Renamed'}]}]) {
+    const h = newHistory();
+    let p = opened(newBoard('Empty'));
+    p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+    const [starter, html] = [p.pages[0].id, p.pages[1].id];
+    assert.deepEqual([p.space!.frames[html].x, p.space!.frames[html].y], [0, 0], 'the agent\'s page took the place the starter would have');
+    p = apply(h, p, {ops: [{op: 'add', component_kind: 'hero'}], ...extra});
+    assert.equal(p.pages[0].blocks.length, 1, 'with no page named, the section went to the open page, the starter');
+    assert.equal(p.starter, undefined);
+    assert.equal(overlap(p, starter, html), false, 'it shows beside the page, not under it');
+    assert.ok(p.space!.frames[starter].x > 0);
+  }
+});
+
+test('the move is part of the change that showed it: one undo takes back the section and the move, and the page stays shown', () => {
+  const h = newHistory();
+  let p = opened(newBoard('Empty'));
+  p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
+  const starter = p.pages[0].id;
+  p = apply(h, p, {ops: [{op: 'add', component_kind: 'hero'}]});
+  p = stepForScreen(p, 'undo', h, YOU)!.project;
+  assert.deepEqual([p.pages[0].blocks.length, p.space!.frames[starter].x], [0, 0], 'the section and the move are taken back together');
+  assert.equal(isStarterPage(p, p.pages[0]), false, 'the brief\'s rule: a page once shown stays shown, here back on its first place');
+});
+
+test('a starter that shows where nothing else is stays where it was', () => {
+  const h = newHistory(), p = opened(newBoard('Empty'));
+  edit(h, p, q => { q.pages[0].blocks.push(makeBlock('hero')); });
+  assert.deepEqual([p.space!.frames[p.pages[0].id].x, p.space!.frames[p.pages[0].id].y], [0, 0]);
+});
