@@ -179,6 +179,13 @@ fn copy_protections(original: &File, staged: &File) -> Result<()> {
     {
         return Err(io_code(io::Error::last_os_error()));
     }
+    // Some macOS releases hand the origin tags over with the ACL. They stay with the inode macOS tagged.
+    for tag in ["com.apple.quarantine", "com.apple.provenance"] {
+        if staged.get_xattr(tag).map_err(io_code)?.is_some() {
+            // The system may refuse to take its own tag off; the comparison leaves both out either way.
+            let _ = staged.remove_xattr(tag);
+        }
+    }
     if from.st_flags() != to.st_flags() && unsafe { libc::fchflags(fd, from.st_flags()) } != 0 {
         return Err(io_code(io::Error::last_os_error()));
     }
