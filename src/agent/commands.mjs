@@ -1114,7 +1114,7 @@ export const commands = [
     ledger: sources('editor:change'),
     author: 'transport',
     surfaces: UI,
-    controls: [action('page')],
+    controls: [action('page'), gesture('board-page-link')],
   },
   {
     /* Edit in the app, from a page seen on its own: the person going from looking at a page to working on it (0.3-P3-fix1). */
