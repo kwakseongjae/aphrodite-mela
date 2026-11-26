@@ -30,7 +30,6 @@
           "$APPDATA/board-media/*.jpg",
           "$APPDATA/board-media/*.gif",
           "$APPDATA/board-media/*.webp",
-          "$APPDATA/board-media/*.video.mp4",
           "$APPDATA/board-media/*.webm",
           "$APPDATA/board-media/*.wav",
           "$APPDATA/board-media/*.ogg",

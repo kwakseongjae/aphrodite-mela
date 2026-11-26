@@ -253,3 +253,14 @@ test('the browser upload refusal names pictures, videos, fonts and sounds', asyn
     message: 'the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.',
   });
 });
+
+test('TypeScript and Rust agree on the extension for every board file kind', async () => {
+  const {boardFileExtensions} = await import('../src/free-page');
+  const rust = readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8');
+  const table = rust.match(/const BOARD_FILES:[^=]+=(.*?)\];/s)![1];
+  const rows = [...table.matchAll(/\("([^"]+)", "([^"]+)"\)/g)];
+  // MP3 alone needs an internal binary fallback for the desktop responder.
+  const expected = {...boardFileExtensions, 'audio/mpeg': boardFileExtensions['audio/mpeg'] + '.bin'};
+  assert.equal(rows.length, Object.keys(expected).length);
+  assert.deepEqual(Object.fromEntries(rows.map(([, ext, mime]) => [mime, ext])), expected);
+});

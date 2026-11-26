@@ -523,3 +523,20 @@ test('a received board only places sounds whose signatures the asset responder r
     assert.equal(destination.kept.has(hash), allowed);
   }
 });
+
+test('a board file carries an existing MP4 under its original hash and restores its bytes', async () => {
+  const p = board(), s = store();
+  const video = new Uint8Array(readFileSync(new URL('./fixtures/import-html/siblings/film.mp4', import.meta.url)));
+  const hash = sha(video);
+  s.kept.set(PIC, PNG);
+  s.kept.set(hash, video);
+  p.pages[1].html += `<video src="media:${hash}"></video>`;
+  const host = {...s.host, stat: async (key: string) => key === hash ? {mime: 'video/mp4', bytes: video.length} : s.host.stat(key)};
+  const {bytes} = await writeBoardFile(p, host);
+  const path = `media/${hash}.mp4`;
+  assert.deepEqual(readZip(bytes, host.maxBytes).read(path), video);
+  const receiver = store(), incoming = await readBoardFile(bytes, receiver.host);
+  assert.deepEqual(incoming.left, []);
+  await incoming.place();
+  assert.deepEqual(receiver.kept.get(hash), video);
+});

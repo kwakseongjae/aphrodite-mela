@@ -383,8 +383,14 @@ export function mediaNamed(html: string): string[] {
   return [...new Set(Array.from(html.matchAll(MEDIA_REFS), m => m[1]))];
 }
 /** The extension a board keeps a file of this kind under (src-tauri/src/board.rs names them the same). */
+export const boardFileExtensions: Readonly<Record<string, string>> = Object.freeze({
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'font/woff2': 'woff2', 'font/woff': 'woff',
+  'font/ttf': 'ttf', 'font/otf': 'otf', 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3',
+});
+
 export function mediaExtension(mime: string): string {
-  return ({'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'ttf', 'font/otf': 'otf', 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3'} as Record<string, string>)[mime] ?? 'bin';
+  return Object.hasOwn(boardFileExtensions, mime) ? boardFileExtensions[mime] : 'bin';
 }
 /**
  * The addresses a page's media is given, read one file at a time and only while it fits: each file's
