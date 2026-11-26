@@ -113,6 +113,8 @@ function buildIfStale() {
   const sources = Math.max(
     newestUnder('src'),
     existsSync('index.html') ? statSync('index.html').mtimeMs : 0,
+    // The script index.html runs before the first paint is copied into dist as it is.
+    existsSync('public/theme.js') ? statSync('public/theme.js').mtimeMs : 0,
     existsSync('vite.config.ts') ? statSync('vite.config.ts').mtimeMs : 0,
     // What the app imports from src-tauri: the board file's name (board-file.json) and the page wall's settings.
     ...['src-tauri/board-file.json', 'src-tauri/page-wall.json'].map(f => existsSync(f) ? statSync(f).mtimeMs : 0),

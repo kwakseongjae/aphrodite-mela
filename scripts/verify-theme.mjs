@@ -89,6 +89,14 @@ check('an old Paper or Midnight is read as light or dark, and moved to the new n
   await pick('system'); await sleep(150);
 });
 
+check('a pick kept by another tab is shown here, and following the Mac again too', async () => {
+  const told = scheme => evaluate(`(() => { localStorage.setItem('aphrodite-theme', ${JSON.stringify(scheme)}); window.dispatchEvent(new StorageEvent('storage', {key: 'aphrodite-theme', newValue: ${JSON.stringify(scheme)}})); return true; })()`);
+  await told('dark'); await sleep(200);
+  assert.equal(await root(), 'dark', 'the other tab\'s dark');
+  await told('system'); await sleep(200);
+  assert.equal(await root(), null, 'and its following the Mac');
+});
+
 /** The colours the design is drawn in: every element of the section page that is the design's, and the frames' pixels. */
 const DESIGN = `(() => { const out = []; for (const page of document.querySelectorAll('.design-page')) for (const el of [page, ...page.querySelectorAll('*')]) {
   if (el.closest('.block-selection-label, .block-tools, .canvas-add, .editor-frame-name, .marquee, [class*="handle"], [class*="pointer-"]')) continue;
@@ -118,6 +126,8 @@ check('a section page, a free page and the preview look the same in either theme
   for (const theme of ['light', 'dark']) {
     await evaluate(`(() => { const f = document.querySelector('.board-item iframe'); f.dataset.l5 = 'kept'; return true; })()`);
     if (theme === 'dark') {
+      // The Mac goes dark as well: the design must answer neither.
+      await mac('dark'); await sleep(200);
       assert.ok(await openDetails('details.help-fab'), 'the editor has a help menu');
       await pressOn('details.help-fab [data-theme-menu] [data-scheme="dark"]'); await sleep(300);
       assert.deepEqual(await checked('details.help-fab [data-theme-menu]'), ['dark'], 'the help menu marks the pick in place');
@@ -146,17 +156,21 @@ check('a section page, a free page and the preview look the same in either theme
     await evaluate(`document.querySelector('[data-action="close-modal"]')?.click(), true`); await sleep(400);
     seen[theme] = {design: await evaluate(DESIGN), frames: await frames(), preview, code, catalog, paper: await paper()};
   }
-  await pick('system');
+  await pick('system'); await mac('light');
   result.design = {elements: seen.light.design.length, frames: seen.light.frames.length, preview: seen.light.preview?.length ?? 0};
   assert.ok(seen.light.design.length > 20, 'the section page was read');
   assert.notEqual(seen.light.paper, seen.dark.paper, 'the app around them did change');
+  assert.ok(seen.light.code && seen.light.code.includes('<html') && seen.light.code.length > 500, 'the exported index.html was read');
   assert.equal(seen.dark.code, seen.light.code, 'the exported index.html');
-  seen.light.catalog.forEach((shot, i) => assert.ok(shot === seen.dark.catalog[i], 'catalog preview ' + (i + 1) + ', pixel for pixel'));
   assert.ok(seen.light.catalog.length >= 2, 'the catalog showed its previews');
+  assert.equal(seen.dark.catalog.length, seen.light.catalog.length, 'as many catalog previews in both');
+  seen.light.catalog.forEach((shot, i) => assert.ok(shot === seen.dark.catalog[i], 'catalog preview ' + (i + 1) + ', pixel for pixel'));
   assert.ok(seen.light.frames.length >= 2, 'both free pages were on screen');
+  assert.equal(seen.dark.frames.length, seen.light.frames.length, 'as many free pages in both');
+  seen.light.frames.forEach((shot, i) => assert.ok(shot === seen.dark.frames[i], 'free page ' + (i + 1) + ', pixel for pixel, its own dark rule unanswered'));
   assert.ok(seen.light.preview, 'the preview was read');
-  assert.deepEqual(seen.dark.design.filter((s, i) => s !== seen.light.design[i]), [], 'the section page\'s colours');
-  seen.light.frames.forEach((shot, i) => assert.ok(shot === seen.dark.frames[i], 'free page ' + (i + 1) + ', pixel for pixel'));
+  assert.deepEqual(seen.dark.design, seen.light.design, 'the section page\'s colours, every element');
+  assert.ok(seen.light.design.every(s => / light /.test(s)), 'every element of the section page is drawn light');
   assert.equal(seen.dark.preview, seen.light.preview, 'the preview\'s document');
 });
 
