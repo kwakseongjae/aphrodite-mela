@@ -815,7 +815,7 @@ fn astra_9_a_directory_name_alone_does_not_establish_translocation() {
     fs::create_dir_all(&dir).unwrap();
     let exe = dir.join("fixture");
     fs::write(&exe, "fixture").unwrap();
-    assert_ne!(location(&exe, &h.engine.home), Location::Translocated);
+    assert_ne!(location(&exe), Location::Translocated);
 }
 
 #[test]
@@ -1158,7 +1158,7 @@ exit 1
 mod claude_code;
 
 #[test]
-fn a_packaged_app_in_downloads_needs_to_move_before_it_can_register_any_client() {
+fn opus_8_a_writable_downloads_install_can_still_register_file_clients() {
     let h = Home::new();
     let exe = h
         .engine
@@ -1166,14 +1166,14 @@ fn a_packaged_app_in_downloads_needs_to_move_before_it_can_register_any_client()
         .join("Downloads/Aphrodite.app/Contents/MacOS/Aphrodite");
     fs::create_dir_all(exe.parent().unwrap()).unwrap();
     fs::write(&exe, []).unwrap();
-    assert_eq!(location(&exe, &h.engine.home), Location::NotInApplications);
+    assert_eq!(location(&exe), Location::Installed);
     let installed = h
         .engine
         .home
         .join("Applications/Aphrodite.app/Contents/MacOS/Aphrodite");
     fs::create_dir_all(installed.parent().unwrap()).unwrap();
     fs::rename(exe, &installed).unwrap();
-    assert_eq!(location(&installed, &h.engine.home), Location::Installed);
+    assert_eq!(location(&installed), Location::Installed);
 }
 
 #[test]

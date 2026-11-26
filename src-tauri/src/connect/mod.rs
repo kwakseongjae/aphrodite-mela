@@ -751,7 +751,7 @@ fn image_inventory(
     plist::Value::from_reader(output).ok()
 }
 
-fn location(exe: &Path, home: &Path) -> Location {
+fn location(exe: &Path) -> Location {
     use std::{
         ffi::CStr,
         os::{fd::AsRawFd, unix::ffi::OsStrExt},
@@ -767,7 +767,7 @@ fn location(exe: &Path, home: &Path) -> Location {
     let mount = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
     ));
-    let location = mount_location(
+    mount_location(
         exe,
         mount,
         OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
@@ -780,13 +780,5 @@ fn location(exe: &Path, home: &Path) -> Location {
                 std::time::Duration::from_secs(2),
             )
         },
-    );
-    if location == Location::Installed
-        && !exe.starts_with("/Applications")
-        && !exe.starts_with(home.join("Applications"))
-        && !exe.starts_with(mount.join("Applications"))
-    {
-        return Location::NotInApplications;
-    }
-    location
+    )
 }
