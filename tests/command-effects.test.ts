@@ -241,3 +241,17 @@ test('no command takes a board file\'s files back: the failed import leaves them
   const rust = readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8');
   assert.doesNotMatch(rust, /take_back|hold_begin|struct Held/, 'and Rust has none to give');
 });
+
+test('granted-file IPC is invoked only from the native import module, including a duplicate read', () => {
+  function checkOwners(files: Record<string, string>) {
+    for (const name of GRANTED_FILES) {
+      const owners = Object.entries(files).filter(([, source]) =>
+        [...source.matchAll(/\binvoke(?:<[^\n]*?>)?\(\s*['"]([a-z_]+)['"]/g)].some(m => m[1] === name)
+      ).map(([path]) => path);
+      assert.deepEqual(owners, ['import/native.ts'], name);
+    }
+  }
+  checkOwners(tree);
+  const duplicate = {...tree, 'second.ts': "invoke('html_import_read', args)"};
+  assert.throws(() => checkOwners(duplicate), /html_import_read/);
+});
