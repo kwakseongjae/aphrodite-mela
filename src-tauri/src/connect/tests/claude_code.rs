@@ -272,7 +272,12 @@ fn only_the_named_user_stanza_can_establish_ownership_and_health_is_not_configur
     let p = f.proposal(Action::Remove);
     fs::write(
         &path,
-        entry.replace("Connected", "Failed to connect\n  Issue: private-neighbor"),
+        include_str!("../../../../tests/fixtures/claude-code/get-stdio-issue.txt")
+            .split_once('\n')
+            .unwrap()
+            .1
+            .replace("{args}", "")
+            .replace("{command}", f.e().executable()),
     )
     .unwrap();
     assert_eq!(f.proposal(Action::Remove)["fingerprint"], p["fingerprint"]);
@@ -1002,4 +1007,46 @@ fn astra_8_an_invalid_profile_still_allows_discovery_of_all_clients() {
     assert_eq!(rows[0]["path"], Value::Null);
     assert_eq!(rows[0]["error"], "invalid_path");
     assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_1_fake_health_uses_the_installed_macos_formatters_tick() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let stanza = fs::read_to_string(f.e().home.join("entry")).unwrap();
+    assert!(stanza.lines().any(|line| line == "  Status: ✔ Connected"));
+}
+
+#[test]
+fn opus_1_supported_optional_fields_have_versioned_fixtures() {
+    let f = Fixture::new();
+    let path = f.e().home.join("entry");
+    for (name, plain) in [("get-stdio-no-env", true), ("get-stdio-env-values", false)] {
+        let fixture =
+            fs::read_to_string(f.e().home.join("fixtures").join(format!("{name}.txt"))).unwrap();
+        fs::write(
+            &path,
+            fixture
+                .split_once('\n')
+                .unwrap()
+                .1
+                .replace("{args}", "")
+                .replace("{command}", f.e().executable()),
+        )
+        .unwrap();
+        let s = f.status();
+        assert_eq!(s["pointsHere"], true);
+        assert_eq!(s["owned"], plain);
+    }
+    let url = include_str!("../../../../tests/fixtures/claude-code/get-url.txt")
+        .split_once('\n')
+        .unwrap()
+        .1;
+    for kind in ["http", "sse", "ws"] {
+        fs::write(&path, url.replace("{transport}", kind)).unwrap();
+        let s = f.status();
+        assert_eq!(s["entryExists"], true);
+        assert_eq!(s["pointsHere"], false);
+    }
 }

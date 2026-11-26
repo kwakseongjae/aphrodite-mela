@@ -1,7 +1,7 @@
 # Claude Code 2.1.327, installed macOS bundle, mcp get
 aphrodite:
   Scope: User config (available in all your projects)
-  Status: ✓ Connected
+  Status: ✔ Connected
   Type: http
   URL: https://private-neighbor
   Headers:
