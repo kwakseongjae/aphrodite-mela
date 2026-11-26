@@ -266,7 +266,7 @@ export function sniffMedia(head: Uint8Array): string | undefined {
   if (starts(0xff, 0xd8, 0xff)) return 'image/jpeg';
   if (text(0, 'GIF87a') || text(0, 'GIF89a')) return 'image/gif';
   if (text(0, 'RIFF') && text(8, 'WEBP')) return 'image/webp';
-  if (text(4, 'ftyp')) return 'video/mp4';
+  if (head[0] === 0 && text(4, 'ftyp')) return 'video/mp4';
   if (starts(0x1a, 0x45, 0xdf, 0xa3)) return 'video/webm';
   return undefined;
 }
@@ -281,7 +281,7 @@ export function sniffBoardFile(head: Uint8Array): string | undefined {
   }
   if (tag.startsWith('RIFF') && tag.slice(8) === 'WAVE') return 'audio/wav';
   if (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) return 'font/ttf';
-  if (head[0] === 0xff && [0xfb, 0xfa, 0xf3, 0xf2, 0xe3, 0xe2].includes(head[1])) return 'audio/mpeg';
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xfb) return 'audio/mpeg';
   return undefined;
 }
 

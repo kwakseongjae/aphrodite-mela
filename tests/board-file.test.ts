@@ -507,3 +507,18 @@ test('the board file is named in one place, and nothing else spells its extensio
   else for (const dir of dirs) walk(join(root, dir));
   assert.deepEqual(found, []);
 });
+
+test('a received board only places sounds whose signatures the asset responder recognizes', async () => {
+  for (const second of [0xfa, 0xe3, 0xe2, 0xf3, 0xf2]) {
+    const bytes = Uint8Array.from([0xff, second, ...Buffer.from('<p>sample</p>')]);
+    const hash = sha(bytes), p = board(), source = store();
+    p.pages[1].html = '<audio src="media:' + hash + '"></audio>';
+    await source.host.put(new Blob([bytes]));
+    await source.host.put(new Blob([PNG]));
+    const archive = await writeBoardFile(p, {...source.host, stat: async s => s === hash ? {mime: 'audio/mpeg', bytes: bytes.length} : source.host.stat(s)});
+    const destination = store(), received = await readBoardFile(archive.bytes, destination.host);
+    await received.place();
+    assert.ok(received.left.some(f => f.file === hash));
+    assert.ok(!destination.kept.has(hash));
+  }
+});

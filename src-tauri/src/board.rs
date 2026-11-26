@@ -60,7 +60,7 @@ pub(crate) fn sniff(head: &[u8]) -> Option<&'static str> {
     if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
         return Some("image/webp");
     }
-    if head.len() >= 8 && &head[4..8] == b"ftyp" {
+    if head.len() >= 8 && head[0] == 0 && &head[4..8] == b"ftyp" {
         return Some("video/mp4");
     }
     if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
@@ -78,7 +78,7 @@ fn page_asset(head: &[u8]) -> Option<&'static str> {
         if head.starts_with(magic) { return Some(mime); }
     }
     if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") { return Some("audio/wav"); }
-    if matches!(head, [0xff, 0xfb | 0xfa | 0xf3 | 0xf2 | 0xe3 | 0xe2, ..]) { return Some("audio/mpeg"); }
+    if matches!(head, [0xff, 0xfb, _, ..]) { return Some("audio/mpeg"); }
     None
 }
 
@@ -497,6 +497,42 @@ pub fn free_page_write(app: AppHandle, page: String, key: String, html: String, 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stored_font_and_sound_signatures_cannot_be_served_as_html() {
+        use tauri::utils::mime_type::MimeType;
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let scope = config["app"]["security"]["assetProtocol"]["scope"].as_array().unwrap();
+        let mut covered = std::collections::BTreeSet::new();
+        for (ext, heads) in [
+            ("png", vec![&PNG[..]]), ("jpg", vec![&b"\xff\xd8\xff"[..]]),
+            ("gif", vec![&b"GIF87a"[..], b"GIF89a"]), ("webp", vec![&b"RIFF0000WEBP"[..]]),
+            ("mp4", vec![&b"\0\0\0\x20ftyp"[..]]), ("webm", vec![&b"\x1a\x45\xdf\xa3"[..]]),
+            ("ogg", vec![&b"OggS"[..]]), ("wav", vec![&b"RIFF0000WAVE"[..]]),
+            ("mp3", vec![&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa", b"\xff\xe3", b"\xff\xe2"]),
+            ("woff", vec![&b"wOFFXXXX"[..], b"wOFFOTTO"]), ("woff2", vec![&b"wOF2font"[..]]),
+            ("ttf", vec![&b"\0\x01\0\0"[..]]), ("otf", vec![&b"OTTO"[..]]),
+        ] {
+            covered.insert(ext);
+            let served = scope.contains(&serde_json::json!(format!("$APPDATA/board-media/*.{ext}")));
+            for head in heads {
+                let bytes = [head, b"<p>sample</p>"].concat();
+                let accepted = page_asset(&bytes);
+                if BOARD_FILES.iter().any(|(e, mime)| *e == ext && mime.starts_with("font/")) {
+                    assert!(!served);
+                    assert!(accepted.is_some());
+                } else {
+                    assert!(served, "{ext} missing from scope");
+                    let detected = MimeType::parse(&bytes, &format!("x.{ext}"));
+                    if ext == "mp3" && detected == "text/html" { assert!(accepted.is_none(), "{head:?}"); }
+                    else { assert!(accepted.is_some()); assert_ne!(detected, "text/html", "{ext}"); }
+                }
+            }
+        }
+        assert_eq!(covered, BOARD_FILES.iter().map(|(ext, _)| *ext).collect());
+        assert_eq!(scope.len(), BOARD_FILES.len() - 4 + 1);
+        assert!(scope.contains(&serde_json::json!("$APPDATA/free-pages/**")));
+    }
+
     #[test]
     fn a_font_can_be_held_by_hash_and_read_back() {
         let dir = tempfile::tempdir().unwrap();
