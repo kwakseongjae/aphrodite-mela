@@ -415,7 +415,7 @@ function bumpConnect(by:string){
 }
 let tokensOpen=false;
 const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:ui('Line','선'),muted:ui('Muted','보조'),danger:ui('Danger','위험'),success:ui('Success','성공'),warning:ui('Warning','주의')})[name];
-let onboarding=readOnboarding(store);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
+let onboarding=readOnboarding(store);let tourIndex=-1,tourPlan:string[]=[];const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(store.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{store.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
 let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
@@ -1960,26 +1960,29 @@ document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
 function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 function tourActive(){return tourIndex>=0;}
-function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();positionTour();recordRun('tour:started');}
+function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();tourPlan=tourSteps(uiLanguage,hasSectionPage(project)).filter(step=>tourTargetBox(step.target)).map(step=>step.id);positionTour();recordRun('tour:started');}
 function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(store,onboarding);syncStateAttributes();}
+/** A step's target and its box, while it is on screen and not cut off by the panel it sits in. */
+function tourTargetBox(selector:string){
+  const target=document.querySelector<HTMLElement>(selector);if(!target||target.checkVisibility?.({opacityProperty:true,visibilityProperty:true})===false)return undefined;
+  const r=target.getBoundingClientRect(),clip=target.closest('.library,#canvas-scroll,.inspector')?.getBoundingClientRect();
+  const visible=Math.max(0,r.left,clip?.left??0)<Math.min(innerWidth,r.right,clip?.right??innerWidth)&&Math.max(0,r.top,clip?.top??0)<Math.min(innerHeight,r.bottom,clip?.bottom??innerHeight);
+  return visible?{target,r}:undefined;
+}
+/** The steps are taken once, when the tour starts (tourPlan): a panel folded on the way hides no step and ends nothing, and a step whose target is out of sight is shown in the middle. */
 function positionTour(){
   if(!tourActive())return;
-  const steps=tourSteps(uiLanguage,hasSectionPage(project)).flatMap(step=>{
-    const target=document.querySelector<HTMLElement>(step.target);if(!target||target.checkVisibility?.({opacityProperty:true,visibilityProperty:true})===false)return [];
-    const r=target.getBoundingClientRect(),clip=target.closest('.library,#canvas-scroll,.inspector')?.getBoundingClientRect();
-    const visible=Math.max(0,r.left,clip?.left??0)<Math.min(innerWidth,r.right,clip?.right??innerWidth)&&Math.max(0,r.top,clip?.top??0)<Math.min(innerHeight,r.bottom,clip?.bottom??innerHeight);
-    return visible?[{step,target,r}]:[];
-  });
-  const entry=steps[tourIndex];if(!entry){endTour();return;}const {step,target,r}=entry;
+  const id=tourPlan[tourIndex],step=tourSteps(uiLanguage,hasSectionPage(project)).find(s=>s.id===id);if(!step){endTour();return;}
+  const at=tourTargetBox(step.target);
   document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));
-  tourRoot.innerHTML=tourCardHtml(step,tourIndex,steps.length,uiLanguage);hydrateIcons();app.dataset.tour=step.id;
+  tourRoot.innerHTML=tourCardHtml(step,tourIndex,tourPlan.length,uiLanguage);hydrateIcons();app.dataset.tour=step.id;
   const card=tourRoot.querySelector<HTMLElement>('.tour-card')!;
-  target.classList.add('tour-target');
   const w=card.offsetWidth,h=card.offsetHeight,gap=14;
-  let left=r.left+r.width/2-w/2,top=r.top-h-gap;
+  let left=innerWidth/2-w/2,top=innerHeight/2-h/2;
+  if(at){const {target,r}=at;target.classList.add('tour-target');left=r.left+r.width/2-w/2;top=r.top-h-gap;
   if(step.placement==='bottom')top=r.bottom+gap;
   else if(step.placement==='left'){left=r.left-w-gap;top=r.top+24;}
-  else if(step.placement==='right'){left=r.right+gap;top=r.top+24;}
+  else if(step.placement==='right'){left=r.right+gap;top=r.top+24;}}
   left=Math.max(12,Math.min(innerWidth-w-12,left));top=Math.max(12,Math.min(innerHeight-h-12,top));
   Object.assign(card.style,{left:`${left}px`,top:`${top}px`});
 }

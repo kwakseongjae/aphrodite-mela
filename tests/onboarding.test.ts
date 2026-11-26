@@ -56,8 +56,8 @@ test('the first-run tour counts visible targets and names the shortcuts a new bo
         getBoundingClientRect:()=>({left:20,top:30,right:20+width,bottom:30+width,width,height:width})};
     }};
     const screen={...editorActions(project),app,document,uiLanguage,tourRoot,tourSteps,tourCardHtml,hasSectionPage,
-      tourIndex:-1,fitAll:noop,hydrateIcons:noop,innerWidth:1000,innerHeight:800};
-    editorCalls(['function startTour(','function positionTour(','function tourActive(','async function action('],screen);
+      tourIndex:-1,tourPlan:[],fitAll:noop,hydrateIcons:noop,innerWidth:1000,innerHeight:800};
+    editorCalls(['function startTour(','function tourTargetBox(','function positionTour(','function tourActive(','async function action('],screen);
     const {startTour,action}=screen as typeof screen & {startTour:Function;action:Function};
     const next=()=>action({dataset:{action:'tour-next'}},personAt({isTrusted:true}),true);
     startTour();assert.equal(app.dataset.tour,'dock');
@@ -69,5 +69,9 @@ test('the first-run tour counts visible targets and names the shortcuts a new bo
     assert.doesNotMatch(tourRoot.innerHTML,/data-action="tour-next"/);
     searchVisible=false;startTour();assert.match(tourRoot.innerHTML,/1 \/ 2/);
     await next();assert.equal(app.dataset.tour,'agent');
+    // 0.3-L5 fix 1: the steps are taken once, when the tour starts. A panel folded on the way hides no step and ends nothing.
+    searchVisible=true;startTour();assert.match(tourRoot.innerHTML,/1 \/ 3/);
+    searchVisible=false;await next();assert.equal(app.dataset.tour,'search','its step stays, its target folded away');assert.match(tourRoot.innerHTML,/2 \/ 3/);
+    await next();assert.equal(app.dataset.tour,'agent');assert.match(tourRoot.innerHTML,/3 \/ 3/);
   }
 });
