@@ -88,7 +88,10 @@ const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {helpMenuHtml,themeRows} from './editor/help-menu';
-import {readTheme,saveTheme,shownTheme,applyTheme,isThemeChoice,nativeLook,type ThemeChoice} from './theme';
+import {readTheme,saveTheme,shownTheme,applyTheme,isThemeChoice,nativeLook,themeKey,type ThemeChoice} from './theme';
+import {pageStorage} from './storage';
+/** Everything the app keeps in the browser goes through this: a browser that refuses storage starts the app on its defaults (src/storage.ts). */
+const store=pageStorage(()=>window.localStorage);
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
@@ -327,27 +330,27 @@ document.addEventListener('paste',e=>{
   void putMedia(files,screenToWorld(camera,{x:space.clientWidth/3,y:space.clientHeight/3}),d,'media:paste');
 });
 function mountPagePreview(frame:HTMLIFrameElement,p:Project,page:Page){const html=pageHtml(p,page);if(nativeDesktop)mountNativePreview(frame,html);else frame.srcdoc=html;}
-let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(localStorage,detectUiLanguage(navigator.language));}catch{}
-let workspaces:WorkspaceBook=readWorkspaces(localStorage,uiLanguage);
+let uiLanguage:Language='en';try{uiLanguage=readUiLanguage(store,detectUiLanguage(navigator.language));}catch{}
+let workspaces:WorkspaceBook=readWorkspaces(store,uiLanguage);
 let wsAvatarDraft:WorkspaceAvatar|undefined;
 let dockGroupOpen='';let helpOpen=false;
-let inspectorWidth=(()=>{try{const v=Number(localStorage.getItem('aphrodite-inspector-w'));return Number.isFinite(v)&&v>=220&&v<=520?v:264;}catch{return 264;}})();
-let homeSidebar:'open'|'collapsed'=(()=>{try{return localStorage.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
+let inspectorWidth=(()=>{try{const v=Number(store.getItem('aphrodite-inspector-w'));return Number.isFinite(v)&&v>=220&&v<=520?v:264;}catch{return 264;}})();
+let homeSidebar:'open'|'collapsed'=(()=>{try{return store.getItem('aphrodite-home-sidebar')==='collapsed'?'collapsed':'open';}catch{return 'open';}})();
 /** The workspaces change on screen only once they are stored: a store that throws leaves both as they were (0.3-P3-fix3 #7). */
-function saveWorkspaces(next:WorkspaceBook){if(!writeWorkspaces(localStorage,next))throw new Error(ui('The workspaces could not be stored, so nothing changed.','작업 공간을 저장하지 못해 아무것도 바꾸지 않았습니다.'));workspaces=next;}
+function saveWorkspaces(next:WorkspaceBook){if(!writeWorkspaces(store,next))throw new Error(ui('The workspaces could not be stored, so nothing changed.','작업 공간을 저장하지 못해 아무것도 바꾸지 않았습니다.'));workspaces=next;}
 const ui=(en:string,ko:string)=>uiLanguage==='ko'?ko:en;
 const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;board:string;revision:string}|null=null;
 let vibeFormDraft:FormData|null=null;
 
-let theme:ThemeChoice='system';try{theme=readTheme(localStorage);}catch{}
+let theme:ThemeChoice='system';try{theme=readTheme(store);}catch{}
 applyTheme(document.documentElement,theme);
 let startupError = '';
 let library:Library={version:1,entries:[]};
-let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=localStorage.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
+let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=store.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
 const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
-try { library=readLibrary(localStorage);if(readTidied(library)&&!nativeDesktop)try{writeLibraryText(localStorage,JSON.stringify(library));}catch{/* written with the next save */}if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+try { library=readLibrary(store);if(readTidied(library)&&!nativeDesktop)try{writeLibraryText(store,JSON.stringify(library));}catch{/* written with the next save */}if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
 /** The block the inspector's fields were last drawn for. */
 let inspectedId:string|undefined;
@@ -388,9 +391,9 @@ let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDe
 /* Connected mode: the person keeps the screen and the agents they let in may edit alongside them.
    Who is let in is remembered by name (ALLOWED_KEY, no expiry) until the person disconnects them;
    `*` is the switch, open to any agent. connectMode is only "anyone is let in". */
-let allowedAgents:string[]=[];try{allowedAgents=readAllowed(localStorage.getItem(ALLOWED_KEY));localStorage.removeItem(LEGACY_CONNECT_KEY);}catch{}
+let allowedAgents:string[]=[];try{allowedAgents=readAllowed(store.getItem(ALLOWED_KEY));store.removeItem(LEGACY_CONNECT_KEY);}catch{}
 let connectMode=allowedAgents.length>0;
-function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)localStorage.setItem(ALLOWED_KEY,JSON.stringify(next));else localStorage.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
+function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)store.setItem(ALLOWED_KEY,JSON.stringify(next));else store.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
 /** An agent's step refused for moving the approval, kept with that command's own Dispatch: a command running beside it never answers with it. */
@@ -411,9 +414,9 @@ function bumpConnect(by:string){
 }
 let tokensOpen=false;
 const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:ui('Line','선'),muted:ui('Muted','보조'),danger:ui('Danger','위험'),success:ui('Success','성공'),warning:ui('Warning','주의')})[name];
-let onboarding=readOnboarding(localStorage);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
-type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(localStorage.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
-function savePanels(){try{localStorage.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
+let onboarding=readOnboarding(store);let tourIndex=-1;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
+type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(store.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
+function savePanels(){try{store.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
 let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
 let toastTimer = 0;
 let referenceAnalysis: ReferenceAnalysis | null = null;
@@ -424,7 +427,7 @@ let comparisonObserver: ResizeObserver | null = null;
 let disposePointerEditor:(()=>void)|undefined;
 let insertParent:string|undefined;
 let assemblyRun:AssemblyRun|null=null,runStorageWarning='';
-try{const raw=localStorage.getItem('aphrodite-assembly-latest');if(raw){assemblyRun=readRun(raw);if(!assemblyRun)runStorageWarning='기존 실행 기록 형식을 읽지 못했습니다. 원본은 보존됩니다.';}}catch{runStorageWarning='실행 기록 저장소를 읽지 못했습니다.';}
+try{const raw=store.getItem('aphrodite-assembly-latest');if(raw){assemblyRun=readRun(raw);if(!assemblyRun)runStorageWarning='기존 실행 기록 형식을 읽지 못했습니다. 원본은 보존됩니다.';}}catch{runStorageWarning='실행 기록 저장소를 읽지 못했습니다.';}
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}" aria-hidden="true"></i>`;
@@ -449,7 +452,7 @@ function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now())
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
- const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(localStorage,raw);}library=next;rememberSaved(next,raw.length);}
+ const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(store,raw);}library=next;rememberSaved(next,raw.length);}
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
 function persist() { if(screen!=='editor')return; try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast('로컬 저장 실패. Save project로 파일을 저장해주세요. 현재 화면은 유지됩니다.'); } }
 /**
@@ -652,7 +655,7 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
   if(!done)return;
   project=done.project;persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
-function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);localStorage.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);localStorage.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
+function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);store.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);store.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 /**
  * An export's receipt (0.3-R ⑦, Codex P3 check4): into the run that was open on `board` when the export began, with the revision
  * of the board it exported, however long the save took and whatever was opened or started meanwhile. Nothing when no run was.
@@ -661,7 +664,7 @@ function exportRun(board:Project){const run=assemblyRun&&assemblyRun.status!=='e
 /** `d`, when an agent's, names it on the receipt. */
 function recordRun(kind:string,details:Record<string,unknown>={},d?:Dispatch){if(!assemblyRun||assemblyRun.status==='ended'||assemblyRun.projectId!==project.id)return;appendEvent(assemblyRun,project,kind,d?.author.kind==='agent'?{...details,by:d.author.name}:details);storeRun();refreshAssemblyBar();const live=app.querySelector('[data-delegation-receipts]');if(live)live.textContent=String(assemblyRun.events.length);}
 function insertionTarget(){return currentPage(project).blocks.find(b=>b.id===insertParent&&b.kind==='frame')?.id;}
-let assemblyExpanded=false;try{assemblyExpanded=localStorage.getItem('aphrodite-assembly-expanded')==='true';}catch{}
+let assemblyExpanded=false;try{assemblyExpanded=store.getItem('aphrodite-assembly-expanded')==='true';}catch{}
 function assemblyBar(){const page=currentPage(project),last=assemblyRun?.events.at(-1),foreign=assemblyRun&&assemblyRun.projectId!==project.id;
   if((!assemblyRun||foreign)&&!assemblyExpanded)return `<div class="assembly-bar-header assembly-collapsed"><strong>${ui('AGENT ASSEMBLY','에이전트 조립')} · ${ui('Ready','준비됨')}</strong><span class="assembly-hint">${ui('For an external agent (Codex/Astra) driving this screen. You can ignore it while designing by hand.','외부 에이전트(Codex/Astra)가 이 화면을 조작할 때 씁니다. 직접 디자인할 땐 무시해도 됩니다.')}</span><button data-action="assembly-toggle" aria-expanded="false">${ui('Show','펼치기')}</button></div>`;
   return `<div class="assembly-bar-header"><strong>${ui('AGENT ASSEMBLY','에이전트 조립')} · ${assemblyRun?esc(foreign?'다른 보드 · 기록 중지':assemblyRun.status):ui('Ready','준비됨')}</strong><div><button data-action="agent" title="${ui('Assembly brief, run receipts and the computer-use playbook for an external agent','외부 에이전트를 위한 조립 브리프·실행 기록·컴퓨터 유즈 플레이북')}">${ui('Assembly console','조립 콘솔')}</button> <button data-action="pin-frame" ${page.blocks.find(b=>b.id===selected)?.kind==='frame'?'':'disabled'} title="${ui('Keep inserting new components inside the selected Layout frame (select a frame first)','새 컴포넌트를 선택한 레이아웃 프레임 안에 계속 넣습니다 (먼저 프레임을 선택)')}">${ui('Pin selected frame','선택한 프레임에 고정')}</button> <button data-action="insert-root" title="${ui('Insert new components at the top level of the page again','새 컴포넌트를 다시 페이지 최상위에 넣습니다')}">${ui('Insert at page root','페이지 최상위에 삽입')}</button>${assemblyRun&&!foreign?'':` <button data-action="assembly-toggle" aria-expanded="true">${ui('Hide','접기')}</button>`}</div></div><div class="assembly-context"><span><strong>${ui('Selected','선택')}</strong> ${esc(nodePath(page.blocks,selected))}</span><span><strong>${ui('Insert into','삽입 위치')}</strong> ${esc(nodePath(page.blocks,insertionTarget()))}</span></div><p class="assembly-receipt ${runStorageWarning?'warning':''}" role="status">${runStorageWarning?esc(runStorageWarning):last?`${ui('Receipt','영수증')} #${last.seq} · ${esc(last.kind)} · ${esc(last.revision)}${assemblyRun!.dropped?` · ${assemblyRun!.dropped} ${ui('events omitted','이벤트 생략')}`:''}`:'Codex가 조립하고, 사람은 방향을 검토합니다. 실행 기록은 Console에서 시작하세요.'}</p>`;}
@@ -736,8 +739,12 @@ function agentLocked(){return editorMode==='agent'&&!!delegation;}
 const systemDark=()=>typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: dark)').matches;
 /** Light, dark or the Mac's, for the whole app (owner 11/23): the root's attribute, then the window's title bar and paper. Home is drawn again for its button; the editor redraws only the rows that show the choice, never the board. */
 function setTheme(next:ThemeChoice){
+  try{saveTheme(store,next);}catch{/* the choice holds for this launch */}
+  showTheme(next);
+}
+/** Shows a choice without keeping it: the person's pick just kept, or one another tab of the app kept. */
+function showTheme(next:ThemeChoice){
   theme=next;
-  try{saveTheme(localStorage,next);}catch{/* the choice holds for this launch */}
   applyTheme(document.documentElement,next);
   void paintPaper();
   if(screen==='home'){render();return;}
@@ -754,6 +761,8 @@ async function paintPaper(){
   try{await nativeLook(invoke,theme);}catch{/* the page is drawn in its theme either way */}
 }
 if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(theme==='system')void paintPaper();});
+// Another tab of the app picked, or its storage was cleared: this one shows the same, and keeps nothing of its own.
+window.addEventListener('storage',e=>{if(e.key!==themeKey&&e.key!==null)return;const next=readTheme({getItem:k=>store.getItem(k)});if(next!==theme)showTheme(next);});
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
 function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
@@ -860,7 +869,7 @@ function workspaceModal(ws:Workspace|undefined){
 /** Flips the sidebar on the live element so the grid track can transition; a re-render would snap. */
 function toggleHomeSidebar(){
   homeSidebar=homeSidebar==='open'?'collapsed':'open';
-  try{localStorage.setItem('aphrodite-home-sidebar',homeSidebar);}catch{}
+  try{store.setItem('aphrodite-home-sidebar',homeSidebar);}catch{}
   const home=document.querySelector<HTMLElement>('.folio-home');
   if(!home){render();return;}
   home.dataset.sidebar=homeSidebar;
@@ -976,7 +985,7 @@ function render() {
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
   decorateInspector(shownPage(project));
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
-  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
+  hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,store,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
   const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
   mountPointer(canvas as HTMLElement,page);
 }
@@ -1432,8 +1441,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'commands': commandsModal(); break;
     case 'focus-component-search': tab='components';render();document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
-    case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{localStorage.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
-    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(localStorage,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();updates.paint();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
+    case 'assembly-toggle': assemblyExpanded=!assemblyExpanded;try{store.setItem('aphrodite-assembly-expanded',String(assemblyExpanded));}catch{}refreshAssemblyBar();break;
+    case 'set-language': {const next=el.dataset.lang;if(next==='en'||next==='ko'){uiLanguage=next;try{saveUiLanguage(store,next);}catch{}const welcome=!!modalRoot.querySelector('.welcome');render();updates.paint();if(welcome)welcomeModal();if(tourActive())positionTour();}break;}
     case 'copy-storage-path': {try{await navigator.clipboard.writeText(storagePath);toast(ui('Path copied','경로를 복사했습니다'));}catch{toast(ui('Could not copy. Select the path and copy it.','복사하지 못했습니다. 경로를 선택해 복사하세요.'));}break;}
     case 'editor-mode': {const next=el.dataset.mode;if(!isEditorMode(next)||next===editorMode)break;if(next==='agent'){agentModeModal();break;}if(editorMode==='agent')endAgentMode('returned');editorMode=next;render();toast(next==='dev'?ui('Dev mode · read-only handoff view','개발 모드 · 읽기 전용 핸드오프 보기'):ui('Design mode','디자인 모드'));break;}
     case 'dock-select': dockTool='select';dockGroupOpen='';selected='';render();break;
@@ -1462,7 +1471,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const {book}=deleteWorkspace(workspaces,id);
       try{saveWorkspaces(book);}catch(error){const back=await putBack();const where=workspaces.workspaces.find(w=>w.id===movedTo)?.name??'';throw new Error(back?String(error instanceof Error?error.message:error):ui(`${String(error instanceof Error?error.message:error)} Its boards could not be put back; they are in ${where}.`,`${String(error instanceof Error?error.message:error)} 보드를 되돌리지 못했습니다. ${where}에 있습니다.`));}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;
-    case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{localStorage.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
+    case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{store.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
     case 'hub-open': {const id=el.dataset.id;await leave(()=>{
       // Asked again in its turn (0.3-R fix 2 #5): an open that waited behind another runs only if Home is still where it was asked.
       if(screen!=='home'){d.outcome={error:'another board was opened while this open waited its turn, so it was not opened. Read the contract to see the board that is open.',status:409,open:{project_id:project.id,name:project.name}};return;}
@@ -1490,7 +1499,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Rename','이름 바꾸기'),ui('The board\'s contents stay as they are.','보드 내용은 그대로 보존됩니다.'),renameDialogHtml(uiLanguage,entry.project));break;}
     case 'storage-info': showModal(ui('Storage','저장 위치'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),storageDialogHtml(uiLanguage,storagePath));break;
     case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
-    case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):localStorage.getItem(LIBRARY_KEY)??localStorage.getItem(LEGACY_KEY)??'{}','application/json');break;
+    case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):store.getItem(LIBRARY_KEY)??store.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
     case 'insert-root': insertParent=undefined;recordRun('target:root',{},d);refreshAssemblyBar();break;
     case 'assembly-empty': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}commit(()=>{const p:Page={id:uid(),name:`Assembly ${project.pages.length+1}`,blocks:[]};project.pages.push(p);project.activePageId=p.id;selected='';insertParent=undefined;},d,'edit.page-add',{source:'assembly:new-page'});closeModal();break;
@@ -1902,7 +1911,7 @@ document.addEventListener('submit', async e => {
   if(form.id==='language-settings-form'){
     const nextUi=data.get('uiLanguage'),nextContent=data.get('contentLanguage');
     if(!isLanguage(nextUi)||(nextContent!==null&&!isLanguage(nextContent))){toast(ui('Unsupported language.','지원하지 않는 언어입니다.'));return;}
-    try{saveUiLanguage(localStorage,nextUi);}catch{toast(ui('Could not save interface preference. Nothing changed.','언어 설정을 저장하지 못했습니다. 변경하지 않았습니다.'));return;}
+    try{saveUiLanguage(store,nextUi);}catch{toast(ui('Could not save interface preference. Nothing changed.','언어 설정을 저장하지 못했습니다. 변경하지 않았습니다.'));return;}
     uiLanguage=nextUi;
     vibeFormDraft=null;
     if(d&&screen==='editor'&&isLanguage(nextContent)&&nextContent!==(project.contentLanguage??'en'))commit(()=>setContentLanguage(project,nextContent),d,'edit.content-language',{source:'project:content-language',updateUI:false});
@@ -1948,10 +1957,10 @@ function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Ar
 document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
-function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
+function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 function tourActive(){return tourIndex>=0;}
 function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();positionTour();recordRun('tour:started');}
-function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
+function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 function positionTour(){
   if(!tourActive())return;
   const steps=tourSteps(uiLanguage,hasSectionPage(project)).flatMap(step=>{
@@ -2361,7 +2370,7 @@ function mountInspectorResize(){
     const up=()=>{
       grip.removeEventListener('pointermove',move);grip.removeEventListener('pointerup',up);grip.removeEventListener('pointercancel',up);
       grip.classList.remove('is-dragging');studio.classList.remove('is-resizing');document.body.classList.remove('is-col-resizing');
-      try{localStorage.setItem('aphrodite-inspector-w',String(inspectorWidth));}catch{}
+      try{store.setItem('aphrodite-inspector-w',String(inspectorWidth));}catch{}
       placeWorkspaceMenu();
     };
     grip.addEventListener('pointermove',move);grip.addEventListener('pointerup',up);grip.addEventListener('pointercancel',up);
@@ -2383,7 +2392,7 @@ function mountPanels(){
 /* ---- The Space: camera + frames (see src/editor/space.ts for the math) ---- */
 function spaceEl(){return document.getElementById('canvas-scroll');}
 function spaceLocal(e:{clientX:number;clientY:number}){const r=spaceEl()!.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
-function scheduleCameraWrite(){clearTimeout(cameraWriteTimer);cameraWriteTimer=window.setTimeout(()=>writeCamera(localStorage,project.id,camera),300);}
+function scheduleCameraWrite(){clearTimeout(cameraWriteTimer);cameraWriteTimer=window.setTimeout(()=>writeCamera(store,project.id,camera),300);}
 function applyCamera(){
   const space=spaceEl(),world=document.getElementById('space-world');if(!space||!world)return;
   world.style.transform=`translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;
@@ -2399,7 +2408,7 @@ function zoomCenter(next:number){const space=spaceEl();if(!space)return;camera=z
 function mountSpace(){
   spaceAbort?.abort();const space=spaceEl();if(!space)return;
   spaceAbort=new AbortController();const signal=spaceAbort.signal;
-  if(cameraProjectId!==project.id){cameraProjectId=project.id;({camera,fit:cameraFitPending}=openingCamera(readCamera(localStorage,project.id)));}
+  if(cameraProjectId!==project.id){cameraProjectId=project.id;({camera,fit:cameraFitPending}=openingCamera(readCamera(store,project.id)));}
   if(spaceHeld)space.classList.add('pan-ready');
   applyCamera();
   // A board with nothing on it yet keeps the fit for the render that first shows a frame.
@@ -2548,7 +2557,7 @@ function saveBadge(state:SaveState){return saveBadgeHtml(state,{native:nativeDes
 function diskWarningHtml(){return `<div class="disk-warning ui-strip ui-strip-warn" role="alert">${icon('circle-alert','ui-icon ui-icon-sm')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button class="ui-btn ui-btn-secondary" data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button class="ui-btn ui-btn-secondary" data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
 function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';  /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
-  if(saved&&!error)writeBreadcrumb(localStorage,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
@@ -2563,7 +2572,7 @@ async function reloadFromDiskNow(){
   /* Looking again is the first thing the notice offers, so it has to answer either way: the folder
      is back and the banner goes, or it is still missing and we say that rather than appearing to
      have done nothing. */
-  const stillGone=storeVanished(stored,readBreadcrumb(localStorage));
+  const stillGone=storeVanished(stored,readBreadcrumb(store));
   if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your boards are back.','찾았습니다. 보드가 돌아왔습니다.'));}
   else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
   if(stored.data!==null&&readTidied(library))queueLibrary(library);
@@ -2583,13 +2592,13 @@ async function boot(){
       /* An empty store is usually a first launch and sometimes a folder that moved. The breadcrumb
          is the only thing that can tell them apart, because `workspace_read` answers both the same
          way. When it says we had something here, hold off writing and say so. */
-      vanished=storeVanished(stored,readBreadcrumb(localStorage));
+      vanished=storeVanished(stored,readBreadcrumb(store));
       // A read that dropped a stale approval, or gave an old one its new form, is written once now: the store holds what the screen shows.
       if(stored.data!==null&&readTidied(library)&&!vanished)queueLibrary(library);
       /* Opening a store tells us as much as saving to one does, and someone who reads their projects
          for a week without editing anything would otherwise leave no trace at all — the folder could
          then go missing with nothing left to say it had ever been there. */
-      if(stored.data!==null)writeBreadcrumb(localStorage,crumbFor(stored.path,stored.revision,library.entries.length,new Date()));
+      if(stored.data!==null)writeBreadcrumb(store,crumbFor(stored.path,stored.revision,library.entries.length,new Date()));
       if(stored.data===null&&!startupError&&!vanished&&queueLibrary(library))await flushDisk();
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.

@@ -111,6 +111,32 @@ test('the desktop look is the app\'s own command, on the main window only, befor
   assert.doesNotMatch(main,/getCurrentWindow\(\)\.set(Theme|BackgroundColor)|plugin:window\|set_(theme|background_color)/,'the app calls no window setter that reaches other windows');
 });
 
+/* 0.3-L5 fix 1 #6: a store that will be read but not written keeps the theme it read; a browser that refuses storage still starts. */
+test('an old choice read from a store that refuses the move is still the choice, and a refused storage starts on its defaults',async()=>{
+  const {readTheme}=await import('../src/theme.ts');
+  const store={getItem:(k:string)=>k==='aphrodite-paper-theme'?'night':null,setItem:()=>{throw new Error('full');},removeItem:()=>{throw new Error('full');}};
+  assert.equal(readTheme(store),'dark');
+  assert.equal(boot({'aphrodite-paper-theme':'night'}),'dark','the first paint agrees');
+  const {pageStorage}=await import('../src/storage.ts');
+  const refused=pageStorage(()=>{throw new DOMException('denied','SecurityError');});
+  assert.equal(refused.getItem('aphrodite-theme'),null);
+  assert.throws(()=>refused.setItem('a','b'),'a write says it was not kept');
+  const kept=new Map<string,string>();const real={getItem:(k:string)=>kept.get(k)??null,setItem:(k:string,v:string)=>{kept.set(k,v);},removeItem:(k:string)=>{kept.delete(k);},key:()=>null,clear:()=>kept.clear(),get length(){return kept.size;}} as Storage;
+  assert.equal(pageStorage(()=>real),real);
+  const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+  assert.deepEqual(main.match(/\blocalStorage\b/g),['localStorage'],'main.ts reaches the browser\'s storage once, through pageStorage');
+});
+
+/* 0.3-L5 fix 1 #7: two tabs of the app show the same theme; the one that hears of the other's pick keeps nothing. */
+test('a pick kept by another tab is shown, and not written again',()=>{
+  const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+  const listener=/window\.addEventListener\('storage',e=>\{([^\n]*)\}\);/.exec(main);
+  assert.ok(listener,'main.ts listens for the other tabs');
+  assert.match(listener![1],/e\.key!==themeKey&&e\.key!==null/,'for the theme, and for a cleared storage');
+  assert.match(listener![1],/showTheme\(next\)/);
+  assert.doesNotMatch(listener![1],/saveTheme|setTheme/,'and writes nothing back');
+});
+
 /* 0.3-L5: the one switch is offered in three places with one action: home's theme menu, the editor's help menu and the command palette. */
 test('home, the help menu and the palette offer the same three looks, with the one in use marked',async()=>{
   const {workspaceHome}=await import('../src/workspace/home.ts');

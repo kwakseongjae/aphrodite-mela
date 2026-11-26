@@ -22,7 +22,8 @@ export function readTheme(storage:Store):ThemeChoice{
     if(isThemeChoice(value))return value;
     const old=storage.getItem(oldKey);
     const moved:ThemeChoice=old==='night'?'dark':old==='paper'?'light':'system';
-    if(old!==null&&storage.setItem&&storage.removeItem){storage.setItem(themeKey,moved);storage.removeItem(oldKey);}
+    // What was read is the answer: a store that refuses the move keeps the old name, and the next launch moves it.
+    if(old!==null&&storage.setItem&&storage.removeItem)try{storage.setItem(themeKey,moved);storage.removeItem(oldKey);}catch{/* read as it is */}
     return moved;
   }catch{return 'system';}
 }
