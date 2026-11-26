@@ -168,7 +168,7 @@ fn owned_repoint_restores_the_recorded_path_if_add_fails_after_remove() {
     assert_eq!(f.status()["entryExists"], false);
     for call in f.calls() {
         let cwd = Path::new(call["cwd"].as_str().unwrap());
-        assert!(cwd.starts_with("/private/tmp"));
+        assert!(cli_process::controlled(cwd.parent().unwrap()));
         assert!(!cwd.exists());
         for key in call["env"].as_array().unwrap() {
             assert!(
@@ -547,4 +547,34 @@ fn astra_8_non_utf8_profile_is_rejected_before_a_get() {
     f.0.engine.claude_config_dir = Some(f.e().home.join(std::ffi::OsString::from_vec(vec![0xff])));
     assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
     assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_3_get_runs_below_a_private_nonproject_ancestry() {
+    let f = Fixture::new();
+    assert_eq!(f.status()["entryExists"], false);
+    let calls = f.calls();
+    let cwd = Path::new(calls[0]["cwd"].as_str().unwrap());
+    assert!(!cwd.starts_with("/private/tmp"));
+    assert!(super::super::cli_process::controlled(cwd.parent().unwrap()));
+    assert!(!cwd.exists());
+}
+
+#[test]
+fn opus_3_an_ancestor_project_or_shared_parent_prevents_launch() {
+    let h = Home::new();
+    let p = h.engine.home.join("scratch");
+    fs::create_dir(&p).unwrap();
+    let cwd = cli_process::private_cwd(&p).unwrap();
+    assert_eq!(
+        fs::metadata(cwd.path()).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    for marker in [".git", ".mcp.json"] {
+        fs::write(h.engine.home.join(marker), []).unwrap();
+        assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
+        fs::remove_file(h.engine.home.join(marker)).unwrap();
+    }
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o777)).unwrap();
+    assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
 }

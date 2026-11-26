@@ -160,11 +160,7 @@ impl Program {
             return Err(Code::Changed.into());
         }
         let path = std::env::join_paths(&self.search_path).map_err(|_| Code::InvalidPath)?;
-        let cwd = tempfile::Builder::new()
-            .prefix("aphrodite-mcp-")
-            .permissions(fs::Permissions::from_mode(0o700))
-            .tempdir_in("/private/tmp")
-            .map_err(|_| Code::Io)?;
+        let cwd = private_cwd(&user_temp()?)?;
         let argv = std::iter::once(self.path.as_os_str().as_encoded_bytes())
             .chain(args.iter().map(|a| a.as_bytes()))
             .map(CString::new)
@@ -193,6 +189,43 @@ impl Program {
         capture(&child, out, err, engine.cli_timeout)
             .map_err(|code| CommandResult::new(code, child.terminate()))
     }
+}
+
+// Ask Darwin for the user's temporary folder even if the GUI inherited a project TMPDIR.
+fn user_temp() -> Result<PathBuf, Code> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buf = [0u8; libc::PATH_MAX as usize];
+    let len = unsafe {
+        libc::confstr(
+            libc::_CS_DARWIN_USER_TEMP_DIR,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+        )
+    };
+    if len < 2 || len > buf.len() {
+        return Err(Code::InvalidPath);
+    }
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..len - 1])))
+}
+
+pub(super) fn private_cwd(parent: &Path) -> Result<tempfile::TempDir, Code> {
+    let parent = parent.canonicalize().map_err(|_| Code::InvalidPath)?;
+    if !controlled(&parent) {
+        return Err(Code::InvalidPath);
+    }
+    for ancestor in parent.ancestors() {
+        for name in [".mcp.json", ".git"] {
+            match fs::symlink_metadata(ancestor.join(name)) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+                _ => return Err(Code::InvalidPath),
+            }
+        }
+    }
+    tempfile::Builder::new()
+        .prefix("aphrodite-mcp-")
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir_in(parent)
+        .map_err(|_| Code::Io)
 }
 
 pub(super) struct Output {
