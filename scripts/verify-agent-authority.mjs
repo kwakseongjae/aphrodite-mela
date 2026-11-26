@@ -97,7 +97,12 @@ check('the person allows it with one click, and the agent may write', async () =
   assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true, 'connected mode is on');
   const allowed = await agent('edit', {reason: WHY, field: 'title', text: 'Asked and allowed'});
   assert.equal(allowed.status, undefined, JSON.stringify(allowed));
-  await personPresses('agent-disconnect');
+  // 0.3-G2b fix 1: the person opens the mark and presses its own Disconnect, as they would.
+  await pressOn('.connect-mark > summary');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark')?.open ?? false`), true, 'the mark opens under the person\'s press');
+  await pressOn('.connect-mark [data-action="agent-disconnect"]');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false, 'Disconnect on the mark closed the door');
+  assert.equal((await agent('edit', {reason: WHY, field: 'title', text: 'After the door closed'})).status, 423, 'and the agent can no longer write');
   await sleep(200);
 });
 
@@ -285,7 +290,7 @@ check('the person allows an agent by name, and a restart remembers it', async ()
   assert.equal(again.status, 'already-open', 'and it is not asked again');
   const write = await agent('edit', {reason: WHY, field: 'title', text: 'remembered'}, 'claude-code');
   assert.notEqual(write.status, 423, JSON.stringify(write));
-  assert.equal(await evaluate(`document.querySelector('.connect-mark')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the mark names who is let in, as a person knows it');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark > summary')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the mark itself, not only what opens under it, names who is let in, as a person knows it');
   await personClicks('agent-connect');
   await sleep(250);
   const listed = await evaluate(`document.querySelector('#modal-root .connect-allowed')?.textContent ?? ''`);
