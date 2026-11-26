@@ -74,12 +74,14 @@ jobs:
 
       # The crate's build script wants the sidecar to exist before cargo runs, and it must be
       # built for the target cargo is about to use.
-      - name: Build the Vision sidecar
+      - name: Build the Vision and MCP sidecars
         env:
           # Follows the runner rather than being written down: on the Intel image a sidecar built for
           # aarch64 is one cargo cannot link against, and the failure reads as a build-script bug.
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.triple }}
-        run: node scripts/build-vision.mjs
+        run: |
+          node scripts/build-vision.mjs
+          node scripts/build-mcp.mjs
 
       - name: Run Rust tests
         working-directory: src-tauri

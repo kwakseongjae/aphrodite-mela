@@ -1,0 +1,94 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn, execFileSync} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {createServer} from 'node:http';
+import {mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {toolManifest, tools} from '../mcp/aphrodite-mcp/tools.mjs';
+
+const triple = execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.*)$/m)![1];
+const native = `src-tauri/bin/aphrodite-mcp-${triple}`;
+const nodeServer = 'mcp/aphrodite-mcp/index.mjs';
+
+test('the generated native manifest agrees with the command and prompt sources', () => {
+  execFileSync(process.execPath, ['scripts/build-mcp.mjs'], {stdio:'inherit', env:{...process.env, TAURI_ENV_TARGET_TRIPLE:triple}});
+  const manifest = JSON.parse(readFileSync('src-tauri/bin/mcp-manifest.json','utf8'));
+  assert.deepEqual(manifest.tools, toolManifest());
+  assert.deepEqual(manifest.prompts.map((p:{description:string})=>p.description),
+    JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',
+      "import {prompts} from './mcp/aphrodite-mcp/prompts.mjs';console.log(JSON.stringify(prompts.map(p=>p.description)))"],{encoding:'utf8'})));
+});
+
+test('both stdio servers return identical lines and send identical loopback calls', {timeout:45000}, async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'aph-transcript-'));
+  const file = join(dir,'endpoint.json');
+  const calls:string[] = [];
+  let status = 200;
+  let response:unknown = {z:1, a:'two'};
+  const app = createServer(async (req,res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    calls.push(JSON.stringify([req.method,req.url,req.headers.authorization,req.headers['x-aphrodite-agent'],body]));
+    res.writeHead(status,{'content-type':'application/json'}).end(JSON.stringify(response));
+  });
+  await new Promise<void>(resolve=>app.listen(0,'127.0.0.1',resolve));
+  const port=(app.address() as {port:number}).port;
+  const endpoint=(pid:number,token:string)=>writeFileSync(file,JSON.stringify({pid,token,base:`http://127.0.0.1:${port}`}));
+  t.after(()=>{app.closeAllConnections();app.close();try{unlinkSync(file);}catch{}rmdirSync(dir);});
+  const clients = [[process.execPath,[nodeServer]],[native,[]]] as const;
+  const running=clients.map(([cmd,args])=>{
+    const child=spawn(cmd,[...args],{stdio:['pipe','pipe','inherit'],env:{...process.env,APHRODITE_ENDPOINT_FILE:file}});
+    t.after(()=>child.kill());
+    return {child,out:createInterface({input:child.stdout})[Symbol.asyncIterator]()};
+  });
+  let id=0;
+  async function line(input:string) {
+    const answers=await Promise.all(running.map(async ({child,out})=>{
+      child.stdin.write(input+'\n');
+      const next=await out.next();
+      assert.equal(next.done,false);
+      return next.value!;
+    }));
+    assert.equal(answers[1],answers[0],input);
+    return JSON.parse(answers[0]);
+  }
+  const rpc=(method:string,params:unknown={})=>line(JSON.stringify({jsonrpc:'2.0',id:++id,method,params}));
+  const call=(name:string,args:unknown={})=>rpc('tools/call',{name,arguments:args});
+  for(const protocolVersion of ['2024-11-05','2025-03-26','2025-06-18','unknown'])
+    await rpc('initialize',{protocolVersion,clientInfo:{name:'Test_Client. 하나'}});
+  await rpc('tools/list');
+  const prompts=(await rpc('prompts/list')).result.prompts;
+  for(const p of prompts) for(const args of [{},Object.fromEntries(p.arguments.map((a:{name:string})=>[a.name,'한글 {text} "$&"']))])
+    await rpc('prompts/get',{name:p.name,arguments:args});
+  await line('broken json');
+  await line('{"method":"ping"}');
+  for(const {child} of running)child.stdin.write('{"method":"notifications/initialized"}\n{"method":"unknown"}\n');
+  await rpc('ping');
+  await rpc('unknown');
+  await rpc('prompts/get',{name:'missing'});
+  await call('missing');
+  for(const stale of [false,true]){
+    if(stale)endpoint(2147483647,'dead');
+    assert.equal((await call('aphrodite_get_contract')).result.isError,true);
+    assert.equal((await call('aphrodite_guide')).result.isError,false);
+  }
+  assert.deepEqual(calls,[]);
+  endpoint(process.pid,'live');
+  for(const tool of tools) {
+    const args=Object.fromEntries(Object.keys(tool.inputSchema.properties??{}).map(k=>[k,'여 백?!']));
+    for(const input of [{},args]) {
+      await call(tool.name,input);
+      assert.equal(calls.at(-1),calls.at(-2),tool.name);
+    }
+  }
+  endpoint(process.pid,'rotated');
+  status=403;response={error:'writing is off',open:{name:'B',project_id:'p'}};
+  assert.match((await call('aphrodite_apply_edits')).result.content[0].text,/writing is off.*"B"/);
+  assert.match(calls.at(-1)!,/Bearer rotated/);
+  status=200;response={png:'YQ==',mime:'image/png',z:1,a:2};
+  await call('aphrodite_get_render');
+  response={guide:'Live guide'};await call('aphrodite_guide');
+  response={html:'x'.repeat(1024*1024)};await call('aphrodite_get_page_html');
+});
