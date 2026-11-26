@@ -151,6 +151,10 @@ pub fn hand_over(app: &AppHandle, path: &Path) {
     }
 }
 
+pub fn route_file(url: &tauri::Url, inspect: impl FnOnce(&Path) -> bool) -> bool {
+    url.scheme() == "file" && url.to_file_path().is_ok_and(|path| inspect(&path))
+}
+
 pub fn handed_html(path: &Path) -> bool { html_name(path) || path.is_dir() }
 
 #[tauri::command]
@@ -200,6 +204,24 @@ pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, Im
 mod tests {
     use super::*;
     use std::{cell::Cell, fs, os::unix::fs::symlink};
+
+    #[test]
+    fn non_file_links_make_zero_filesystem_calls_and_queue_zero_grants() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("one.html");
+        fs::write(&file, "<p>one</p>").unwrap();
+        let mut grants = Grants::default();
+        let calls = Cell::new(0);
+        for path in [file.as_path(), root.path()] {
+            let url = tauri::Url::parse(&format!("aphrodite://{}", path.display())).unwrap();
+            assert!(!route_file(&url, |path| {
+                calls.set(calls.get() + 1);
+                grants.give(path, Instant::now(), true).is_ok()
+            }));
+        }
+        assert_eq!(calls.get(), 0);
+        assert_eq!(grants.0.len(), 0);
+    }
 
     #[test]
     fn only_a_live_grant_opens_a_regular_sibling_within_its_limit() {
