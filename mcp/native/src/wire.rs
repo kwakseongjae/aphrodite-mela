@@ -49,6 +49,8 @@ pub fn decode(bytes: &[u8]) -> Result<&str, ()> {
 }
 pub fn parse(text: &str) -> Result<Value, ()> {
     let mut depth = 0usize;
+    let mut structure = 0usize;
+    let max_structure = limit("structure");
     let mut quoted = false;
     let mut bytes = text.bytes();
     let limit = limit("depth");
@@ -60,12 +62,17 @@ pub fn parse(text: &str) -> Result<Value, ()> {
             b'"' => quoted = !quoted,
             b'{' | b'[' if !quoted => {
                 depth += 1;
+                structure += 1;
                 if depth > limit {
                     return Err(());
                 }
             }
             b'}' | b']' if !quoted => depth = depth.saturating_sub(1),
+            b',' | b':' if !quoted => structure += 1,
             _ => (),
+        }
+        if structure > max_structure {
+            return Err(());
         }
     }
     serde_json::from_str(text).map_err(|_| ())

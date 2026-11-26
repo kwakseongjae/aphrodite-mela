@@ -54,7 +54,8 @@ fn caller(name: &Value) -> String {
     for c in text(name).to_lowercase().chars() {
         if c.is_ascii_alphanumeric() {
             clean.push(c);
-        } else if (c.is_whitespace() || matches!(c, '_' | '.' | '-' | '\u{feff}'))
+        } else if ((c.is_whitespace() && c != '\u{85}')
+            || matches!(c, '_' | '.' | '-' | '\u{feff}'))
             && !clean.is_empty()
             && !clean.ends_with('-')
         {

@@ -12,7 +12,7 @@
  */
 import {protocol} from './protocol.mjs';
 import {once} from 'node:events';
-import {frames, decode, parse, readEndpoint, responseText} from './wire.mjs';
+import {frames, decode, parse, readEndpoint, responseBody} from './wire.mjs';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -107,21 +107,21 @@ async function callTool(name, args) {
 
   // A call that never returns would leave the agent waiting for ever, so it is given a deadline: the
   // app's own bridge answers or gives up within fifteen seconds, and this allows for the round trip.
-  let response, text;
+  let response, bytes;
   try {
     response = await fetch(url, {...init, redirect: 'manual', signal: AbortSignal.timeout(25_000)});
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       return offline(name);
     }
-    text = await responseText(response);
+    bytes = await responseBody(response);
   } catch (error) {
     if(error instanceof RangeError) return {isError:true,text:protocol.tooLarge};
     return error?.name === 'TimeoutError' ? {isError: true, text: protocol.timeout} : offline(name);
   }
   let payload;
   try {
-    payload = parse(text);
+    payload = parse(decode(bytes));
   } catch {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }

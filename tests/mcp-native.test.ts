@@ -138,6 +138,8 @@ test('both stdio servers return identical lines and send identical loopback call
   status=403;response={error:'writing is off',open:{name:'B',project_id:'p'}};
   assert.match((await call('aphrodite_apply_edits')).result.content[0].text,/writing is off.*"B"/);
   assert.match(calls.at(-1)!,/Bearer rotated/);
+  response={error:'refused',open:{name:'a'.repeat(199)+'🌙'}};
+  await call('aphrodite_apply_edits');
   status=200;response={png:'YQ==',mime:'image/png',z:1,a:2};
   await call('aphrodite_get_render');
   response={guide:'Live guide'};await call('aphrodite_guide');
@@ -203,5 +205,15 @@ test('Opus 5 — scalar frames and inherited object names have ordinary protocol
 });
 test('Astra 11 — an oversized frame is drained before the next ping',()=>{
   const out=rawTranscript(Buffer.concat([Buffer.alloc(24*1024*1024+1,32),Buffer.from('\n'+ping+'\n')]));
+  assert.deepEqual(out.map(r=>r.error?.code??r.id),[-32700,1]);
+});
+
+test('Opus 5 — object-valued RPC names and ordinary objects with a toString field are harmless',()=>{
+  const input=JSON.stringify({id:9,method:'tools/call',params:{name:{toString:null}}});
+  const out=rawTranscript(input+'\n');
+  assert.equal(out[0].result.content[0].text,'No such tool "[object Object]".');
+});
+test('Opus 4 — a malformed string cannot be hidden by a later duplicate property',()=>{
+  const out=rawTranscript('{"id":1,"x":"\\ud800","x":"ok","method":"ping"}\n'+ping+'\n');
   assert.deepEqual(out.map(r=>r.error?.code??r.id),[-32700,1]);
 });

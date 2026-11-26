@@ -2,7 +2,7 @@ import {playbook, toolList} from '../../src/agent/playbook.mjs';
 
 const notRunning = 'Aphrodite is not running. Ask the person to open the app, then try again.';
 export const protocol = {
-  limits: {frameBytes:24*1024*1024, responseBytes:24*1024*1024, endpointBytes:64*1024, inFlight:4, depth:96},
+  limits: {frameBytes:24*1024*1024, responseBytes:24*1024*1024, endpointBytes:64*1024, inFlight:4, depth:96, structure:262144},
   busy: 'Aphrodite already has four calls in progress. Try again when one finishes.',
   tooLarge: 'The Aphrodite response exceeds 24 MiB.',
   versions: ['2025-06-18', '2025-03-26', '2024-11-05'],
