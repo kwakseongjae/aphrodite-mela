@@ -271,6 +271,18 @@ export function sniffMedia(head: Uint8Array): string | undefined {
   return undefined;
 }
 
+/** Additional file kinds a page may name inside its HTML. Standalone board items still use sniffMedia. */
+export function sniffBoardFile(head: Uint8Array): string | undefined {
+  const tag = String.fromCharCode(...head.subarray(0, 12));
+  for (const [magic, mime] of [['wOF2', 'font/woff2'], ['wOFF', 'font/woff'], ['OTTO', 'font/otf'], ['OggS', 'audio/ogg'], ['ID3', 'audio/mpeg']]) {
+    if (tag.startsWith(magic)) return mime;
+  }
+  if (tag.startsWith('RIFF') && tag.slice(8) === 'WAVE') return 'audio/wav';
+  if (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) return 'font/ttf';
+  if (head[0] === 0xff && [0xfb, 0xfa, 0xf3, 0xf2, 0xe3, 0xe2].includes(head[1])) return 'audio/mpeg';
+  return sniffMedia(head);
+}
+
 /** Why a file cannot go on a board, as a sentence, decided from its size and first bytes before it is read in. */
 export function mediaRefusal(file: {name: string; size: number}, head: Uint8Array, limit = MAX_MEDIA_BYTES): string | undefined {
   if (file.size > limit) return `${file.name} is ${mb(file.size)} MB; a file on a board holds at most ${mb(limit)} MB${limit < MAX_MEDIA_BYTES ? ' in the browser; the desktop app holds ' + mb(MAX_MEDIA_BYTES) + ' MB' : ''}.`;
@@ -370,7 +382,7 @@ export function mediaNamed(html: string): string[] {
 }
 /** The extension a board keeps a file of this kind under (src-tauri/src/board.rs names them the same). */
 export function mediaExtension(mime: string): string {
-  return ({'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm'} as Record<string, string>)[mime] ?? 'bin';
+  return ({'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'ttf', 'font/otf': 'otf', 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3'} as Record<string, string>)[mime] ?? 'bin';
 }
 /**
  * The addresses a page's media is given, read one file at a time and only while it fits: each file's
@@ -423,7 +435,7 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
     maxBytes: MAX_BROWSER_MEDIA_BYTES,
     put: async file => {
       if (file.size > MAX_BROWSER_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_BROWSER_MEDIA_BYTES)} MB in the browser.`);
-      const mime = sniffMedia(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
+      const mime = sniffBoardFile(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
       if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
       const db = await open();
@@ -460,6 +472,19 @@ const PIECE = 8 * 1024 * 1024;
  */
 export function desktopFrameHost(native: Native, timing: {deadline: number} = {deadline: WALL_DEADLINE}): FrameHost {
   const where = async (sha: string) => { const path = await native.invoke<string | null>('board_media_path', {sha}).catch(() => null); return path ? native.fileSrc(path) : undefined; };
+  // Fonts use data URLs under the existing font-src policy. Measure them before reading any bytes.
+  function frameAddress(sha: string, cost: true): Promise<number | undefined>;
+  function frameAddress(sha: string, cost: false): Promise<string | undefined>;
+  async function frameAddress(sha: string, cost: boolean) {
+    const url = await where(sha);
+    if (!url || !/\.(?:woff2?|ttf|otf)$/.test(url)) return url === undefined ? undefined : cost ? url.length : url;
+    const info = await host.stat(sha);
+    if (!info || !info.mime.startsWith('font/') || info.bytes > INLINE_MEDIA) return undefined;
+    if (cost) return `data:${info.mime};base64,`.length + Math.ceil(info.bytes / 3) * 4;
+    const bytes = await host.read(sha);
+    if (!bytes || bytes.length !== info.bytes) return undefined;
+    return `data:${info.mime};base64,${(await import('./page-export')).base64(bytes)}`;
+  }
   let settled: boolean | undefined, asking: Promise<boolean> | undefined, asks = 0;
   /** The copy each frame of this window shows, by file name: a write names them, so the desktop never clears one under a frame (0.3-R fix 2 #21). */
   const shown = new Map<HTMLIFrameElement, string>();
@@ -499,8 +524,8 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     // A failure to look is not an answer: it throws, rather than reading as a file this Mac does not have (0.3-P3-fix3 #9).
     stat: async sha => (await native.invoke<StoredMedia | null>('board_media_stat', {sha})) ?? undefined,
     read: async sha => { try { return new Uint8Array(await native.invoke<ArrayBuffer>('board_media_read', {sha})); } catch { return undefined; } },
-    frameCost: async sha => (await where(sha))?.length,
-    frameMedia: where,
+    frameCost: sha => frameAddress(sha, true),
+    frameMedia: sha => frameAddress(sha, false),
     // The copy is named for the document the frame loads, not the page alone: a picture the page names that
     // reaches this Mac later changes the document, and so the copy.
     load: async (frame, page, _key, doc) => {

@@ -229,3 +229,20 @@ test('the sidebar sends people to the board where a dropped picture is placed',a
   assert.ok(caption.includes('Drop pictures or videos onto the board.'));
   assert.ok(caption.includes('그림이나 영상을 보드에 끌어다 놓으세요.'));
 });
+
+test('a page can carry fonts and sounds through the board store without making them standalone media items', async () => {
+  const {sniffBoardFile, mediaExtension} = await import('../src/free-page');
+  for (const [head, mime, ext] of [['wOF2', 'font/woff2', 'woff2'], ['OggS', 'audio/ogg', 'ogg'], ['RIFF0000WAVE', 'audio/wav', 'wav']]) {
+    assert.equal(sniffBoardFile(bytes(head)), mime);
+    assert.equal(mediaExtension(mime), ext);
+    assert.equal(sniffMedia(bytes(head)), undefined);
+  }
+  const sha = 'a'.repeat(64);
+  const data = bytes('wOF2-demo');
+  const font = desktopFrameHost({fileSrc: p => 'asset://localhost' + p, invoke: async (command: string) => (
+    command === 'board_media_path' ? '/board-media/' + sha + '.woff2' : command === 'board_media_stat' ? {mime: 'font/woff2', bytes: data.length} : data.buffer
+  ) as never});
+  const url = 'data:font/woff2;base64,' + Buffer.from(data).toString('base64');
+  assert.equal(await font.frameCost(sha), url.length);
+  assert.equal(await font.frameMedia(sha), url);
+});

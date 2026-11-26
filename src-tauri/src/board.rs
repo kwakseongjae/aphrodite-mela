@@ -23,7 +23,11 @@ const PAGE_FRESH: std::time::Duration = std::time::Duration::from_secs(60);
 const PAGES_BOUND: u64 = 256 * 1024 * 1024;
 /// Files on their way in, outside both folders the asset protocol serves.
 const UPLOADS: &str = "board-uploads";
-const EXTENSIONS: [&str; 6] = ["png", "jpg", "gif", "webp", "mp4", "webm"];
+const BOARD_FILES: &[(&str, &str)] = &[
+    ("png", "image/png"), ("jpg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp"),
+    ("mp4", "video/mp4"), ("webm", "video/webm"), ("woff2", "font/woff2"), ("woff", "font/woff"),
+    ("ttf", "font/ttf"), ("otf", "font/otf"), ("wav", "audio/wav"), ("ogg", "audio/ogg"), ("mp3", "audio/mpeg"),
+];
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Stored {
@@ -65,15 +69,20 @@ pub(crate) fn sniff(head: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn extension(mime: &str) -> &'static str {
-    match mime {
-        "image/png" => "png",
-        "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "video/mp4" => "mp4",
-        _ => "webm",
+fn page_asset(head: &[u8]) -> Option<&'static str> {
+    for (magic, mime) in [
+        (&b"wOF2"[..], "font/woff2"), (b"wOFF", "font/woff"), (b"OTTO", "font/otf"),
+        (b"\0\x01\0\0", "font/ttf"), (b"OggS", "audio/ogg"), (b"ID3", "audio/mpeg"),
+    ] {
+        if head.starts_with(magic) { return Some(mime); }
     }
+    if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") { return Some("audio/wav"); }
+    if matches!(head, [0xff, 0xfb | 0xfa | 0xf3 | 0xf2 | 0xe3 | 0xe2, ..]) { return Some("audio/mpeg"); }
+    sniff(head)
+}
+
+fn extension(mime: &str) -> &'static str {
+    BOARD_FILES.iter().find(|(_, kind)| *kind == mime).expect("recognized board file").0
 }
 
 fn is_sha(text: &str) -> bool {
@@ -88,7 +97,7 @@ const UNKNOWN: &str = "the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM pictu
 
 /// Hashes `from` into `to`, at most MAX_MEDIA_BYTES, and says what it is. A file that is something
 /// else, or grows past the cap while it is read, leaves nothing behind.
-fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, u64), String> {
+fn copy_hashed(mut from: impl Read, to: &Path, identify: fn(&[u8]) -> Option<&'static str>) -> Result<(String, &'static str, u64), String> {
     let result = (|| {
         let mut out = fs::File::create(to).map_err(|e| e.to_string())?;
         let mut hasher = Sha256::new();
@@ -100,7 +109,7 @@ fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, 
                 break;
             }
             if total == 0 {
-                mime = Some(sniff(&buffer[..n]).ok_or(UNKNOWN)?);
+                mime = Some(identify(&buffer[..n]).ok_or(UNKNOWN)?);
             }
             total += n as u64;
             if total > MAX_MEDIA_BYTES {
@@ -200,8 +209,15 @@ fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, Str
     }
     let incoming = folder(base, UPLOADS)?.join(format!("{}.part", crate::agent::random_token()));
     let file = fs::File::open(from).map_err(|e| e.to_string())?;
-    let (sha, mime, bytes) = copy_hashed(file, &incoming)?;
+    let (sha, mime, bytes) = copy_hashed(file, &incoming, sniff)?;
     settle(base, &incoming, sha, mime, bytes, stage)
+}
+
+/// Stores a sibling from its already granted handle. The path is never reopened during the copy.
+pub(crate) fn store_page_asset(base: &Path, from: impl Read) -> Result<Stored, String> {
+    let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS)?).map_err(|e| e.to_string())?.into_temp_path();
+    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset)?;
+    settle(base, &incoming, sha, mime, bytes, None)
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {
@@ -235,7 +251,7 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
     let path = upload_path(base, id)?;
     let file = fs::File::open(&path).map_err(|_| "no such upload".to_string())?;
     let hashed = folder(base, UPLOADS)?.join(format!("{id}.hashed"));
-    let result = copy_hashed(file, &hashed);
+    let result = copy_hashed(file, &hashed, page_asset);
     let _ = fs::remove_file(&path);
     let (sha, mime, bytes) = result?;
     settle(base, &hashed, sha, mime, bytes, None)
@@ -246,20 +262,14 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     if !is_sha(sha) {
         return None;
     }
-    EXTENSIONS.iter().map(|ext| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
+    BOARD_FILES.iter().map(|(ext, _)| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
 }
 
 /// What a board's file is, by its name here: its kind and its size, without reading it.
 pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     let path = media_file(base, sha)?;
-    let mime = match path.extension()?.to_str()? {
-        "png" => "image/png",
-        "jpg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "mp4" => "video/mp4",
-        _ => "video/webm",
-    };
+    let ext = path.extension()?.to_str()?;
+    let mime = BOARD_FILES.iter().find(|(e, _)| *e == ext)?.1;
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
@@ -483,6 +493,17 @@ pub fn free_page_write(app: AppHandle, page: String, key: String, html: String, 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_font_can_be_held_by_hash_and_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = store_page_asset(dir.path(), &b"wOF2font"[..]).unwrap();
+        let two = store_page_asset(dir.path(), &b"wOF2font"[..]).unwrap();
+        assert_eq!(one, two);
+        assert_eq!(one.mime, "font/woff2");
+        assert_eq!(media_stat(dir.path(), &one.sha), Some(one));
+        assert!(sniff(b"wOF2font").is_none());
+    }
+
     use super::*;
 
     const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
