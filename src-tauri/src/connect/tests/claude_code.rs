@@ -869,7 +869,42 @@ fn opus_10_the_guide_uses_generated_setup_and_undo_and_explains_the_active_looku
             assert!(guide.lines().any(|l| l == line), "{line}");
         }
     }
-    for term in ["connect_status", "connect_ask", "connect_apply", "connect_remove", "health-check", "registered_record_missing", "unfinishedRepoint"] {
+    for term in [
+        "connect_status",
+        "connect_ask",
+        "connect_apply",
+        "connect_remove",
+        "health-check",
+        "registered_record_missing",
+        "unfinishedRepoint",
+    ] {
         assert!(guide.contains(term), "{term}");
+    }
+}
+
+#[test]
+fn astra_4_only_a_complete_missing_diagnostic_can_clear_ownership() {
+    let f = Fixture::new();
+    for name in [
+        "get-missing",
+        "get-missing-empty",
+        "get-missing-suggestion",
+        "get-missing-truncated",
+    ] {
+        let fixture =
+            fs::read_to_string(f.e().home.join("fixtures").join(format!("{name}.txt"))).unwrap();
+        f.override_reply(
+            "get",
+            json!({"exit":1, "err":fixture.split_once('\n').unwrap().1.trim_end_matches('\n')}),
+        );
+        assert_eq!(f.status()["entryExists"], false);
+    }
+    for text in [
+        "No MCP server named \"aphrodite\". unrecognized reply",
+        "No MCP server named \"aphrodite\". Configured servers: other\n  Command: ignored",
+        "No MCP server named \"aphrodite\". Configured servers: other\r",
+    ] {
+        f.override_reply("get", json!({"exit":1, "err":text}));
+        assert_eq!(f.status()["entryExists"], Value::Null);
     }
 }

@@ -65,10 +65,45 @@ struct State {
 }
 
 fn missing(bytes: &[u8]) -> bool {
-    // Some versions suggest similar names or list the person's other servers after the period.
-    bytes
-        .trim_ascii_start()
-        .starts_with(b"No MCP server named \"aphrodite\".")
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    let Some(reason) = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .strip_prefix("No MCP server named \"aphrodite\". ")
+    else {
+        return false;
+    };
+    if reason == "Run `claude mcp add` to add one." {
+        return true;
+    }
+    let name = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    if let Some(suggestion) = reason
+        .strip_prefix("Did you mean \"")
+        .and_then(|s| s.strip_suffix("\"? Run `claude mcp list` to see all."))
+    {
+        return name(suggestion);
+    }
+    let Some(list) = reason.strip_prefix("Configured servers: ") else {
+        return false;
+    };
+    let names = if let Some((names, tail)) = list.split_once(" (and ") {
+        let more = tail
+            .strip_suffix(" more — run `claude mcp list` to see all)")
+            .and_then(|n| n.parse::<usize>().ok());
+        if !more.is_some_and(|n| n > 0) || names.split(", ").count() != 8 {
+            return false;
+        }
+        names
+    } else {
+        list
+    };
+    names.split(", ").count() <= 8 && names.split(", ").all(name)
 }
 
 fn entry(stdout: &[u8]) -> Result<Entry, Code> {
@@ -161,7 +196,12 @@ impl State {
             Some(0) => Some(
                 entry(&output.stdout).map_err(|code| CommandResult::new(code, output.status))?,
             ),
-            Some(1) if missing(&output.stderr) || missing(&output.stdout) => None,
+            Some(1)
+                if (output.stdout.iter().all(|b| *b == b'\n') && missing(&output.stderr))
+                    || (output.stderr.iter().all(|b| *b == b'\n') && missing(&output.stdout)) =>
+            {
+                None
+            }
             _ => return Err(CommandResult::new(Code::CliGetFailed, output.status)),
         };
         Ok(Self {
@@ -426,7 +466,7 @@ impl Invocation {
             && output
                 .stdout
                 .split(|&b| b == b'\n')
-                .any(|line| line.strip_suffix(b"\r").unwrap_or(line) == expected.as_bytes())
+                .any(|line| line == expected.as_bytes())
         {
             result.tail = Some(expected);
         }
