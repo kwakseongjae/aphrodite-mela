@@ -51,6 +51,7 @@ pub struct Layout {
     pub entry: Vec<Range<usize>>,
     pub connect: Vec<Change>,
     pub remove: Vec<Change>,
+    pub remove_container: Option<Vec<Change>>,
 }
 fn missing(c: Change) -> Layout {
     Layout {
@@ -58,6 +59,7 @@ fn missing(c: Change) -> Layout {
         entry: vec![],
         connect: vec![c],
         remove: vec![],
+        remove_container: None,
     }
 }
 
@@ -141,31 +143,40 @@ fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
         let obj = servers.value.as_object().ok_or(Code::InvalidConfig)?;
         if let Some(prop) = object_property(obj, "aphrodite")? {
             let range = prop.start()..prop.end();
-            let command = prop
-                .value
-                .as_object()
-                .and_then(|v| v.get_string("command"))
-                .map(|v| v.value.to_string());
-            let mut remove = vec![Change::at(source, prop.start()..prop.end(), String::new())];
-
-            let after = tokens.iter().find(|t| t.start() >= prop.end());
-            let before = tokens.iter().rev().find(|t| t.end() <= prop.start());
-            if let Some(comma) = after
-                .filter(|t| matches!(t.token, Token::Comma))
-                .or_else(|| before.filter(|t| matches!(t.token, Token::Comma)))
-            {
-                remove.push(Change::at(
-                    source,
-                    comma.start()..comma.end(),
-                    String::new(),
-                ));
-                remove.sort_by_key(|c| c.start);
-            }
+            let command = match prop.value.as_object() {
+                Some(o) => object_property(o, "command")?
+                    .and_then(|p| p.value.as_string_lit())
+                    .map(|v| v.value.to_string()),
+                None => None,
+            };
+            let remove_property = |range: Range<usize>| {
+                let following = tokens.iter().find(|t| t.start() >= range.end);
+                let preceding = tokens.iter().rev().find(|t| t.end() <= range.start);
+                let mut changes = vec![Change::at(source, range, String::new())];
+                if let Some(comma) = following
+                    .filter(|t| matches!(t.token, Token::Comma))
+                    .or_else(|| preceding.filter(|t| matches!(t.token, Token::Comma)))
+                {
+                    changes.push(Change::at(
+                        source,
+                        comma.start()..comma.end(),
+                        String::new(),
+                    ));
+                    changes.sort_by_key(|c| c.start);
+                }
+                changes
+            };
+            let remove = remove_property(range.clone());
+            let remove_container = (source.get(servers.start()..prop.start())
+                == Some("\"mcpServers\":{")
+                && source.get(prop.end()..servers.end()) == Some("}"))
+            .then(|| remove_property(servers.start()..servers.end()));
             return Ok(Layout {
                 command,
                 entry: vec![range.clone()],
                 connect: vec![Change::at(source, range, property)],
                 remove,
+                remove_container,
             });
         }
         (obj, property)
@@ -289,7 +300,12 @@ fn toml(source: &str, exe: &str) -> Result<Layout> {
         return Ok(Layout {
             command,
             entry: vec![key.start..span.end],
-            connect: vec![Change::at(source, span, inline)],
+            connect: vec![Change::at(
+                source,
+                key.start..span.end,
+                format!("aphrodite = {inline}"),
+            )],
+            remove_container: None,
             remove: vec![Change::at(source, property, String::new())],
         });
     }
@@ -321,6 +337,7 @@ fn toml(source: &str, exe: &str) -> Result<Layout> {
         entry: disjoint,
         connect,
         remove,
+        remove_container: None,
     })
 }
 
@@ -331,7 +348,15 @@ pub fn layout(tool: Tool, source: Option<&str>, exe: &str) -> Result<Layout> {
     }
     let body = source.map(|s| s.strip_prefix('\u{feff}').unwrap_or(s));
     let mut layout = if tool == Tool::Codex {
-        toml(body.unwrap_or(""), exe)?
+        let text = body.unwrap_or("");
+        toml::from_str::<toml::Table>(text).map_err(|_| Code::InvalidConfig)?;
+        toml(text, exe).map_err(|code| {
+            if code == Code::InvalidConfig {
+                Code::UnsupportedLayout
+            } else {
+                code
+            }
+        })?
     } else {
         json(tool, body, exe)?
     };
@@ -340,7 +365,12 @@ pub fn layout(tool: Tool, source: Option<&str>, exe: &str) -> Result<Layout> {
             range.start += 3;
             range.end += 3;
         }
-        for change in layout.connect.iter_mut().chain(&mut layout.remove) {
+        for change in layout
+            .connect
+            .iter_mut()
+            .chain(&mut layout.remove)
+            .chain(layout.remove_container.iter_mut().flatten())
+        {
             change.start += 3;
         }
     }

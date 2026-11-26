@@ -61,7 +61,7 @@ pub enum Proposal {
     },
 }
 impl Engine {
-    fn proposal(&self, tool: Tool, plan: Result<Preview>) -> Result<Proposal> {
+    pub(super) fn proposal(&self, tool: Tool, plan: Result<Preview>) -> Result<Proposal> {
         match plan {
             Ok(p) => Ok(Proposal::Edit(p)),
             Err(

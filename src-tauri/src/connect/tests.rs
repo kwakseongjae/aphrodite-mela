@@ -370,18 +370,18 @@ fn a_config_file_and_an_installed_tool_are_independent_signals() {
 #[test]
 fn disk_image_mounts_are_identified_by_component_and_regular_external_disks_are_distinct() {
     let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Volumes/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
-    assert!(mounted_image(
-        Path::new("/Volumes/Aphrodite/Aphrodite.app/Contents/MacOS/app"),
-        &info
-    ));
+    assert!(mounted_image(Path::new("/Volumes/Aphrodite"), &info));
     assert!(!mounted_image(
         Path::new("/Volumes/Aphrodite External/Other.app"),
         &info
     ));
     assert_eq!(
-        location(Path::new(
-            "/private/tmp/AppTranslocation/abc/d/X.app/Contents/MacOS/app"
-        )),
+        mount_location(
+            Path::new("/A.app/Contents/MacOS/app"),
+            Path::new("/private/tmp/AppTranslocation/abc/d"),
+            true,
+            None
+        ),
         Location::Translocated
     );
 }
@@ -753,4 +753,70 @@ fn astra_9_mount_identity_covers_home_mounted_images_and_read_only_volumes() {
         mount_location(&exe, Path::new("/ReadOnly"), true, None),
         Location::ReadOnly
     );
+}
+
+#[test]
+fn astra_4_the_receipt_hash_is_the_digest_of_the_written_region_itself() {
+    let h = Home::new();
+    for tool in WRITTEN {
+        let path = h.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        connect(&h.engine, tool, 1);
+        let source = fs::read_to_string(&path).unwrap();
+        let layout = edit::layout(tool, Some(&source), h.engine.executable()).unwrap();
+        let receipt: Receipt = serde_json::from_slice(
+            &xattr::get(&path, "studio.aphrodite.mela.mcp-entry")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            receipt.entry,
+            hash(&source.as_bytes()[layout.entry[0].clone()])
+        );
+    }
+}
+#[test]
+fn astra_8_removal_keeps_a_new_root_preference_and_removes_the_container_we_added() {
+    let h = Home::new();
+    for tool in [Tool::Cursor, Tool::ClaudeDesktop] {
+        let path = h.file(tool, "{}");
+        connect(&h.engine, tool, 1);
+        let installed = fs::read_to_string(&path).unwrap();
+        fs::write(
+            &path,
+            format!(
+                r#"{},"theme":"blue"}}"#,
+                installed.strip_suffix('}').unwrap()
+            ),
+        )
+        .unwrap();
+        remove(&h.engine, tool, false).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), r#"{"theme":"blue"}"#);
+    }
+}
+#[test]
+fn astra_9_a_directory_name_alone_does_not_establish_translocation() {
+    let h = Home::new();
+    let dir = h.engine.home.join("AppTranslocation/X.app/Contents/MacOS");
+    fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join("fixture");
+    fs::write(&exe, "fixture").unwrap();
+    assert_ne!(location(&exe), Location::Translocated);
+}
+
+#[test]
+fn astra_7_valid_toml_outside_the_splicers_grammar_offers_copy_in_ipc() {
+    let h = Home::new();
+    let source = "mcp_servers = { other.command='x',\n aphrodite.command='old', }";
+    h.file(Tool::Codex, source);
+    let proposal = h
+        .engine
+        .proposal(
+            Tool::Codex,
+            h.engine.preview(Tool::Codex, Action::Connect, 1),
+        )
+        .unwrap();
+    let copy = serde_json::to_value(proposal).unwrap();
+    assert_eq!(copy["code"], "unsupported_layout");
+    assert_eq!(copy["snippet"], h.engine.snippet(Tool::Codex));
 }

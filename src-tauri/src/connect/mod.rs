@@ -101,6 +101,7 @@ pub struct Preview {
     backup: Option<PathBuf>,
     deletes_file: bool,
     replacement_required: bool,
+    confirmation_required: bool,
     fingerprint: String,
 }
 impl Preview {
@@ -112,17 +113,11 @@ impl Preview {
 fn hash(bytes: impl AsRef<[u8]>) -> String {
     format!("{:x}", Sha256::digest(bytes.as_ref()))
 }
-fn entry_hash(layout: &Layout, source: &str) -> String {
-    hash(
-        serde_json::to_vec(
-            &layout
-                .entry
-                .iter()
-                .map(|r| &source[r.clone()])
-                .collect::<Vec<_>>(),
-        )
-        .unwrap(),
-    )
+fn entry_hash(layout: &Layout, source: &str) -> Option<String> {
+    let [range] = layout.entry.as_slice() else {
+        return None;
+    };
+    Some(hash(source.get(range.clone())?.as_bytes()))
 }
 
 // This receipt is an extended attribute of the new inode. The config and the proof we wrote it
@@ -217,7 +212,7 @@ impl Engine {
         (receipt.tool == tool
             && receipt.path == path
             && !layout.entry.is_empty()
-            && receipt.entry == entry_hash(layout, source))
+            && Some(&receipt.entry) == entry_hash(layout, source).as_ref())
         .then_some(receipt)
     }
     fn status(&self, tool: Tool) -> Result<Status> {
@@ -364,7 +359,8 @@ impl Engine {
             creates_file: f.text.is_none(),
             changes,
             deletes_file,
-            replacement_required: foreign,
+            replacement_required: foreign && action == Action::Connect,
+            confirmation_required: foreign,
             backup,
             fingerprint: format!("{stamp}-{digest}"),
         };
@@ -387,7 +383,7 @@ impl Engine {
         prior: Option<&Receipt>,
         foreign: bool,
     ) -> Result<(Vec<Change>, bool)> {
-        if let Some(r) = prior.filter(|r| r.entry == entry_hash(&layout, source)) {
+        if let Some(r) = prior.filter(|r| Some(&r.entry) == entry_hash(&layout, source).as_ref()) {
             if let (Some((prefix, suffix)), [entry]) = (&r.wrapper, layout.entry.as_slice()) {
                 if source[..entry.start].ends_with(prefix)
                     && source[entry.end..].starts_with(suffix)
@@ -407,6 +403,11 @@ impl Engine {
                         && (deletes || edit::layout(tool, Some(&result), self.executable()).is_ok())
                     {
                         return Ok((vec![change], deletes));
+                    }
+                }
+                if !foreign && prefix.ends_with("\"mcpServers\":{") {
+                    if let Some(changes) = layout.remove_container {
+                        return Ok((changes, false));
                     }
                 }
             }
@@ -450,7 +451,7 @@ impl Engine {
         if preview.fingerprint != fingerprint {
             return Err(Code::Changed);
         }
-        if preview.replacement_required && !confirm {
+        if preview.confirmation_required && !confirm {
             return Err(Code::ConfirmationRequired);
         }
         if preview.changes.is_empty() {
@@ -473,7 +474,7 @@ impl Engine {
                 ))
             } else {
                 prior
-                    .filter(|r| r.entry == entry_hash(&before, source))
+                    .filter(|r| Some(&r.entry) == entry_hash(&before, source).as_ref())
                     .and_then(|r| r.wrapper.clone())
             };
             Some(Receipt {
@@ -484,7 +485,7 @@ impl Engine {
                 original: prior
                     .map_or_else(|| file.text.as_ref().map(hash), |r| r.original.clone()),
                 wrapper,
-                entry: entry_hash(&layout, &candidate),
+                entry: entry_hash(&layout, &candidate).ok_or(Code::UnsupportedLayout)?,
             })
         } else {
             None
@@ -554,7 +555,7 @@ impl Engine {
     }
 }
 
-fn mounted_image(exe: &Path, info: &plist::Value) -> bool {
+fn mounted_image(volume: &Path, info: &plist::Value) -> bool {
     info.as_dictionary()
         .and_then(|d| d.get("images"))
         .and_then(|v| v.as_array())
@@ -563,7 +564,7 @@ fn mounted_image(exe: &Path, info: &plist::Value) -> bool {
         .filter_map(|i| i.as_dictionary()?.get("system-entities")?.as_array())
         .flatten()
         .filter_map(|e| e.as_dictionary()?.get("mount-point")?.as_string())
-        .any(|mount| exe.starts_with(mount))
+        .any(|mount| volume == Path::new(mount))
 }
 fn mount_location(
     exe: &Path,
@@ -597,12 +598,6 @@ fn location(exe: &Path) -> Location {
         ffi::CStr,
         os::{fd::AsRawFd, unix::ffi::OsStrExt},
     };
-    if exe
-        .components()
-        .any(|c| c.as_os_str() == OsStr::new("AppTranslocation"))
-    {
-        return Location::Translocated;
-    }
     let Ok(file) = std::fs::File::open(exe) else {
         return Location::Unknown;
     };

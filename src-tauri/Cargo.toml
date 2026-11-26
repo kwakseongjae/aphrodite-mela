@@ -23,6 +23,7 @@ rustix = { version = "1", features = ["fs"] }
 uuid = { version = "1", features = ["v4"] }
 xattr = "1"
 toml_edit = "0.22"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 jsonc-parser = "0.34"
 plist = "1"
 tiny_http = "0.12"
