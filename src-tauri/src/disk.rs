@@ -13,6 +13,8 @@ struct Close {
 struct Writes {
     active: usize,
     closing: Option<Close>,
+    // Gated writes count as active, so another close cannot replace their outcome.
+    last_close_destroyed: bool,
 }
 impl Writes {
     fn close_remaining(&mut self) -> Option<Duration> {
@@ -32,6 +34,7 @@ impl Writes {
 static WRITES: Mutex<Writes> = Mutex::new(Writes {
     active: 0,
     closing: None,
+    last_close_destroyed: false,
 });
 static FINISHED: Condvar = Condvar::new();
 
@@ -64,6 +67,7 @@ pub async fn disk_begin_close<R: tauri::Runtime>(
         if state.active != 0 || state.close_remaining().is_some() || Instant::now() >= deadline {
             return false;
         }
+        state.last_close_destroyed = false;
         state.closing = Some(Close {
             label,
             ticket,
@@ -76,18 +80,27 @@ pub async fn disk_begin_close<R: tauri::Runtime>(
 }
 #[tauri::command]
 pub fn disk_end_close<R: tauri::Runtime>(window: tauri::Window<R>, ticket: String) {
-    release_close(window.label(), Some(&ticket));
+    release_close(window.label(), Release::Cancelled(&ticket));
 }
-pub fn release_close(label: &str, ticket: Option<&str>) {
+pub enum Release<'a> {
+    Cancelled(&'a str),
+    WindowDestroyed,
+}
+pub fn release_close(label: &str, reason: Release<'_>) {
     let mut state = WRITES.lock().unwrap();
-    if state
-        .closing
-        .as_ref()
-        .is_some_and(|gate| gate.label == label && ticket.is_none_or(|t| t == gate.ticket))
-    {
-        state.closing = None;
-        FINISHED.notify_all();
+    if state.close_remaining().is_none() {
+        return;
     }
+    if let Some(gate) = &state.closing {
+        if gate.label != label
+            || matches!(reason, Release::Cancelled(ticket) if gate.ticket != ticket)
+        {
+            return;
+        }
+    }
+    state.last_close_destroyed = matches!(reason, Release::WindowDestroyed);
+    state.closing = None;
+    FINISHED.notify_all();
 }
 
 pub async fn write<T: Send + 'static>(
@@ -104,6 +117,9 @@ pub async fn write<T: Send + 'static>(
             let mut state = WRITES.lock().unwrap();
             while let Some(remaining) = state.close_remaining() {
                 state = FINISHED.wait_timeout(state, remaining).unwrap().0;
+            }
+            if state.last_close_destroyed {
+                return Err("window_destroyed".into());
             }
         }
         work()
@@ -124,6 +140,40 @@ mod tests {
         task::{Context, Waker},
         time::Duration,
     };
+
+    #[test]
+    fn third_review_destroying_the_window_cancels_every_gated_write() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let _serial = TEST_SERIAL.lock().unwrap();
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        let web = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let started = std::sync::Arc::new(AtomicUsize::new(0));
+        tauri::async_runtime::block_on(async {
+            let window = web.as_ref().window();
+            assert!(disk_begin_close(window, "leaving".into(), 1000)
+                .await
+                .unwrap());
+            let mut pending = Vec::new();
+            for _ in 0..2 {
+                let calls = started.clone();
+                let mut save = Box::pin(write(move || Ok(calls.fetch_add(1, Ordering::SeqCst))));
+                assert!(save
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending());
+                pending.push(save);
+            }
+            release_close("main", Release::WindowDestroyed);
+            for save in pending {
+                assert_eq!(save.await, Err("window_destroyed".into()));
+            }
+            assert_eq!(started.load(Ordering::SeqCst), 0);
+            assert_eq!(write(|| Ok(42)).await, Ok(42));
+        });
+    }
 
     #[test]
     fn another_command_answers_while_a_write_is_stalled() {

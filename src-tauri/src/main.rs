@@ -96,7 +96,9 @@ fn main() {
             opened::opened_file_read
         ])
         .on_window_event(|window,event| {
-            if matches!(event,tauri::WindowEvent::Destroyed) {disk::release_close(window.label(),None);}
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                disk::release_close(window.label(), disk::Release::WindowDestroyed);
+            }
         })
         .build(tauri::generate_context!())
         .expect("Aphrodite could not start")
