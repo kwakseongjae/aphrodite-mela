@@ -191,3 +191,13 @@ test('an MCP tool hands the app the reason and the revision its row asks for',()
     if(row.revision==='checked')assert.equal(body.base_revision,'1:a:b',`${tool.name} passes base_revision on`);
   }
 });
+
+test('the ledger recipe exemption follows whether an edit has a control bound', () => {
+  const script = readFileSync(new URL('../scripts/verify-ledger.mjs', import.meta.url), 'utf8');
+  const filter = script.split('\n').find(line => line.startsWith('const onScreen = '))!;
+  assert.match(filter, /r\.controls\.length/);
+  assert.doesNotMatch(filter, /r\.id/);
+  const ids = commands.filter(r => r.grade === 'edit' && r.surfaces.ui && r.controls.length).map(r => r.id).sort();
+  const recipes = [...script.matchAll(/^  '(edit\.[\w-]+)': \{source:/gm)].map(m => m[1]).sort();
+  assert.deepEqual(ids, recipes);
+});
