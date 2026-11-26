@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
 mod board;
+mod connect;
 mod disk;
 mod fonts;
 mod image_library;
@@ -38,6 +39,11 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            connect::connect_status,
+            connect::connect_preview,
+            connect::connect_apply,
+            connect::connect_remove,
+            connect::connect_snippet,
             reference::recognize_reference,
             workspace::workspace_read,
             workspace::workspace_write,

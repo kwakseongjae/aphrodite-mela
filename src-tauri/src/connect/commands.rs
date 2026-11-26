@@ -1,0 +1,108 @@
+use super::*;
+use std::{
+    env,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use tauri::Manager;
+
+fn runtime(app: tauri::AppHandle) -> Result<Engine> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|_| Code::InvalidPath)?
+        .canonicalize()
+        .map_err(|_| Code::InvalidPath)?;
+    let app_exe = env::current_exe().map_err(|_| Code::InvalidPath)?;
+    let exe = app_exe.with_file_name("aphrodite-mcp");
+    if !exe.is_file() || exe.to_str().is_none() {
+        return Err(Code::SidecarMissing);
+    }
+    let mut e = Engine::new(home.clone(), exe);
+    e.location = location(&app_exe);
+    if let Some(dir) = env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
+        e.codex_home = PathBuf::from(dir);
+    }
+    if let Some(dir) = env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        e.claude_file = PathBuf::from(dir).join(".claude.json");
+    }
+    e.cli_dirs = env::split_paths(&env::var_os("PATH").unwrap_or_default())
+        .filter(|p| p.is_absolute())
+        .collect();
+    e.cli_dirs.extend([
+        home.join(".local/bin"),
+        "/opt/homebrew/bin".into(),
+        "/usr/local/bin".into(),
+    ]);
+    e.app_dirs = vec!["/Applications".into(), home.join("Applications")];
+    Ok(e)
+}
+
+async fn run<T: Send + 'static>(
+    app: tauri::AppHandle,
+    work: impl FnOnce(Engine) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || work(runtime(app)?))
+        .await
+        .map_err(|_| Code::WorkerFailed)?
+}
+#[tauri::command]
+pub async fn connect_status(app: tauri::AppHandle) -> Result<Vec<Status>> {
+    run(app, |e| TOOLS.iter().map(|&t| e.status(t)).collect()).await
+}
+#[tauri::command]
+pub async fn connect_preview(app: tauri::AppHandle, tool: Tool, action: Action) -> Result<Preview> {
+    run(app, move |e| {
+        e.preview(
+            tool,
+            action,
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| Code::Io)?
+                .as_nanos(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn connect_apply(
+    app: tauri::AppHandle,
+    tool: Tool,
+    fingerprint: String,
+    confirm_replacement: Option<bool>,
+) -> Result<Preview> {
+    run(app, move |e| {
+        e.commit(
+            tool,
+            Action::Connect,
+            &fingerprint,
+            confirm_replacement.unwrap_or(false),
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn connect_remove(
+    app: tauri::AppHandle,
+    tool: Tool,
+    fingerprint: String,
+) -> Result<Preview> {
+    run(app, move |e| {
+        e.commit(tool, Action::Remove, &fingerprint, false)
+    })
+    .await
+}
+#[derive(Serialize)]
+pub struct Snippet {
+    tool: Tool,
+    text: String,
+}
+#[tauri::command]
+pub async fn connect_snippet(app: tauri::AppHandle, tool: Tool) -> Result<Snippet> {
+    run(app, move |e| {
+        Ok(Snippet {
+            tool,
+            text: e.snippet(tool),
+        })
+    })
+    .await
+}
