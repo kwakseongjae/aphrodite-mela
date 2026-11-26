@@ -191,5 +191,5 @@ lines.on('line', line => {
     if (message.id !== undefined && message.id !== null) fail(message.id, -32603, 'Internal error');
   });
 });
-lines.on('close', () => process.exit(0));
+// Let accepted requests and stdout drain when a client closes stdin after its last line.
 log(`ready · ${toolManifest().length} tools · ${promptManifest().length} prompts · app endpoint ${ENDPOINT_FILE}`);

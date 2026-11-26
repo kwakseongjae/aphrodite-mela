@@ -35,6 +35,17 @@ test('the generated native manifest agrees with its sources, including call plum
   } finally {unlinkSync(fixture);rmdirSync(dir);}
 });
 
+test('a single piped guide request is answered before either process exits', () => {
+  const dir=mkdtempSync(join(tmpdir(),'aph-eof-'));
+  const options={env:{...process.env,APHRODITE_ENDPOINT_FILE:join(dir,'absent')},
+    input:'{"id":1,"method":"tools/call","params":{"name":"aphrodite_guide"}}\n'};
+  try {
+    const node=execFileSync(process.execPath,[nodeServer],options);
+    const rust=execFileSync(native,[],options);
+    assert.ok(node.length>0 && node.equals(rust));
+  } finally {rmdirSync(dir);}
+});
+
 async function* frames(stream:Readable):AsyncGenerator<Buffer> {
   let parts:Buffer[]=[];
   for await (const chunk of stream) {

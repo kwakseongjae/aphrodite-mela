@@ -323,72 +323,77 @@ fn main() {
         .timeout(Duration::from_secs(25))
         .build();
     let mut who = text(&data["fallbackCaller"]).to_owned();
-    for line in io::stdin().lock().lines().map_while(Result::ok) {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-            error(&json!({"id":null}), -32700, "Parse error".into());
-            continue;
-        };
-        let p = &msg["params"];
-        let result = match text(&msg["method"]) {
-            "initialize" => {
-                who = caller(&p["clientInfo"]["name"]);
-                let versions = data["versions"].as_array().unwrap();
-                let asked = &p["protocolVersion"];
-                json!({"protocolVersion":if versions.contains(asked){asked}else{&versions[0]},
+    std::thread::scope(|workers| {
+        for line in io::stdin().lock().lines().map_while(Result::ok) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+                error(&json!({"id":null}), -32700, "Parse error".into());
+                continue;
+            };
+            let p = &msg["params"];
+            let result = match text(&msg["method"]) {
+                "initialize" => {
+                    who = caller(&p["clientInfo"]["name"]);
+                    let versions = data["versions"].as_array().unwrap();
+                    let asked = &p["protocolVersion"];
+                    json!({"protocolVersion":if versions.contains(asked){asked}else{&versions[0]},
                   "capabilities":{"tools":{"listChanged":false},"prompts":{"listChanged":false}},
                   "serverInfo":{"name":"aphrodite","version":data["version"]},"instructions":data["instructions"]})
-            }
-            "tools/list" => json!({"tools":data["tools"]}),
-            "prompts/list" => json!({"prompts":data["prompts"]}),
-            "prompts/get" => {
-                let name = field(p, "name");
-                let Some(prompt) = data["prompts"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|v| v["name"] == name)
-                else {
-                    error(&msg, -32602, format!("Unknown prompt: {name}"));
-                    continue;
-                };
-                let template = &data["templates"][&name];
-                let arg = &p["arguments"][text(&template["arg"])];
-                let body =
-                    if arg.is_null() || arg == "" || arg == false || arg.as_f64() == Some(0.0) {
+                }
+                "tools/list" => json!({"tools":data["tools"]}),
+                "prompts/list" => json!({"prompts":data["prompts"]}),
+                "prompts/get" => {
+                    let name = field(p, "name");
+                    let Some(prompt) = data["prompts"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|v| v["name"] == name)
+                    else {
+                        error(&msg, -32602, format!("Unknown prompt: {name}"));
+                        continue;
+                    };
+                    let template = &data["templates"][&name];
+                    let arg = &p["arguments"][text(&template["arg"])];
+                    let body = if arg.is_null()
+                        || arg == ""
+                        || arg == false
+                        || arg.as_f64() == Some(0.0)
+                    {
                         text(&template["empty"]).into()
                     } else {
                         fill(&template["parts"], &[js_string(arg)])
                     };
-                json!({"description":prompt["description"],"messages":[{"role":"user","content":{"type":"text","text":body}}]})
-            }
-            "tools/call" => {
-                let (path, who, client) = (path.clone(), who.clone(), client.clone());
-                std::thread::spawn(move || {
-                    let result = call(&msg["params"], &who, &path, &client);
-                    if !result.is_null() {
-                        send(&msg, "result", result);
-                    } else if !msg["id"].is_null() {
-                        error(&msg, -32603, "Internal error".into());
-                    }
-                });
-                continue;
-            }
-            "ping" => json!({}),
-            "notifications/initialized" | "notifications/cancelled" => continue,
-            _ => {
-                if !msg["id"].is_null() {
-                    error(
-                        &msg,
-                        -32601,
-                        format!("Method not found: {}", field(&msg, "method")),
-                    );
+                    json!({"description":prompt["description"],"messages":[{"role":"user","content":{"type":"text","text":body}}]})
                 }
-                continue;
-            }
-        };
-        send(&msg, "result", result);
-    }
+                "tools/call" => {
+                    let (path, who, client) = (path.clone(), who.clone(), client.clone());
+                    workers.spawn(move || {
+                        let result = call(&msg["params"], &who, &path, &client);
+                        if !result.is_null() {
+                            send(&msg, "result", result);
+                        } else if !msg["id"].is_null() {
+                            error(&msg, -32603, "Internal error".into());
+                        }
+                    });
+                    continue;
+                }
+                "ping" => json!({}),
+                "notifications/initialized" | "notifications/cancelled" => continue,
+                _ => {
+                    if !msg["id"].is_null() {
+                        error(
+                            &msg,
+                            -32601,
+                            format!("Method not found: {}", field(&msg, "method")),
+                        );
+                    }
+                    continue;
+                }
+            };
+            send(&msg, "result", result);
+        }
+    });
 }
