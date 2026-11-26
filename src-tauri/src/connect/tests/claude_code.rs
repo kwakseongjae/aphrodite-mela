@@ -70,7 +70,7 @@ impl Fixture {
             .collect()
     }
     fn status(&self) -> Value {
-        json!(self.e().status(CLAUDE).unwrap())
+        json!(self.e().ask_claude().unwrap())
     }
     fn proposal(&self, action: Action) -> Value {
         wire(self.e().prepare(CLAUDE, action, 123))
@@ -486,4 +486,15 @@ fn astra_4_ambiguous_fields_and_controls_never_establish_the_command() {
         .unwrap();
         assert_eq!(f.status()["pointsHere"], Value::Null);
     }
+}
+
+#[test]
+fn opus_4_astra_1_passive_discovery_never_asks_the_program() {
+    let f = Fixture::new();
+    let look = json!(f.e().status(CLAUDE).unwrap());
+    assert!(f.calls().is_empty());
+    assert_eq!(look["installed"], true);
+    assert_eq!(look["entryExists"], Value::Null);
+    assert_eq!(f.status()["entryExists"], false);
+    assert_eq!(f.calls().len(), 1);
 }

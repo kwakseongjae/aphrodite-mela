@@ -40,6 +40,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             connect::connect_status,
+            connect::connect_ask,
             connect::connect_preview,
             connect::connect_apply,
             connect::connect_remove,

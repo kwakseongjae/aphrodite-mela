@@ -177,13 +177,16 @@ impl State {
     }
 }
 
-pub(super) fn status(e: &Engine, out: &mut Status) -> super::Result<()> {
+pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<()> {
     let Some(program) = Program::find(e) else {
         return Ok(());
     };
     out.installed = true;
     out.copy_only = false;
     out.program = Some(program.path.clone());
+    if !ask {
+        return Ok(());
+    }
     let home = files::root(&e.home)?.into_std_file();
     match State::inspect(e, program, &home) {
         Ok(state) => {

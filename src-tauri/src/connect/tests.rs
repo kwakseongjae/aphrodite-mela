@@ -1147,7 +1147,7 @@ exit 1
     .unwrap();
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
     h.engine.cli_dirs = vec![dir];
-    let s = h.engine.status(Tool::ClaudeCode).unwrap();
+    let s = h.engine.ask_claude().unwrap();
     assert!(s.installed);
     assert_eq!(s.entry_exists, Some(false));
     assert!(!serde_json::to_string(&s)

@@ -246,6 +246,12 @@ impl Engine {
         .then_some(receipt)
     }
     fn status(&self, tool: Tool) -> Result<Status> {
+        self.tool_status(tool, false)
+    }
+    fn ask_claude(&self) -> Result<Status> {
+        self.tool_status(Tool::ClaudeCode, true)
+    }
+    fn tool_status(&self, tool: Tool, ask: bool) -> Result<Status> {
         let path = self.path(tool);
         let mut out = Status {
             tool,
@@ -263,7 +269,7 @@ impl Engine {
             error: None,
         };
         if tool == Tool::ClaudeCode {
-            claude::status(self, &mut out)?;
+            claude::status(self, &mut out, ask)?;
             return Ok(out);
         }
         let inspect = || -> Result<(bool, bool, bool, bool)> {

@@ -59,6 +59,10 @@ async fn run<T: Send + 'static>(
 pub async fn connect_status(app: tauri::AppHandle) -> Result<Vec<Status>> {
     run(app, |e| TOOLS.iter().map(|&t| e.status(t)).collect()).await
 }
+#[tauri::command]
+pub async fn connect_ask(app: tauri::AppHandle) -> Result<Status> {
+    run(app, |e| e.ask_claude()).await
+}
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum Proposal {
