@@ -815,7 +815,7 @@ fn astra_9_a_directory_name_alone_does_not_establish_translocation() {
     fs::create_dir_all(&dir).unwrap();
     let exe = dir.join("fixture");
     fs::write(&exe, "fixture").unwrap();
-    assert_ne!(location(&exe), Location::Translocated);
+    assert_ne!(location(&exe, &h.engine.home), Location::Translocated);
 }
 
 #[test]
@@ -1136,17 +1136,57 @@ fn claude_status_uses_only_the_named_entry_in_the_injected_home() {
     let dir = h.engine.home.join("cli");
     fs::create_dir(&dir).unwrap();
     let cli = dir.join("claude");
-    fs::write(&cli, r#"#!/bin/sh
+    fs::write(
+        &cli,
+        r#"#!/bin/sh
 [ "$1.$2.$3" = "mcp.get.aphrodite" ] || exit 2
 echo 'No MCP server named "aphrodite". Configured servers: private-neighbor' >&2
 exit 1
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
     h.engine.cli_dirs = vec![dir];
     let s = h.engine.status(Tool::ClaudeCode).unwrap();
     assert!(s.installed);
     assert_eq!(s.entry_exists, Some(false));
-    assert!(!serde_json::to_string(&s).unwrap().contains("private-neighbor"));
+    assert!(!serde_json::to_string(&s)
+        .unwrap()
+        .contains("private-neighbor"));
 }
 
 mod claude_code;
+
+#[test]
+fn a_packaged_app_in_downloads_needs_to_move_before_it_can_register_any_client() {
+    let h = Home::new();
+    let exe = h
+        .engine
+        .home
+        .join("Downloads/Aphrodite.app/Contents/MacOS/Aphrodite");
+    fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    fs::write(&exe, []).unwrap();
+    assert_eq!(location(&exe, &h.engine.home), Location::NotInApplications);
+    let installed = h
+        .engine
+        .home
+        .join("Applications/Aphrodite.app/Contents/MacOS/Aphrodite");
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    fs::rename(exe, &installed).unwrap();
+    assert_eq!(location(&installed, &h.engine.home), Location::Installed);
+}
+
+#[test]
+fn a_file_tool_cannot_follow_a_link_into_the_claude_code_configuration() {
+    let h = Home::new();
+    let private = h.file(Tool::ClaudeCode, "private-neighbor");
+    for tool in WRITTEN {
+        let file = h.engine.path(tool);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        symlink(&private, file).unwrap();
+        assert_eq!(
+            h.engine.status(tool).unwrap().error,
+            Some(Code::InvalidPath)
+        );
+    }
+}

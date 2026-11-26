@@ -82,6 +82,7 @@ pub fn resolve(root: &Dir, home: &Path, path: &Path) -> Result<PathBuf> {
             .is_some_and(|name| {
                 name.eq_ignore_ascii_case("auth.json")
                     || name.eq_ignore_ascii_case(".credentials.json")
+                    || name.eq_ignore_ascii_case(".claude.json")
             })
         {
             return Err(Code::InvalidPath);
