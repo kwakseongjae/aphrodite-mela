@@ -14,7 +14,9 @@ test('the screen calls a board\'s kept files the Board library and its .aphrodit
   assert.ok(main.includes("button('save-project', 'download', 'Save a backup file', 'secondary-button')"));
   assert.ok(main.includes("button('vault-open','folder','Board library','secondary-button')"));
   assert.ok(main.includes("showModal(ui('Board library','보드 자료함')"));
-  for(const old of ['Save project','Project files','프로젝트 파일','프로젝트 저장'])assert.ok(!main.includes(old),'src/main.ts still shows '+old);
+  // The sentences that still say Save project and 프로젝트 저장 is what an agent is told, word for word as main (0.3-L5 fix 2); a person reads it with the new name.
+  let shown=main;for(const told of ['저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.','프로젝트 저장 실패'])shown=shown.split(told).join('');
+  for(const old of ['Save project','Project files','프로젝트 파일','프로젝트 저장'])assert.ok(!shown.includes(old),'src/main.ts still shows '+old);
   assert.ok(!read('src/i18n.ts').includes('프로젝트'));
 });
 
