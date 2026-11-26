@@ -217,3 +217,9 @@ test('Opus 4 — a malformed string cannot be hidden by a later duplicate proper
   const out=rawTranscript('{"id":1,"x":"\\ud800","x":"ok","method":"ping"}\n'+ping+'\n');
   assert.deepEqual(out.map(r=>r.error?.code??r.id),[-32700,1]);
 });
+
+test('Recheck 1 — only spaces and tabs make a blank frame', () => {
+  const input = ['t', '\\', ' t t ', ' \t ', '\t', ping, ''].join('\n');
+  const replies = rawTranscript(input);
+  assert.deepEqual(replies.map(reply => reply.error?.code ?? reply.id), [-32700, -32700, -32700, 1]);
+});

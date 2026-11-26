@@ -188,7 +188,7 @@ for await (const bytes of frames(process.stdin)) {
   try {
     if (!bytes) throw new RangeError();
     const text=decode(bytes);
-    if (/^[ \\t]*$/.test(text)) continue;
+    if (/^[ \t]*$/.test(text)) continue;
     message=parse(text);
   } catch {
     fail(null,-32700,'Parse error');
