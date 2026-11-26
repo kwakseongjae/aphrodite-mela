@@ -10,7 +10,9 @@ import {newBoard,shownPage,visiblePages,isStarterPage} from '../src/editor/start
 import {resolveTokens,semanticTokens} from '../src/design/tokens';
 import {fontStack} from '../src/design/fonts';
 import {esc} from '../src/html';
-import {personAt} from '../src/agent/dispatch';
+import {personAt,agentDispatch} from '../src/agent/dispatch';
+import {parseBatch} from '../src/agent/ops';
+import {runBatch} from '../src/agent/apply';
 import {editorBoard,editorCalls} from './support/editor-calls';
 
 const result = await build({
@@ -179,32 +181,45 @@ test('selected block exposes node JSON from the scene manifest', () => {
 });
 
 test('the property and Dev panels inspect the shown page and clear page details on an empty board',()=>{
-  const project=newBoard('Board'),board=editorBoard(project),block=makeBlock('button');
-  block.title='Shown component';
+  const board=editorBoard(newBoard('Board')),project=board.project;
   const label=(en:string)=>en;
   const screen={...board,editorMode:'dev',selected:'',uiLanguage:'en',ui:label,control:label,esc,icon:label,iconButton:label,button:label,
     currentPage,shownPage,visiblePages,isStarterPage,devPanelHtml,agentPanelHtml,assemblyRun:null,agentChannelText:()=>'',delegation:startDelegation(project,{operator:'Agent',intent:'Edit',scope:{frameId:project.starter}}),catalog,isApproved,shownState:()=>'',resolveTokens,semanticTokens,semanticLabel:label,fontStack,tokensOpen:false};
   editorCalls(['function commit(','function inspectorPanelHtml(','function inspectorHtml('],screen);
   const {commit,inspectorPanelHtml}=screen as typeof screen & {commit:Function;inspectorPanelHtml:()=>string};
-  commit(()=>project.pages.push({id:'brief',name:'Launch brief',blocks:[block]}),personAt({isTrusted:true}),'edit.page-add');
+  commit(()=>project.pages.push({id:'brief',name:'Launch brief',blocks:[]}),personAt({isTrusted:true}),'edit.page-add');
+  const agent=agentDispatch('test','mcp',{reason:'Add a button to the brief'});
+  const parsed=parseBatch({reason:agent.reason,page_id:'brief',ops:[{op:'add',component_kind:'button',content:{title:'Shown component'}}]});
+  if('error' in parsed)throw new Error(parsed.error);
+  commit(()=>{
+    const result=runBatch(screen.project,parsed.batch,screen.selected);
+    if(!result.ok)throw new Error(result.error);
+    screen.project={...result.project,ledger:screen.project.ledger};screen.selected=result.selected;
+  },agent,'edit.apply',{source:'agent:apply'});
+  const block=shownPage(screen.project).blocks[0];
+  assert.equal(screen.selected,block.id);
+  const selection=screen.selected;screen.selected='';
   const summary=inspectorPanelHtml();
   assert.match(summary,/>Launch brief<\/dd>/);
   assert.match(devPanelCopyPayload(rootFrom(summary),'page-html')!,/Shown component/);
   assert.match(summary,/<tbody>.*aphrodite.button.*<\/tbody>/);
   assert.equal(JSON.parse(devPanelCopyPayload(rootFrom(summary),'scene')!).activePageId,project.starter);
-  screen.selected=block.id;
+  screen.selected=selection;
   assert.equal(JSON.parse(devPanelCopyPayload(rootFrom(inspectorPanelHtml()),'node')!).instanceId,block.id);
   screen.editorMode='design';
+  assert.equal(screen.project.activePageId,screen.project.starter);
+  assert.doesNotMatch(inspectorPanelHtml(),/data-field=|class="block-tools"/);
+  commit(()=>{screen.project.activePageId='brief';},personAt({isTrusted:true}),'edit.page-switch');
   assert.match(inspectorPanelHtml(),/<textarea[^>]+data-field="title"[^>]*>Shown component<\/textarea>/);
-  commit(()=>project.pages.pop(),personAt({isTrusted:true}),'edit.page-delete');
+  commit(()=>{screen.project.pages.pop();screen.project.activePageId=project.activePageId;},personAt({isTrusted:true}),'edit.page-delete');
   assert.doesNotMatch(inspectorPanelHtml(),/data-field="title"/);
   screen.editorMode='dev';
   assert.doesNotMatch(inspectorPanelHtml(),/data-copy="(?:page-html|node|identity)"/);
   const source='<h1>Shown HTML</h1>';
-  commit(()=>project.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:source}),personAt({isTrusted:true}),'edit.page-add');
+  commit(()=>screen.project.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:source}),personAt({isTrusted:true}),'edit.page-add');
   assert.equal(devPanelCopyPayload(rootFrom(inspectorPanelHtml()),'page-html'),source);
   screen.editorMode='agent';
   assert.match(inspectorPanelHtml(),/<li data-scope-frame>Frame<span>No visible frame in scope<\/span>/);
   assert.equal(screen.delegation.scope.frameId,project.starter);
-  assert.equal(project.activePageId,project.starter);
+  assert.equal(screen.project.activePageId,screen.project.starter);
 });
