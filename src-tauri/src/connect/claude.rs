@@ -1,8 +1,10 @@
 //! User-scope registration through Claude Code's CLI. Raw CLI output stays here.
-use super::{cli_process::Program, files, hash, Action, Code, Engine, Proposal, Status, Tool};
+use super::{
+    claude_record::{Record, Store},
+    cli_process::Program,
+    hash, Action, Code, Engine, Proposal, Status, Tool,
+};
 use serde::Serialize;
-use std::{fs::File, path::Path};
-use xattr::FileExt;
 
 const REMOVE_ARGS: &[&str] = &["mcp", "remove", "--scope", "user", "aphrodite"];
 
@@ -46,25 +48,8 @@ struct Entry {
 struct State {
     program: Program,
     entry: Option<Entry>,
-    recorded: Option<String>,
+    record: Record,
     get_exit: Option<i32>,
-}
-
-fn record_key(e: &Engine) -> String {
-    format!(
-        "studio.aphrodite.mela.claude-user.{}",
-        hash(e.path(Tool::ClaudeCode).as_os_str().as_encoded_bytes())
-    )
-}
-
-fn recorded(e: &Engine, home: &File) -> Result<Option<String>, Code> {
-    match home.get_xattr(record_key(e)) {
-        Ok(value) => Ok(value
-            .and_then(|v| String::from_utf8(v).ok())
-            .filter(|path| Path::new(path).is_absolute() && !path.contains(char::is_control))),
-        Err(err) if err.raw_os_error() == Some(libc::ENOTSUP) => Ok(None),
-        Err(_) => Err(Code::Io),
-    }
 }
 
 fn missing(bytes: &[u8]) -> bool {
@@ -151,7 +136,7 @@ fn named_values(lines: &[&str], separator: &str) -> bool {
 }
 
 impl State {
-    fn inspect(e: &Engine, program: Program, home: &File) -> Result<Self, CommandResult> {
+    fn inspect(e: &Engine, program: Program, store: &Store) -> Result<Self, CommandResult> {
         let output = program.run(e, &["mcp", "get", "aphrodite"])?;
         let entry = match output.status {
             Some(0) => Some(
@@ -160,10 +145,14 @@ impl State {
             Some(1) if missing(&output.stderr) || missing(&output.stdout) => None,
             _ => return Err(CommandResult::new(Code::CliGetFailed, output.status)),
         };
+        let mut record = store.read()?;
+        if entry.is_none() && record.registered.take().is_some() {
+            store.save(&record)?;
+        }
         Ok(Self {
             program,
             entry,
-            recorded: recorded(e, home)?,
+            record,
             get_exit: output.status,
         })
     }
@@ -172,7 +161,8 @@ impl State {
     }
     fn owned(&self, e: &Engine) -> bool {
         self.entry.as_ref().is_some_and(|v| {
-            v.plain_stdio && (self.points_here(e) || v.command.as_ref() == self.recorded.as_ref())
+            v.plain_stdio
+                && (self.points_here(e) || v.command.as_ref() == self.record.registered.as_ref())
         })
     }
 }
@@ -193,8 +183,8 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     if !ask {
         return Ok(());
     }
-    let home = files::root(&e.home)?.into_std_file();
-    match State::inspect(e, program, &home) {
+    let store = Store::lock(e)?;
+    match State::inspect(e, program, &store) {
         Ok(state) => {
             out.entry_exists = Some(state.entry.is_some());
             out.points_here = Some(state.points_here(e));
@@ -313,7 +303,7 @@ impl State {
                 &e.claude_config_dir,
                 e.location,
                 &self.program,
-                &self.recorded,
+                &self.record,
                 self.entry.as_ref().map(|v| &v.digest),
             ))
             .unwrap(),
@@ -348,7 +338,8 @@ impl State {
             action,
             commands,
             on_add_failure: self
-                .recorded
+                .record
+                .registered
                 .as_ref()
                 .filter(|_| will_repoint)
                 .map(|path| lines.for_action(Action::Connect, path)),
@@ -371,9 +362,10 @@ pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
             snippet: Lines::new(e, None)?.for_action(action, e.executable()).line,
         });
     };
-    let home = files::root(&e.home)?.into_std_file();
+    if !program.trusted { return Err(Code::CliUntrusted); }
+    let store = Store::lock(e)?;
     Ok(
-        match State::inspect(e, program, &home).and_then(|s| s.plan(e, action)) {
+        match State::inspect(e, program, &store).and_then(|s| s.plan(e, action)) {
             Ok(plan) => Proposal::Command(plan),
             Err(result) => Proposal::Outcome(result),
         },
@@ -417,21 +409,21 @@ impl Invocation {
 }
 
 fn save_record(
-    e: &Engine,
-    home: &File,
-    action: Action,
+    store: &Store,
+    registered: Option<&str>,
     mut result: CommandResult,
 ) -> CommandResult {
-    let key = record_key(e);
-    let write = match action {
-        Action::Connect => home.set_xattr(key, e.executable().as_bytes()),
-        Action::Remove => match home.remove_xattr(key) {
-            Err(err) if err.raw_os_error() == Some(libc::ENOATTR) => Ok(()),
-            other => other,
-        },
-    };
-    if write.is_err() {
-        result.code = Code::RecordFailed;
+    if store
+        .save(&Record {
+            registered: registered.map(str::to_owned),
+        })
+        .is_err()
+    {
+        result.code = if registered.is_some() {
+            Code::RegisteredRecordMissing
+        } else {
+            Code::RecordFailed
+        };
     }
     result
 }
@@ -448,10 +440,8 @@ pub(super) fn execute(
     if !program.trusted || binding != program.binding() || digest.len() != 64 {
         return Err(Code::Changed.into());
     }
-    let home = files::root(&e.home)?.into_std_file();
-    // Serialize with other Aphrodite instances before the final get and through compensation.
-    fs2::FileExt::lock_exclusive(&home).map_err(|_| Code::Io)?;
-    let state = State::inspect(e, program, &home)?;
+    let store = Store::lock(e)?;
+    let state = State::inspect(e, program, &store)?;
     if state.fingerprint(e, action) != digest {
         return Err(Code::Changed.into());
     }
@@ -460,18 +450,25 @@ pub(super) fn execute(
         return Err(Code::ConfirmationRequired.into());
     }
     let Some(first) = plan.commands.first() else {
-        return Ok(Code::AlreadyConnected.into());
+        let result = Code::AlreadyConnected.into();
+        return Ok(
+            if state.record.registered.as_deref() == Some(e.executable()) {
+                result
+            } else {
+                save_record(&store, Some(e.executable()), result)
+            },
+        );
     };
 
     if state.entry.is_some() {
         let removed = first.run(e, &state.program, Action::Remove)?;
         if action == Action::Remove {
-            return Ok(save_record(e, &home, action, removed));
+            return Ok(save_record(&store, None, removed));
         }
     }
     let add = plan.commands.last().unwrap();
     match add.run(e, &state.program, Action::Connect) {
-        Ok(added) => Ok(save_record(e, &home, action, added)),
+        Ok(added) => Ok(save_record(&store, Some(e.executable()), added)),
         Err(mut failure) => {
             if let Some(restore) = plan.on_add_failure {
                 failure.cause = Some(failure.code);

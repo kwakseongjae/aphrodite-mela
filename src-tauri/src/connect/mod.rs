@@ -1,5 +1,6 @@
 //! Person-facing commands only. The loopback bridge and the MCP command table have no route here.
 mod claude;
+mod claude_record;
 mod cli_process;
 mod commands;
 mod edit;
@@ -60,6 +61,8 @@ pub enum Code {
     RepointRestoreFailed,
     ForeignRemovedAddFailed,
     RecordFailed,
+    RegisteredRecordMissing,
+    CliBusy,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -175,6 +178,7 @@ struct Receipt {
 }
 
 struct Engine {
+    app_data: PathBuf,
     home: PathBuf,
     exe: PathBuf,
     location: Location,
@@ -188,6 +192,7 @@ struct Engine {
 impl Engine {
     fn new(home: PathBuf, exe: PathBuf) -> Self {
         Self {
+            app_data: home.join("Library/Application Support/studio.aphrodite.mela"),
             codex_home: home.join(".codex"),
             claude_config_dir: None,
             cli_timeout: std::time::Duration::from_secs(10),

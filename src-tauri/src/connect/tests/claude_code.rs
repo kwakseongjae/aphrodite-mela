@@ -635,3 +635,68 @@ fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
         }
     }
 }
+
+fn record_path(f: &Fixture) -> PathBuf {
+    let key = hash(f.e().path(CLAUDE).as_os_str().as_encoded_bytes());
+    f.e()
+        .home
+        .join("Library/Application Support/studio.aphrodite.mela/connect")
+        .join(format!("claude-{key}.json"))
+}
+
+#[test]
+fn opus_6_private_profile_records_are_atomic_and_use_a_bounded_lock() {
+    use fs2::FileExt;
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    let receipt = fs::File::open(&path).unwrap();
+    assert_eq!(receipt.metadata().unwrap().mode() & 0o777, 0o600);
+    let lock = fs::File::open(path.with_extension("lock")).unwrap();
+    lock.lock_exclusive().unwrap();
+    let start = Instant::now();
+    assert_eq!(f.proposal(Action::Remove)["code"], "cli_busy");
+    assert!(start.elapsed() < Duration::from_secs(3));
+    drop(lock);
+    let remove = f.proposal(Action::Remove);
+    f.apply(Action::Remove, &remove, false);
+    assert!(!path.exists());
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    assert_ne!(
+        receipt.metadata().unwrap().ino(),
+        fs::metadata(path).unwrap().ino()
+    );
+}
+
+#[test]
+fn astra_6_a_press_repairs_a_missing_record_and_observed_absence_forgets_the_old_path() {
+    let mut f = Fixture::new();
+    let path = record_path(&f);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let p = f.proposal(Action::Connect);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
+    let added = f.apply(Action::Connect, &p, false);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(added["code"], "registered_record_missing");
+    assert_eq!(added["exitStatus"], 0);
+    let p = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &p, false)["code"],
+        "already_connected"
+    );
+    assert!(path.is_file());
+    let old = f.e().exe.clone();
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    assert_eq!(f.status()["owned"], true);
+    fs::remove_file(f.e().home.join("entry")).unwrap();
+    assert_eq!(f.status()["entryExists"], false);
+    assert!(!path.exists());
+    f.state(old.to_str().unwrap(), "");
+    assert_eq!(f.status()["owned"], false);
+}

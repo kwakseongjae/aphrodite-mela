@@ -116,7 +116,7 @@ unsafe extern "C" {
 
 // A directory can grant read access through an inherited ACL even when the creation
 // mode is 0600. Establish privacy on the empty inode before putting any data into it.
-fn make_private(file: &File) -> Result<()> {
+pub(super) fn make_private(file: &File) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     unsafe {
         let acl = acl_init(0);
