@@ -1066,3 +1066,34 @@ fn recheck_7_the_boot_and_data_mounts_need_no_image_inventory() {
         Location::NotInApplications
     );
 }
+
+#[test]
+fn recheck_8_a_detected_app_or_cli_stays_installed_when_its_config_directory_is_missing() {
+    let mut h = Home::new();
+    let apps = h.engine.home.join("Applications");
+    let bin = h.engine.home.join("bin");
+    fs::create_dir_all(apps.join("Cursor.app")).unwrap();
+    fs::create_dir(&bin).unwrap();
+    fs::write(bin.join("codex"), []).unwrap();
+    h.engine.app_dirs.push(apps);
+    h.engine.cli_dirs.push(bin);
+    for tool in [Tool::Cursor, Tool::Codex] {
+        let s = h.engine.status(tool).unwrap();
+        assert!(s.installed);
+        assert_eq!(s.error, Some(Code::DirectoryMissing));
+        assert_eq!(s.config_exists, Some(false));
+        let p = h.engine.preview(tool, Action::Connect, 1);
+        assert!(matches!(
+            h.engine.proposal(tool, p),
+            Ok(Proposal::Copy {
+                code: Code::DirectoryMissing,
+                ..
+            })
+        ));
+        assert!(matches!(
+            h.engine.commit(tool, Action::Connect, "1-stale", true),
+            Err(Code::DirectoryMissing)
+        ));
+        assert!(!h.engine.path(tool).parent().unwrap().exists());
+    }
+}

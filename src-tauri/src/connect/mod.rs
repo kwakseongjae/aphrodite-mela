@@ -256,7 +256,7 @@ impl Engine {
                 out.owned = Some(owned);
             }
             Err(Code::DirectoryMissing) => {
-                out.installed = false;
+                out.error = Some(Code::DirectoryMissing);
                 out.config_exists = Some(false);
                 out.entry_exists = Some(false);
                 out.points_here = Some(false);
