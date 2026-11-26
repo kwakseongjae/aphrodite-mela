@@ -186,6 +186,11 @@ test('the design is light in every place it is drawn, its fields keep its own co
   assert.match(css,/\.board-media\{background:var\(--ui-bg-media\)\}/);
   assert.match(css,/\.page-view-media\{[^}]*background:var\(--ui-bg-media\)/);
   assert.match(css,/\.reference-poster img\{[^}]*background:var\(--ui-bg-paper\)/);
+  // 0.3-L5 fix 2 (#4, #18): the same reference opened, in the sidebar, at full size and in its analysis, sits on the same paper.
+  const refCss=readFileSync(new URL('../src/reference.css',import.meta.url),'utf8');
+  assert.match(css,/\.reference-upload>img\{[^}]*background:var\(--ui-bg-paper\)/);
+  assert.match(css,/\.reference-large\{[^}]*background:var\(--ui-bg-paper\)/);
+  assert.match(refCss,/\.reference-evidence-image>img\{[^}]*background:var\(--ui-bg-paper\)/);
 });
 
 test('CI runs the theme check with the other browser checks',()=>{

@@ -1,6 +1,6 @@
 .analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}
 .reference-evidence-image{height:320px;position:relative;overflow:hidden;background:var(--ui-bg-sunken)}
-.reference-evidence-image>img{width:100%;height:100%;object-fit:fill}
+.reference-evidence-image>img{width:100%;height:100%;object-fit:fill;background:var(--ui-bg-paper)}
 .crop-overlay{position:absolute;border:2px solid var(--ui-accent);background:color-mix(in srgb, var(--ui-accent) 14%, transparent);pointer-events:none}
 .crop-overlay b{position:absolute;left:-2px;top:0;background:var(--ui-accent);color:var(--ui-on-accent);font-size:8px;letter-spacing:1px;padding:5px;white-space:nowrap}
 .analysis-metrics{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;margin:14px 0;color:var(--ui-text-2)}
