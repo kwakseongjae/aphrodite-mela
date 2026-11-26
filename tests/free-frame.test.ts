@@ -329,3 +329,17 @@ test('nothing in the app asks for the camera, the microphone or the screen', () 
   const code = page.split('\n').filter(line => /mediaDevices/.test(line) && !/^\s*(\*|\/\*\*|\/\/)/.test(line));
   assert.ok(code.length === 1 && code[0].includes('typeof navigator.mediaDevices'), 'only the probe, asking whether they are there');
 });
+
+test('an imported document and its inline script receive the ordinary board and render policies', async () => {
+  const {resolvePage} = await import('../src/import/page');
+  const {elements} = await import('../src/import/document');
+  const {References} = await import('../src/import/references');
+  const source = '<script src="local.js"></script><img src="https://example.invalid/remote.png">';
+  const refs = new References({names: [], read: async () => new TextEncoder().encode('document.body.dataset.ready=1'), media: async () => { throw 'missing'; }}, new Map());
+  const html = await resolvePage(source, elements(source), refs);
+  const {framedDocument, renderShell, frameCsp} = await import('../src/free-page');
+  const doc = framedDocument(html, {media: () => undefined, origins: []});
+  assert.ok(doc.indexOf(frameCsp([])) < doc.indexOf('document.body.dataset.ready=1'));
+  assert.ok(renderShell(doc, []).includes('sandbox="allow-scripts"'));
+  assert.equal(refs.remote, 1);
+});
