@@ -10,7 +10,10 @@ import {parseBatch, type Batch} from '../src/agent/ops.ts';
 import {runBatch} from '../src/agent/apply.ts';
 import {newBoard, isStarterPage, visiblePages, hasSectionPage, placementSpace} from '../src/editor/starter.ts';
 import {dockHtml, dockShortcut} from '../src/editor/dock.ts';
-import {commandTable, sectionOnly} from '../src/editor/command-palette.ts';
+import {moaPage} from '../src/moa';
+import {personAt} from '../src/agent/dispatch';
+import {editorActions,editorCalls,noop} from './support/editor-calls';
+import {commandTable, filterCommands, sectionOnly} from '../src/editor/command-palette.ts';
 import {referencesPanelHtml, type Reference} from '../src/design/references.ts';
 import {ensureSpace} from '../src/editor/space.ts';
 
@@ -100,16 +103,17 @@ test('without a section page the dock has no add, reference or Get Vibe, and A, 
 test('without a section page the palette offers no section tool, but still the new frame and the Archive', () => {
   const ctx = {hasSelection: false, canUndo: false, canRedo: false, approved: false, viewport: 'desktop' as const};
   const none = commandTable({...ctx, sections: false}).map(c => c.action);
-  for (const action of ['focus-component-search', 'autofill', 'systems', 'theme-review', 'component-explorer', 'reference', 'moa-recipe', 'add']) assert.ok(!none.includes(action), action);
+  for (const action of ['focus-component-search', 'autofill', 'systems', 'theme-review', 'component-explorer', 'reference', 'add']) assert.ok(!none.includes(action), action);
   assert.ok(none.includes('new-frame'));
+  assert.ok(none.includes('moa-recipe'));
   assert.ok(commandTable({...ctx, sections: false}).some(c => c.action === 'tab' && c.data?.tab === 'archive'), 'the Archive opens from the palette');
   const some = commandTable(ctx).map(c => c.action);
   for (const action of ['focus-component-search', 'autofill', 'systems', 'component-explorer', 'reference', 'add']) assert.ok(some.includes(action), action);
 });
 
 test('a section tool is asked again when it runs: a palette drawn before the board lost its last section page cannot run one', () => {
-  for (const action of ['focus-component-search', 'autofill', 'systems', 'theme-review', 'component-explorer', 'reference', 'moa-recipe', 'add', 'reference-promote']) assert.equal(sectionOnly(action), true, action);
-  for (const action of ['new-frame', 'tab', 'page', 'export', 'preview', 'undo', 'reference-add-image', 'reference-open', 'reference-delete']) assert.equal(sectionOnly(action), false, action);
+  for (const action of ['focus-component-search', 'autofill', 'systems', 'theme-review', 'component-explorer', 'reference', 'add', 'reference-promote']) assert.equal(sectionOnly(action), true, action);
+  for (const action of ['new-frame', 'moa-recipe', 'tab', 'page', 'export', 'preview', 'undo', 'reference-add-image', 'reference-open', 'reference-delete']) assert.equal(sectionOnly(action), false, action);
 });
 
 test('on a board without a section page the Archive keeps its pictures and links, and offers no analysis', () => {
@@ -124,4 +128,17 @@ test('the check is the person\'s: an agent\'s section action still goes to the o
   const {readFileSync} = await import('node:fs');
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   assert.match(main, /if\(act&&screen==='editor'&&d\.author\.kind!=='agent'&&sectionOnly\(act\)&&!hasSectionPage\(project\)\)return;/);
+});
+
+test('choosing Moa from the palette on an empty board adds its own page in one change',async()=>{
+  const project=fresh(),screen={...editorActions(project),moaPage,zoom:100,toast:noop};
+  editorCalls(['function commit(','async function action('],screen);
+  const rows=commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',sections:hasSectionPage(project)});
+  const hit=filterCommands(rows,'Moa','en')[0];
+  assert.equal(hit?.action,'moa-recipe');
+  await (screen as typeof screen & {action:Function}).action({dataset:{action:hit.action}},personAt({isTrusted:true}),true);
+  const [page]=visiblePages(project);
+  assert.equal(page.id,project.activePageId);assert.equal(page.name,'Moa · Weekly workspace');
+  assert.ok(page.blocks.some(b=>b.kind==='moacard'));assert.equal(project.starter,project.pages[0].id);
+  assert.equal(screen.edits.undo.length,1);assert.equal(project.ledger?.seq,1);
 });

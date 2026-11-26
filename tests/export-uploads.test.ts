@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {build} from 'esbuild';
 import {initialProject,makeBlock} from '../src/model';
+import {newBoard} from '../src/editor/starter';
 import {unzipSync,strFromU8} from 'fflate';
 
 const PNG1='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -13,7 +14,7 @@ const payload= (url:string)=>url.slice(url.indexOf(',')+1);
 const bytesOf=(url:string)=>{const bin=atob(payload(url));const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out;};
 
 const built=await build({entryPoints:['src/export.ts'],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent',plugins:[{name:'raw-assets',setup(b){b.onResolve({filter:/\?raw$/},a=>({path:resolve(a.resolveDir,a.path.slice(0,-4)),namespace:'raw'}));b.onLoad({filter:/.*/,namespace:'raw'},async a=>({contents:await readFile(a.path,'utf8'),loader:'text'}));}}]});
-const {collectUploads,exportBundle}=await import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].contents).toString('base64'));
+const {collectUploads,buildPrompt,exportBundle}=await import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].contents).toString('base64'));
 
 function fixture(){
   const p=initialProject();
@@ -99,4 +100,24 @@ test('outside a browser, the handoff of a board with an html page refuses rather
   p.pages[0].blocks=[];
   p.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:'<h1>Spring launch</h1><script>alert(1)</script><img src="media:'+sha+'">'} as never);
   await assert.rejects(exportBundle(p,undefined,{stat:async()=>undefined,read:async()=>undefined}),/cleaned in the app's window/);
+});
+
+test('the handoff names the shown entry file and preserves the saved open page',async()=>{
+  const p=newBoard('Launch'),starter=p.activePageId;
+  p.pages.push({id:'brief',name:'Launch brief',blocks:[]},{id:'details',name:'Details',blocks:[]});
+  for(const [open,name,file] of [[starter,'Launch brief','page-2.html'],['details','Details','page-3.html']]){
+    p.activePageId=open;
+    const files=unzipSync(await exportBundle(p)),prompt:string=buildPrompt(p);
+    assert.ok(prompt.split('\n').find(line=>line.startsWith('Start with'))?.includes(`${name} (${file})`));
+    assert.equal(strFromU8(files['PROMPT.md']),prompt);
+    assert.ok(strFromU8(files['README.md']).includes(file));
+    assert.ok(strFromU8(files[file]).includes(name));
+    assert.equal(JSON.parse(strFromU8(files['SCENE.json'])).activePageId,open);
+    assert.equal(JSON.parse(strFromU8(files['project.aphrodite.json'])).activePageId,open);
+    assert.equal(p.activePageId,open);
+  }
+  const empty=newBoard('Empty'),files=unzipSync(await exportBundle(empty));
+  assert.match(buildPrompt(empty),/no page is shown/i);
+  assert.equal(strFromU8(files['PROMPT.md']),buildPrompt(empty));
+  assert.ok(files['index.html']);
 });
