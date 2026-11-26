@@ -136,13 +136,13 @@ const renamedVariants: Record<string, Record<string, string>> = {
 /** What a saved project holds at most, design and history together, in characters of JSON. */
 export const MAX_PROJECT = 20_000_000;
 export function parseProject(raw: string): Project {
-  if (raw.length > MAX_PROJECT) throw new Error('보드는 20MB 이하여야 합니다.');
+  if (raw.length > MAX_PROJECT) throw new Error('프로젝트는 20MB 이하여야 합니다.');
   const p = JSON.parse(raw) as Project;
   // Judged on the content as it came, before anything below tidies it: what was approved stays approved, in the form key order cannot break.
   const approved = typeof p?.approvedFingerprint === 'string' && isApproved(p);
   const str = (v: unknown, max = 20000) => typeof v === 'string' && v.length <= max;
   const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(v);
-  if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > MAX_PAGES) throw new Error('지원하지 않는 보드 형식입니다.');
+  if (!p || p.version !== 1 || !str(p.id, 200) || !str(p.name, 200) || !str(p.brief) || !p.system || !Array.isArray(p.pages) || !p.pages.length || p.pages.length > MAX_PAGES) throw new Error('지원하지 않는 프로젝트 형식입니다.');
   const s = p.system;
   if(p.shelf!==undefined&&!validShelf(p.shelf))throw new Error('Invalid project assembly shelf');
   if(p.contentLanguage!==undefined&&!['en','ko'].includes(p.contentLanguage))throw new Error('Unsupported content language');
@@ -198,7 +198,7 @@ export function parseProject(raw: string): Project {
   const ledger = p.ledger === undefined ? undefined : readLedger(p.ledger);
   // The mark of a new board's empty page (src/editor/starter.ts) is kept while it names an empty section page, and dropped, to the side of showing, otherwise.
   const starter = typeof p.starter === 'string' ? p.pages.find(page => page.id === p.starter && page.kind === undefined && !page.blocks.length) : undefined;
-  if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('보드 참조가 올바르지 않습니다.');
+  if (!p.pages.some(page => page.id === p.activePageId) || (p.reference !== undefined && (!str(p.reference, 4_000_000) || !safeImage(p.reference)))) throw new Error('프로젝트 참조가 올바르지 않습니다.');
   const read: Project = { version: 1, id: p.id, name: p.name, brief: p.brief, system: { ...s }, pages: p.pages, activePageId: p.activePageId, reference: p.reference, approvedFingerprint: undefined as string | undefined, ...(p.contentLanguage?{contentLanguage:p.contentLanguage}:{}), ...(p.shelf?{shelf:p.shelf}:{}) ,...(p.space?{space:p.space}:{}),...(ledger?{ledger}:{}),...(p.leftOut?.length?{leftOut:[...new Set(p.leftOut)]}:{}),...(starter?{starter:starter.id}:{})};
   // A fingerprint written before 0.3-R was checked by the reader after it tidied the design (a type role's keys, say):
   // it is checked against the design as read too, so what an older reader showed as approved stays approved (fix 1 #8).

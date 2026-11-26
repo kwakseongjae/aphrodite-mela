@@ -18,7 +18,7 @@ export function renameDialogHtml(language:Language,project:Pick<Project,'id'|'na
 
 /** The answer that loses nothing comes first. */
 export function deleteDialogHtml(language:Language,project:Pick<Project,'id'>){
-  return `<div class="ui-home-form"><p class="ui-home-form-text">${say(language,'It disappears from Home. Files already in the project vault stay on disk; exported files are untouched.','홈에서 사라집니다. 프로젝트 파일 보관함에 있는 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p>${foot(`<button class="ui-btn ui-btn-secondary ui-btn-md" type="button" data-action="close-modal">${say(language,'Keep it','그대로 두기')}</button>`,`<button class="ui-btn ui-btn-danger ui-btn-md" type="button" data-action="hub-delete-confirm" data-id="${esc(project.id)}">${icon('trash-2','ui-icon ui-icon-sm')}${say(language,'Delete board','보드 삭제')}</button>`)}</div>`;
+  return `<div class="ui-home-form"><p class="ui-home-form-text">${say(language,'It disappears from Home. The files already kept for this board stay on disk, and exported files are untouched.','홈에서 사라집니다. 이 보드에 모아 둔 파일은 디스크에 남고, 내보낸 파일도 그대로입니다.')}</p>${foot(`<button class="ui-btn ui-btn-secondary ui-btn-md" type="button" data-action="close-modal">${say(language,'Keep it','그대로 두기')}</button>`,`<button class="ui-btn ui-btn-danger ui-btn-md" type="button" data-action="hub-delete-confirm" data-id="${esc(project.id)}">${icon('trash-2','ui-icon ui-icon-sm')}${say(language,'Delete board','보드 삭제')}</button>`)}</div>`;
 }
 
 export function workspaceDeleteDialogHtml(language:Language,id:string,count:number){

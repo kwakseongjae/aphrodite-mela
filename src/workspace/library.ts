@@ -12,7 +12,7 @@ const WORKSPACE_ID=/^[a-zA-Z0-9_-]{1,60}$/;
 export type ProjectEntry={project:Project;updatedAt:string;createdAt:string;pinned:boolean;archived:boolean;openedAt?:string;workspaceId?:string;clearedApproval?:string};
 export type Library={version:1;entries:ProjectEntry[]};
 export type LocalStore=Pick<Storage,'getItem'|'setItem'>;
-function requireWorkspaceId(id:string){if(!WORKSPACE_ID.test(id))throw new Error('보드 메타데이터가 올바르지 않습니다.');return id;}
+function requireWorkspaceId(id:string){if(!WORKSPACE_ID.test(id))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');return id;}
 /** Libraries whose read held an approval differently from what was stored (0.3-R): a stale one dropped, an old one in its new form. */
 const tidied=new WeakSet<Library>();
 /**
@@ -37,19 +37,19 @@ function keptClearing(saved:Project,cleared:boolean,at:string):{clearedApproval?
 export function readLibrary(storage:LocalStore):Library{
   const raw=storage.getItem(LIBRARY_KEY);
   if(raw!==null){
-    if(raw.length>40_000_000)throw new Error('보드 보관함이 너무 큽니다. 원본은 보존됩니다.');
+    if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 원본은 보존됩니다.');
     const value=JSON.parse(raw);
-    if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>200)throw new Error('보드 보관함 형식을 읽지 못했습니다.');
+    if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>200)throw new Error('프로젝트 보관함 형식을 읽지 못했습니다.');
     const seen=new Set<string>();let changed=false;
     const entries=value.entries.map((e:ProjectEntry)=>{
-      if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('보드 메타데이터가 올바르지 않습니다.');
-      if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('보드 메타데이터가 올바르지 않습니다.');
-      if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('보드 메타데이터가 올바르지 않습니다.');
-      if(e.clearedApproval!==undefined&&(typeof e.clearedApproval!=='string'||!Number.isFinite(Date.parse(e.clearedApproval))))throw new Error('보드 메타데이터가 올바르지 않습니다.');
+      if(!e||typeof e.pinned!=='boolean'||typeof e.archived!=='boolean'||typeof e.updatedAt!=='string'||typeof e.createdAt!=='string'||!Number.isFinite(Date.parse(e.updatedAt))||!Number.isFinite(Date.parse(e.createdAt)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      if(e.openedAt!==undefined&&(typeof e.openedAt!=='string'||!Number.isFinite(Date.parse(e.openedAt))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      if(e.workspaceId!==undefined&&(typeof e.workspaceId!=='string'||!WORKSPACE_ID.test(e.workspaceId)))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
+      if(e.clearedApproval!==undefined&&(typeof e.clearedApproval!=='string'||!Number.isFinite(Date.parse(e.clearedApproval))))throw new Error('프로젝트 메타데이터가 올바르지 않습니다.');
       let project=parseProject(JSON.stringify(e.project));const cleared=noteCleared(project,e.project?.approvedFingerprint);
       // What the read added (the approval in today's form, a clearing recorded) is held to what a project holds before the library is written back (0.3-R fix 2 #19).
       if(JSON.stringify(project).length>MAX_PROJECT)project=parseProject(savedText(project));
-      if(seen.has(project.id))throw new Error('중복 보드 ID가 있습니다.');seen.add(project.id);
+      if(seen.has(project.id))throw new Error('중복 프로젝트 ID가 있습니다.');seen.add(project.id);
       if(project.approvedFingerprint!==e.project?.approvedFingerprint)changed=true;
       return {...e,project,...keptClearing(project,cleared,new Date().toISOString())};
     });const read:Library={version:1,entries};if(changed)tidied.add(read);return read;
@@ -74,7 +74,7 @@ export function entryFor(project:Project,now=new Date().toISOString(),workspaceI
  */
 export function upsertProject(library:Library,project:Project,now=new Date().toISOString(),workspaceId?:string):Library{
   const existing=library.entries.find(e=>e.project.id===project.id);
-  if(!existing&&library.entries.length>=200)throw new Error('최대 200개 보드를 지원합니다.');
+  if(!existing&&library.entries.length>=200)throw new Error('최대 200개 프로젝트를 지원합니다.');
   if(workspaceId!==undefined)requireWorkspaceId(workspaceId);
   // A board some path left on a stale fingerprint gives it up here, in memory and on disk alike, and the clearing is in its ledger.
   const held=project.approvedFingerprint,cleared=dropStaleApproval(project)&&noteCleared(project,held);
@@ -133,7 +133,7 @@ export function libraryRefusal(library:Library,before:Project,after:Project,{lim
   const size=measure(JSON.stringify(upsertProject(library,design)))+most*LEDGER_RESERVE;
   if(size<=limit)return undefined;
   if(measure(JSON.stringify(design))<=measure(JSON.stringify({...before,ledger:undefined})))return undefined;
-  return `with this change the saved boards could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
+  return `with this change the saved projects could come to ${size.toLocaleString('en')} ${unit==='bytes'?'bytes':'characters'}, past the ${limit.toLocaleString('en')} ${unit==='bytes'?'the app\'s library file':'this browser\'s storage is estimated to'} hold. Make the page smaller or split it, or ask the person to export or remove a project.`;
 }
 /** JSON.stringify writes half a pair on its own as an escape, and a backslash typed as text as two: one with an odd run of backslashes before it is such an escape. */
 const LONE_ESCAPE=/(^|[^\\])(\\\\)*\\ud[89a-f][0-9a-f]{2}/i;
@@ -150,7 +150,7 @@ export function libraryText(library:Library):string{
 export function writeLibrary(storage:LocalStore,library:Library):void{writeLibraryText(storage,libraryText(library));}
 /** The library, already serialized, in one atomic localStorage write: quota errors cannot leave a half-written index. */
 export function writeLibraryText(storage:LocalStore,raw:string):void{
-  if(raw.length>40_000_000)throw new Error('보드 보관함이 너무 큽니다. 보드를 파일로 내보내주세요.');
+  if(raw.length>40_000_000)throw new Error('프로젝트 보관함이 너무 큽니다. 프로젝트를 파일로 내보내주세요.');
   storage.setItem(LIBRARY_KEY,raw);
 }
 /**
@@ -179,7 +179,7 @@ export function importedProject(raw:string,library:Library):Project{
   const unique=[...new Set(named)];if(unique.length>MAX_LEFT_OUT)throw new Error(`This project file names ${unique.length.toLocaleString('en')} files it does not carry; a board can keep a list of at most ${MAX_LEFT_OUT.toLocaleString('en')}, so it is not imported.`);
   if(unique.length)project.leftOut=unique;else delete project.leftOut;
   const text=savedText(project);
-  if(text.length>MAX_PROJECT)throw new Error(`With the files it names listed, this board would be ${text.length.toLocaleString('en')} characters; a board holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
+  if(text.length>MAX_PROJECT)throw new Error(`With the files it names listed, this project would be ${text.length.toLocaleString('en')} characters; a project holds at most ${MAX_PROJECT.toLocaleString('en')}, so it is not imported.`);
   // What is given back is read from the very text that was checked, so what is saved and what opens agree (0.3-R fix 3 #12).
   return parseProject(text);
 }
