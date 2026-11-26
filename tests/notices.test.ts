@@ -37,7 +37,7 @@ test('the missing folder offers looking again before starting fresh, and the fir
     assert.equal(firstFocus(d.body),'close-modal','a dialog the person did not open starts on Later, not on a door that changes anything');
     assert.ok(d.body.includes(vanished.kind==='vanished'?vanished.path:''),'it says where it looked');
   }
-  assert.match(troubleDialog(vanished,'home',false).body,/old folder untouched/);
+  assert.match(troubleDialog(vanished,'home',false).body,/The app does not delete the old folder/);
   assert.match(troubleDialog(vanished,'home',false).body,/6 boards/);
   assert.match(troubleDialog({...vanished,replaced:true} as Trouble,'home',true).body,/새 폴더를 만들어 저장하고 있어요/,'once this window has saved there, it says so rather than warning it might');
 });
@@ -70,12 +70,23 @@ test('stored boards that could not be read offer their files untouched first, an
   }
 });
 
+test('a dialog says only what the code knows about the files it offers, and offers nothing the build cannot do',()=>{
+  const ko=troubleDialog(full,'editor',true).body;
+  assert.match(ko,/그림·영상 파일은 들어 있지 않아요/,'what a backup leaves out is said');
+  assert.doesNotMatch(ko,/가져오기로 다시 열 수/,'re-import is promised only when the file is one the importer takes');
+  assert.match(troubleDialog(full,'editor',true,{reimport:true}).body,/보드 가져오기로 다시 열 수 있어요\(승인은 다시 해야 해요\)/);
+  assert.match(ko,/보드 가져오기로 여는 파일은 아니에요/,'every board as one file is a file to keep, not one Import board opens');
+  assert.ok(!actionsOf(troubleDialog(unread,'home',false,{native:false}).body).includes('disk-reload'),'the browser build reads no disk, so it offers no reload');
+  assert.match(troubleDialog(vanished,'home',true).subtitle,/^앱은 아무것도 지우지 않았어요/,'it says what the app knows: it deleted nothing');
+  assert.match(troubleDialog(vanished,'home',true,{windowBoards:2}).body,/이 창에 있는 것\(보드 2개\)을 그 자리에 새 폴더로 저장해요/,'starting fresh saves what the window holds, not an empty library');
+});
+
 test('nothing in a dialog promises a save that the code does not make',()=>{
   for(const t of [vanished,full,conflict,failed,unread])for(const where of ['home','editor'] as const)for(const ko of [false,true]){
     const d=troubleDialog(t,where,ko),text=(d.title+d.subtitle+d.body);
     assert.doesNotMatch(text,/automatically|by itself|저절로|자동으로 다시/,'a failed save stays stopped until the person reloads');
   }
-  assert.match(troubleDialog(full,'editor',true).body,/저장하지 못한 변경은 버려져요/,'reloading says what it throws away');
+  assert.match(troubleDialog(full,'editor',true).body,/저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요/,'reloading says what it throws away, and that it asks first');
 });
 
 test('the mark that reopens a dialog is a button the person presses, and there is none when nothing is wrong',()=>{

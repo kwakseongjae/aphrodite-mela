@@ -71,7 +71,7 @@ test('the notice names the folder and what was in it, and escapes the path', () 
   assert.match(ko, /&lt;script&gt;/);
   const en = notice(crumb, false);
   assert.match(en, /18 boards were kept in this folder/);
-  assert.match(en, /Nothing has been deleted/, 'it leads with the reassurance');
+  assert.match(en, /The app has deleted nothing/, 'it leads with the reassurance, in what the app knows');
 });
 
 test('one board reads as one, not as one boards', () => {
@@ -88,7 +88,7 @@ test('the notice offers looking again before starting fresh', () => {
     html.indexOf('disk-reload') < html.indexOf('disk-start-fresh'),
     'the safe action comes first',
   );
-  assert.match(html, /old folder untouched/, 'it says starting fresh does not delete the old one');
+  assert.match(html, /The app does not delete the old folder/, 'it says starting fresh does not delete the old one');
 });
 
 /* localStorage does not follow the data directory — it lives under ~/Library/WebKit — so two app

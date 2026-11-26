@@ -55,7 +55,10 @@ const details = (summary: string, text: string) =>
  * it so, offers only what the app can do now, and puts what loses nothing first. Where the person is decides what
  * there is to keep: off the editor no board is open, so the open board is not offered as a file.
  */
-export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean): {title: string; subtitle: string; body: string} {
+export type TroubleFacts = {native?: boolean; reimport?: boolean; windowBoards?: number};
+export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean, o: TroubleFacts = {}): {title: string; subtitle: string; body: string} {
+  // What the app knows and can do here: the browser build reads no disk, so it never offers a reload (src/main.ts reloadFromDisk).
+  const native = o.native ?? true;
   const T = (en: string, k: string) => (ko ? k : en);
   const later = T('Later', '나중에');
   const reopen = where === 'home'
@@ -65,7 +68,7 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
     const n = t.boards;
     return {
       title: T('We can’t find the folder your boards are kept in.', '보드를 모아 둔 폴더를 찾을 수 없어요.'),
-      subtitle: T('Nothing has been deleted. If you moved the folder, put it back and look again.', '아무것도 지우지 않았어요. 폴더를 옮기셨다면 제자리에 돌려놓고 다시 찾아 주세요.'),
+      subtitle: T('The app has deleted nothing. If you moved the folder, put it back and look again.', '앱은 아무것도 지우지 않았어요. 폴더를 옮기셨다면 제자리에 돌려놓고 다시 찾아 주세요.'),
       body: safe(
         T('Last time, ' + n + ' board' + (n === 1 ? ' was' : 's were') + ' kept in this folder.', '마지막으로 열었을 때 이 폴더에 보드 ' + n + '개가 있었어요.'),
         [T('Where we looked', '찾던 곳') + ' <code class="ui-mono">' + esc(t.path) + '</code>',
@@ -74,23 +77,28 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
            : T('A change saved now starts a new folder in the same place, so it is safer to look for the old one first.', '지금 무언가를 저장하면 같은 자리에 새 폴더가 생겨요. 예전 폴더를 먼저 찾는 편이 안전해요.')],
       )
         + '<div class="ui-notice-choices">'
-        + choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was, or the drive it was on is plugged in.', '폴더를 제자리에 돌려놓았거나, 폴더가 있던 디스크를 다시 꽂았다면 눌러 주세요.')})
-        + choice({action: 'disk-start-fresh', icon: 'plus', name: T('Start fresh', '새로 시작하기'), why: T('Saves a new, empty library here and leaves the old folder untouched wherever it is. You are asked once more.', '빈 보관함을 새로 저장해요. 예전 폴더는 지우지 않고 있는 자리에 그대로 둬요. 누르면 한 번 더 물어요.')})
+        + choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was, or once the drive it was on is plugged in.', '폴더를 제자리에 돌려놓았거나, 폴더가 있던 디스크를 다시 꽂았다면 눌러 주세요.')})
+        + choice({action: 'disk-start-fresh', icon: 'plus', name: T('Start fresh', '새로 시작하기'), why: o.windowBoards === undefined
+          ? T('This saves what this window holds in a new folder in that place. The app does not delete the old folder. You are asked once more.', '이 창에 있는 것을 그 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요. 누르면 한 번 더 물어요.')
+          : T('This saves what this window holds (' + o.windowBoards + ' board' + (o.windowBoards === 1 ? '' : 's') + ') in a new folder in that place. The app does not delete the old folder. You are asked once more.', '이 창에 있는 것(보드 ' + o.windowBoards + '개)을 그 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요. 누르면 한 번 더 물어요.')})
         + '</div>' + foot(reopen, later, true),
     };
   }
-  const recovery = choice({action: 'hub-recovery', icon: 'hard-drive', name: T('Save the files on disk as they are', '디스크에 있는 파일을 그대로 저장'), why: T('Copies what is stored now, untouched, so it can be recovered.', '지금 저장돼 있는 것을 손대지 않고 그대로 받아 둬요. 복구할 때 써요.'), first: t.kind === 'unread'});
+  const recovery = choice({action: 'hub-recovery', icon: 'hard-drive', name: T('Save the files on disk as they are', '디스크에 있는 파일을 그대로 저장'), why: native
+      ? T('This copies the list of boards saved on disk and the save before it, untouched, into one file. Pictures and videos placed on boards are not in it.', '디스크에 저장된 보드 목록과 그 직전 저장본을 손대지 않고 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.')
+      : T('This copies the boards this browser keeps, untouched, into one file. Pictures and videos placed on boards are not in it.', '이 브라우저가 보관한 보드를 손대지 않고 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.'), first: t.kind === 'unread'});
   const reload = choice({action: 'disk-reload', icon: 'rotate-cw', name: T('Reload from disk', '디스크에서 다시 불러오기'),
     why: t.kind === 'full'
-      ? T('Once there is room again, this opens the saved copy and saving starts again. Changes that were not saved are thrown away.', '공간을 비운 뒤에 누르면 저장된 것을 다시 열고 저장도 다시 시작해요. 저장하지 못한 변경은 버려져요.')
+      ? T('Once there is room again, this opens what is saved on disk, and the next change tries saving again. Changes that were not saved are thrown away, and you are asked first.', '공간을 비운 뒤에 누르면 디스크에 저장된 것을 다시 열고, 다음 변경부터 다시 저장해 봐요. 저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요.')
       : t.kind === 'unread'
-        ? T('Reads the stored boards again. If they still cannot be read, this window keeps not saving.', '저장된 보드를 다시 읽어요. 여전히 읽지 못하면 이 창은 계속 저장하지 않아요.')
-        : T('Opens the saved copy and saving starts again. Changes that were not saved are thrown away.', '저장된 것을 다시 열고 저장도 다시 시작해요. 저장하지 못한 변경은 버려져요.')});
+        ? T('This reads the stored boards again. If they still cannot be read, this window goes on saving nothing.', '저장된 보드를 다시 읽어요. 여전히 읽지 못하면 이 창은 계속 아무것도 저장하지 않아요.')
+        : T('This opens what is saved on disk, and the next change tries saving again. Changes that were not saved are thrown away, and you are asked first.', '디스크에 저장된 것을 다시 열고, 다음 변경부터 다시 저장해 봐요. 저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요.')});
+  const reloads = native ? reload : '';
   if (t.kind === 'unread') return {
     title: T('The saved boards could not be read.', '저장된 보드를 읽지 못했어요.'),
     subtitle: T('So that nothing is written over them, this window saves nothing until they can be read.', '그 위에 덮어쓰지 않도록, 읽을 수 있을 때까지 이 창은 아무것도 저장하지 않아요.'),
-    body: safe(T('The stored files are left as they were.', '저장된 파일은 그대로 두었어요.'), [T('Keep a copy of them before trying anything else.', '다른 것을 해 보기 전에 그 파일을 먼저 받아 두세요.')])
-      + '<div class="ui-notice-choices">' + recovery + reload + '</div>'
+    body: safe(T('This window has written nothing over the stored boards.', '이 창은 저장된 보드 위에 아무것도 쓰지 않았어요.'), [T('Keep a copy of them before trying anything else.', '다른 것을 해 보기 전에 그 파일을 먼저 받아 두세요.')])
+      + '<div class="ui-notice-choices">' + recovery + reloads + '</div>'
       + details(T('Details for a report', '알릴 때 붙일 자세한 내용'), t.detail)
       + foot(reopen, later, false),
   };
@@ -103,15 +111,16 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
       T('This window has stopped saving, and writes nothing more until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 디스크에 더 쓰지 않아요.')],
   }[t.kind as 'full' | 'conflict' | 'failed'];
   const keep = where === 'editor'
-    ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('Keeps the open board, as it is on screen, in one file you can import again.', '화면에 열린 그대로의 보드를 파일 하나로 받아 둬요. 다시 가져올 수 있어요.'), first: true})
+    ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file. Pictures and videos placed on it are not in the file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.')
+      + (o.reimport ? ' ' + T('Import board opens it again, unapproved.', '보드 가져오기로 다시 열 수 있어요(승인은 다시 해야 해요).') : ''), first: true})
     : '';
-  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('Keeps everything this window holds in one file, the changes that were not saved included.', '이 창에 있는 모든 보드를, 저장하지 못한 변경까지 파일 하나로 받아 둬요.'), first: where !== 'editor'});
+  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, with the changes the disk did not take, as one file to keep. Pictures and videos placed on boards are not in it, and it is not a file Import board opens.', '이 창의 모든 보드를, 디스크가 받지 못한 변경까지 파일 하나로 받아 둬요. 보드에 놓인 그림·영상 파일은 들어 있지 않고, 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'});
   return {
     title: head[0],
     subtitle: head[1],
     body: safe(T('What you did is still in this window.', '지금까지 한 일은 이 창에 그대로 있어요.'),
-      [T('It is not on disk yet. Keep it as a file before you close the window or reload.', '아직 디스크에는 없어요. 창을 닫거나 다시 불러오기 전에 파일로 받아 두세요.')])
-      + '<div class="ui-notice-choices">' + keep + all + (where === 'home' ? recovery : '') + reload + '</div>'
+      [T('The changes since the last save are not on disk. Keep them as a file before you close the window or reload.', '마지막 저장 뒤의 변경은 디스크에 없어요. 창을 닫거나 다시 불러오기 전에 파일로 받아 두세요.')])
+      + '<div class="ui-notice-choices">' + keep + all + (where === 'home' ? recovery : '') + reloads + '</div>'
       + details(T('Details for a report', '알릴 때 붙일 자세한 내용'), t.detail)
       + foot(reopen, later, false),
   };
