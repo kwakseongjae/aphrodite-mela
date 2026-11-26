@@ -12,7 +12,7 @@
  */
 import {protocol} from './protocol.mjs';
 import {once} from 'node:events';
-import {frames, decode, parse, fitsTree, readEndpoint, responseBody} from './wire.mjs';
+import {frames, decode, parse, fitsTree, validateScalars, readEndpoint, responseBody} from './wire.mjs';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -123,10 +123,12 @@ async function callTool(name, args, who) {
   try {
     const text = decode(bytes);
     if (!fitsTree(text, protocol.limits.responseTree)) {
-      JSON.parse(text);
-      return {isError: !response.ok, text};
+      validateScalars(text);
+      payload = JSON.parse(text); // No recursive reviver on a deep response.
+      if (response.ok) return {isError: false, text};
+    } else {
+      payload = parse(text, true);
     }
-    payload = parse(text, true);
   } catch {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }

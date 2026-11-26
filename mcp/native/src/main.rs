@@ -130,10 +130,8 @@ fn fill(parts: &Value, args: &[String]) -> String {
     s
 }
 fn refusal(payload: &Value, status: u16) -> Value {
-    let mut said = payload["error"].clone();
-    if said.is_null() {
-        said = json!(fill(&manifest()["refused"], &[status.to_string()]));
-    }
+    let said = payload["error"].as_str().map(str::to_owned)
+        .unwrap_or_else(|| fill(&manifest()["refused"], &[status.to_string()]));
     let open = &payload["open"];
     if let Some(name) = open["name"].as_str() {
         let shorten =
@@ -144,9 +142,9 @@ fn refusal(payload: &Value, status: u16) -> Value {
             args.push(shorten(id));
             key = "boardWithId";
         }
-        return json!(js_string(&said) + &fill(&manifest()[key], &args));
+        return json!(said + &fill(&manifest()[key], &args));
     }
-    said
+    json!(said)
 }
 
 fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
@@ -241,11 +239,21 @@ fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
         return unexpected();
     };
     if !wire::fits_tree(text, wire::limit("responseTree")) {
-        // RawValue validates iteratively, without constructing or dropping a recursive tree.
-        if serde_json::from_str::<&serde_json::value::RawValue>(text).is_err() {
+        if wire::validate_raw(text).is_err() {
             return unexpected();
         }
-        return answer(json!(text), !(200..300).contains(&status));
+        if (200..300).contains(&status) {
+            return answer(json!(text), false);
+        }
+        let string_member = |object, key| {
+            wire::raw_member(object, key).and_then(|raw| serde_json::from_str::<String>(raw).ok())
+        };
+        let open = wire::raw_member(text, "open").unwrap_or("");
+        let fields = json!({
+            "error": string_member(text, "error"),
+            "open": {"name": string_member(open, "name"), "project_id": string_member(open, "project_id")}
+        });
+        return answer(refusal(&fields, status), true);
     }
     let Ok(mut payload) = serde_json::from_str::<Value>(text) else {
         return unexpected();

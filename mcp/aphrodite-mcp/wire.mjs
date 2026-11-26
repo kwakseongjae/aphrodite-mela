@@ -48,9 +48,8 @@ export function fitsTree(text, structureLimit=protocol.limits.structure) {
   return true;
 }
 
-export function parse(text, checked=false) {
-  if (!checked && !fitsTree(text)) throw new SyntaxError();
-  // Reject deeply nested values before allocating their trees or traversing them.
+// Check every wire scalar, including values shadowed by a later duplicate key.
+export function validateScalars(text) {
   let start=-1, escapedUnicode=false;
   for (let i=0; i<text.length; i++) {
     const c=text[i];
@@ -72,6 +71,11 @@ export function parse(text, checked=false) {
       if (!Number.isFinite(Number(text.slice(from,i+1)))) throw new SyntaxError();
     }
   }
+}
+
+export function parse(text, checked=false) {
+  if (!checked && !fitsTree(text)) throw new SyntaxError();
+  validateScalars(text);
   return JSON.parse(text,(_key,value)=>{
     // A JSON field called toString is data. JS interpolation must have the same
     // ordinary-object spelling that the native adapter uses for RPC names and arguments.

@@ -330,3 +330,22 @@ test('Third review 1 — response formatting counts only structure outside escap
     {body:deep, text:deep},
   ]);
 });
+
+test('Third review 4 — wide and narrow replies validate every scalar and relay HTTP refusals', async () => {
+  const wide = '['+'0,'.repeat(393_216)+'0]';
+  const cases:ResponseCase[] = [];
+  for (const extra of ['[]', wide]) {
+    for (const bad of ['1e400', '"\\ud800"']) {
+      cases.push({body:'{"extra":'+extra+',"x":'+bad+',"x":0}', isError:true,
+        text:'Aphrodite answered something unexpected (HTTP 200).'});
+    }
+    cases.push({body:'{"extra":'+extra+',"open":{"name":"Board","project_id":"p"},"error":"closed"}',
+      status:403, isError:true, text:'closed The board open now is "Board" (project_id p).'});
+    cases.push({body:'{"error":{"extra":'+extra+'}}', status:503, isError:true,
+      text:'Aphrodite refused that (HTTP 503).'});
+    cases.push({body:extra, status:503, isError:true, text:'Aphrodite refused that (HTTP 503).'});
+  }
+  const valid = '{"extra":'+wide+',"x":"\\ud83c\\udf19","literal":"\\\\ud800","n":1e308}';
+  cases.push({body:valid, text:valid});
+  await responseTranscript(cases);
+});

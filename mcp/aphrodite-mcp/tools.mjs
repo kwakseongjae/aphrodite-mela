@@ -33,7 +33,7 @@ export function callerName(clientInfo) {
  * since only words reach an agent through MCP.
  */
 export function refusalText(payload, status) {
-  const said = payload?.error ?? `Aphrodite refused that (HTTP ${status}).`;
+  const said = typeof payload?.error === 'string' ? payload.error : `Aphrodite refused that (HTTP ${status}).`;
   const open = payload?.open;
   if (!open || typeof open !== 'object' || typeof open.name !== 'string') return said;
   const shorten = value => value.slice(0,200).replace(/[\uD800-\uDFFF]/gu,'\uFFFD');
