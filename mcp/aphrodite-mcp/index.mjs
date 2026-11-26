@@ -10,6 +10,7 @@
  *
  * No dependencies on purpose: `node mcp/aphrodite-mcp/index.mjs` and nothing to install.
  */
+import {protocol} from './protocol.mjs';
 import {createInterface} from 'node:readline';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -30,12 +31,14 @@ const VERSION = (() => {
   }
 })();
 /** Protocol versions this server is happy to speak; the newest is offered when a client asks for one we do not know. */
-const KNOWN_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+
 /* The override exists so a harness can point this at a file it controls, and so a second app
    running under another HOME (a sandbox instance) can be reached without editing this line. */
 const ENDPOINT_FILE = process.env.APHRODITE_ENDPOINT_FILE
   || join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
-const NOT_RUNNING = 'Aphrodite is not running. Ask the person to open the app, then try again.';
+function offline(name) {
+  return name === 'aphrodite_guide' ? {isError: false, text: protocol.offlineGuide} : {isError: true, text: protocol.notRunning};
+}
 
 /** Who this client is, as it said at `initialize`. Every call carries it so the person sees the real name. */
 let caller = FALLBACK_CALLER;
@@ -71,7 +74,7 @@ function ownerAlive(pid) {
 function endpoint() {
   try {
     const parsed = JSON.parse(readFileSync(ENDPOINT_FILE, 'utf8'));
-    if (!parsed?.base || !parsed?.token) return undefined;
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(parsed?.base) || !parsed?.token) return undefined;
     if (!ownerAlive(parsed.pid)) return undefined;
     return parsed;
   } catch {
@@ -84,7 +87,7 @@ async function callTool(name, args) {
   const tool = toolByName[name];
   if (!tool) return {isError: true, text: `No such tool "${name}".`};
   const where = endpoint();
-  if (!where) return {isError: true, text: NOT_RUNNING};
+  if (!where) return offline(name);
 
   const query = tool.params ? Object.entries(tool.params(args ?? {})).filter(([, v]) => v !== undefined && v !== '') : [];
   const search = query.length ? `?${query.map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')}` : '';
@@ -106,11 +109,9 @@ async function callTool(name, args) {
   // app's own bridge answers or gives up within fifteen seconds, and this allows for the round trip.
   let response;
   try {
-    response = await fetch(url, {...init, signal: AbortSignal.timeout(25_000)});
+    response = await fetch(url, {...init, redirect: 'error', signal: AbortSignal.timeout(25_000)});
   } catch (error) {
-    return {isError: true, text: error?.name === 'TimeoutError'
-      ? 'Aphrodite did not answer in time. It may be busy or mid-dialog — ask the person to check the app.'
-      : NOT_RUNNING};
+    return error?.name === 'TimeoutError' ? {isError: true, text: protocol.timeout} : offline(name);
   }
   const text = await response.text();
   let payload;
@@ -140,16 +141,12 @@ async function handle(message) {
     case 'initialize': {
       caller = callerName(params?.clientInfo);
       const asked = params?.protocolVersion;
-      const version = KNOWN_VERSIONS.includes(asked) ? asked : KNOWN_VERSIONS[0];
+      const version = protocol.versions.includes(asked) ? asked : protocol.versions[0];
       return reply(id, {
         protocolVersion: version,
         capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}},
         serverInfo: {name: NAME, version: VERSION},
-        instructions: [
-          'Aphrodite is a local design workbench. Read the design contract before changing anything, and send a whole change as one aphrodite_apply_edits call so the person can undo it in one press.',
-          'Approving a direction is the person\'s decision and no tool here can do it.',
-          'Editing needs the person to have opened the door; if a call comes back saying so, tell them rather than retrying.',
-        ].join(' '),
+        instructions: protocol.instructions,
       });
     }
     case 'notifications/initialized':
