@@ -63,6 +63,7 @@ import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
+import {askKey} from './editor/ask-keys';
 import {troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -437,6 +438,9 @@ const button = (action: string, name: string, label: string, cls = '', rest = ''
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
 /** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
+function fatalUp(){return !!document.querySelector('.fatal-scrim');}
+/** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
+function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
 function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
@@ -2554,14 +2558,17 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
-  // Enter allows and Esc is Not now, from the person's own keyboard only: a key an agent sends is dropped.
+  // A sheet over everything (a screen that could not be drawn) takes every key: nothing under it hears one (src/ui/notices.ts).
+  if(fatalUp()){fatalKey(e);return;}
+  // Enter allows and Esc is Not now, from the person's own keyboard and with the focus in the request only (src/editor/ask-keys.ts).
   if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
-    if(!e.isTrusted){e.preventDefault();return;}
     const on=document.activeElement as HTMLElement|null;
-    // Enter typed into a dialog that opened under the request is not an answer: the focus goes back to Allow.
-    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&!on.closest('.ask-modal')){e.preventDefault();modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();return;}
-    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
-    e.preventDefault();answerAsk(e.key==='Enter');return;
+    const said=askKey(e.code==='Escape'?'Escape':e.key,e.isTrusted,{sheet:false,inAsk:!!on?.closest('.ask-modal'),onButton:on?.matches('button')?on.dataset.action??'button':''});
+    if(said==='button')return;
+    e.preventDefault();
+    if(said==='to-allow')modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();
+    else if(said==='allow'||said==='decline')answerAsk(said==='allow');
+    return;
   }
   // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
   // take no step (history() refuses too), and with no dialog and no page seen on its own its shortcuts do not run. A dialog
