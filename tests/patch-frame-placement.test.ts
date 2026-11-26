@@ -34,3 +34,22 @@ test('one agent patch replaces the only shown frame at the origin and places its
   const [published]=visiblePages(board.project);
   assert.deepEqual(board.project.space!.frames[published.id],{x:0,y:0,preset:'custom',width:900,height:600});
 });
+
+test('a patch that clears space places its first shown frame at the origin in the recorded change',()=>{
+  const board=editorBoard(newBoard('Board')),d=agentDispatch('test','mcp',{reason:'Start a fresh layout'});
+  editorCalls(['function commit('],board);
+  const parsed=parseBatch({reason:d.reason,patch:[
+    {op:'set',on:'project',field:'space',unset:true},
+    {op:'insert_page',index:1,page:{id:'brief',name:'Brief',blocks:[]}}]});
+  if('error' in parsed)throw new Error(parsed.error);
+  (board as typeof board & {commit:Function}).commit(()=>{
+    const result=runBatch(board.project,parsed.batch,'');
+    if(!result.ok)throw new Error(result.error);
+    assert.equal(result.project.space,undefined);
+    board.project=result.project;
+  },d,'edit.apply',{source:'agent:apply'});
+  assert.equal(board.project.starter,board.project.activePageId);
+  assert.deepEqual(board.project.space!.frames.brief,{x:0,y:0,preset:'desktop'});
+  assert.equal(board.project.ledger?.seq,1);
+  assert.equal(board.edits.undo.length,1);
+});
