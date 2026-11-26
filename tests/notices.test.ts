@@ -146,6 +146,18 @@ test('a mark stays where it can be seen when the panel it sits in is folded',asy
   assert.match(main,/panels\.right==='collapsed'\?`<div class="board-actions board-marks"><span class="ui-notice-marks" data-notice-marks>/,'with the inspector folded the marks sit over the board, where Preview sits on a board of pages');
 });
 
+/* Astra high 2: what the render-failed sheet offers is the person's: an agent can neither copy its details to the
+   clipboard nor put the sheet away before the person has read it. Each case asks for a real press as well. */
+test('the render-failed sheet\'s buttons are the person\'s alone, and each asks for a real press',async()=>{
+  const {personOnlyRow}=await import('../src/agent/commands.mjs');
+  assert.equal(personOnlyRow('fatal-copy'),'outside.copy-diagnostics');
+  assert.equal(personOnlyRow('fatal-redraw'),'human.render-failed');
+  assert.equal(personOnlyRow('fatal-close'),'human.render-failed');
+  const main=readFileSync('src/main.ts','utf8');
+  for(const [name,row] of [['fatal-redraw','human.render-failed'],['fatal-close','human.render-failed'],['fatal-copy','outside.copy-diagnostics']])
+    assert.match(main,new RegExp("case '"+name+"': (\\{)?if\\(!trusted\\|\\|refusal\\(d,'"+row.replace('.','\\.')+"'\\)\\)break;"),name);
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};

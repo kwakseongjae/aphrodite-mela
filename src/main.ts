@@ -1779,9 +1779,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
     case 'notice-open': openTrouble(); break;
-    case 'fatal-redraw': document.querySelector('.fatal-scrim')?.remove();render(); break;
-    case 'fatal-close': document.querySelector('.fatal-scrim')?.remove(); break;
-    case 'fatal-copy': {try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}
+    case 'fatal-redraw': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove();render(); break;
+    case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
+    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
        breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */
