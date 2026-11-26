@@ -29,7 +29,7 @@ export function workspaceFormHtml(language:Language,ws:Workspace|undefined,optio
   const avatar=ws?.avatar??{kind:'color' as const,value:avatarPalette[0]};
   const activeColor=avatar.kind==='color'?avatar.value:'';
   const swatches=avatarPalette.map(c=>`<button type="button" class="ws-swatch" data-action="ws-pick-color" data-color="${c}" aria-label="${c}" aria-pressed="${c.toLowerCase()===activeColor.toLowerCase()}" style="background:${c}"></button>`).join('');
-  const preview=ws?avatarChipHtml(ws,'ui-avatar ws-avatar-lg'):`<span class="ws-avatar ui-avatar ws-avatar-lg" style="background:${avatarPalette[0]};color:#fff" data-ws-preview></span>`;
+  const preview=ws?avatarChipHtml(ws,'ui-avatar ws-avatar-lg'):`<span class="ws-avatar ui-avatar ws-avatar-lg" style="background:${avatarPalette[0]};color:var(--ui-white)" data-ws-preview></span>`;
   return `<form id="workspace-form" class="ui-home-form" data-id="${esc(ws?.id??'')}">
 <div class="ws-form-head">${preview}<label class="ui-label ws-name-field">${ko?'이름':'Name'}<input class="ui-input" name="name" required maxlength="60" value="${esc(ws?.name??'')}" placeholder="${ko?'예: 개인 작업 공간, 클라이언트 A':'e.g. Personal workspace, Client A'}" autocomplete="off"></label></div>
 <fieldset class="ws-avatar-picker"><legend class="ui-label">${ko?'아바타':'Avatar'}</legend>
