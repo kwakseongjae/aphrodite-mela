@@ -72,6 +72,11 @@ jobs:
       - name: Check that WebKit keeps a free page off the network
         run: npm run verify:wall
 
+      # The app's light and dark looks (0.3-L5): both themes paint, a saved choice wins over the Mac's, and
+      # the person's design renders pixel for pixel the same under either theme. Same Chrome as above.
+      - name: Check that the theme leaves the design alone
+        run: npm run verify:theme
+
       # The crate's build script wants the sidecar to exist before cargo runs, and it must be
       # built for the target cargo is about to use.
       - name: Build the Vision sidecar

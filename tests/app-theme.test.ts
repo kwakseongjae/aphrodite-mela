@@ -187,3 +187,8 @@ test('the design is light in every place it is drawn, its fields keep its own co
   assert.match(css,/\.page-view-media\{[^}]*background:var\(--ui-bg-media\)/);
   assert.match(css,/\.reference-poster img\{[^}]*background:var\(--ui-bg-paper\)/);
 });
+
+test('CI runs the theme check with the other browser checks',()=>{
+  const ci=readFileSync(new URL('../.github/workflows/checks.yml',import.meta.url),'utf8');
+  assert.match(ci,/run: npm run verify:theme\n/);
+});
