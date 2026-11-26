@@ -374,12 +374,14 @@ fn disk_image_mounts_are_identified_by_component_and_regular_external_disks_are_
         Path::new("/Volumes/Aphrodite"),
         OsStr::new("fixture"),
         &info
-    ));
+    )
+    .unwrap());
     assert!(!mounted_image(
         Path::new("/Volumes/Aphrodite External/Other.app"),
         OsStr::new("fixture"),
         &info
-    ));
+    )
+    .unwrap());
     assert_eq!(
         mount_location(
             Path::new("/A.app/Contents/MacOS/app"),
@@ -882,7 +884,8 @@ fn astra_9_the_image_device_identifies_a_mount_reached_through_an_alias() {
         Path::new("/System/Volumes/Data/Users/x/mnt/image"),
         OsStr::new("/dev/disk91s2"),
         &info
-    ));
+    )
+    .unwrap());
 }
 
 #[test]
@@ -1096,4 +1099,33 @@ fn recheck_8_a_detected_app_or_cli_stays_installed_when_its_config_directory_is_
         ));
         assert!(!h.engine.path(tool).parent().unwrap().exists());
     }
+}
+
+#[test]
+fn third_review_an_empty_image_inventory_allows_a_second_writable_volume() {
+    let classify = |info| {
+        mount_location(
+            Path::new("/Volumes/Other/Aphrodite.app/Contents/MacOS/Aphrodite"),
+            Path::new("/Volumes/Other"),
+            OsStr::new("/dev/disk91s2"),
+            false,
+            || Some(info),
+        )
+    };
+    let mut info = plist::Value::from_reader_xml(
+        &include_bytes!("../../../tests/support/hdiutil-no-images.plist")[..],
+    )
+    .unwrap();
+    assert_eq!(classify(info.clone()), Location::Installed);
+    let images = info.as_dictionary_mut().unwrap().remove("images").unwrap();
+    assert!(images.as_array().unwrap().is_empty());
+    assert_eq!(classify(info.clone()), Location::Installed);
+    info.as_dictionary_mut()
+        .unwrap()
+        .insert("images".into(), "unreadable".into());
+    assert_eq!(classify(info), Location::NotInApplications);
+    assert_eq!(
+        classify(plist::Value::Dictionary(Default::default())),
+        Location::NotInApplications
+    );
 }

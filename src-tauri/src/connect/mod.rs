@@ -605,25 +605,31 @@ impl Engine {
     }
 }
 
-fn mounted_image(volume: &Path, device: &OsStr, info: &plist::Value) -> bool {
-    info.as_dictionary()
-        .and_then(|d| d.get("images"))
-        .and_then(|v| v.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|i| i.as_dictionary()?.get("system-entities")?.as_array())
-        .flatten()
-        .filter_map(|e| e.as_dictionary())
-        .any(|entity| {
-            entity
-                .get("mount-point")
-                .and_then(|v| v.as_string())
-                .is_some_and(|p| volume == Path::new(p))
-                || entity
-                    .get("dev-entry")
+fn mounted_image(volume: &Path, device: &OsStr, info: &plist::Value) -> Option<bool> {
+    let inventory = info.as_dictionary()?;
+    let Some(images) = inventory.get("images") else {
+        // A metadata-only hdiutil dictionary is a readable, empty inventory.
+        inventory.get("framework")?.as_string()?;
+        return Some(false);
+    };
+    Some(
+        images
+            .as_array()?
+            .iter()
+            .filter_map(|i| i.as_dictionary()?.get("system-entities")?.as_array())
+            .flatten()
+            .filter_map(|e| e.as_dictionary())
+            .any(|entity| {
+                entity
+                    .get("mount-point")
                     .and_then(|v| v.as_string())
-                    .is_some_and(|d| device == OsStr::new(d))
-        })
+                    .is_some_and(|p| volume == Path::new(p))
+                    || entity
+                        .get("dev-entry")
+                        .and_then(|v| v.as_string())
+                        .is_some_and(|d| device == OsStr::new(d))
+            }),
+    )
 }
 fn mount_location(
     exe: &Path,
@@ -642,19 +648,10 @@ fn mount_location(
         return Location::ReadOnly;
     }
     if mount != Path::new("/") && mount != Path::new("/System/Volumes/Data") {
-        let Some(info) = image_info() else {
-            return Location::NotInApplications;
-        };
-        if info
-            .as_dictionary()
-            .and_then(|d| d.get("images"))
-            .and_then(|v| v.as_array())
-            .is_none()
-        {
-            return Location::NotInApplications;
-        }
-        if mounted_image(mount, device, &info) {
-            return Location::DiskImage;
+        match image_info().and_then(|info| mounted_image(mount, device, &info)) {
+            Some(true) => return Location::DiskImage,
+            Some(false) => (),
+            None => return Location::NotInApplications,
         }
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
