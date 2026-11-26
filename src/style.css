@@ -287,7 +287,7 @@ button{transition:background .15s,color .15s}
 .vibe-empty p{font-size:12px;line-height:1.6;color:var(--ui-text-2);margin:0 0 10px}
 input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:var(--ui-bg-raised)}
 input[type=color]::-webkit-color-swatch-wrapper{padding:0}
-input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
+input[type=color]::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);border-radius:4px}
 .token-compare{display:grid;gap:6px;margin:10px 0 14px;font-size:11px}
 .token-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .token-row>span{width:44px;color:var(--ui-text-2)}
