@@ -173,3 +173,17 @@ test('the first script puts both browser-bar colours on the picked paper, and le
   assert.deepEqual(metas.map(m=>m.content),['light','dark'],'following the Mac touches neither');
 });
 
+/* 0.3-L5 fix 1 #2, #3, #4: the person's design is drawn light whatever the app's theme or the Mac's: the page, every frame and the
+   desktop's preview host; the app's field colours stop at the design; a picture, video or poster sits on the same ground in both. */
+test('the design is light in every place it is drawn, its fields keep its own colours, and a picture keeps its ground',()=>{
+  const css=readFileSync(new URL('../src/style.css',import.meta.url),'utf8');
+  assert.match(css,/\n\.design-page,iframe\{color-scheme:light\}/,'the section page and every frame');
+  const host=readFileSync(new URL('../src/design/native-preview.ts',import.meta.url),'utf8');
+  assert.match(host,/:host\{[^}]*color-scheme:light/,'the desktop\'s preview host');
+  const fieldRules=[...css.matchAll(/(^|\n)([^{}\n]*\b(?:input|textarea|select)\b[^{}\n]*)\{([^}]*)\}/g)].filter(m=>/(^|;)\s*(color|background(-color)?|border(-color)?)\s*:[^;]*(var\(|#)/.test(m[3])&&m[2].split(',').some(p=>/^\s*(input|textarea|select)\b/.test(p)));
+  for(const m of fieldRules)for(const part of m[2].split(',').filter(p=>/^\s*(input|textarea|select)\b/.test(p)))assert.match(part.trim(),/:not\(:where\(\.design-page \*\)\)/,'an app field rule that colours bare fields leaves the design\'s alone: '+part);
+  assert.ok(fieldRules.length>=1,'the app still colours its own fields');
+  assert.match(css,/\.board-media\{background:var\(--ui-bg-media\)\}/);
+  assert.match(css,/\.page-view-media\{[^}]*background:var\(--ui-bg-media\)/);
+  assert.match(css,/\.reference-poster img\{[^}]*background:var\(--ui-bg-paper\)/);
+});

@@ -9,11 +9,13 @@ button{color:inherit;cursor:pointer;border:0;background:none;display:inline-flex
 button:disabled{opacity:.32;cursor:not-allowed}
 button:not(:disabled):hover{filter:brightness(.96)}
 button:focus-visible,a:focus-visible{outline:none}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ui-focus)}
+input:focus:not(:where(.design-page *)),textarea:focus:not(:where(.design-page *)),select:focus:not(:where(.design-page *)){outline:none;border-color:var(--ui-focus)}
 a{color:inherit;text-decoration:none}
 svg{width:16px;height:16px;flex-shrink:0}
 h1,h2,h3,p{margin:0}
-input,textarea,select{color:var(--ui-text-1);background:var(--ui-bg-raised);border:1px solid var(--ui-line-strong);border-radius:6px;padding:10px;min-width:0;max-width:100%}
+input,textarea,select{border:1px solid;border-radius:6px;padding:10px;min-width:0;max-width:100%}
+/* The app's own fields take its colours; a field in the person's design keeps the design's (0.3-L5 fix 1). */
+input:not(:where(.design-page *)),textarea:not(:where(.design-page *)),select:not(:where(.design-page *)){color:var(--ui-text-1);background:var(--ui-bg-raised);border-color:var(--ui-line-strong)}
 textarea{resize:vertical;line-height:1.55}
 select{cursor:pointer}
 button{transition:background .15s,color .15s}
@@ -285,9 +287,9 @@ button{transition:background .15s,color .15s}
 .vibe-empty{border:1px solid var(--ui-line);background:var(--ui-bg-sunken);border-radius:8px;padding:14px 16px;margin-bottom:14px}
 .vibe-empty strong{display:block;margin-bottom:6px}
 .vibe-empty p{font-size:12px;line-height:1.6;color:var(--ui-text-2);margin:0 0 10px}
-input[type=color]{padding:2px;width:46px;height:32px;cursor:pointer;background:var(--ui-bg-raised)}
+input[type=color]:not(:where(.design-page *)){padding:2px;width:46px;height:32px;cursor:pointer;background:var(--ui-bg-raised)}
 input[type=color]::-webkit-color-swatch-wrapper{padding:0}
-input[type=color]::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);border-radius:4px}
+input[type=color]:not(:where(.design-page *))::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);border-radius:4px}
 .token-compare{display:grid;gap:6px;margin:10px 0 14px;font-size:11px}
 .token-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .token-row>span{width:44px;color:var(--ui-text-2)}
@@ -358,8 +360,8 @@ input[type=color]::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);b
 .space-frame.dragging{opacity:.85;outline-color:var(--ui-select)}
 .space-frame .design-page{width:100%;min-height:240px;margin:0;max-width:none}
 .design-page-inert{pointer-events:none}
-/* The person's design keeps its own colours in either theme of the app (0.3-L5): the page and every frame take no colour scheme from the app around them, as if opened on their own. */
-.design-page,iframe{color-scheme:normal}
+/* The person's design is drawn light whatever the app's theme or the Mac's (0.3-L5): the page and every frame are light, so a page's own dark-mode rule, its fields and its scrollbars read light. */
+.design-page,iframe{color-scheme:light}
 .board-item{position:relative;width:100%;overflow:hidden;background:var(--ui-bg-page)}
 .board-frame{display:block;width:100%;height:100%;border:0}
 .board-shield{position:absolute;inset:0;cursor:default}
