@@ -4,6 +4,7 @@ mod cli_process;
 mod commands;
 mod edit;
 mod files;
+mod spawn;
 pub use commands::*;
 #[cfg(test)]
 mod tests;

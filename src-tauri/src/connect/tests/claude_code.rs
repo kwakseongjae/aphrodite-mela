@@ -533,3 +533,10 @@ fn opus_4_a_writable_program_or_ancestor_is_found_but_never_run() {
         fs::set_permissions(path, original).unwrap();
     }
 }
+#[test]
+fn astra_2_text_without_an_interpreter_fails_to_start() {
+    let f = Fixture::new();
+    fs::write(f.e().cli_dirs[0].join("claude"), "exit 0\n").unwrap();
+    assert_eq!(f.status()["error"], "cli_start_failed");
+}
+

@@ -1,21 +1,18 @@
 //! The only program selected by this runner is claude. Neither its path, environment,
 //! working directory nor any argument is accepted from IPC.
-use super::{claude::CommandResult, Code, Engine};
+use super::{claude::CommandResult, spawn::Child, Code, Engine};
 use rustix::fs::{access, fcntl_setfl, Access, OFlags};
 use serde::Serialize;
 use std::io::BufRead;
 use std::{
+    ffi::CString,
     fs,
     io::{self, Read},
     os::{
         fd::AsFd,
-        unix::{
-            fs::{MetadataExt, PermissionsExt},
-            process::CommandExt,
-        },
+        unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -168,36 +165,33 @@ impl Program {
             .permissions(fs::Permissions::from_mode(0o700))
             .tempdir_in("/private/tmp")
             .map_err(|_| Code::Io)?;
-        let mut command = Command::new(&self.path);
-        command
-            .args(args)
-            .env_clear()
-            .env("HOME", &engine.home)
-            .env("PATH", path)
-            .env("LC_ALL", "C")
-            .env("NO_COLOR", "1")
-            .env("COLUMNS", "32767")
-            .current_dir(cwd.path())
-            .process_group(0)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(dir) = &engine.claude_config_dir {
-            if !dir.is_absolute() {
-                return Err(Code::InvalidPath.into());
+        let argv = std::iter::once(self.path.as_os_str().as_encoded_bytes())
+            .chain(args.iter().map(|a| a.as_bytes()))
+            .map(CString::new)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| Code::InvalidPath)?;
+        let mut env = vec![];
+        for (key, value) in [
+            ("HOME", Some(engine.home.as_os_str())),
+            ("PATH", Some(path.as_os_str())),
+            ("LC_ALL", Some("C".as_ref())),
+            ("NO_COLOR", Some("1".as_ref())),
+            ("COLUMNS", Some("32767".as_ref())),
+            (
+                "CLAUDE_CONFIG_DIR",
+                engine.claude_config_dir.as_deref().map(Path::as_os_str),
+            ),
+        ] {
+            if let Some(value) = value {
+                let bytes = [key.as_bytes(), b"=", value.as_encoded_bytes()].concat();
+                env.push(CString::new(bytes).map_err(|_| Code::InvalidPath)?);
             }
-            command.env("CLAUDE_CONFIG_DIR", dir);
         }
-        let mut child = command.spawn().map_err(|_| Code::CliStartFailed)?;
-        let captured = capture(&mut child, engine.cli_timeout);
-        captured.map_err(|code| {
-            // A health check or interpreter can leave a descendant holding either pipe.
-            unsafe {
-                libc::killpg(child.id() as i32, libc::SIGKILL);
-            }
-            let exit = child.wait().ok().and_then(|status| status.code());
-            CommandResult::new(code, exit)
-        })
+        let cwd_path = CString::new(cwd.path().as_os_str().as_encoded_bytes())
+            .map_err(|_| Code::InvalidPath)?;
+        let (child, out, err) = Child::start(&argv, &env, &cwd_path)?;
+        capture(&child, out, err, engine.cli_timeout)
+            .map_err(|code| CommandResult::new(code, child.terminate()))
     }
 }
 
@@ -250,10 +244,15 @@ impl<R: AsFd + Read> Pipe<R> {
     }
 }
 
-fn capture(child: &mut Child, timeout: Duration) -> Result<Output, Code> {
+fn capture(
+    child: &Child,
+    stdout: io::PipeReader,
+    stderr: io::PipeReader,
+    timeout: Duration,
+) -> Result<Output, Code> {
     let deadline = Instant::now() + timeout;
-    let mut stdout = Pipe::new(child.stdout.take().ok_or(Code::Io)?)?;
-    let mut stderr = Pipe::new(child.stderr.take().ok_or(Code::Io)?)?;
+    let mut stdout = Pipe::new(stdout)?;
+    let mut stderr = Pipe::new(stderr)?;
     loop {
         if Instant::now() >= deadline {
             return Err(Code::CliTimeout);
@@ -262,7 +261,7 @@ fn capture(child: &mut Child, timeout: Duration) -> Result<Output, Code> {
         let err = stderr.read()?;
         // Keep the child waitable until both pipes close, including on timeout.
         if stdout.eof && stderr.eof {
-            if let Some(status) = child.try_wait().map_err(|_| Code::Io)? {
+            if let Some(status) = child.wait(libc::WNOHANG)? {
                 return Ok(Output {
                     status: status.code(),
                     stdout: stdout.data,
