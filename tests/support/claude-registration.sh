@@ -5,6 +5,7 @@
 /usr/bin/env | /usr/bin/cut -d= -f1 > "$HOME/cli-env"
 exec /usr/bin/python3 -I - "$@" <<'PYTHON'
 """A local playback CLI for the Rust connection tests."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,28 +16,37 @@ home = Path(os.environ["HOME"])
 # A missing injected home must fail before even opening the argument log.
 assert home.joinpath("fake-cli-home").is_file()
 args = sys.argv[1:]
+profile = os.environ.get("CLAUDE_CONFIG_DIR")
 with (home / "calls").open("a") as log:
-    print(json.dumps(dict(args=args, cwd=os.getcwd(), env=(home / "cli-env").read_text().splitlines())), file=log)
+    print(json.dumps(dict(args=args, profile=profile, cwd=os.getcwd(), env=(home / "cli-env").read_text().splitlines())), file=log)
 
 assert args[0] == "mcp"
 verb = args[1]
 override = home / (verb + "-reply")
+reply = {}
 if override.exists():
     reply = json.loads(override.read_text())
     if reply.get("once"):
         override.unlink()
+
+def finish_reply():
     if reply.get("hang"):
         time.sleep(30)
     print(reply.get("out", ""))
     print(reply.get("err", ""), file=sys.stderr)
+    if reply.get("signal"):
+        os.kill(os.getpid(), reply["signal"])
     sys.exit(reply["exit"])
+
+if reply and not reply.get("afterWrite"):
+    finish_reply()
 
 def fixture(name, **values):
     template = (home / "fixtures" / (name + ".txt")).read_text().split("\n", 1)[1]
     return template.format(**values)
 
-state = home / "entry"
-config = home / ".claude.json"  # display only
+config = Path(profile or home) / ".claude.json"
+state = home / ("entry" if config == home / ".claude.json" else "entry-" + hashlib.sha256(os.fsencode(config)).hexdigest())  # display only
 if verb == "get":
     assert args == ["mcp", "get", "aphrodite"]
     if not state.exists():
@@ -56,4 +66,6 @@ elif verb == "remove":
     sys.stdout.write(fixture("remove", config=config))
 else:
     sys.exit(2)
+if reply:
+    finish_reply()
 PYTHON

@@ -578,3 +578,18 @@ fn opus_3_an_ancestor_project_or_shared_parent_prevents_launch() {
     fs::set_permissions(&p, fs::Permissions::from_mode(0o777)).unwrap();
     assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
 }
+
+#[test]
+fn astra_9_fake_profiles_and_post_write_failures_are_independent() {
+    let mut f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &preview, false);
+    f.0.engine.claude_config_dir = Some(f.e().home.join("another-profile"));
+    assert_eq!(f.status()["entryExists"], false);
+    f.0.engine.claude_config_dir = None;
+    f.override_reply("remove", json!({"afterWrite":true, "exit":17}));
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["exitStatus"], 17);
+    assert_eq!(f.status()["entryExists"], false);
+}
+
