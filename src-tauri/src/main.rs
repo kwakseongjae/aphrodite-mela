@@ -37,14 +37,6 @@ fn main() {
         .manage(opened::OpenedState(Default::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(import::plugin())
-        .on_webview_event(|view, event| {
-            use tauri::Manager;
-            if view.label() == "main" {
-                if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                    for path in paths.iter().filter(|p| import::handed_html(p)) { import::hand_over(view.app_handle(), path); }
-                }
-            }
-        })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
