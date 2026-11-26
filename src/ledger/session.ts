@@ -16,7 +16,7 @@ import {HUMAN_ONLY_ERROR} from '../agent/authority';
 import {applyPatch, diffProject, type PatchOp} from './patch';
 import {designOf, emptyLedger, record, MAX_REASON, UNDO_LIMIT, UNKNOWN, type Author, type Change, type UndoEntry} from './ledger';
 import {APPROVAL_CLEARED} from './types';
-import {settleStarter} from '../editor/starter';
+import {placeRevealed,settleStarter} from '../editor/starter';
 
 export {APPROVAL_CLEARED} from './types';
 
@@ -48,7 +48,7 @@ function mendDesign(project: Project): void {
 }
 const writesApproval = (ops: PatchOp[]) => ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint');
 
-export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project};
+export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project; shownStarter?: {id: string; through: number}};
 
 /** Given the project as it opens, takes it as the baseline: what changes outside `commit()` from then on is recorded. */
 export function newHistory(project?: Project): History {
@@ -94,6 +94,7 @@ export function end(project: Project, before: Project, meta: {author: Author; so
   const revealed = settleStarter(before, project);
   const cleared = settleApproval(project, before, meta.author);
   const done = record(ledgerOf(project), before, designOf(project), cleared ? {...meta, reason: noted(meta.reason)} : meta);
+  if (revealed) history.shownStarter = {id: before.starter!, through: project.ledger!.seq};
   // A page shown with nothing to record (the person going to it) is shown in the state the next change is read against too.
   if (!done) { if (revealed) history.last = clone(project); return null; }
   // A clearing is the system's, not a write of the approval: undoing this change is content, for anyone (step).
@@ -162,6 +163,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   const next = applyPatch(current, ops);
   mendDesign(next);
   settleStarter(current, next);
+  if (history.shownStarter && entry.seq <= history.shownStarter.through) placeRevealed(next, history.shownStarter.id);
   const cleared = settleApproval(next, current, author, true);
   if (check) {
     try { check(next); }

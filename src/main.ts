@@ -177,7 +177,7 @@ addEventListener('message',e=>{
   const m=e.data as {aphrodite?:unknown;kind?:unknown;id?:unknown;href?:unknown}|null;
   if(!frame||!m||m.aphrodite!=='frame'||!frame.closest('.space-frame.entered,.preview-modal,.page-view'))return;
   if(m.kind==='escape'){if(frame.closest('.preview-modal'))closeModal();else if(frame.closest('.page-view'))closePageView();else leavePage();}
-  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else{leavePage();if(revealStarter(project,m.id)){if(edits.last)delete edits.last.starter;persist();render();}fitFrame(m.id);}}
+  else if(m.kind==='page'&&typeof m.id==='string'&&project.pages.some(p=>p.id===m.id)){if(frame.closest('.page-view')){if(!pageViewEntered||pageViewStopped)return;if(!pageViewHops.allow(Date.now())){if(!pageViewStopped){pageViewStopped=true;toast(ui('This page kept showing other pages by itself, so that stopped. Choose a page on the board to go on.','이 페이지가 스스로 다른 페이지를 계속 열어서 멈췄습니다. 보드에서 페이지를 고르면 다시 됩니다.'));}return;}openPageView(m.id,true);}else if(project.starter===m.id){if(frame.closest('.preview-modal')){if(askOpen())return;closeModal();}openPageView(m.id);}else{leavePage();fitFrame(m.id);}}
   else if(m.kind==='link'&&typeof m.href==='string')offerLink(m.href);
 });
 /** A link out of a free page: shown with its address, opened only by the person's own press on Open. */
@@ -949,7 +949,7 @@ function render() {
       ${tabs.length?`<div class="library-tabs ui-tabs" role="tablist" aria-label="Library view">${tabs.map(t => `<button role="tab" aria-selected="${t === tab}" class="ui-tab ${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
       <div class="library-content">${libraryHtml()}</div>`:'<div class="library-fill"></div>'}
       ${sections?`<button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>`:''}
-      <div class="library-bottom ui-side-foot">${icon('upload','ui-icon ui-icon-sm')}<span class="library-drop">${ui('Drop pictures or videos here and they land on this board','그림이나 영상을 끌어다 놓으면 이 보드에 올라갑니다')}</span><button type="button" class="ui-icon-btn" data-action="agent" aria-label="${control('Computer use guide')}" title="${control('Computer use guide')}">${icon('arrow-up-right','ui-icon ui-icon-sm')}</button></div>
+      <div class="library-bottom ui-side-foot">${icon('upload','ui-icon ui-icon-sm')}<span class="library-drop">${ui('Drop pictures or videos onto the board.','그림이나 영상을 보드에 끌어다 놓으세요.')}</span><button type="button" class="ui-icon-btn" data-action="agent" aria-label="${control('Computer use guide')}" title="${control('Computer use guide')}">${icon('arrow-up-right','ui-icon ui-icon-sm')}</button></div>
     </aside>
     <main class="workbench" data-keep="workbench">
 
@@ -970,14 +970,14 @@ function render() {
   mountSpace();mountBoard();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
   if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
-  decorateInspector(page);
+  decorateInspector(shownPage(project));
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,localStorage,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
   const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
   mountPointer(canvas as HTMLElement,page);
 }
 function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
-function inspectorPanelHtml(){const page=currentPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:project.pages.find(p=>p.id===delegation!.scope.frameId)?.name,channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml();}
+function inspectorPanelHtml(){const page=shownPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:visiblePages(project).find(p=>p.id===delegation!.scope.frameId)?.name??'—',channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml(page);}
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
  * canvas on every click — the page flashed and every picture reloaded. Only what shows the selection
@@ -996,7 +996,7 @@ function selectBlock(id:string){
   canvas.querySelectorAll<HTMLElement>('.block-wrap[data-block-id]').forEach(el=>el.classList.toggle('selected',el.dataset.blockId===id));
   app.querySelectorAll<HTMLElement>('.layer[data-layer-id]').forEach(el=>el.classList.toggle('selected',el.dataset.layerId===id));
   aside.querySelectorAll(':scope>:not(.inspector-grip,.inspector-top,.inspector-toggle)').forEach(el=>el.remove());
-  aside.insertAdjacentHTML('beforeend',inspectorPanelHtml());decorateInspector(page);
+  aside.insertAdjacentHTML('beforeend',inspectorPanelHtml());decorateInspector(shownPage(project));
   hydrateIconsIn(aside);refreshAssemblyBar();syncStateAttributes();
   mountPointer(canvas,page);
 }
@@ -1129,12 +1129,20 @@ function componentCards() {
   const list = catalog.filter(c => `${c.name} ${c.description} ${c.category} ${patternVariants(c.kind).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   return list.map(c => `<div class="component-card" draggable="true" data-component="${c.kind}"><div class="component-thumbnail thumb-${c.kind}" aria-hidden="true"><div class="mini-nav"><b></b><span></span><span></span></div><div class="mini-body"><div class="mini-lines"><b></b><span></span><span></span><em></em></div><div class="mini-image">${icon(c.icon)}</div></div></div><div class="component-info"><div><strong>${c.name}</strong><span>${c.category}${isPattern(c.kind)?` · ${patternVariants(c.kind).length} ${ui('variants','변형')}`:''}</span></div><button data-action="add" data-kind="${c.kind}" aria-label="Add ${c.name}" title="${ui(`Add ${c.name}`,`${c.name} 추가`)}">${icon('plus')}</button></div></div>`).join('') || `<p class="empty-state">${ui('No matching components.','일치하는 컴포넌트가 없습니다.')}</p>`;
 }
-function inspectorHtml() {
-  const b = currentPage(project).blocks.find(b => b.id === selected);
+function inspectorHtml(page:Page) {
+  const b = page.id===project.activePageId ? page.blocks.find(b => b.id === selected) : undefined;
   return `<div class="inspector-title"><span>${ui('Design','디자인')}</span><span class="inspector-kicker">${ui('PROJECT TOKENS','프로젝트 토큰')}</span></div>
   <section class="inspector-section"><div class="section-heading"><h2>${ui('Look & feel','분위기와 스타일')}</h2>${iconButton('systems', 'sliders-horizontal', 'Choose design system')}</div><button class="selected-system" data-action="systems"><span class="palette-orb" style="background:${project.system.accent}">${icon('flower-2')}</span><div><strong>${esc(project.system.name)}</strong><small>${esc(project.system.description)}</small></div>${icon('chevron-down')}</button><label class="field-label">${ui('Color palette','색상 팔레트')} <span>${ui('Shared across pages','모든 페이지에 공유')}</span></label><div class="color-swatches">${([['accent',ui('Primary','메인')],['background',ui('Background','배경')],['foreground',ui('Foreground','전경')],['surface',ui('Surface','표면')],['line',ui('Line','선')]] as const).map(([key,label])=>{const colour=key==='accent'||key==='background'||key==='foreground'?project.system[key]:resolveTokens(project.system)[key as SemanticToken];return `<span style="background:${colour}" title="${label}: ${colour}"></span>`;}).join('')}</div><div class="color-inputs">${(['accent', 'background', 'foreground'] as const).map((key, i) => `<label><input type="color" aria-label="${['Primary', 'Background', 'Foreground'][i]} color" data-token="${key}" value="${project.system[key]}"><span>${[ui('Primary','메인'), ui('Canvas','캔버스'), ui('Text','텍스트')][i]}</span><code>${project.system[key].toUpperCase()}</code></label>`).join('')}</div><div class="paired-fields"><label>${ui('Typeface','서체')}<select id="font-select" aria-label="Heading typeface"><option value="serif" ${project.system.font === 'serif' ? 'selected' : ''}>${ui('Editorial serif','에디토리얼 세리프')}</option><option value="sans" ${project.system.font === 'sans' ? 'selected' : ''}>${ui('Modern sans','모던 산스')}</option></select></label><label class="font-family-field">${ui('Heading font','제목 서체')}<button type="button" class="font-pick" data-action="font-picker" style="font-family:${esc(fontStack({family:project.system.headingFamily,category:project.system.font}))}"><span>${esc(project.system.headingFamily??(project.system.font==='serif'?ui('Editorial serif','에디토리얼 세리프'):ui('Modern sans','모던 산스')))}</span>${icon('chevron-down')}</button></label><label>${ui('Radius','모서리')}<select id="radius-select" aria-label="Corner radius">${[0, 2, 4, 8, 12, 16, 24, 32, 48].map(v => `<option ${v === project.system.radius ? 'selected' : ''} value="${v}">${v} px</option>`).join('')}</select></label></div><details class="token-group"${tokensOpen?' open':''}><summary>${ui('Semantic colours','의미 색상')}<em>${semanticTokens.filter(t=>project.system[t]).length}/${semanticTokens.length}</em></summary><div class="color-inputs">${semanticTokens.map(name=>{const resolved=resolveTokens(project.system)[name];const set=!!project.system[name];return `<label${set?'':' class="token-inherited"'}><input type="color" aria-label="${name}" data-token="${name}" value="${resolved}"><span>${semanticLabel(name)}</span><code>${set?resolved.toUpperCase():ui('default','기본값')}</code></label>`;}).join('')}</div><p class="token-note">${ui('Left alone, each is what the page is painted with today. A design system that names one takes over.','비워두면 지금 페이지가 칠해지는 값 그대로입니다. 디자인 시스템이 지정하면 그쪽이 이깁니다.')}</p></details><button class="text-link" data-action="design-md">${icon('file-text')}${ui('View DESIGN.md','DESIGN.md 보기')}${icon('arrow-up-right')}</button></section>
-  <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', currentPage(project).blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', currentPage(project).blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
+  <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', page.blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', page.blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
   <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-shown="${esc(shownState())}"`)}</div>`;
+}
+function focusModal(){
+  const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
+  if(!modal||!body)return;
+  const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
+  const first=controls.some(el=>el.dataset.action==='open-link'||el.dataset.action==='agent-connect-toggle'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
+    controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
+  (first??modal).focus();
 }
 /** A dialog in the system's frame: confirm (420) for a yes-or-no, the usual 560, and wide (960) for two columns side by side. `lead` sits above the title. */
 function showModal(title: string, subtitle: string, body: string, wide: boolean|'confirm' = false, lead = '') {
@@ -1144,9 +1152,9 @@ function showModal(title: string, subtitle: string, body: string, wide: boolean|
      continuation after an await, a script's click — which goes under it and shows once it is answered.
      The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
   const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
-  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
   if(ask)modalRoot.append(ask);
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
@@ -1156,7 +1164,7 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();focusModal();syncStateAttributes();}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -1244,15 +1252,16 @@ async function carriedSummary(board:Project):Promise<string>{
 /** What an export says of the files the board came without (0.3-R ④), or nothing when it held none back. */
 function withheldNote(n:number,all=false){return !n?'':all?ui(`${n} file(s) were not sent: the board's record of what it came without could not be read.`,`받을 때 없던 파일의 기록을 읽지 못해 ${n}개를 싣지 않았습니다`):ui(`${n} file(s) the board came without were not sent with it. To send one, put it on the board again.`,`받을 때 없던 파일 ${n}개는 싣지 않았습니다. 실으려면 보드에 다시 놓으세요`);}
 function openExport(){exportChoice={scripts:false,videos:'beside'};exportModal();}
-function exportModal(view = 'prompt') {
+function exportModal(requested = 'prompt') {
   const approved = isApproved(project), page = shownPage(project), own = !!page.kind, sections = hasSectionPage(project);
+  const view = sections ? requested : 'prompt';
   showModal(ui('Export','내보내기'), sections ? ui('Export the design you reviewed as files for the next step.','확인한 디자인을 다음 작업에 쓸 파일로 내보냅니다.') : ui('Save this board, or the page in view, as a file.','이 보드나 보고 있는 페이지를 파일로 저장합니다.'), exportBodyHtml({sections, ko: uiLanguage === 'ko', approved, shown: shownState(), view, code: !sections ? '' : view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, page), pageCard: own ? pageExportHtml(page) : '', pages: project.pages.length, boardExtension: BOARD_FILE.extension, labels: {copyPrompt: control('Copy prompt'), bundle: control('Download handoff .zip')}}));
   const activeIndex = project.pages.findIndex(p => p.id === page.id);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
   if (htmlTab) htmlTab.textContent = own ? `${fileName({...project,name:page.name},'html')}` : activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
   // An html page or a media item is shown the way it goes out, no file read: each picture by its size.
-  const code = modalRoot.querySelector<HTMLElement>('.export-code')!;
-  if (view === 'html') { if (own) void exportPage(pageSource(page), exportChoice, outgoing(project, frameHost).host, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, page); }
+  const code = modalRoot.querySelector<HTMLElement>('.export-code');
+  if (view === 'html' && code) { if (own) void exportPage(pageSource(page), exportChoice, outgoing(project, frameHost).host, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, page); }
   // The videos choice shows only for a page that has a video, asked of the files' kinds without reading them.
   // The answer goes only into the dialog that asked: one drawn since, for this page or another, asks again for itself.
   // What goes out with the board (0.3-R ④): its pictures and videos, how many and how big, and how many it came without stay here.
@@ -1940,14 +1949,19 @@ function tourActive(){return tourIndex>=0;}
 function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();positionTour();recordRun('tour:started');}
 function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
 function positionTour(){
-  if(!tourActive())return;const steps=tourSteps(uiLanguage);const step=steps[tourIndex];if(!step){endTour();return;}
+  if(!tourActive())return;
+  const steps=tourSteps(uiLanguage,hasSectionPage(project)).flatMap(step=>{
+    const target=document.querySelector<HTMLElement>(step.target);if(!target||target.checkVisibility?.({opacityProperty:true,visibilityProperty:true})===false)return [];
+    const r=target.getBoundingClientRect(),clip=target.closest('.library,#canvas-scroll,.inspector')?.getBoundingClientRect();
+    const visible=Math.max(0,r.left,clip?.left??0)<Math.min(innerWidth,r.right,clip?.right??innerWidth)&&Math.max(0,r.top,clip?.top??0)<Math.min(innerHeight,r.bottom,clip?.bottom??innerHeight);
+    return visible?[{step,target,r}]:[];
+  });
+  const entry=steps[tourIndex];if(!entry){endTour();return;}const {step,target,r}=entry;
   document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));
-  const target=document.querySelector<HTMLElement>(step.target);
   tourRoot.innerHTML=tourCardHtml(step,tourIndex,steps.length,uiLanguage);hydrateIcons();app.dataset.tour=step.id;
   const card=tourRoot.querySelector<HTMLElement>('.tour-card')!;
-  if(!target){Object.assign(card.style,{left:`${innerWidth/2-160}px`,top:`${innerHeight/2-90}px`});return;}
   target.classList.add('tour-target');
-  const r=target.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,gap=14;
+  const w=card.offsetWidth,h=card.offsetHeight,gap=14;
   let left=r.left+r.width/2-w/2,top=r.top-h-gap;
   if(step.placement==='bottom')top=r.bottom+gap;
   else if(step.placement==='left'){left=r.left-w-gap;top=r.top+24;}
@@ -2385,7 +2399,8 @@ function mountSpace(){
   if(spaceHeld)space.classList.add('pan-ready');
   applyCamera();
   // A board with nothing on it yet keeps the fit for the render that first shows a frame.
-  if(cameraFitPending&&fitAll())cameraFitPending=false;
+  if(!visiblePages(project).length)cameraFitPending=true;
+  else if(cameraFitPending&&fitAll())cameraFitPending=false;
   space.addEventListener('wheel',e=>{
     e.preventDefault();
     if(e.ctrlKey||e.metaKey){camera=zoomAt(camera,spaceLocal(e),camera.zoom*Math.exp(-e.deltaY*0.01));}
@@ -2505,7 +2520,7 @@ document.addEventListener('keydown', e => {
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && (document.activeElement === first || document.activeElement === scope.querySelector('.modal'))) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}

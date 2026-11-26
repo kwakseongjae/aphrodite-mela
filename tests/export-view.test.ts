@@ -5,6 +5,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {exportBodyHtml, type ExportView} from '../src/editor/export-view.ts';
+import {initialProject,isApproved} from '../src/model';
+import {shownPage} from '../src/editor/starter';
+import {parseBatch} from '../src/agent/ops';
+import {runBatch} from '../src/agent/apply';
+import {personAt,agentDispatch} from '../src/agent/dispatch';
+import {exportPage,pageSource} from '../src/page-export';
+import {buildPrompt,fileName} from '../src/export';
+import {esc} from '../src/html';
+import {editorActions,editorCalls,noop} from './support/editor-calls';
 import {reachable} from './support/surfaces.ts';
 
 const CARD = '<div class="export-page ui-card" data-export-page><input type="checkbox" data-export-scripts><button data-action="download-page-html">Download this page</button></div>';
@@ -34,4 +43,34 @@ test('everything the export dialog shows of a page is the page it means: the one
   const dialog = main.slice(main.indexOf('function exportModal('), main.indexOf("modalRoot.addEventListener('change'"));
   assert.match(dialog, /page = shownPage\(project\)/);
   assert.doesNotMatch(dialog, /currentPage\(|project\.pages\[0\]|project\.activePageId/);
+});
+
+test('a stale index.html tab returns to board export after an agent removes the last section page',async()=>{
+  const project=initialProject(),person=personAt({isTrusted:true})!,agent=agentDispatch('test','mcp',{reason:'Keep the article'});
+  let body='',exports=0;
+  const tab={textContent:''},code={textContent:'',isConnected:true};
+  const label=(en:string)=>en;
+  const screen={...editorActions(project),uiLanguage:'en',ui:label,control:label,icon:noop,esc,shownPage,isApproved,
+    shownState:()=>'',BOARD_FILE:{extension:'aph'},exportBodyHtml,buildPrompt,pageSource,fileName,frameHost:{},
+    exportChoice:{scripts:true,videos:'out'},outgoing:()=>({host:{}}),exportPage:(...args:Parameters<typeof exportPage>)=>{exports++;return exportPage(...args);},
+    showModal:(_title:string,_subtitle:string,html:string)=>{body=html;},modalRoot:{querySelector:(s:string)=>
+      s.includes('export-tab')&&body.includes('class="export-tabs')?tab:s==='.export-code'&&body.includes('class="export-code')?code:null}};
+  editorCalls(['function commit(','async function action(','function openExport(','function exportModal(','function pageExportHtml('],screen);
+  const {commit,action}=screen as typeof screen & {commit:Function;action:Function};
+  const active=project.activePageId;
+  commit(()=>project.pages.push({id:'article',name:'Article',kind:'html',html:'<p>Article</p>',blocks:[]}),person,'edit.page-add');
+  await action({dataset:{action:'export'}},person,true);
+  assert.match(body,/data-action="export-tab" data-view="html"/);assert.equal(tab.textContent,'index.html');
+  const parsed=parseBatch({reason:agent.reason,patch:[{op:'remove_page',page_id:active},{op:'set',on:'project',field:'activePageId',value:'article'}]});
+  if('error' in parsed)throw new Error(parsed.error);
+  commit(()=>{
+    const result=runBatch(screen.project,parsed.batch,'');
+    if(!result.ok)throw new Error(result.error);
+    screen.project={...result.project,ledger:screen.project.ledger};
+  },agent,'edit.apply',{source:'agent:apply'});
+  assert.match(body,/data-action="export-tab" data-view="html"/,'the person still sees the old tab');
+  await action({dataset:{action:'export-tab',view:'html'}},person,true);
+  assert.equal(exports,0,'a tab the new dialog cannot display starts no HTML export');
+  assert.deepEqual(reachable(body),['download-board-file','download-page-html[id=article]','field:export-videos']);
+  assert.equal(screen.project.ledger?.changes.at(-1)?.source,'agent:apply');
 });
