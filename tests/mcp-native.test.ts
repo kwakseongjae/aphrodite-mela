@@ -71,11 +71,14 @@ test('both stdio servers return identical lines and send identical loopback call
   const file = join(dir,'endpoint.json');
   const calls:string[] = [];
   let status = 200;
+  let stall = false;
+  const held:import("node:http").ServerResponse[]=[];
   let response:unknown = {z:1, a:'two'};
   const app = createServer(async (req,res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     calls.push(JSON.stringify([req.method,req.url,req.headers.authorization,req.headers['x-aphrodite-agent'],body]));
+    if(stall){held.push(res);return;}
     res.writeHead(status,{'content-type':'application/json'}).end(JSON.stringify(response));
   });
   await new Promise<void>(resolve=>app.listen(0,'127.0.0.1',resolve));
@@ -139,4 +142,66 @@ test('both stdio servers return identical lines and send identical loopback call
   await call('aphrodite_get_render');
   response={guide:'Live guide'};await call('aphrodite_guide');
   response={html:'x'.repeat(1024*1024)};await call('aphrodite_get_page_html');
+  await t.test('Astra 11 — four stalled calls leave ping responsive and oversized responses are refused',async()=>{
+    stall=true;
+    for(const {child} of running) for(let i=0;i<4;i++)
+      child.stdin.write(JSON.stringify({id:i,method:'tools/call',params:{name:'aphrodite_get_contract'}})+'\n');
+    const deadline=Date.now()+5000;
+    while(held.length<8 && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(held.length,8);
+    assert.match((await call('aphrodite_get_contract')).result.content[0].text,/four calls/);
+    await rpc('ping');
+    stall=false;
+    for(const res of held.splice(0)) res.end('{}');
+    for(const {out} of running) {
+      const ids=[];
+      for(let i=0;i<4;i++)ids.push(JSON.parse((await out.next()).value!.toString()).id);
+      assert.deepEqual(ids.sort(),[0,1,2,3]);
+    }
+    response='x'.repeat(24*1024*1024);
+    assert.match((await call('aphrodite_get_contract')).result.content[0].text,/exceeds 24 MiB/);
+    response={};
+  });
+  await t.test('Opus 6 — every redirect, a refused port and the HTTP timeout agree', async()=>{
+    for(status=300;status<400;status++)
+      assert.match((await call('aphrodite_get_contract')).result.content[0].text,/not running/);
+    status=200;stall=true;
+    assert.match((await call('aphrodite_get_contract')).result.content[0].text,/did not answer in time/);
+    await new Promise<void>(resolve=>{app.close(resolve);app.closeAllConnections();});
+    assert.match((await call('aphrodite_get_contract')).result.content[0].text,/not running/);
+  });
+});
+
+const ping = '{"id":1,"method":"ping"}';
+function rawTranscript(input: Buffer | string) {
+  const dir=mkdtempSync(join(tmpdir(),'aph-frames-'));
+  try {
+    const options={input,env:{...process.env,APHRODITE_ENDPOINT_FILE:join(dir,'absent')},maxBuffer:2*1024*1024};
+    const results=[[process.execPath,[nodeServer]],[native,[]]] as const;
+    const lines=results.map(([bin,args])=>execFileSync(bin,[...args],options));
+    assert.deepEqual(lines[1],lines[0]);
+    return lines[0].toString('utf8').trimEnd().split('\n').map(s=>JSON.parse(s));
+  } finally {rmdirSync(dir);}
+}
+test('Astra 10 — invalid UTF-8, a BOM, bare CR and CRLF leave the next ping readable',()=>{
+  const out=rawTranscript(Buffer.concat([Buffer.from([255,10]),Buffer.from('\ufeff'+ping+'\r'+ping+'\r\n'+ping)]));
+  assert.deepEqual(out.map(r=>r.error?.code??r.id),[-32700,1,1,1]);
+});
+test('Opus 4 — surrounding pings survive invalid octets and a lone surrogate escape',()=>{
+  const out=rawTranscript(Buffer.concat([Buffer.from(ping+'\n'),Buffer.from([255,254,10]),
+    Buffer.from('{"id":"\\ud800","method":"ping"}\r'+ping+'\n')]));
+  assert.deepEqual(out.map(r=>r.error?.code??r.id),[1,-32700,-32700,1]);
+});
+test('Opus 5 — scalar frames and inherited object names have ordinary protocol results',()=>{
+  for(const name of ['constructor','__proto__']){
+    const q=(method:string)=>JSON.stringify({id:2,method,params:{name}});
+    const out=rawTranscript(['null','12','[]',q('prompts/get'),q('tools/call'),ping,''].join('\n'));
+    assert.equal(out.length,3);
+    assert.equal(out[0].error.message,'Unknown prompt: '+name);
+    assert.equal(out[1].result.content[0].text,'No such tool "'+name+'".');
+  }
+});
+test('Astra 11 — an oversized frame is drained before the next ping',()=>{
+  const out=rawTranscript(Buffer.concat([Buffer.alloc(24*1024*1024+1,32),Buffer.from('\n'+ping+'\n')]));
+  assert.deepEqual(out.map(r=>r.error?.code??r.id),[-32700,1]);
 });

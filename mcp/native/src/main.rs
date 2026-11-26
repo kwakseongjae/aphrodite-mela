@@ -1,10 +1,14 @@
 //! Stdio framing and a blocking loopback client. The application owns every permission decision.
+mod wire;
 use serde_json::{json, Map, Value};
 use std::{
     env, fs,
-    io::{self, BufRead, Read, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        OnceLock,
+    },
     time::Duration,
 };
 
@@ -82,11 +86,14 @@ fn query_escape(s: &str) -> String {
 }
 
 fn endpoint(path: &Path) -> Option<(String, String)> {
-    let v: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    let bytes = wire::bytes(fs::File::open(path).ok()?, wire::limit("endpointBytes")).ok()?;
+    let v = wire::parse(wire::decode(&bytes).ok()?).ok()?;
     let base = v["base"].as_str()?;
-    base.strip_prefix("http://127.0.0.1:")?
-        .parse::<u16>()
-        .ok()?;
+    let port = base.strip_prefix("http://127.0.0.1:")?;
+    if !port.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    port.parse::<u16>().ok()?;
     let token = v["token"].as_str()?.to_owned();
     if token.is_empty() {
         return None;
@@ -208,11 +215,22 @@ fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
     if (300..400).contains(&status) {
         return offline(&name);
     }
-    let mut bytes = Vec::new();
-    if res.into_reader().read_to_end(&mut bytes).is_err() {
-        return Value::Null;
-    }
-    let Ok(mut payload) = serde_json::from_slice::<Value>(&bytes) else {
+    let bytes = match wire::bytes(res.into_reader(), wire::limit("responseBytes")) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            return answer(manifest()["tooLarge"].clone(), true)
+        }
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+            ) =>
+        {
+            return answer(manifest()["timeout"].clone(), true)
+        }
+        Err(_) => return offline(&name),
+    };
+    let Ok(mut payload) = wire::decode(&bytes).and_then(wire::parse) else {
         return answer(
             json!(format!(
                 "Aphrodite answered something unexpected (HTTP {status})."
@@ -323,15 +341,28 @@ fn main() {
         .timeout(Duration::from_secs(25))
         .build();
     let mut who = text(&data["fallbackCaller"]).to_owned();
+    let active = AtomicUsize::new(0);
     std::thread::scope(|workers| {
-        for line in io::stdin().lock().lines().map_while(Result::ok) {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+        let mut stdin = io::stdin().lock();
+        while let Ok(Some(frame)) = wire::frame(&mut stdin, wire::limit("frameBytes")) {
+            let parsed = frame
+                .as_ref()
+                .map_err(|_| ())
+                .and_then(|b| wire::decode(b))
+                .and_then(|line| {
+                    if line.bytes().all(|b| matches!(b, b' ' | b'\t')) {
+                        Ok(Value::Null)
+                    } else {
+                        wire::parse(line)
+                    }
+                });
+            let Ok(msg) = parsed else {
                 error(&json!({"id":null}), -32700, "Parse error".into());
                 continue;
             };
+            if !msg.is_object() {
+                continue;
+            }
             let p = &msg["params"];
             let result = match text(&msg["method"]) {
                 "initialize" => {
@@ -369,15 +400,43 @@ fn main() {
                     json!({"description":prompt["description"],"messages":[{"role":"user","content":{"type":"text","text":body}}]})
                 }
                 "tools/call" => {
+                    let name = field(p, "name");
+                    if data["routes"].get(&name).is_none() {
+                        send(
+                            &msg,
+                            "result",
+                            answer(json!(format!("No such tool \"{name}\".")), true),
+                        );
+                        continue;
+                    }
                     let (path, who, client) = (path.clone(), who.clone(), client.clone());
-                    workers.spawn(move || {
+                    if active
+                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                            (n < wire::limit("inFlight")).then_some(n + 1)
+                        })
+                        .is_err()
+                    {
+                        send(&msg, "result", answer(data["busy"].clone(), true));
+                        continue;
+                    }
+                    let mut header = json!({});
+                    if let Some(id) = msg.get("id") {
+                        header["id"] = id.clone();
+                    }
+                    let count = &active;
+                    let worker = std::thread::Builder::new().spawn_scoped(workers, move || {
                         let result = call(&msg["params"], &who, &path, &client);
                         if !result.is_null() {
                             send(&msg, "result", result);
                         } else if !msg["id"].is_null() {
                             error(&msg, -32603, "Internal error".into());
                         }
+                        count.fetch_sub(1, Ordering::Release);
                     });
+                    if worker.is_err() {
+                        active.fetch_sub(1, Ordering::Release);
+                        error(&header, -32603, "Internal error".into());
+                    }
                     continue;
                 }
                 "ping" => json!({}),

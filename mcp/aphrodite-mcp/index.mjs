@@ -11,7 +11,8 @@
  * No dependencies on purpose: `node mcp/aphrodite-mcp/index.mjs` and nothing to install.
  */
 import {protocol} from './protocol.mjs';
-import {createInterface} from 'node:readline';
+import {once} from 'node:events';
+import {frames, decode, parse, readEndpoint, responseText} from './wire.mjs';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -42,7 +43,6 @@ function offline(name) {
 
 /** Who this client is, as it said at `initialize`. Every call carries it so the person sees the real name. */
 let caller = FALLBACK_CALLER;
-const log = message => process.stderr.write(`[aphrodite-mcp] ${message}\n`);
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const reply = (id, result) => send({jsonrpc: '2.0', id, result});
 const fail = (id, code, message) => send({jsonrpc: '2.0', id, error: {code, message}});
@@ -73,8 +73,8 @@ function ownerAlive(pid) {
  */
 function endpoint() {
   try {
-    const parsed = JSON.parse(readFileSync(ENDPOINT_FILE, 'utf8'));
-    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(parsed?.base) || !parsed?.token) return undefined;
+    const parsed = readEndpoint(ENDPOINT_FILE);
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(parsed?.base) || typeof parsed.token !== 'string' || !parsed.token || Number(parsed.base.split(':').at(-1))>65535) return undefined;
     if (!ownerAlive(parsed.pid)) return undefined;
     return parsed;
   } catch {
@@ -84,7 +84,7 @@ function endpoint() {
 
 /** One tool call, forwarded. Errors come back as text for the model to read, not as protocol errors. */
 async function callTool(name, args) {
-  const tool = toolByName[name];
+  const tool = Object.hasOwn(toolByName,name) && toolByName[name];
   if (!tool) return {isError: true, text: `No such tool "${name}".`};
   const where = endpoint();
   if (!where) return offline(name);
@@ -107,16 +107,21 @@ async function callTool(name, args) {
 
   // A call that never returns would leave the agent waiting for ever, so it is given a deadline: the
   // app's own bridge answers or gives up within fifteen seconds, and this allows for the round trip.
-  let response;
+  let response, text;
   try {
-    response = await fetch(url, {...init, redirect: 'error', signal: AbortSignal.timeout(25_000)});
+    response = await fetch(url, {...init, redirect: 'manual', signal: AbortSignal.timeout(25_000)});
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return offline(name);
+    }
+    text = await responseText(response);
   } catch (error) {
+    if(error instanceof RangeError) return {isError:true,text:protocol.tooLarge};
     return error?.name === 'TimeoutError' ? {isError: true, text: protocol.timeout} : offline(name);
   }
-  const text = await response.text();
   let payload;
   try {
-    payload = JSON.parse(text);
+    payload = parse(text);
   } catch {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }
@@ -159,7 +164,7 @@ async function handle(message) {
     case 'prompts/list':
       return reply(id, {prompts: promptManifest()});
     case 'prompts/get': {
-      const prompt = promptByName[params?.name];
+      const prompt = Object.hasOwn(promptByName,params?.name) && promptByName[params.name];
       if (!prompt) return fail(id, -32602, `Unknown prompt: ${params?.name}`);
       return reply(id, {description: prompt.description, messages: prompt.build(params?.arguments ?? {})});
     }
@@ -176,20 +181,31 @@ async function handle(message) {
   }
 }
 
-const lines = createInterface({input: process.stdin});
-lines.on('line', line => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
+let inFlight=0;
+for await (const bytes of frames(process.stdin)) {
+  if (process.stdout.writableNeedDrain) await once(process.stdout,'drain');
   let message;
   try {
-    message = JSON.parse(trimmed);
+    if (!bytes) throw new RangeError();
+    const text=decode(bytes);
+    if (/^[ \\t]*$/.test(text)) continue;
+    message=parse(text);
   } catch {
-    return fail(null, -32700, 'Parse error');
+    fail(null,-32700,'Parse error');
+    continue;
   }
-  handle(message).catch(error => {
-    log(`failed: ${error?.message ?? error}`);
-    if (message.id !== undefined && message.id !== null) fail(message.id, -32603, 'Internal error');
-  });
-});
-// Let accepted requests and stdout drain when a client closes stdin after its last line.
-log(`ready · ${toolManifest().length} tools · ${promptManifest().length} prompts · app endpoint ${ENDPOINT_FILE}`);
+  if (!message || Array.isArray(message) || typeof message !== 'object') continue;
+  const call = message.method==='tools/call';
+  if (call && !Object.hasOwn(toolByName,message.params?.name)) {
+    reply(message.id,{content:[{type:'text',text:`No such tool "${message.params?.name}".`}],isError:true});
+    continue;
+  }
+  if (call && inFlight >= protocol.limits.inFlight) {
+    reply(message.id,{content:[{type:'text',text:protocol.busy}],isError:true});
+    continue;
+  }
+  if(call) inFlight++;
+  handle(message).catch(()=>{
+    if(message.id!=null) fail(message.id,-32603,'Internal error');
+  }).finally(()=>{if(call)inFlight--;});
+}
