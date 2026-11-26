@@ -85,8 +85,7 @@ fn selected_in(parent: Dir, name: &std::ffi::OsStr) -> Result<(Dir, bool), Code>
 impl Grant {
     fn reader(&self, name: &str, kind: Kind, limit: u64) -> Result<(std::io::Take<fs::File>, u64), Code> {
         let media = matches!(kind, Kind::Media);
-        let file = self.open_kind(name, kind, if media { crate::board::MAX_MEDIA_BYTES } else { MAX_TEXT_BYTES })?;
-        let size = file.metadata().map_err(io_code)?.len();
+        let (file, size) = self.open_kind(name, kind, if media { crate::board::MAX_MEDIA_BYTES } else { MAX_TEXT_BYTES })?;
         let mut budget = self.budget.lock().unwrap();
         if size > budget.read { return Err("read_limit"); }
         if media && (size > budget.copy || size > limit) { return Err("copy_limit"); }
@@ -126,7 +125,7 @@ impl Grant {
         Ok(relative)
     }
 
-    fn open_kind(&self, name: &str, kind: Kind, limit: u64) -> Result<fs::File, Code> {
+    fn open_kind(&self, name: &str, kind: Kind, limit: u64) -> Result<(fs::File, u64), Code> {
         let path = Path::new(name);
         if name.is_empty() || name.contains(['\\', '\0']) || name.split('/').next().unwrap_or("").contains(':')
             || path.components().any(|part| !matches!(part, Component::Normal(_) | Component::CurDir)) {
@@ -153,7 +152,7 @@ impl Grant {
         };
         let meta = file.metadata().map_err(io_code)?;
         check(meta.is_file(), meta.len())?;
-        Ok(file)
+        Ok((file, meta.len()))
     }
 }
 
@@ -344,6 +343,10 @@ mod tests {
         let mut grants = Grants::default();
         let chosen = grants.give(root.path(), Instant::now(), false).unwrap();
         let grant = grants.get(&chosen.grant, Instant::now()).unwrap();
+        let (checked, size) = grant.open_kind("a.html", Kind::Document, 5).unwrap();
+        fs::write(root.path().join("a.html"), "123456").unwrap();
+        assert_eq!(std::io::copy(&mut checked.take(size), &mut std::io::sink()).unwrap(), 5);
+        fs::write(root.path().join("a.html"), "12345").unwrap();
         *grant.budget.lock().unwrap() = Budget { read: 8, copy: 3 };
         assert!(matches!(grant.reader("p.png", Kind::Media, 9), Err("copy_limit")));
         assert!(matches!(grant.reader("a.html", Kind::Document, 4), Err("read_limit")));
@@ -439,7 +442,7 @@ mod tests {
         let read = |id: &str, name: &str, at| -> Result<Vec<u8>, Code> {
             let grant = grants.get(id, at)?;
             let kind = if html_name(Path::new(name)) { Kind::Document } else { Kind::Script };
-            let f = grant.open_kind(name, kind, MAX_TEXT_BYTES)?;
+            let (f, _) = grant.open_kind(name, kind, MAX_TEXT_BYTES)?;
             reads.set(reads.get() + 1);
             read_text(f)
         };
