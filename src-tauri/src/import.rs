@@ -66,6 +66,22 @@ fn open_root(path: &Path, expected: &fs::Metadata) -> Result<Dir, Code> {
     Ok(Dir::from_std_file(file))
 }
 
+fn selected_in(parent: Dir, name: &std::ffi::OsStr) -> Result<(Dir, bool), Code> {
+    use cap_std::fs::MetadataExt as CapMetadataExt;
+    let selected = parent.symlink_metadata(name).map_err(io_code)?;
+    if selected.is_symlink() { return Err("symlink"); }
+    if selected.is_dir() {
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let child: fs::File = openat(&parent, name, flags, Mode::empty()).map_err(|e| io_code(e.into()))?.into();
+        let actual = child.metadata().map_err(io_code)?;
+        if (selected.dev(), selected.ino()) != (actual.dev(), actual.ino()) { return Err("changed"); }
+        return Ok((Dir::from_std_file(child), true));
+    }
+    if name.as_encoded_bytes().starts_with(b".") { return Err("hidden"); }
+    if !selected.is_file() || !html_name(Path::new(name)) { return Err("not_html"); }
+    Ok((parent, false))
+}
+
 impl Grant {
     fn reader(&self, name: &str, kind: Kind, limit: u64) -> Result<(std::io::Take<fs::File>, u64), Code> {
         let media = matches!(kind, Kind::Media);
@@ -146,20 +162,15 @@ struct Entry { chosen: Chosen, root: Arc<Grant>, until: Instant, waiting: bool }
 struct Grants(VecDeque<Entry>);
 impl Grants {
     fn give(&mut self, path: &Path, now: Instant, waiting: bool) -> Result<Chosen, Code> {
-        let selected = fs::symlink_metadata(path).map_err(io_code)?;
-        let directory = selected.is_dir();
-        if selected.is_symlink() { return Err("symlink"); }
-        if !directory && (!selected.is_file() || !html_name(path)) { return Err("not_html"); }
-        let parent = if directory { path } else { path.parent().ok_or("outside")? };
-        let expected = if directory { selected.clone() } else { fs::symlink_metadata(parent).map_err(io_code)? };
-        let dir = open_root(parent, &expected)?;
-        if !directory {
-            use cap_std::fs::MetadataExt as CapMetadataExt;
-            let name = path.file_name().ok_or("invalid_name")?;
-            if name.as_encoded_bytes().starts_with(b".") { return Err("hidden"); }
-            let anchored = dir.symlink_metadata(name).map_err(io_code)?;
-            if (selected.dev(), selected.ino()) != (anchored.dev(), anchored.ino()) { return Err("changed"); }
-        }
+        if !path.is_absolute() { return Err("outside"); }
+        let parent = path.parent().unwrap_or(path);
+        let held = open_root(parent, &fs::symlink_metadata(parent).map_err(io_code)?)?;
+        let (dir, directory) = match path.file_name() {
+            Some(name) => selected_in(held, name)?,
+            None if path == Path::new("/") => (held, true),
+            None => return Err("invalid_name"),
+        };
+        let handed_path = if directory { path } else { parent }.to_owned();
         const MAX_DOCUMENTS: usize = 128;
         let mut overflow = 0;
         let names = if directory {
@@ -180,7 +191,7 @@ impl Grants {
         let chosen = Chosen { grant: token()?, names, overflow };
         self.0.retain(|e| e.until > now);
         if self.0.len() >= 20 { self.0.pop_front(); }
-        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, handed_path: parent.to_owned(), budget: Mutex::new(Budget {read: 128 << 20, copy: 100 << 20})}), until: now + LIFETIME, waiting });
+        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, handed_path, budget: Mutex::new(Budget {read: 128 << 20, copy: 100 << 20})}), until: now + LIFETIME, waiting });
         Ok(chosen)
     }
 
@@ -340,6 +351,21 @@ mod tests {
         fs::write(root.path().join("a.html"), "123456").unwrap();
         assert_eq!(std::io::copy(&mut first, &mut std::io::sink()).unwrap(), 5);
         assert!(matches!(grant.reader("a.html", Kind::Document, 9), Err("read_limit")));
+    }
+
+    #[test]
+    fn a_file_handover_classifies_the_selection_from_its_held_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("chosen");
+        fs::create_dir(&parent).unwrap();
+        fs::write(parent.join("one.html"), "first").unwrap();
+        let held = open_root(&parent, &fs::metadata(&parent).unwrap()).unwrap();
+        fs::rename(&parent, temp.path().join("original")).unwrap();
+        fs::create_dir(&parent).unwrap();
+        fs::create_dir(parent.join("one.html")).unwrap();
+        let (root, is_folder) = selected_in(held, std::ffi::OsStr::new("one.html")).unwrap();
+        assert!(!is_folder);
+        assert_eq!(root.read("one.html").unwrap(), b"first");
     }
 
     #[test]
