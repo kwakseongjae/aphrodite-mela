@@ -192,3 +192,10 @@ test('CI runs the theme check with the other browser checks',()=>{
   const ci=readFileSync(new URL('../.github/workflows/checks.yml',import.meta.url),'utf8');
   assert.match(ci,/run: npm run verify:theme\n/);
 });
+
+test('the UI system names, among its known limits, that a design is always drawn light and that its dark look waits for a switch',()=>{
+  const doc=readFileSync(new URL('../docs/UI-SYSTEM.md',import.meta.url),'utf8');
+  const limits=doc.slice(doc.indexOf('## 알려진 한계'),doc.indexOf('### 기준에 못 미치는 조합'));
+  assert.match(limits,/디자인은 늘 밝은 쪽/);
+  assert.match(limits,/어두운 모습을 보는 스위치/);
+});
