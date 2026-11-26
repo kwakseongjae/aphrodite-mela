@@ -61,6 +61,7 @@ struct State {
     program: Program,
     entry: Option<Entry>,
     record: Record,
+    record_error: Option<Code>,
     get_exit: Option<i32>,
 }
 
@@ -184,9 +185,14 @@ fn named_values(lines: &[&str], separator: &str) -> bool {
 
 impl State {
     fn inspect(e: &Engine, program: Program, store: &Store) -> Result<Self, CommandResult> {
-        let mut state = Self::query(e, program, store.read()?)?;
+        let (record, warning) = match store.read() {
+            Ok(record) => (record, None),
+            Err(code) => (Record::default(), Some(code)),
+        };
+        let mut state = Self::query(e, program, record)?;
+        state.record_error = warning;
         if state.entry.is_none() && state.record.registered.take().is_some() {
-            store.save(&state.record)?;
+            state.record_error = store.save(&state.record).err();
         }
         Ok(state)
     }
@@ -208,6 +214,7 @@ impl State {
             program,
             entry,
             record,
+            record_error: None,
             get_exit: output.status,
         })
     }
@@ -242,10 +249,21 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     if !ask {
         return Ok(());
     }
-    let store = Store::lock(e)?;
-    match State::inspect(e, program, &store) {
+    let inspection = match Store::lock(e) {
+        Ok(store) => State::inspect(e, program, &store),
+        Err(Code::CliBusy) => Err(Code::CliBusy.into()),
+        Err(code) => State::query(e, program, Record::default()).map(|mut state| {
+            state.record_error = Some(code);
+            state
+        }),
+    };
+    match inspection {
         Ok(state) => {
-            out.unfinished_repoint = Some(state.record.pending.is_some());
+            out.error = state.record_error;
+            out.unfinished_repoint = state
+                .record_error
+                .is_none()
+                .then_some(state.record.pending.is_some());
             out.entry_exists = Some(state.entry.is_some());
             out.points_here = Some(state.points_here(e));
             out.owned = Some(state.owned(e));
@@ -365,6 +383,7 @@ impl State {
                 e.location,
                 &self.program,
                 &self.record,
+                self.record_error,
                 self.entry.as_ref().map(|v| &v.digest),
             ))
             .unwrap(),
@@ -376,6 +395,12 @@ impl State {
         let owned = self.owned(e);
         let here = self.points_here(e);
         let foreign = exists && !owned;
+        if let Some(code) = self.record_error {
+            // A press can repair a malformed receipt for a recognized current entry.
+            if !(code == Code::RecordFailed && action == Action::Connect && owned && here) {
+                return Err(code.into());
+            }
+        }
         if action == Action::Remove {
             if !exists {
                 return Err(Code::NoEntry.into());
@@ -611,6 +636,14 @@ impl State {
             }
             return save_record(store, None, failure);
         };
+        // Preserve the journal, but a witnessed absence ends the old ownership claim.
+        let mut absent = self.record.clone();
+        absent.registered = None;
+        if store.save(&absent).is_err() {
+            failure.cause = Some(failure.code);
+            failure.code = Code::RecordFailed;
+            return failure;
+        }
         // Only the confirmed recovery command may run, and only after observing absence.
         failure.cause = Some(failure.code);
         match restore.run(e, &self.program, Action::Connect) {
@@ -636,13 +669,6 @@ impl State {
             save_record(store, previous, failure)
         } else {
             failure.code = Code::RepointRestoreFailed;
-            if after.entry.is_none() {
-                let mut record = self.record.clone();
-                record.registered = None;
-                if store.save(&record).is_err() {
-                    failure.code = Code::RecordFailed;
-                }
-            }
             failure
         }
     }

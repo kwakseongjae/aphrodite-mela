@@ -941,3 +941,48 @@ fn astra_7_cli_discovery_also_refuses_a_link_to_the_settings_inode() {
     assert_eq!(f.status()["error"], "cli_untrusted");
     assert!(f.calls().is_empty());
 }
+#[test]
+fn astra_6_readable_registration_survives_an_unreadable_record() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    fs::write(record_path(&f), "incomplete fixture").unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["pointsHere"], true);
+    assert_eq!(s["error"], "record_failed");
+    let repair = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &repair, false)["code"],
+        "already_connected"
+    );
+    assert_eq!(f.status()["error"], Value::Null);
+}
+
+#[test]
+fn astra_5_remove_that_commits_then_times_out_is_checked_before_restoration() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    f.0.engine.cli_timeout = Duration::from_secs(2);
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"hang":true,"once":true,"exit":0}),
+    );
+    let start = f.calls().len();
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["code"], "repoint_restored");
+    assert_eq!(r["cause"], "cli_timeout");
+    assert_eq!(r["observed"]["owned"], true);
+    assert_eq!(r["observed"]["pointsHere"], false);
+    let calls = f.calls();
+    assert_eq!(
+        calls[start..]
+            .iter()
+            .map(|c| c["args"][1].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["get", "remove", "get", "add", "get"]
+    );
+}
