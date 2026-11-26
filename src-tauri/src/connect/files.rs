@@ -2,7 +2,7 @@
 use super::{Code, Receipt, Result};
 use cap_std::{
     ambient_authority,
-    fs::{Dir, OpenOptions, OpenOptionsExt},
+    fs::{Dir, MetadataExt as _, OpenOptions, OpenOptionsExt},
 };
 use std::{
     ffi::{OsStr, OsString},
@@ -250,16 +250,20 @@ impl FileState {
             }
             Err(e) => return Err(io_code(e)),
         };
-        if !meta.is_file() {
+        if !meta.is_file() || meta.nlink() != 1 {
             return Err(Code::InvalidPath);
         }
+        let identity = (meta.dev(), meta.ino());
         let mut opts = OpenOptions::new();
         opts.read(true)
             .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
         let mut file = root.open_with(relative, &opts).map_err(io_code)?.into_std();
         let meta = file.metadata().map_err(io_code)?;
-        if !meta.is_file() {
+        if !meta.is_file() || meta.nlink() != 1 {
             return Err(Code::InvalidPath);
+        }
+        if (meta.dev(), meta.ino()) != identity {
+            return Err(Code::Changed);
         }
         let mut source = String::new();
         file.read_to_string(&mut source)
@@ -285,11 +289,21 @@ impl FileState {
         }
         if self.file.is_some() {
             // Open with the effective user's credentials, without truncating or following links.
+            let meta = root.symlink_metadata(target).map_err(io_code)?;
+            if !meta.is_file() || meta.nlink() != 1 {
+                return Err(Code::InvalidPath);
+            }
             let mut opts = OpenOptions::new();
             opts.write(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
             let check = root.open_with(target, &opts).map_err(io_code)?.into_std();
-            if check.metadata().map_err(io_code)?.ino() != self.revision.0 {
+            let opened = check.metadata().map_err(io_code)?;
+            if opened.nlink() != 1 {
+                return Err(Code::InvalidPath);
+            }
+            if (opened.dev(), opened.ino()) != (meta.dev(), meta.ino())
+                || opened.ino() != self.revision.0
+            {
                 return Err(Code::Changed);
             }
         }

@@ -1190,3 +1190,17 @@ fn a_file_tool_cannot_follow_a_link_into_the_claude_code_configuration() {
         );
     }
 }
+
+#[test]
+fn astra_7_file_tools_refuse_multiply_linked_configurations_before_reading() {
+    let h = Home::new();
+    let private = h.file(Tool::ClaudeCode, "unparseable fixture");
+    for tool in WRITTEN {
+        let file = h.engine.path(tool);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::hard_link(&private, &file).unwrap();
+        assert_eq!(h.engine.status(tool).unwrap().error, Some(Code::InvalidPath));
+        assert!(matches!(h.engine.preview(tool, Action::Connect, 1), Err(Code::InvalidPath)));
+        fs::remove_file(file).unwrap();
+    }
+}
