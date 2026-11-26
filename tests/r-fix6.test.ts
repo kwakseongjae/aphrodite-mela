@@ -26,8 +26,12 @@ function removals(source: string): {fn: string; line: string}[] {
    what a process that ended left stays. */
 test('a board file is removed only when this process\'s own batch is refused', () => {
   const sites = removals(board);
-  assert.deepEqual([...new Set(sites.map(s => s.fn))].sort(), ['append', 'copy_hashed', 'finish', 'publish_in', 'reap', 'release', 'settle', 'sweep'],
+  assert.deepEqual([...new Set(sites.map(s => s.fn))].sort(), ['append', 'copy_hashed', 'finish', 'publish_in', 'reap', 'release', 'remove_if_present', 'settle', 'stage_page_asset', 'sweep'],
     'uploads on their way in, the frames\' copies, and one release');
+  const releaseCalls = board.split('mod tests')[0].split('\n').filter(line => /remove_if_present\(&/.test(line)).map(line => line.trim());
+  assert.deepEqual(releaseCalls, ['remove_if_present(&marker)?;', 'remove_if_present(&claim)'], 'only private upload links can be released');
+  assert.deepEqual(sites.filter(s => s.fn === 'stage_page_asset').map(s => s.line),
+    ['if new { let _ = fs::remove_file(&marker); }'], 'a failed reservation clears its private marker');
   const media = sites.filter(s => /MEDIA|&path\)|media_file/.test(s.line) && !['append', 'finish', 'reap', 'sweep', 'publish_in'].includes(s.fn));
   assert.deepEqual(media.map(s => s.fn), [], 'no board file is removed: release clears marks only (0.3-R fix 7 #1)');
   assert.doesNotMatch(board, /fn reap_marks|fn saved_libraries|fn hold_session|workspace-v1/, 'nothing judges by the saved library or a session that ended');

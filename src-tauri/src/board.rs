@@ -163,7 +163,6 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
     let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
     let _held = settling(base)?;
     if dest.exists() {
-        remove_if_present(&import_marker(base, &dest))?;
         let _ = fs::remove_file(incoming);
         let _ = fs::remove_file(mark(base, &dest)?);
     } else {
@@ -182,7 +181,7 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
 pub(crate) fn release(base: &Path, shas: &[String], session: &str) {
     let Ok(_held) = settling(base) else { return };
     for sha in shas {
-        let Some(path) = media_file(base, sha) else { continue };
+        let Some(path) = published_file(base, sha) else { continue };
         let Ok(marked) = mark(base, &path) else { continue };
         if fs::read_to_string(&marked).ok().as_deref() != Some(session) {
             continue;
@@ -239,8 +238,7 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
     }
 }
 
-/// A new file is readable when the synchronous board change runs. Hard links in the private
-/// upload folder record each outstanding import. Existing permanent files need no receipt.
+/// Uncommitted files live in the private upload folder. A receipt links the bytes to one import.
 pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> Result<ImportAsset, &'static str> {
     let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS).map_err(|_| "io")?).map_err(|_| "io")?.into_temp_path();
     let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset).map_err(|e| {
@@ -253,25 +251,19 @@ pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> R
     let dest = base.join(MEDIA).join(&filename);
     let marker = import_marker(base, &dest);
     let _held = settling(base).map_err(|_| "io")?;
-    let new = !dest.try_exists().map_err(|_| "io")?;
-    if !new && !marker.try_exists().map_err(|_| "io")? { return Ok(ImportAsset {stored, receipt: None}); }
+    if dest.try_exists().map_err(|_| "io")? { return Ok(ImportAsset {stored, receipt: None}); }
     fs::create_dir_all(marker.parent().unwrap()).map_err(|_| "io")?;
+    let new = !marker.try_exists().map_err(|_| "io")?;
+    if new { fs::rename(&incoming, &marker).map_err(|_| "io")?; }
     let ticket = format!("{}.{}", filename, crate::agent::random_token());
-    let receipt = marker.with_file_name(&ticket);
-    if new { fs::hard_link(&incoming, &marker).map_err(|_| "io")?; }
-    let reserve = fs::hard_link(&marker, &receipt).and_then(|_| {
-        if new { fs::rename(&incoming, &dest) } else { Ok(()) }
-    });
-    if reserve.is_err() {
-        let _ = fs::remove_file(&receipt);
+    if fs::hard_link(&marker, marker.with_file_name(&ticket)).is_err() {
         if new { let _ = fs::remove_file(&marker); }
         return Err("io");
     }
     Ok(ImportAsset {stored, receipt: Some(ticket)})
 }
 
-/// An import can relinquish only its own private receipt. The last refusal removes a file only
-/// while it has the provisional marker and no other receipt. Every ordinary store clears the marker.
+/// Under the settlement lock, publish by rename or release only private uploads.
 pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<(), String> {
     let mut parts = receipt.split('.');
     let (sha, ext, token) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
@@ -282,10 +274,12 @@ pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<()
     let claim = marker.with_file_name(receipt);
     let _held = settling(base)?;
     if !claim.try_exists().map_err(|e| e.to_string())? { return Ok(()); }
-    if keep { remove_if_present(&marker)?; }
-    else if marker.try_exists().map_err(|e| e.to_string())? && fs::metadata(&claim).map_err(|e| e.to_string())?.nlink() == 3 {
-        remove_if_present(&dest)?;
-        remove_if_present(&marker)?;
+    if marker.try_exists().map_err(|e| e.to_string())? {
+        if keep && !dest.try_exists().map_err(|e| e.to_string())? {
+            fs::rename(&marker, &dest).map_err(|e| e.to_string())?;
+        } else if fs::metadata(&marker).map_err(|e| e.to_string())?.nlink() == 2 {
+            remove_if_present(&marker)?;
+        }
     }
     remove_if_present(&claim)
 }
@@ -328,11 +322,30 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
 }
 
 /// Where a board's file is, when this Mac has it.
-pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
-    if !is_sha(sha) {
-        return None;
-    }
+fn published_file(base: &Path, sha: &str) -> Option<PathBuf> {
+    if !is_sha(sha) { return None; }
     BOARD_FILES.iter().map(|(ext, _)| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
+}
+
+/// A render or export may ask for committed bytes before its import's finish IPC arrives,
+/// including after an interrupted finish. Claim the private copy under the same lock.
+pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
+    if let Some(path) = published_file(base, sha) { return Some(path); }
+    if !is_sha(sha) { return None; }
+    let pending = base.join(UPLOADS).join("importing");
+    if !pending.is_dir() { return None; }
+    let _held = settling(base).ok()?;
+    if let Some(path) = published_file(base, sha) { return Some(path); }
+    for (ext, _) in BOARD_FILES {
+        let name = format!("{sha}.{ext}");
+        let source = pending.join(&name);
+        if source.is_file() {
+            let dest = base.join(MEDIA).join(name);
+            fs::rename(source, &dest).ok()?;
+            return Some(dest);
+        }
+    }
+    None
 }
 
 /// What a board's file is, by its name here: its kind and its size, without reading it.
@@ -569,9 +582,11 @@ mod tests {
         let stage = || stage_page_asset(dir.path(), &PNG[..], PNG.len() as u64).unwrap();
         let first = stage();
         let second = stage();
+        let permanent = dir.path().join(MEDIA).join(format!("{}.png", first.stored.sha));
+        assert!(!permanent.exists(), "unaccepted copies are private uploads");
         let file = || media_file(dir.path(), &first.stored.sha);
         finish_import(dir.path(), &first.receipt.unwrap(), false).unwrap();
-        assert!(file().is_some(), "another import still holds the copy");
+        assert!(!permanent.exists(), "another import still holds its private copy");
         finish_import(dir.path(), &second.receipt.unwrap(), false).unwrap();
         assert!(file().is_none());
         let accepted = stage();
@@ -580,6 +595,12 @@ mod tests {
         finish_import(dir.path(), &refused.receipt.unwrap(), false).unwrap();
         assert!(file().is_some(), "the accepted copy stays");
         assert!(stage().receipt.is_none(), "a previously carried file needs no lease");
+
+        let reading = tempfile::tempdir().unwrap();
+        let staged = stage_page_asset(reading.path(), &PNG[..], PNG.len() as u64).unwrap();
+        let published = media_file(reading.path(), &staged.stored.sha).unwrap();
+        finish_import(reading.path(), &staged.receipt.unwrap(), false).unwrap();
+        assert_eq!(fs::read(published).unwrap(), PNG, "a board already reading this hash keeps it");
 
         let other = tempfile::tempdir().unwrap();
         let held = stage_page_asset(other.path(), &PNG[..], PNG.len() as u64).unwrap();
