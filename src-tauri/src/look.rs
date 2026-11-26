@@ -96,20 +96,23 @@ fn appearance(window: &WebviewWindow, name: Option<&'static str>) {
 #[cfg(not(target_os = "macos"))]
 fn appearance(_window: &WebviewWindow, _name: Option<&'static str>) {}
 
-/// The person's pick (src/main.ts paintPaper): kept for the next launch, and put on the main window.
+/// Keeps a pick for the next launch; one that cannot be written says so.
+fn keep(file: &std::path::Path, look: Look) -> Result<(), String> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|error| format!("could not keep the look: {error}"))?;
+    }
+    std::fs::write(file, look.name()).map_err(|error| format!("could not keep the look: {error}"))
+}
+
+/// The person's pick (src/main.ts paintPaper): put on the main window, and kept for the next launch. A pick
+/// that could not be kept is still on the window; the error says the next launch will not have it.
 #[tauri::command]
 pub fn window_look(app: AppHandle, look: String) -> Result<(), String> {
     let look = Look::parse(&look).ok_or("not a look: system, light or dark")?;
-    if let Some(file) = kept(&app) {
-        if let Some(dir) = file.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(file, look.name());
-    }
     if let Some(window) = app.get_webview_window("main") {
         apply(&window, look);
     }
-    Ok(())
+    keep(&kept(&app).ok_or("could not find where to keep the look")?, look)
 }
 
 #[cfg(test)]
@@ -124,5 +127,18 @@ mod tests {
         assert_eq!(Look::parse("dark\n"), Some(Look::Dark));
         assert_eq!(Look::parse("night"), None);
         assert_eq!(Look::parse(""), None);
+    }
+
+    #[test]
+    fn a_pick_that_cannot_be_kept_says_so() {
+        let dir = std::env::temp_dir().join(format!("aphrodite-look-{}", std::process::id()));
+        let file = dir.join("config").join("look");
+        assert_eq!(keep(&file, Look::Dark), Ok(()));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "dark");
+        let blocked = file.join("look");
+        assert!(keep(&blocked, Look::Light).is_err(), "a folder where a file is cannot hold the pick");
+        std::fs::remove_file(&file).unwrap();
+        std::fs::remove_dir(dir.join("config")).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
     }
 }
