@@ -108,6 +108,29 @@ test('the new version is told in the one card, through the card place',async()=>
   assert.equal(noticeCardHtml('x','failed','<p>y</p>'),'<div class="x ui-card ui-notice-card" role="status" aria-live="polite" data-state="failed"><p>y</p></div>');
 });
 
+/* The person goes on editing after a save failed: every edit queues a write that fails the same way. The dialog opened
+   once and was put away with Later; it does not come back with each edit, and the mark stays. */
+test('a save that keeps failing opens its dialog once, however many edits follow',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  const {DurableQueue}=await import('../src/workspace/durable');
+  let opened=0;const toasts:string[]=[];let marks=0;
+  const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
+    writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
+    document:{querySelectorAll:()=>[]},control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,modalRoot:{children:[]},askOpen:()=>false,openTrouble:()=>{opened++;},
+    vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
+  editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function troubleNow(','function troubleOpened('],screen);
+  const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
+  const settle=()=>new Promise(r=>setTimeout(r,5));
+  queue.enqueue('one');await settle();
+  assert.equal(opened,1,'the first failure opens the dialog');
+  for(const edit of ['two','three','four']){queue.enqueue(edit);await settle();}
+  assert.equal(opened,1,'Later is not undone by the next edit');
+  assert.deepEqual(toasts,[],'and no toast repeats what the dialog said');
+  assert.ok((screen.troubleNow as ()=>unknown)(),'the mark still has its trouble to show');
+  assert.ok(marks>0);
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};
