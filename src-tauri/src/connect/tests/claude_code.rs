@@ -6,7 +6,7 @@ use std::{
 };
 
 const CLAUDE: Tool = Tool::ClaudeCode;
-const SCRIPT: &str = include_str!("../../../../tests/support/claude-registration.py");
+const SCRIPT: &str = include_str!("../../../../tests/support/claude-registration.sh");
 
 struct Fixture(Home);
 impl Fixture {
@@ -15,10 +15,7 @@ impl Fixture {
         let dir = home.engine.home.join("tools 'and spaces'");
         fs::create_dir(&dir).unwrap();
         let program = home.engine.home.join("playback");
-        // Record the process environment before macOS's Python launcher adds SDKROOT.
-        fs::write(&program, format!(
-            "#!/bin/sh\n[ \"$HOME\" = {} ] || exit 90\n/usr/bin/env | /usr/bin/cut -d= -f1 > \"$HOME/cli-env\"\nexec /usr/bin/python3 -I - \"$@\" <<'PYTHON'\n{SCRIPT}\nPYTHON\n", format!("'{}'", home.engine.home.display().to_string().replace('\'', "'\"'\"'"))
-        )).unwrap();
+        fs::write(&program, SCRIPT).unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
         symlink(program, dir.join("claude")).unwrap();
         fs::write(home.engine.home.join("fake-cli-home"), []).unwrap();
@@ -338,4 +335,41 @@ fn all_registration_writes_recheck_the_runtime_location_before_running_a_cli() {
         }
     }
     assert_eq!(f.calls().len(), before);
+}
+
+#[test]
+fn a_receipt_is_scoped_to_the_cli_profile_and_cleared_on_remove() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    f.0.engine.exe = "/Applications/New.app/Contents/MacOS/aphrodite-mcp".into();
+    let p = f.proposal(Action::Remove);
+    f.0.engine.claude_config_dir = Some(f.e().home.join("another-profile"));
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.apply(Action::Remove, &p, true)["code"], "changed");
+    f.0.engine.claude_config_dir = None;
+    assert_eq!(f.apply(Action::Remove, &p, false)["code"], "removed");
+    f.state(old.to_str().unwrap(), "");
+    assert_eq!(f.status()["owned"], false);
+}
+
+#[test]
+fn a_success_line_with_extra_text_is_not_a_safe_tail() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let line = format!(
+        "Added stdio MCP server aphrodite with command: {} to user config",
+        f.e().executable()
+    );
+    f.override_reply(
+        "add",
+        json!({"out":format!("{line} private-neighbor"), "exit":0}),
+    );
+    let reply = f.apply(Action::Connect, &p, false);
+    assert_eq!(reply["exitStatus"], 0);
+    assert_eq!(reply["tail"], Value::Null);
 }

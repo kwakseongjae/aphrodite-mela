@@ -1,4 +1,9 @@
-#!/usr/bin/python3 -I
+#!/bin/sh
+# The executable is installed at <injected home>/<bin directory>/claude.
+[ "${0%/*/*}" = "$HOME" ] || exit 90
+# The Apple Python launcher adds environment variables. Record keys before it runs.
+/usr/bin/env | /usr/bin/cut -d= -f1 > "$HOME/cli-env"
+exec /usr/bin/python3 -I - "$@" <<'PYTHON'
 """A local playback CLI for the Rust connection tests."""
 import json
 import os
@@ -47,3 +52,4 @@ elif verb == "remove":
 else:
     sys.exit(2)
 print("File modified: private-neighbor", file=sys.stderr)
+PYTHON
