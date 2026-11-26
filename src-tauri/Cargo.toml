@@ -19,7 +19,8 @@ tempfile = "3"
 fs2 = "0.4"
 libc = "0.2"
 cap-std = "4"
-cap-tempfile = "4"
+rustix = { version = "1", features = ["fs"] }
+uuid = { version = "1", features = ["v4"] }
 xattr = "1"
 toml_edit = "0.22"
 jsonc-parser = "0.34"

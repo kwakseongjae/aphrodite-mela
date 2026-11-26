@@ -71,6 +71,17 @@ pub fn resolve(root: &Dir, home: &Path, path: &Path) -> Result<PathBuf> {
         if resolved.file_name().is_none() {
             return Err(Code::InvalidPath);
         }
+        // Neither client's auth store is an MCP configuration, even when the config is a symlink.
+        if resolved
+            .file_name()
+            .and_then(|v| v.to_str())
+            .is_some_and(|name| {
+                name.eq_ignore_ascii_case("auth.json")
+                    || name.eq_ignore_ascii_case(".credentials.json")
+            })
+        {
+            return Err(Code::InvalidPath);
+        }
         return Ok(resolved);
     }
     Err(Code::InvalidPath)
@@ -160,12 +171,13 @@ impl FileState {
         dir: &'d Dir,
         data: &str,
         receipt: Option<&Receipt>,
-    ) -> Result<cap_tempfile::TempFile<'d>> {
-        let mut temp = cap_tempfile::TempFile::new(dir).map_err(io_code)?;
-        let file = temp.as_file().try_clone().map_err(io_code)?.into_std();
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(io_code)?;
-        temp.write_all(data.as_bytes()).map_err(io_code)?;
+    ) -> Result<Staged<'d>> {
+        let name = format!(".aphrodite-{}.tmp", uuid::Uuid::new_v4());
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true).mode(0o600);
+        let mut file = dir.open_with(&name, &opts).map_err(io_code)?.into_std();
+        let temp = Staged { dir, name };
+        file.write_all(data.as_bytes()).map_err(io_code)?;
         if let Some(original) = &self.file {
             for key in original.list_xattr().map_err(io_code)? {
                 if key == RECEIPT {
@@ -184,6 +196,37 @@ impl FileState {
             .map_err(io_code)?;
         file.sync_all().map_err(io_code)?;
         Ok(temp)
+    }
+}
+pub struct Staged<'d> {
+    dir: &'d Dir,
+    name: String,
+}
+impl Staged<'_> {
+    pub fn publish(mut self, name: &std::ffi::OsStr, existing: bool) -> Result<()> {
+        use rustix::fs::{renameat_with, RenameFlags};
+        // A concurrent first creation must win even after our last fingerprint check.
+        let flags = if existing {
+            RenameFlags::empty()
+        } else {
+            RenameFlags::NOREPLACE
+        };
+        renameat_with(self.dir, self.name.as_str(), self.dir, name, flags).map_err(|e| {
+            if e == rustix::io::Errno::EXIST {
+                Code::Changed
+            } else {
+                io_code(e.into())
+            }
+        })?;
+        self.name.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged<'_> {
+    fn drop(&mut self) {
+        if !self.name.is_empty() {
+            let _ = self.dir.remove_file(&self.name);
+        }
     }
 }
 pub fn backup_name(target: &Path, stamp: u128) -> Result<OsString> {

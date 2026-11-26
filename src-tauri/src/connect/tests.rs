@@ -333,3 +333,95 @@ fn codex_can_restore_a_foreign_server_with_children_separated_by_other_tables() 
         assert_eq!(fs::read_to_string(f).unwrap(),text);
     }
 }
+
+#[test]
+fn a_config_file_and_an_installed_tool_are_independent_signals() {
+    let h = Home::new();
+    let mut e = h.engine;
+    let tool = Tool::Cursor;
+    let path = e.path(tool);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, "{}").unwrap();
+    assert!(!e.status(tool).unwrap().installed);
+    let apps = e.home.join("Applications");
+    fs::create_dir_all(apps.join("Cursor.app")).unwrap();
+    e.app_dirs.push(apps);
+    assert!(e.status(tool).unwrap().installed);
+}
+#[test]
+fn disk_image_mounts_are_identified_by_component_and_regular_external_disks_are_distinct() {
+    let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Volumes/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
+    assert!(mounted_image(
+        Path::new("/Volumes/Aphrodite/Aphrodite.app/Contents/MacOS/app"),
+        &info
+    ));
+    assert!(!mounted_image(
+        Path::new("/Volumes/Aphrodite External/Other.app"),
+        &info
+    ));
+    assert_eq!(
+        location(Path::new(
+            "/private/tmp/AppTranslocation/abc/d/X.app/Contents/MacOS/app"
+        )),
+        Location::Translocated
+    );
+}
+
+#[test]
+fn a_file_first_created_by_another_process_wins_even_at_the_final_rename() {
+    use super::files::{root, FileState};
+    let h = Home::new();
+    let e = &h.engine;
+    let dir = root(&e.home).unwrap();
+    let name = Path::new("config.toml");
+    let f = FileState::read(&dir, name).unwrap();
+    let pending = f.temp(&dir, "our bytes", None).unwrap();
+    dir.write(name, "their bytes").unwrap();
+    assert!(pending.publish(name.as_os_str(), false).is_err());
+    assert_eq!(dir.read_to_string(name).unwrap(), "their bytes");
+}
+
+#[test]
+fn a_config_symlink_cannot_turn_a_client_credential_store_into_a_config_file() {
+    for (tool, store) in [
+        (Tool::Codex, ".codex/auth.json"),
+        (Tool::ClaudeCode, ".claude/.credentials.json"),
+    ] {
+        let h = Home::new();
+        let e = &h.engine;
+        let f = e.path(tool);
+        let credentials = e.home.join(store);
+        fs::create_dir_all(credentials.parent().unwrap()).unwrap();
+        fs::write(
+            &credentials,
+            if tool == Tool::Codex {
+                "# synthetic"
+            } else {
+                "{}"
+            },
+        )
+        .unwrap();
+        symlink(&credentials, &f).unwrap();
+        assert_eq!(e.status(tool).unwrap().error, Some(Code::InvalidPath));
+    }
+}
+
+#[test]
+fn a_literal_provider_credential_is_never_returned_in_a_preview_or_copied_to_a_backup() {
+    for (tool, source) in [
+        (
+            Tool::Cursor,
+            r#"{"mcpServers":{"other":{"env":{"ANTHROPIC_API_KEY":"synthetic"}}}}"#,
+        ),
+        (
+            Tool::Codex,
+            "[mcp_servers.other.env]\nOPENAI_API_KEY='synthetic'",
+        ),
+    ] {
+        let h = Home::new();
+        let e = &h.engine;
+        let path = h.file(tool, source);
+        assert!(e.preview(tool, Action::Connect, 1).is_err());
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
+}

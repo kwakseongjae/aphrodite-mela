@@ -82,6 +82,41 @@ fn object_property<'a, 'b>(
     Ok(first)
 }
 
+// A backup contains all original bytes. Leave a config with an inline provider credential
+// untouched. Variable references are configuration text and are never expanded.
+fn provider_literal(key: &str, value: Option<&str>) -> bool {
+    matches!(
+        key,
+        "OPENAI_API_KEY"
+            | "CODEX_API_KEY"
+            | "ANTHROPIC_API_KEY"
+            | "ANTHROPIC_AUTH_TOKEN"
+            | "CLAUDE_CODE_OAUTH_TOKEN"
+    ) && value.is_some_and(|s| !s.is_empty() && !(s.starts_with("${") && s.ends_with('}')))
+}
+fn json_credential(v: &jsonc_parser::ast::Value) -> bool {
+    match v {
+        jsonc_parser::ast::Value::Object(o) => o.properties.iter().any(|p| {
+            provider_literal(
+                p.name.as_str(),
+                p.value.as_string_lit().map(|v| v.value.as_ref()),
+            ) || json_credential(&p.value)
+        }),
+        jsonc_parser::ast::Value::Array(a) => a.elements.iter().any(json_credential),
+        _ => false,
+    }
+}
+#[derive(Default)]
+struct TomlCredential(bool);
+impl<'a> toml_edit::visit::Visit<'a> for TomlCredential {
+    fn visit_table_like_kv(&mut self, key: &'a str, item: &'a Item) {
+        self.0 |= provider_literal(key, item.as_str());
+        if !self.0 {
+            toml_edit::visit::visit_table_like_kv(self, key, item);
+        }
+    }
+}
+
 fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
     let value = json_entry(tool, exe);
     let property = format!(r#""aphrodite":{value}"#);
@@ -111,6 +146,9 @@ fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
         &opts,
     )
     .map_err(|_| Code::InvalidConfig)?;
+    if parsed.value.as_ref().is_some_and(json_credential) {
+        return Err(Code::ProviderCredential);
+    }
     let root = parsed
         .value
         .as_ref()
@@ -207,6 +245,11 @@ fn table_blocks(
 
 fn toml(source: &str, exe: &str) -> Result<Layout> {
     let doc = ImDocument::parse(source).map_err(|_| Code::InvalidConfig)?;
+    let mut credential = TomlCredential::default();
+    toml_edit::visit::Visit::visit_item(&mut credential, doc.as_item());
+    if credential.0 {
+        return Err(Code::ProviderCredential);
+    }
     let nl = if source.contains("\r\n") {
         "\r\n"
     } else {

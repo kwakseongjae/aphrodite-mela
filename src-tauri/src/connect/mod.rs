@@ -22,6 +22,7 @@ type Result<T> = std::result::Result<T, Code>;
 #[serde(rename_all = "snake_case")]
 pub enum Code {
     InvalidConfig,
+    ProviderCredential,
     Ambiguous,
     OutsideHome,
     InvalidPath,
@@ -77,6 +78,7 @@ pub struct Status {
     executable: PathBuf,
     location: Location,
     copy_only: bool,
+    config_exists: Option<bool>,
     entry_exists: Option<bool>,
     points_here: Option<bool>,
     owned: Option<bool>,
@@ -219,6 +221,7 @@ impl Engine {
             executable: self.exe.clone(),
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,
+            config_exists: None,
             entry_exists: None,
             points_here: None,
             owned: None,
@@ -238,7 +241,7 @@ impl Engine {
         };
         match inspect() {
             Ok((seen, exists, points, owned)) => {
-                out.installed |= seen;
+                out.config_exists = Some(seen);
                 out.entry_exists = Some(exists);
                 out.points_here = Some(points);
                 out.owned = Some(owned);
@@ -488,11 +491,10 @@ impl Engine {
         }
         let result = unchanged().and_then(|()| {
             if let Some(temp) = temp {
-                temp.replace(name)
+                temp.publish(name, file.text.is_some())
             } else {
-                dir.remove_file(name)
+                dir.remove_file(name).map_err(|_| Code::Io)
             }
-            .map_err(|_| Code::Io)
         });
         if let Err(code) = result {
             if let Some(name) = backup {
