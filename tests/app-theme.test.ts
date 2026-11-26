@@ -203,4 +203,9 @@ test('the UI system names, among its known limits, that a design is always drawn
   const limits=doc.slice(doc.indexOf('## 알려진 한계'),doc.indexOf('### 기준에 못 미치는 조합'));
   assert.match(limits,/디자인은 늘 밝은 쪽/);
   assert.match(limits,/어두운 모습을 보는 스위치/);
+  // 0.3-L5 fix 2 (#14, #15, #13): an exported file is the page's own, older WebKit is a known gap, and the check compares the preview as text.
+  assert.match(limits,/앱 안에서는 늘 밝은 쪽으로 보이고, 내보낸 파일은 받는 사람의 화면 설정을 따를 수 있어요/);
+  assert.match(limits,/macOS 15 미만/);
+  assert.match(limits,/srcdoc/);
+  assert.doesNotMatch(readFileSync(new URL('../docs/COMPUTER-USE.md',import.meta.url),'utf8'),/rendered or exported is always drawn light/);
 });
