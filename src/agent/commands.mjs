@@ -980,6 +980,16 @@ export const commands = [
     controls: [action('disk-start-fresh')],
   },
 
+  // The connection settings will bind these for all four clients.
+  ...[
+    ['connect', 'Connect a tool', '도구 연결'],
+    ['repoint', 'Update a tool connection', '도구 연결 경로 변경'],
+    ['remove', 'Remove a tool connection', '도구 연결 해제'],
+  ].map(([verb, en, ko]) => ({
+    id: 'human.tool-' + verb, label: {en, ko}, grade: 'human', input: NOTHING,
+    ...plain, author: 'person-only', surfaces: UI, controls: [],
+  })),
+
   /* ---- Edits a person makes on the screen. Each lands in the ledger and is one undo step. ---- */
   {
     id: 'edit.add',

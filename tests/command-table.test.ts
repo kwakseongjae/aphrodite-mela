@@ -73,6 +73,14 @@ test('what only the person may do is reachable only from the screen, by the pers
   }
   assert.equal(gradeOfKind(HUMAN_ONLY_KIND),'human','approving is a human row');
   assert.equal(gradeOfKind(DOOR_KIND),'human','answering for the door is a human row');
+  for(const verb of ['connect','repoint','remove']){
+    const row=commandById['human.tool-'+verb];
+    assert.ok(row,verb);
+    assert.equal(row.grade,'human');
+    assert.equal(row.author,'person-only');
+    assert.deepEqual(row.controls,[]);
+    assert.equal('command' in parseAgentCommand(row.id,{}),false);
+  }
   for(const name of ['approve','approve-export'])assert.ok(commandById['human.approve'].controls.some(c=>c.kind==='action'&&c.name===name),name);
   for(const name of ['ask-allow','ask-decline','agent-connect-toggle','agent-disconnect','agent-forget'])assert.ok(commandById['human.door'].controls.some(c=>c.kind==='action'&&c.name===name),name);
 });
