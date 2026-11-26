@@ -421,3 +421,12 @@ test('media copies for a refused page are released and accepted siblings stay ca
   await importHtml(source, person, setup().target);
   assert.deepEqual(released[1], ['1'.repeat(64)]);
 });
+
+test('the parser lock records the package funding metadata in npm’s generated form', () => {
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  for (const pkg of ['parse5', 'entities']) {
+    const key = 'node_modules/' + pkg;
+    const manifest = JSON.parse(readFileSync(new URL('../' + key + '/package.json', import.meta.url), 'utf8'));
+    assert.deepEqual(lock.packages[key].funding, typeof manifest.funding === 'string' ? {url: manifest.funding} : manifest.funding);
+  }
+});
