@@ -230,9 +230,15 @@ impl State {
 }
 
 pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<()> {
-    match Store::peek(e) {
-        Ok(record) => out.unfinished_repoint = Some(record.pending.is_some()),
-        Err(code) => out.error = Some(code),
+    let profile_error = e.profile().err();
+    if profile_error.is_some() {
+        out.path = None;
+        out.error = profile_error;
+    } else {
+        match Store::peek(e) {
+            Ok(record) => out.unfinished_repoint = Some(record.pending.is_some()),
+            Err(code) => out.error = Some(code),
+        }
     }
     let Some(program) = Program::find(e) else {
         return Ok(());
@@ -246,7 +252,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
         out.error = Some(Code::CliUntrusted);
         return Ok(());
     }
-    if !ask {
+    if !ask || profile_error.is_some() {
         return Ok(());
     }
     let inspection = match Store::lock(e) {
@@ -378,7 +384,7 @@ impl State {
                 Tool::ClaudeCode,
                 action,
                 &e.exe,
-                &e.home,
+                e.home.as_os_str().as_encoded_bytes(),
                 &e.claude_config_dir,
                 e.location,
                 &self.program,

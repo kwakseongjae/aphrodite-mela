@@ -113,7 +113,7 @@ enum Location {
 pub struct Status {
     tool: Tool,
     installed: bool,
-    path: PathBuf,
+    path: Option<PathBuf>,
     executable: PathBuf,
     location: Location,
     copy_only: bool,
@@ -273,14 +273,11 @@ impl Engine {
         self.tool_status(Tool::ClaudeCode, true)
     }
     fn tool_status(&self, tool: Tool, ask: bool) -> Result<Status> {
-        if tool == Tool::ClaudeCode {
-            self.profile()?;
-        }
         let path = self.path(tool);
         let mut out = Status {
             tool,
             installed: tool != Tool::ClaudeCode && self.installed(tool),
-            path: path.clone(),
+            path: Some(path.clone()),
             executable: self.exe.clone(),
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,

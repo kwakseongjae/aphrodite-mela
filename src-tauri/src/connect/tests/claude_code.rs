@@ -986,3 +986,20 @@ fn astra_5_remove_that_commits_then_times_out_is_checked_before_restoration() {
         ["get", "remove", "get", "add", "get"]
     );
 }
+
+#[test]
+fn astra_8_an_invalid_profile_still_allows_discovery_of_all_clients() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut f = Fixture::new();
+    f.0.engine.claude_config_dir = Some(f.e().home.join(std::ffi::OsString::from_vec(vec![0xff])));
+    let all = TOOLS
+        .iter()
+        .map(|&t| f.e().status(t))
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    let rows = json!(all);
+    assert_eq!(rows[0]["installed"], true);
+    assert_eq!(rows[0]["path"], Value::Null);
+    assert_eq!(rows[0]["error"], "invalid_path");
+    assert!(f.calls().is_empty());
+}
