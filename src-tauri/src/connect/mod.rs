@@ -1,4 +1,6 @@
 //! Person-facing commands only. The loopback bridge and the MCP command table have no route here.
+mod claude;
+mod cli_process;
 mod commands;
 mod edit;
 mod files;
@@ -40,6 +42,12 @@ pub enum Code {
     SidecarMissing,
     UnknownLocation,
     WorkerFailed,
+    CliStartFailed,
+    CliTimeout,
+    CliOutputLimit,
+    CliGetFailed,
+    CliUnrecognized,
+    CliScopeUnknown,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,6 +104,10 @@ pub struct Status {
     executable: PathBuf,
     location: Location,
     copy_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    program: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_status: Option<i32>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
     points_here: Option<bool>,
@@ -156,7 +168,8 @@ struct Engine {
     exe: PathBuf,
     location: Location,
     codex_home: PathBuf,
-    claude_file: PathBuf,
+    claude_config_dir: Option<PathBuf>,
+    cli_timeout: std::time::Duration,
     cli_dirs: Vec<PathBuf>,
     app_dirs: Vec<PathBuf>,
 }
@@ -164,7 +177,8 @@ impl Engine {
     fn new(home: PathBuf, exe: PathBuf) -> Self {
         Self {
             codex_home: home.join(".codex"),
-            claude_file: home.join(".claude.json"),
+            claude_config_dir: None,
+            cli_timeout: std::time::Duration::from_secs(10),
             home,
             exe,
             location: Location::Installed,
@@ -174,7 +188,7 @@ impl Engine {
     }
     fn path(&self, tool: Tool) -> PathBuf {
         match tool {
-            Tool::ClaudeCode => self.claude_file.clone(),
+            Tool::ClaudeCode => self.claude_config_dir.as_ref().unwrap_or(&self.home).join(".claude.json"),
             Tool::Codex => self.codex_home.join("config.toml"),
             Tool::Cursor => self.home.join(".cursor/mcp.json"),
             Tool::ClaudeDesktop => self
@@ -221,11 +235,13 @@ impl Engine {
         let path = self.path(tool);
         let mut out = Status {
             tool,
-            installed: self.installed(tool),
+            installed: tool != Tool::ClaudeCode && self.installed(tool),
             path: path.clone(),
             executable: self.exe.clone(),
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,
+            program: None,
+            exit_status: None,
             config_exists: None,
             entry_exists: None,
             points_here: None,
@@ -233,6 +249,7 @@ impl Engine {
             error: None,
         };
         if tool == Tool::ClaudeCode {
+            claude::status(self, &mut out)?;
             return Ok(out);
         }
         let inspect = || -> Result<(bool, bool, bool, bool)> {

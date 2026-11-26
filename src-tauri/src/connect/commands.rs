@@ -28,7 +28,7 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
         e.codex_home = PathBuf::from(dir);
     }
     if let Some(dir) = env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
-        e.claude_file = PathBuf::from(dir).join(".claude.json");
+        e.claude_config_dir = Some(dir.into());
     }
     e.cli_dirs = env::split_paths(&env::var_os("PATH").unwrap_or_default())
         .filter(|p| p.is_absolute())
@@ -37,6 +37,11 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
         home.join(".local/bin"),
         "/opt/homebrew/bin".into(),
         "/usr/local/bin".into(),
+        home.join(".claude/local"),
+        home.join(".npm-global/bin"),
+        home.join(".volta/bin"),
+        home.join(".local/share/fnm/aliases/default/bin"),
+        home.join("Library/Application Support/fnm/aliases/default/bin"),
     ]);
     e.app_dirs = vec!["/Applications".into(), home.join("Applications")];
     Ok(e)

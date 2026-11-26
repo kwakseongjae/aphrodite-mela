@@ -1129,3 +1129,22 @@ fn third_review_an_empty_image_inventory_allows_a_second_writable_volume() {
         Location::NotInApplications
     );
 }
+
+#[test]
+fn claude_status_uses_only_the_named_entry_in_the_injected_home() {
+    let mut h = Home::new();
+    let dir = h.engine.home.join("cli");
+    fs::create_dir(&dir).unwrap();
+    let cli = dir.join("claude");
+    fs::write(&cli, r#"#!/bin/sh
+[ "$1.$2.$3" = "mcp.get.aphrodite" ] || exit 2
+echo 'No MCP server named "aphrodite". Configured servers: private-neighbor' >&2
+exit 1
+"#).unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
+    h.engine.cli_dirs = vec![dir];
+    let s = h.engine.status(Tool::ClaudeCode).unwrap();
+    assert!(s.installed);
+    assert_eq!(s.entry_exists, Some(false));
+    assert!(!serde_json::to_string(&s).unwrap().contains("private-neighbor"));
+}
