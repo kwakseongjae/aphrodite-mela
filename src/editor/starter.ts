@@ -71,7 +71,7 @@ const box = (f: FrameLayout) => ({x: f.x, y: f.y, right: f.x + frameWidth(f), bo
  * Where a change leaves the mark, `before` being the board as the change found it. A change that reaches the marked page
  * (a section, its name, its frame's size or place) or takes it away drops the mark, as does the person going to it (revealStarter), and it does not come back: an undo
  * of that change leaves the page showing. A page that shows where another frame already sits is put beside the frames,
- * in the same change, so the person can take it back. True when the mark was dropped.
+ * in the same change. True when the mark was dropped.
  */
 export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter'>, after: Project): boolean {
   const id = before.starter;
@@ -79,12 +79,16 @@ export function settleStarter(before: Pick<Project, 'pages' | 'space' | 'starter
   const was = before.pages.find(p => p.id === id), now = after.pages.find(p => p.id === id), frame = before.space?.frames[id];
   if (after.starter === id && was && now && same(was, now) && (frame === undefined || same(frame, after.space?.frames[id]))) return false;
   delete after.starter;
-  const at = now && after.space?.frames[id];
-  if (!at) return true;
+  if (now) placeRevealed(after, id);
+  return true;
+}
+/** A shown starter keeps a free spot even when history restores a layout from when it was hidden. */
+export function placeRevealed(after: Project, id: string): void {
+  const at = after.space?.frames[id];
+  if (!at) return;
   const others = Object.fromEntries(Object.entries(after.space!.frames).filter(([k]) => k !== id)), mine = box(at);
   if (Object.values(others).some(f => { const o = box(f); return mine.x < o.right && o.x < mine.right && mine.y < o.bottom && o.y < mine.bottom; })) {
     const spot = nextFramePosition({frames: others}, at.preset as FramePreset, at.width);
     after.space!.frames[id] = {...at, x: spot.x, y: spot.y};
   }
-  return true;
 }
