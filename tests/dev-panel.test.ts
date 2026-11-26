@@ -219,7 +219,7 @@ test('the property and Dev panels inspect the shown page and clear page details 
   commit(()=>screen.project.pages.push({id:'free',name:'Free',blocks:[],kind:'html',html:source}),personAt({isTrusted:true}),'edit.page-add');
   assert.equal(devPanelCopyPayload(rootFrom(inspectorPanelHtml()),'page-html'),source);
   screen.editorMode='agent';
-  assert.match(inspectorPanelHtml(),/<li data-scope-frame>Frame<span>No visible frame in scope<\/span>/);
+  assert.match(inspectorPanelHtml(),/<li data-scope-frame>Frame<span>—<\/span>/);
   assert.equal(screen.delegation.scope.frameId,project.starter);
   assert.equal(screen.project.activePageId,screen.project.starter);
 });

@@ -969,7 +969,7 @@ function render() {
   mountPointer(canvas as HTMLElement,page);
 }
 function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
-function inspectorPanelHtml(){const page=shownPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:visiblePages(project).find(p=>p.id===delegation!.scope.frameId)?.name??ui('No visible frame in scope','범위 안에 보이는 프레임이 없습니다'),channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml(page);}
+function inspectorPanelHtml(){const page=shownPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:visiblePages(project).find(p=>p.id===delegation!.scope.frameId)?.name??'—',channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml(page);}
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
  * canvas on every click — the page flashed and every picture reloaded. Only what shows the selection
