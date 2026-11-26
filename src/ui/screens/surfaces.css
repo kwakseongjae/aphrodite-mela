@@ -39,6 +39,8 @@
 .ui-toast-stack > .ui-toast { appearance: none; margin: 0; border: 0; font: inherit; text-align: left; cursor: default; pointer-events: auto; max-width: 100%; height: auto; min-height: var(--ui-control-lg); padding: var(--ui-space-2) var(--ui-space-4); animation: ui-toast-in var(--ui-dur) var(--ui-ease); }
 .ui-toast-stack > .ui-toast.ui-toast-undo { padding-right: var(--ui-space-2); }
 .ui-toast-text { min-width: 0; }
+.ui-toast > .ui-toast-text { appearance: none; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: default; }
+.ui-toast > .ui-toast-text:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); }
 .ui-toast > .toast-undo { flex-shrink: 0; height: var(--ui-control-sm); font-weight: var(--ui-w-semibold); }
 .ui-toast-count { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); opacity: 0.7; }
 @keyframes ui-toast-in { from { opacity: 0; transform: translateY(var(--ui-space-2)); } }

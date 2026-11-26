@@ -55,13 +55,14 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /**
  * The stack as the page draws it. `undo` is the change that is last now: a toast made for that change offers Undo,
  * which is the same single step as the shortcut, and one made for an earlier change does not, since pressing it
- * would take back a change it does not name. Pressing the line itself puts it away.
+ * would take back a change it does not name. The line itself is a button that puts it away, beside Undo, so the keyboard
+ * reaches both.
  */
 export function toastHtml(list: readonly Toast[], o: {undo?: string; ko?: boolean} = {}): string {
   return list
     .map(t => {
       const undo = !!t.undo && t.undo === o.undo;
-      return `<div class="toast ui-toast${undo ? ' ui-toast-undo' : ''}" data-toast="${t.id}"><span class="ui-toast-text">${esc(t.message)}</span>${t.count > 1 ? `<span class="ui-toast-count">×${t.count}</span>` : ''}${undo ? `<button type="button" class="ui-btn ui-btn-quiet toast-undo" data-action="undo" data-undo-for="${esc(t.undo!)}">${o.ko ? '되돌리기' : 'Undo'}</button>` : ''}</div>`;
+      return `<div class="toast ui-toast${undo ? ' ui-toast-undo' : ''}" data-toast="${t.id}"><button type="button" class="ui-toast-text toast-dismiss" title="${o.ko ? '닫기' : 'Dismiss'}">${esc(t.message)}</button>${t.count > 1 ? `<span class="ui-toast-count">×${t.count}</span>` : ''}${undo ? `<button type="button" class="ui-btn ui-btn-quiet toast-undo" data-action="undo" data-undo-for="${esc(t.undo!)}">${o.ko ? '되돌리기' : 'Undo'}</button>` : ''}</div>`;
     })
     .join('');
 }

@@ -74,7 +74,9 @@ test('a change that can be undone carries Undo, the same single step as the shor
   assert.match(live,/>되돌리기</);
   assert.doesNotMatch(toastHtml(list,{undo:'p1:8',ko:true}),/data-action/,'once another change lands, pressing it would undo that one instead, so it goes');
   assert.doesNotMatch(toastHtml(list),/data-action/);
-  assert.doesNotMatch(live,/<button[^>]*data-toast/,'a button is never put inside a button');
+  assert.doesNotMatch(live,/<button[^>]*data-toast=/,'a button is never put inside a button');
+  assert.match(live,/<button type="button" class="ui-toast-text toast-dismiss"[^>]*>컴포넌트를 삭제했습니다<\/button>[^]*<button[^>]*data-action="undo"/,'putting it away and Undo are two buttons side by side, both reached by the keyboard');
+  assert.match(toastHtml(list),/<button type="button" class="ui-toast-text toast-dismiss"/,'a toast without Undo is put away from the keyboard too');
   assert.match(live,/data-undo-for="p1:7"/,'and it names its change, so a press that comes after another change does nothing');
   assert.ok(toastLife('컴포넌트를 삭제했습니다',true)>toastLife('컴포넌트를 삭제했습니다'),'and stays a little longer, to be reached');
 });
