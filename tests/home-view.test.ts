@@ -60,9 +60,10 @@ test('returning Home counts only shown pages on the card and list in both langua
     for(const view of ['grid','list'] as const)for(const language of ['en','ko'] as const){
       const html=workspaceHome(library,'recent','','','system',language,view);
       assert.ok(html.includes('>'+ (language==='ko'?ko:en)+' · '),language+' '+view);
+      assert.doesNotMatch(html,/[.!?] · /,'a finished sentence is not followed by a dot and a fragment');
     }
   }
-  counts('No pages yet.','아직 페이지가 없어요.');
+  counts('No pages','페이지 없음');
   commit(()=>project.pages.push({id:'article',name:'Article',kind:'html',html:'<p>Article</p>',blocks:[]}),person,'edit.page-add');
   counts('1 page','1 페이지');
   commit(()=>board.revealStarter(project,project.activePageId),person,'edit.page-view-edit');
