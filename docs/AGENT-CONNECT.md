@@ -10,20 +10,34 @@ These are the user-level locations on macOS. The documentation was checked on No
 
 | Client | Configuration | What the engine supplies |
 | --- | --- | --- |
-| Claude Code | `~/.claude.json`, user scope | A command to copy. Claude Code maintains this file and documents the CLI for user registration. [MCP scopes](https://code.claude.com/docs/en/mcp#user-scope) · [Settings files](https://code.claude.com/docs/en/settings) |
+| Claude Code | `~/.claude.json`, user scope | A preview of the CLI commands. The person can authorize the engine to run them or copy the add command. Claude Code maintains its own file. [MCP scopes](https://code.claude.com/docs/en/mcp#user-scope) · [Settings files](https://code.claude.com/docs/en/settings) |
 | Codex | `~/.codex/config.toml` (or `config.toml` under `CODEX_HOME` within your home) | A TOML table named `mcp_servers.aphrodite` with a `command` string. Codex documents direct editing. [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) |
 | Cursor | `~/.cursor/mcp.json` | A JSON property named `mcpServers.aphrodite` with `type` set to `stdio` and the executable as `command`. Cursor documents creating the global file. [Cursor MCP configuration](https://cursor.com/docs/mcp) |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | A JSON property named `mcpServers.aphrodite` with the executable as `command`. The local-server guide documents this file. Fully quit and reopen Claude Desktop after editing it. [Local server setup](https://modelcontextprotocol.io/docs/2026-07-28/develop/connect-local-servers) · [Manual file creation](https://py.sdk.modelcontextprotocol.io/get-started/real-host/) |
 
-For Claude Code, the person can run this command for the usual installation path. Aphrodite itself never runs `claude` or `codex`, opens a provider credential store, or signs in to either service.
+## Claude Code
+
+For status and preview, Aphrodite runs `claude mcp get aphrodite`. Claude Code can health-check that one server. Aphrodite reads the user-scope definition from the reply. Exit 1 with the named missing-server diagnostic means the entry is absent. An unexpected reply, a different scope or a failed lookup leaves its status unknown. Other servers’ names, diagnostics and configuration values stay in Rust. [Managing MCP servers](https://code.claude.com/docs/en/mcp#managing-your-servers)
+
+Finder can launch an app without the shell’s PATH. Aphrodite checks absolute PATH directories in order, then `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.claude/local`, `~/.npm-global/bin`, `~/.volta/bin`, `~/.local/share/fnm/aliases/default/bin` and `~/Library/Application Support/fnm/aliases/default/bin`. An executable file or a symlink to one qualifies. The preview includes the selected program’s absolute path and each argument, plus a shell-quoted line for each command.
+
+For a new connection the person sees the add command before authorizing it. For the usual installation its terminal equivalent is
 
 ```sh
 claude mcp add --transport stdio --scope user aphrodite -- '/Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp'
 ```
 
+Aphrodite rechecks the preview when the person presses connect or remove. It starts the program directly in a fresh private directory outside the project. The child receives the home directory, a short executable search path, fixed output-format settings and the selected `CLAUDE_CONFIG_DIR` if set. Each invocation has ten seconds and a 64 KiB limit on each output stream. The result carries a code and the exit status when available. A successful response can also include one exact acknowledgment of the displayed command, up to 256 bytes. Aphrodite never opens `~/.claude.json` or handles provider tokens.
+
+Aphrodite considers a user-scope entry its own when Claude Code reports plain stdio, an empty argument list, no additional settings, and a command equal to this installation’s sidecar or the last sidecar Aphrodite registered for that CLI profile. A home-directory extended attribute stores that path. Its name starts with `studio.aphrodite.mela.claude-user.` followed by a digest of the profile’s configuration path. Successful removal clears it. If updating that record fails after a successful CLI command, the result is `record_failed` with exit status 0. Refresh status to see the registration.
+
+A moved app previews `claude mcp remove --scope user aphrodite`, the new add command, and the old add command it will use for recovery. If adding fails after removal, `repoint_restored` means the old registration was restored. `repoint_restore_failed` includes the recovery attempt’s result. A customized entry needs separate confirmation to replace. Removing it through the engine also requires its command to point to this installation. Claude Code can redact or flatten settings in its text output, so Aphrodite keeps no restorable copy of a foreign definition. If its removal succeeds and the new add fails, the result is `foreign_removed_add_failed`.
+
+Aphrodite serializes its own writes and rejects a changed preview. Claude Code’s CLI offers separate get, remove and add operations. A simultaneous edit in another program can still fall between them.
+
 ## What changes on disk
 
-For Claude Code, Aphrodite checks for the CLI and supplies the registration command. It never opens `~/.claude.json`. For the other clients, Rust reads the configuration locally. The preview contains the path, insertion line, generated text, and flags for creation and foreign-entry replacement. Other configuration text stays in Rust and is never logged or sent to the screen or an agent.
+For the other clients, Rust reads the configuration locally. The preview contains the path, insertion line, generated text, and flags for creation and foreign-entry replacement. Other configuration text stays in Rust and is never logged or sent to the screen or an agent.
 
 On first connect to an existing file, Aphrodite makes a private (mode 0600) byte copy of your own file alongside it, including any settings or keys you put there. Its name is `<filename>.aphrodite-<timestamp>.bak`. You can keep or delete it. Aphrodite never reads it. Each confirmed replacement of an entry Aphrodite cannot identify as its own creates another backup with a fresh timestamp. Re-pointing an owned entry keeps its existing backup. Removing an entry deletes the backup when the file is back to its original bytes. If you edit the file between connecting and removing, its backup stays and reconnecting makes a new one.
 
@@ -37,4 +51,4 @@ The two stdio adapters run up to 32 tool calls at once and hold 64 more in arriv
 
 For Codex, remove the `[mcp_servers.aphrodite]` table and its fields. For Cursor or Claude Desktop, remove the `aphrodite` property inside `mcpServers` and adjust its adjacent comma. Leave any other servers in place. If you replaced a previous definition, copy that entry back from the timestamped backup. Restore the entire backup only if you also want to undo every later edit to the file.
 
-For Claude Code, the person can run `claude mcp remove --scope user aphrodite`. Restart the client so it picks up the change.
+For Claude Code, run `claude mcp remove --scope user aphrodite` to undo registration. Run `claude mcp get aphrodite` to check the result. To undo a re-point by hand, remove the new entry and run the old add command from the preview. To restore a replaced foreign entry, use its original registration instructions. Restart the client so it picks up the change.
