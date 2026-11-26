@@ -213,3 +213,15 @@ test('deferred scripts see the body, and inlining cannot discard an integrity re
   assert.deepEqual(reads, ['a.html', 'a.js']);
   assert.deepEqual(out.skipped, [{name: 'protected.css', code: 'integrity'}]);
 });
+
+test('a document that exceeds the remaining design budget leaves its slot for a smaller page', async () => {
+  const {project, target} = setup();
+  for (let i = 1; i < 29; i++) project.pages.push({id: 'prior-' + i, name: 'Prior', blocks: [], kind: 'html',
+    html: i <= 10 ? 'x'.repeat(1_870_000) : ''});
+  target.commit = change => change();
+  const input = {names: ['a.html', 'b.html'], read: async (name: string) => Buffer.from('<p>' + (name === 'a.html' ? 'x'.repeat(150_000) : 'Fits')),
+    media: async () => { throw 'missing'; }};
+  const out = await importHtml(input, person, target);
+  assert.deepEqual(out.pages.map(p => p.name), ['b.html']);
+  assert.deepEqual(out.documents, [{name: 'a.html', code: 'board_limit'}]);
+});

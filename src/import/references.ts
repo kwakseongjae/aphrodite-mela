@@ -22,7 +22,7 @@ export function address(raw: string, directory: string): Address {
 }
 export const parent = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 
-const codes = new Set(['outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'io']);
+const codes = new Set(['not_html', 'invalid_html', 'outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'io']);
 export const readCode = (error: unknown) => typeof error === 'string' && codes.has(error) ? error : 'io';
 
 export class References {

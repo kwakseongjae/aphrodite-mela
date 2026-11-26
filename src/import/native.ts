@@ -11,10 +11,10 @@ function credential() {
 }
 
 function files({grant, names}: Chosen, shell: string): GrantedFiles {
-  return {names,
-    read: async name => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name})),
-    media: name => invoke<StoredMedia>('html_import_media', {shell, grant, name}),
-  };
+  return Object.freeze({names: Object.freeze(names),
+    read: async (name: string) => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name})),
+    media: (name: string) => invoke<StoredMedia>('html_import_media', {shell, grant, name}),
+  });
 }
 
 /** The open panel returns a capability (or null on cancel). Its caller never supplies a path. */
