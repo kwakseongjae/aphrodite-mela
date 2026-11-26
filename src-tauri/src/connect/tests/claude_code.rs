@@ -578,7 +578,13 @@ fn opus_3_an_ancestor_project_or_shared_parent_prevents_launch() {
         fs::metadata(cwd.path()).unwrap().permissions().mode() & 0o777,
         0o700
     );
-    for marker in [".git", ".mcp.json", ".claude", "CLAUDE.md", "CLAUDE.local.md"] {
+    for marker in [
+        ".git",
+        ".mcp.json",
+        ".claude",
+        "CLAUDE.md",
+        "CLAUDE.local.md",
+    ] {
         fs::write(h.engine.home.join(marker), []).unwrap();
         assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
         fs::remove_file(h.engine.home.join(marker)).unwrap();
@@ -1101,4 +1107,24 @@ fn astra_1_preview_displays_the_resolved_file_identity_and_detects_in_place_chan
     let count = f.calls().len();
     assert_eq!(f.apply(Action::Connect, &p, false)["code"], "changed");
     assert_eq!(f.calls().len(), count);
+}
+#[test]
+fn astra_1_an_env_symlink_still_checks_its_selected_interpreter() {
+    let f = Fixture::new();
+    let dir = &f.e().cli_dirs[0];
+    let env = f.e().home.join("env");
+    symlink("/usr/bin/env", &env).unwrap();
+    fs::write(
+        dir.join("playback"),
+        format!("#!{} fixture-runtime\n", env.display()),
+    )
+    .unwrap();
+    fs::write(dir.join("fixture-runtime"), []).unwrap();
+    fs::set_permissions(
+        dir.join("fixture-runtime"),
+        fs::Permissions::from_mode(0o775),
+    )
+    .unwrap();
+    assert_eq!(json!(f.e().status(CLAUDE).unwrap())["trusted"], false);
+    assert!(f.calls().is_empty());
 }

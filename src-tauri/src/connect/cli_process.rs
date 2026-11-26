@@ -142,8 +142,9 @@ impl Program {
         if !interpreter.is_absolute() || !controlled(interpreter.parent()?) {
             return None;
         }
-        self.pin_interpreter(e, interpreter)?;
-        if interpreter == Path::new("/usr/bin/env") {
+        let pinned = self.pin_interpreter(e, interpreter)?;
+        let env = fs::metadata("/usr/bin/env").ok()?;
+        if pinned == (env.dev(), env.ino()) {
             let name = words.next()?;
             if name.starts_with('-') || name.contains(['/', '=']) || words.next().is_some() {
                 return None;
@@ -158,7 +159,7 @@ impl Program {
         Some(())
     }
 
-    fn pin_interpreter(&mut self, e: &Engine, selected: &Path) -> Option<()> {
+    fn pin_interpreter(&mut self, e: &Engine, selected: &Path) -> Option<(u64, u64)> {
         let path = selected.canonicalize().ok()?;
         let m = fs::metadata(&path).ok()?;
         if !controlled(&path) || !m.is_file() || access(&path, Access::EXEC_OK).is_err() {
@@ -178,7 +179,7 @@ impl Program {
             return None;
         }
         self.interpreter.push((path, (&m).into()));
-        Some(())
+        Some((m.dev(), m.ino()))
     }
 
     pub fn find(engine: &Engine) -> Option<Self> {
@@ -258,7 +259,13 @@ pub(super) fn private_cwd(parent: &Path) -> Result<tempfile::TempDir, Code> {
         return Err(Code::InvalidPath);
     }
     for ancestor in parent.ancestors() {
-        for name in [".mcp.json", ".git", ".claude", "CLAUDE.md", "CLAUDE.local.md"] {
+        for name in [
+            ".mcp.json",
+            ".git",
+            ".claude",
+            "CLAUDE.md",
+            "CLAUDE.local.md",
+        ] {
             match fs::symlink_metadata(ancestor.join(name)) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => (),
                 _ => return Err(Code::InvalidPath),
