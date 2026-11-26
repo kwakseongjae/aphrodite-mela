@@ -81,6 +81,12 @@
             "public.data"
           ]
         }
+      },
+      {
+        "ext": ["html", "htm"],
+        "contentTypes": ["public.html"],
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ],
     "externalBin": [

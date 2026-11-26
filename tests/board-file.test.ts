@@ -463,7 +463,8 @@ test('an aphrodite:// link names a board and a page and nothing else', () => {
 test('macOS opens board files and aphrodite:// links with the app, which asks for nothing more', () => {
   const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
   // tauri.conf.json cannot read src-tauri/board-file.json, so it is held to it here, word for word.
-  assert.deepEqual(conf.bundle.fileAssociations, [{ext: [BOARD_FILE.extension], name: BOARD_FILE.name, description: BOARD_FILE.description, role: 'Editor', rank: 'Owner', mimeType: BOARD_FILE.mime, exportedType: {identifier: BOARD_FILE.type, conformsTo: ['public.zip-archive', 'public.data']}}]);
+  assert.deepEqual(conf.bundle.fileAssociations, [{ext: [BOARD_FILE.extension], name: BOARD_FILE.name, description: BOARD_FILE.description, role: 'Editor', rank: 'Owner', mimeType: BOARD_FILE.mime, exportedType: {identifier: BOARD_FILE.type, conformsTo: ['public.zip-archive', 'public.data']}},
+    {ext: ['html', 'htm'], contentTypes: ['public.html'], role: 'Viewer', rank: 'Alternate'}]);
   const plist = readFileSync(new URL('../src-tauri/Info.plist', import.meta.url), 'utf8');
   assert.match(plist, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>aphrodite<\/string>\s*<\/array>/);
   assert.doesNotMatch(plist, /UsageDescription/, 'no camera, microphone or other ask rides along');
