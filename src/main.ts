@@ -776,8 +776,10 @@ window.addEventListener('storage',e=>{if(e.key!==themeKey&&e.key!==null)return;c
 function bannersHtml(){return agentBannerHtml();}
 /** The marks beside Preview and Export, and in home's side list: saving stopped, and who is connected. */
 function marksHtml(){return troubleMarkHtml(troubleNow(),uiLanguage==='ko')+connectMarkNow();}
+/** What each slot was last painted with: a save that changes nothing there does not take the focus out of an open mark. */
+const marksPainted=new WeakMap<Element,string>();
 /** Repaints only the marks, keeping the connected one open if it was. */
-function paintMarks(){document.querySelectorAll<HTMLElement>('[data-notice-marks]').forEach(el=>{const open=!!el.querySelector('details[open]');el.innerHTML=marksHtml();if(open)el.querySelector('details')?.setAttribute('open','');hydrateIconsIn(el);});}
+function paintMarks(){const next=marksHtml();document.querySelectorAll<HTMLElement>('[data-notice-marks]').forEach(el=>{if(marksPainted.get(el)===next)return;marksPainted.set(el,next);const open=!!el.querySelector('details[open]');el.innerHTML=next;if(open)el.querySelector('details')?.setAttribute('open','');hydrateIconsIn(el);});}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
