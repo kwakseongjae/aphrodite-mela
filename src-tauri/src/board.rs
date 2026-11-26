@@ -82,6 +82,10 @@ fn page_asset(head: &[u8]) -> Option<&'static str> {
     None
 }
 
+pub(crate) fn media_extension(ext: &str) -> bool {
+    ext == "jpeg" || BOARD_FILES.iter().any(|(e, _)| *e == ext)
+}
+
 fn extension(mime: &str) -> &'static str {
     BOARD_FILES.iter().find(|(_, kind)| *kind == mime).expect("recognized board file").0
 }

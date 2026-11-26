@@ -22,11 +22,12 @@ export function address(raw: string, directory: string): Address {
 }
 export const parent = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 
-const codes = new Set(['not_html', 'invalid_html', 'outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'io']);
+const codes = new Set(['not_html', 'invalid_html', 'outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'hidden', 'changed', 'symlink', 'io']);
 export const readCode = (error: unknown) => typeof error === 'string' && codes.has(error) ? error : 'io';
 
 export class References {
   readonly files = new Map<string, number>();
+  readonly names = new Set<string>();
   readonly skipped: Issue[] = [];
   remote = 0;
   private expanded = 0;
@@ -39,6 +40,7 @@ export class References {
     else if (to.kind === 'outside') this.skip(url, 'outside');
     else if (to.kind === 'local') {
       if (directory === null) this.skip(url, 'outside_base');
+      else if (to.name.split('/').some(part => part.startsWith('.'))) this.skip(url, 'hidden');
       else if (!this.disk) this.skip(url, 'no_folder');
       else return to;
     }
@@ -48,17 +50,22 @@ export class References {
   async media(url: string, directory: string | null): Promise<string> {
     const to = this.locate(url, directory);
     if (!to) return portable(url);
+    if (!/\.(?:png|jpe?g|gif|webp|mp4|webm|woff2?|ttf|otf|wav|ogg|mp3)$/i.test(to.name)) {
+      this.skip(url, 'unsupported'); return portable(url);
+    }
     try {
       const file = this.mediaCache.get(to.name) ?? await this.disk!.media(to.name);
       this.mediaCache.set(to.name, file);
+      this.names.add(to.name);
       this.files.set(file.sha, file.bytes);
       return 'media:' + file.sha + to.fragment;
     } catch (error) { this.skip(url, readCode(error)); return portable(url); }
   }
 
   async text(name: string, url: string, tag: 'script' | 'style') {
+    if (!(tag === 'style' ? /\.css$/i : /\.(?:js|mjs|cjs)$/i).test(name)) { this.skip(url, 'unsupported'); return; }
     let bytes: Uint8Array;
-    try { bytes = await this.disk!.read(name); } catch (error) { this.skip(url, readCode(error)); return; }
+    try { bytes = await this.disk!.read(name, tag); } catch (error) { this.skip(url, readCode(error)); return; }
     const text = decode(bytes);
     if (text.length > MAX_PAGE_HTML) { this.skip(url, 'too_large'); return; }
     // HTML raw text cannot represent an author-supplied closing tag unchanged.
@@ -67,6 +74,7 @@ export class References {
     if (this.expanded > MAX_PAGE_HTML) throw 'too_large';
     const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
     const sha = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    this.names.add(name);
     this.files.set(sha, bytes.length);
     return text;
   }

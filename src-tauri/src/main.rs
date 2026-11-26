@@ -113,11 +113,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
                 let others = urls.into_iter().filter(|url| {
-                    !import::route_file(url, |path| {
-                        if !import::handed_html(path) { return false; }
-                        import::hand_over(app, path);
-                        true
-                    })
+                    !import::route_file(url, |path| import::hand_over(app, path))
                 }).collect();
                 opened::opened(app, others);
             }

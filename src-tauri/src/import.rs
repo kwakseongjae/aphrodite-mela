@@ -1,6 +1,8 @@
 //! A path enters only from a native picker or an OS hand-over. IPC carries an expiring capability
 //! and names relative to it. The directory handle, not a second lookup of its name, bounds each open.
-use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt};
+use cap_std::fs::Dir;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use rustix::fs::{openat, Mode, OFlags};
 use serde::Serialize;
 use std::{collections::VecDeque, fs, io::Read, path::{Component, Path, PathBuf}, sync::{Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -26,7 +28,6 @@ pub struct Chosen { grant: String, names: Vec<String> }
 
 struct Grant {
     dir: Dir,
-    path: PathBuf,
     handed_path: PathBuf,
 }
 
@@ -36,6 +37,30 @@ fn io_code(error: std::io::Error) -> Code {
         std::io::ErrorKind::PermissionDenied => "denied",
         _ => "io",
     }
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind { Document, Style, Script, Media }
+
+impl Kind {
+    fn accepts(self, path: &Path) -> bool {
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        match self {
+            Self::Document => html_name(path),
+            Self::Style => ext == "css",
+            Self::Script => matches!(ext.as_str(), "js" | "mjs" | "cjs"),
+            Self::Media => crate::board::media_extension(&ext),
+        }
+    }
+}
+
+fn open_root(path: &Path, expected: &fs::Metadata) -> Result<Dir, Code> {
+    let file = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path).map_err(io_code)?;
+    let actual = file.metadata().map_err(io_code)?;
+    if (actual.dev(), actual.ino()) != (expected.dev(), expected.ino()) { return Err("changed"); }
+    Ok(Dir::from_std_file(file))
 }
 
 impl Grant {
@@ -51,6 +76,7 @@ impl Grant {
                 if !relative.pop() { return Err("outside"); }
                 continue;
             }
+            if part.as_encoded_bytes().starts_with(b".") { return Err("hidden"); }
             relative.push(part);
             let meta = self.dir.symlink_metadata(&relative).map_err(io_code)?;
             if meta.is_symlink() {
@@ -60,7 +86,7 @@ impl Grant {
                 relative.pop();
                 let target = if link.is_absolute() {
                     relative.clear();
-                    link.strip_prefix(&self.path).or_else(|_| link.strip_prefix(&self.handed_path)).map_err(|_| "outside")?
+                    link.strip_prefix(&self.handed_path).map_err(|_| "outside")?
                 } else { &link };
                 for component in target.iter().rev() { remaining.push_front(component.to_owned()); }
             }
@@ -68,21 +94,31 @@ impl Grant {
         Ok(relative)
     }
 
-    fn open(&self, name: &str, limit: u64) -> Result<fs::File, Code> {
+    fn open_kind(&self, name: &str, kind: Kind, limit: u64) -> Result<fs::File, Code> {
         let path = Path::new(name);
         if name.is_empty() || name.contains(['\\', '\0']) || name.split('/').next().unwrap_or("").contains(':')
             || path.components().any(|part| !matches!(part, Component::Normal(_) | Component::CurDir)) {
             return Err("outside");
         }
+        if name.split('/').any(|part| part.starts_with('.')) { return Err("hidden"); }
+        if !kind.accepts(path) { return Err("unsupported"); }
         let relative = self.resolve(path)?;
+        if !kind.accepts(&relative) { return Err("unsupported"); }
         let check = |regular: bool, len: u64| {
             if !regular { Err("not_file") } else if len > limit { Err("too_large") } else { Ok(()) }
         };
-        let meta = self.dir.metadata(&relative).map_err(io_code)?;
-        check(meta.is_file(), meta.len())?;
-        let mut options = OpenOptions::new();
-        options.read(true).custom_flags(libc::O_NONBLOCK);
-        let file = self.dir.open_with(relative, &options).map_err(io_code)?.into_std();
+        // Walk the resolved names again with no-follow descriptors. A replacement link cannot
+        // redirect the final open to another kind of file or a hidden member of this same grant.
+        let mut dir = self.dir.try_clone().map_err(io_code)?.into_std_file();
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
+        let mut parts = relative.iter().peekable();
+        let file = loop {
+            let part = parts.next().ok_or("invalid_name")?;
+            let mode = if parts.peek().is_some() { flags | OFlags::DIRECTORY } else { flags };
+            let opened: fs::File = openat(&dir, part, mode, Mode::empty()).map_err(|e| io_code(e.into()))?.into();
+            if parts.peek().is_none() { break opened; }
+            dir = opened;
+        };
         let meta = file.metadata().map_err(io_code)?;
         check(meta.is_file(), meta.len())?;
         Ok(file)
@@ -94,16 +130,26 @@ struct Entry { chosen: Chosen, root: Arc<Grant>, until: Instant, waiting: bool }
 struct Grants(VecDeque<Entry>);
 impl Grants {
     fn give(&mut self, path: &Path, now: Instant, waiting: bool) -> Result<Chosen, Code> {
-        let directory = fs::symlink_metadata(path).map_err(io_code)?.is_dir();
+        let selected = fs::symlink_metadata(path).map_err(io_code)?;
+        let directory = selected.is_dir();
+        if selected.is_symlink() { return Err("symlink"); }
+        if !directory && (!selected.is_file() || !html_name(path)) { return Err("not_html"); }
         let parent = if directory { path } else { path.parent().ok_or("outside")? };
-        let path_name = fs::canonicalize(parent).map_err(io_code)?;
-        let dir = Dir::open_ambient_dir(&path_name, cap_std::ambient_authority()).map_err(io_code)?;
+        let expected = if directory { selected.clone() } else { fs::symlink_metadata(parent).map_err(io_code)? };
+        let dir = open_root(parent, &expected)?;
+        if !directory {
+            use cap_std::fs::MetadataExt as CapMetadataExt;
+            let name = path.file_name().ok_or("invalid_name")?;
+            if name.as_encoded_bytes().starts_with(b".") { return Err("hidden"); }
+            let anchored = dir.symlink_metadata(name).map_err(io_code)?;
+            if (selected.dev(), selected.ino()) != (anchored.dev(), anchored.ino()) { return Err("changed"); }
+        }
         let names = if directory {
             let mut names = Vec::new();
             for entry in dir.entries().map_err(io_code)? {
                 let entry = entry.map_err(io_code)?;
                 let name = entry.file_name();
-                if html_name(Path::new(&name)) && !entry.file_type().map_err(io_code)?.is_dir() {
+                if !name.as_encoded_bytes().starts_with(b".") && html_name(Path::new(&name)) && !entry.file_type().map_err(io_code)?.is_dir() {
                     names.push(name.into_string().map_err(|_| "invalid_name")?);
                 }
             }
@@ -115,7 +161,7 @@ impl Grants {
         let chosen = Chosen { grant: token()?, names };
         self.0.retain(|e| e.until > now);
         if self.0.len() >= 20 { self.0.pop_front(); }
-        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, path: path_name, handed_path: parent.to_owned()}), until: now + LIFETIME, waiting });
+        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, handed_path: parent.to_owned()}), until: now + LIFETIME, waiting });
         Ok(chosen)
     }
 
@@ -144,18 +190,20 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 /// Called only by native event handlers. A hand-over waiting before the shell starts listening is kept.
-pub fn hand_over(app: &AppHandle, path: &Path) {
+pub fn hand_over(app: &AppHandle, path: &Path) -> bool {
     let state = app.state::<ImportState>();
     if state.grants.lock().unwrap().give(path, Instant::now(), true).is_ok() {
         let _ = app.emit_to("main", "aphrodite-html-opened", ());
+        return true;
     }
+    false
 }
 
 pub fn route_file(url: &tauri::Url, inspect: impl FnOnce(&Path) -> bool) -> bool {
     url.scheme() == "file" && url.to_file_path().is_ok_and(|path| inspect(&path))
 }
 
-pub fn handed_html(path: &Path) -> bool { html_name(path) || path.is_dir() }
+
 
 #[tauri::command]
 pub async fn html_import_pick(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, folder: bool) -> Result<Option<Chosen>, Code> {
@@ -182,10 +230,11 @@ fn read_text(file: fs::File) -> Result<Vec<u8>, Code> {
 }
 
 #[tauri::command]
-pub async fn html_import_read(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String) -> Result<tauri::ipc::Response, Code> {
+pub async fn html_import_read(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, kind: Kind) -> Result<tauri::ipc::Response, Code> {
     state.shell(&window, &shell)?;
     let dir = state.grants.lock().unwrap().get(&grant, Instant::now())?;
-    let bytes = tauri::async_runtime::spawn_blocking(move || read_text(dir.open(&name, MAX_TEXT_BYTES)?)).await.map_err(|_| "io")??;
+    if matches!(kind, Kind::Media) { return Err("unsupported"); }
+    let bytes = tauri::async_runtime::spawn_blocking(move || read_text(dir.open_kind(&name, kind, MAX_TEXT_BYTES)?)).await.map_err(|_| "io")??;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -195,7 +244,7 @@ pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, Im
     let dir = state.grants.lock().unwrap().get(&grant, Instant::now())?;
     let base = window.path().app_data_dir().map_err(|_| "io")?;
     tauri::async_runtime::spawn_blocking(move || {
-        let file = dir.open(&name, crate::board::MAX_MEDIA_BYTES)?;
+        let file = dir.open_kind(&name, Kind::Media, crate::board::MAX_MEDIA_BYTES)?;
         crate::board::store_page_asset(&base, file)
     }).await.map_err(|_| "io")?
 }
@@ -204,6 +253,39 @@ pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, Im
 mod tests {
     use super::*;
     use std::{cell::Cell, fs, os::unix::fs::symlink};
+
+    #[test]
+    fn a_handed_folder_link_and_a_substituted_directory_cannot_become_grants() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("folder");
+        fs::create_dir(&dir).unwrap();
+        let link = temp.path().join("alias");
+        symlink(&dir, &link).unwrap();
+        let mut grants = Grants::default();
+        assert!(grants.give(&link, Instant::now(), true).is_err());
+        let identity = fs::symlink_metadata(&dir).unwrap();
+        fs::rename(&dir, temp.path().join("previous")).unwrap();
+        fs::create_dir(&dir).unwrap();
+        assert!(open_root(&dir, &identity).is_err());
+        assert!(grants.0.is_empty());
+    }
+
+    #[test]
+    fn hidden_names_and_files_of_the_wrong_kind_are_refused_even_through_links() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["a.html", ".env", "notes.txt", "data.csv", ".inside.js"] {
+            fs::write(temp.path().join(name), "test").unwrap();
+        }
+        symlink("notes.txt", temp.path().join("notes.js")).unwrap();
+        symlink(".inside.js", temp.path().join("visible.js")).unwrap();
+        let mut grants = Grants::default();
+        let chosen = grants.give(temp.path(), Instant::now(), false).unwrap();
+        let root = grants.get(&chosen.grant, Instant::now()).unwrap();
+        for (name, kind) in [(".env", Kind::Script), ("notes.txt", Kind::Script), ("data.csv", Kind::Style),
+            ("a.html", Kind::Media), ("notes.js", Kind::Script), ("visible.js", Kind::Script)] {
+            assert!(root.open_kind(name, kind, MAX_TEXT_BYTES).is_err(), "{name}");
+        }
+    }
 
     #[test]
     fn non_file_links_make_zero_filesystem_calls_and_queue_zero_grants() {
@@ -242,12 +324,13 @@ mod tests {
         let reads = Cell::new(0);
         let read = |id: &str, name: &str, at| -> Result<Vec<u8>, Code> {
             let grant = grants.get(id, at)?;
-            let f = grant.open(name, MAX_TEXT_BYTES)?;
+            let kind = if html_name(Path::new(name)) { Kind::Document } else { Kind::Script };
+            let f = grant.open_kind(name, kind, MAX_TEXT_BYTES)?;
             reads.set(reads.get() + 1);
             read_text(f)
         };
         for (name, code) in [("../outside.js", "outside"), ("/outside.js", "outside"), ("file:///outside.js", "outside"),
-            ("away.js", "outside"), ("absent.js", "outside"), ("away/outside.js", "outside"), ("missing", "missing"), ("big.js", "too_large")] {
+            ("away.js", "outside"), ("absent.js", "outside"), ("away/outside.js", "outside"), ("missing.js", "missing"), ("big.js", "too_large")] {
             assert_eq!(read(&chosen.grant, name, now), Err(code), "{name}");
         }
         assert_eq!(read("made-up", "index.html", now), Err("invalid_grant"));

@@ -186,7 +186,7 @@ test('an OS hand-over supplies only input and importing it requires the personâ€
     await assert.rejects(importHtml(input, undefined, target), e => e === 'person_only');
     assert.equal(project.ledger?.changes.length ?? 0, 0);
     assert.equal((await importHtml(input, person, target)).pages.length, 1);
-    assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html'}]]);
+    assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html', kind: 'document'}]]);
   } finally { Reflect.deleteProperty(globalThis, 'window'); }
 });
 
@@ -259,4 +259,15 @@ test('the shared page and board exporters carry the imported media', async () =>
   await received.place();
   assert.deepEqual(copied, new Set(kept.keys()));
   assert.equal(received.project.pages[1].html, project.pages[1].html);
+});
+
+test('text kinds and dot components cannot bring notes, data or hidden files into a page', async () => {
+  const {target} = setup(), reads: string[] = [];
+  const html = '<script src="notes.txt"></script><link rel=stylesheet href="data.csv"><script src=".env"></script><script src=".d/a.js"></script><img src="pic.txt"><script src="ok.cjs"></script>';
+  const out = await importHtml({names: ['a.html'], read: async n => {
+    reads.push(n); return Buffer.from(n === 'a.html' ? html : '1');
+  }, media: async n => { reads.push(n); throw 'unsupported'; }}, person, target);
+  assert.deepEqual(reads, ['a.html', 'ok.cjs']);
+  assert.deepEqual(out.files.names, ['ok.cjs']);
+  assert.deepEqual(out.skipped.map(i => i.name), ['notes.txt', 'data.csv', '.env', '.d/a.js', 'pic.txt']);
 });

@@ -9,7 +9,7 @@ import {resolvePage} from './page';
 import {decode, elements, metadata, MAX_TEXT_BYTES} from './document';
 
 export const IMPORT_HTML = 'edit.import-html';
-export type GrantedFiles = {names: readonly string[]; read(name: string): Promise<Uint8Array>; media(name: string): Promise<StoredMedia>};
+export type GrantedFiles = {names: readonly string[]; read(name: string, kind: 'document' | 'style' | 'script'): Promise<Uint8Array>; media(name: string): Promise<StoredMedia>};
 type TextInput = {text: string | Blob | Uint8Array; name?: string};
 export type ImportTarget = {
   current(): Project;
@@ -17,8 +17,8 @@ export type ImportTarget = {
   commit(change: () => void, dispatch: Dispatch, row: typeof IMPORT_HTML): void;
 };
 export type Issue = {name: string; code: string};
-export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number}; remote: number; skipped: Issue[]; documents: Issue[]};
-type Document = {file: string; title?: string; html: string; width?: number; files: Map<string, number>};
+export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; skipped: Issue[]; documents: Issue[]};
+type Document = {file: string; title?: string; html: string; width?: number; names: Set<string>; files: Map<string, number>};
 
 async function textOf(value: TextInput['text']): Promise<string> {
   if (typeof value === 'string') return value;
@@ -28,7 +28,7 @@ async function textOf(value: TextInput['text']): Promise<string> {
 
 async function prepare(file: string, input: TextInput | GrantedFiles, refs: References): Promise<Document> {
   if (file && !/\.html?$/i.test(file)) throw 'not_html';
-  const source = await textOf('text' in input ? input.text : await input.read(file));
+  const source = await textOf('text' in input ? input.text : await input.read(file, 'document'));
   if (source.length > MAX_PAGE_HTML) throw 'too_large';
   if (!source.trim()) throw 'empty';
   const nodes = elements(source);
@@ -36,7 +36,7 @@ async function prepare(file: string, input: TextInput | GrantedFiles, refs: Refe
   const {name, width} = metadata(nodes);
   const html = await resolvePage(source, nodes, refs);
   if (htmlProblem(html)) throw 'invalid_html';
-  return {file, title: name, width, html, files: refs.files};
+  return {file, title: name, width, html, names: refs.names, files: refs.files};
 }
 
 function place(project: Project, docs: Document[], target: ImportTarget) {
@@ -70,7 +70,7 @@ export async function importHtml(input: TextInput | GrantedFiles, dispatch: Disp
     if (project.id !== board) throw 'board_changed';
     return project;
   };
-  const result: ImportResult = {pages: [], files: {count: 0, bytes: 0}, remote: 0, skipped: [], documents: []};
+  const result: ImportResult = {pages: [], files: {count: 0, bytes: 0, names: []}, remote: 0, skipped: [], documents: []};
   const names = 'names' in input ? [...input.names].sort() : [input.name ?? (typeof File !== 'undefined' && input.text instanceof File ? input.text.name : '')];
   const media = new Map<string, StoredMedia>();
   let planned = {project: live(), docs: [] as Document[]};
@@ -102,7 +102,7 @@ export async function importHtml(input: TextInput | GrantedFiles, dispatch: Disp
     result.pages = next.pages.slice(-planned.docs.length).map(({id, name}) => ({id, name}));
     const files = new Map<string, number>();
     for (const doc of planned.docs) for (const [sha, bytes] of doc.files) files.set(sha, bytes);
-    result.files = {count: files.size, bytes: [...files.values()].reduce((a, b) => a + b, 0)};
+    result.files = {names: [...new Set(planned.docs.flatMap(d => [...d.names]))].sort(), count: files.size, bytes: [...files.values()].reduce((a, b) => a + b, 0)};
   }
   return result;
 }

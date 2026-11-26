@@ -12,7 +12,7 @@ function credential() {
 
 function files({grant, names}: Chosen, shell: string): GrantedFiles {
   return Object.freeze({names: Object.freeze(names),
-    read: async (name: string) => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name})),
+    read: async (name: string, kind: 'document' | 'style' | 'script') => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name, kind})),
     media: (name: string) => invoke<StoredMedia>('html_import_media', {shell, grant, name}),
   });
 }
