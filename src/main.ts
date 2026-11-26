@@ -821,9 +821,15 @@ let replacedStore=false;
 let troubleSeen='';
 /** The error the last failed save gave, kept until a save lands or the store is read again: the next edit's write, queued behind the one that failed, does not clear it. */
 let saveTrouble='';
-function openTrouble(t=troubleNow()){if(!t)return;const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&new TextEncoder().encode(JSON.stringify(project,null,2)).length<=20_000_000});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
+function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'?t.path:t.detail);}
+/** The person is typing into a field of the window (not a dialog's): a dialog that opened on its own would take the keys from them. */
+function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
+function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&new TextEncoder().encode(JSON.stringify(project,null,2)).length<=20_000_000});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
 /** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
-function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}const key=t.kind+':'+(t.kind==='vanished'?t.path:t.detail);if(key===troubleSeen)return true;if(modalRoot.children.length||askOpen())return false;troubleSeen=key;openTrouble(t);return true;}
+function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing())return false;openTrouble(t);return true;}
+/** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
+function offerTrouble(){setTimeout(()=>{if(troubleNow())troubleOpened();},0);}
+document.addEventListener('focusout',()=>offerTrouble());
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
   const frame=delegation.scope.frameId?project.pages.find(p=>p.id===delegation!.scope.frameId)?.name:undefined;
@@ -1219,6 +1225,7 @@ function showModal(title: string, subtitle: string, body: string, wide: boolean|
 function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; if(leaving)focusAfterLeaving=modalReturnFocus;else modalReturnFocus?.focus();   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
+  offerTrouble();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
@@ -1784,7 +1791,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
-    case 'notice-open': openTrouble(); break;
+    case 'notice-open': if(!modalRoot.children.length)openTrouble(); break;
     case 'fatal-redraw': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove();render(); break;
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
     case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}

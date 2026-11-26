@@ -128,10 +128,10 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   let opened=0;const toasts:string[]=[];let marks=0;
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
-    document:{querySelectorAll:()=>[]},control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
-    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,openTrouble:()=>{opened++;},
+    document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,
     vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
-  editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function troubleNow(','function troubleOpened('],screen);
+  editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
   const settle=()=>new Promise(r=>setTimeout(r,5));
   queue.enqueue('one');await settle();
@@ -231,6 +231,29 @@ test('a failed save comes before the missing folder, so the backup choices are a
   assert.match(main,/if\(saved&&!error&&vanished\)replacedStore=true;/,'a write that lands while the folder is missing made a new one');
   const reload=main.slice(main.indexOf('async function reloadFromDisk(){'),main.indexOf('async function reloadFromDiskNow(){'));
   assert.match(reload,/if\(\(!lastSaved\|\|saveTrouble\)&&!modalRoot\.querySelector\('\[data-reload-confirm\]'\)\)\{const c=reloadConfirm\(uiLanguage==='ko'\);showModal\(/);
+});
+
+/* Astra medium 7: a trouble that could not be shown (another dialog was open, the request to edit was up, the person was
+   typing) is shown once those are done; and opening it from its mark counts as having seen it. */
+test('a trouble put off for a dialog or for typing is shown once they are done, and opening it by hand counts as seen',async()=>{
+  const {editorCalls}=await import('./support/editor-calls');
+  let opened=0;let active:{matches:(s:string)=>boolean}|null={matches:()=>true};
+  const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false},askOpen:()=>false,document:{get activeElement(){return active;}},HTMLElement:Object,
+    troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',
+    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder};
+  editorCalls(['function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
+  const shown=screen.troubleOpened as ()=>boolean;
+  assert.equal(shown(),false,'the person is typing: it waits');
+  assert.equal(opened,0);
+  active=null;
+  assert.equal(shown(),true);assert.equal(opened,1,'typing over, it shows');
+  assert.equal(shown(),true);assert.equal(opened,1,'once');
+  screen.troubleSeen='';(screen.openTrouble as ()=>void)();
+  assert.equal(screen.troubleSeen,'full:No space left on device (os error 28)','opened by hand is seen, so Later is not undone by the next failure');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/function closeModal\(\)[^]*?offerAsk\(\);\n  offerTrouble\(\);\n\}/,'closing a dialog gives a waiting trouble its turn, after a waiting request');
+  assert.match(main,/document\.addEventListener\('focusout',\(\)=>offerTrouble\(\)\);/,'and so does leaving a field');
+  assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length\)openTrouble\(\); break;/,'the mark opens nothing over a dialog someone is in, whoever presses it');
 });
 
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
