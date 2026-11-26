@@ -147,11 +147,13 @@
 | 토큰 | 밝은 판 | 어두운 판 |
 |---|---|---|
 | `--ui-color-scheme` | `light` | `dark` |
+| `--ui-art-blend` | `multiply` | `normal` |
 | `--ui-bg-app` | `{n-50}` #F7F5EF | `{d-50}` #1B1A16 |
 | `--ui-bg-panel` | `{n-0}` #FDFCF8 | `{d-100}` #201F1A |
 | `--ui-bg-raised` | `{n-0}` #FDFCF8 | `{d-200}` #25241E |
 | `--ui-bg-sunken` | `{n-100}` #EEEAE0 | `{d-0}` #131210 |
 | `--ui-bg-page` | `{white}` #FFFFFF | `{white}` #FFFFFF |
+| `--ui-bg-paper` | `{n-100}` #EEEAE0 | `{n-100}` #EEEAE0 |
 | `--ui-bg-canvas` | `{floor-light}` #EFEBE1 | `{floor-dark}` #22211C |
 | `--ui-canvas-dot` | `rgb(33 31 25 / 0.16)` | `rgb(243 239 227 / 0.14)` |
 | `--ui-bg-hover` | `{n-100}` #EEEAE0 | `{d-300}` #2B2A23 |

@@ -99,3 +99,12 @@ test('home, the help menu and the palette offer the same three looks, with the o
   assert.deepEqual(looks.map(c=>c.data?.scheme+':'+(c.hint?.en??'')),['system:','light:current','dark:'],'the palette');
   assert.ok(!/data-theme=/.test(home+helpMenuHtml('ko',undefined,undefined,'dark')),'no control carries data-theme, which would paint itself in that theme');
 });
+
+/* 0.3-L5: what is not the app's own look keeps its ground in both themes: the page white, the catalog's and the wordmark's paper, and the cutouts meet the dark theme without being multiplied into it. */
+test('the page and the paper are the same in both themes, and the cutouts are multiplied only into the light one',async()=>{
+  const {resolve,themes}=await import('../src/ui/tokens.ts');
+  for(const role of ['bg-page','bg-paper'])assert.equal(resolve('dark',role),resolve('light',role),role);
+  assert.equal(themes.light['art-blend'],'multiply');
+  assert.equal(themes.dark['art-blend'],'normal');
+  for(const sheet of ['src/ui/screens/surfaces.css','src/design/studio.css'])assert.doesNotMatch(readFileSync(new URL('../'+sheet,import.meta.url),'utf8'),/mix-blend-mode:\s*multiply/,sheet+' blends through the token');
+});
