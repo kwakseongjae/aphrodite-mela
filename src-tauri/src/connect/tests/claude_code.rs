@@ -515,7 +515,7 @@ fn astra_1_a_changed_program_is_refused_before_even_get_runs() {
     let remove = f.proposal(Action::Remove);
     let calls = f.calls().len();
     let link = f.e().cli_dirs[0].join("claude");
-    let other = f.e().home.join("other");
+    let other = f.e().cli_dirs[0].join("other");
     fs::copy(&link, &other).unwrap();
     fs::remove_file(&link).unwrap();
     symlink(&other, &link).unwrap();
@@ -1049,4 +1049,54 @@ fn opus_1_supported_optional_fields_have_versioned_fixtures() {
         assert_eq!(s["entryExists"], true);
         assert_eq!(s["pointsHere"], false);
     }
+}
+
+#[test]
+fn astra_5_an_unwritable_journal_prevents_remove_and_an_unknown_result_keeps_recovery() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let start = f.calls().len();
+    let failed = f.apply(Action::Connect, &p, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(failed["code"], "record_failed");
+    assert!(f.calls()[start..].iter().all(|c| c["args"][1] == "get"));
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"exit":17,"once":true,
+        "nextGet":{"exit":12,"err":"private-neighbor","once":true}}),
+    );
+    let failed = f.apply(Action::Connect, &p, false);
+    assert_eq!(failed["observed"]["error"], "cli_get_failed");
+    assert_eq!(failed["observed"]["exitStatus"], 12);
+    assert_eq!(failed["observed"]["entryExists"], Value::Null);
+    assert_eq!(f.calls().last().unwrap()["args"][1], "get");
+    assert_eq!(
+        json!(f.e().status(CLAUDE).unwrap())["unfinishedRepoint"],
+        true
+    );
+}
+
+#[test]
+fn astra_1_preview_displays_the_resolved_file_identity_and_detects_in_place_change() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let real = f.e().cli_dirs[0].join("playback");
+    let m = fs::metadata(&real).unwrap();
+    assert_eq!(p["program"]["path"], json!(real));
+    assert_eq!(
+        p["program"]["identity"],
+        json!({"device":m.dev(), "inode":m.ino(), "size":m.size(),
+        "mtimeSeconds":m.mtime(), "mtimeNanos":m.mtime_nsec()})
+    );
+    fs::write(real, format!("{SCRIPT}\n# newer fixture\n")).unwrap();
+    let count = f.calls().len();
+    assert_eq!(f.apply(Action::Connect, &p, false)["code"], "changed");
+    assert_eq!(f.calls().len(), count);
 }
