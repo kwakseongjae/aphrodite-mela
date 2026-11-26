@@ -842,3 +842,23 @@ fn astra_2_a_second_editor_save_remains_at_the_live_name_during_conflict_recover
     assert!(matches!(result, Err(Code::Changed)));
     assert_eq!(dir.read(name).unwrap(), b"latest");
 }
+
+#[test]
+fn astra_5_the_private_backup_drops_directory_inheritance_before_copying_content() {
+    let h = Home::new();
+    let path = h.file(Tool::Cursor, "{}");
+    assert!(std::process::Command::new("/bin/chmod")
+        .args(["+a", "everyone allow read,file_inherit"])
+        .arg(path.parent().unwrap())
+        .status()
+        .unwrap()
+        .success());
+    let backup = connect(&h.engine, Tool::Cursor, 1).backup.unwrap();
+    let result = std::process::Command::new("/bin/ls")
+        .arg("-le")
+        .arg(&backup)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(result.stdout).unwrap().lines().count(), 1);
+    assert_eq!(fs::read_to_string(backup).unwrap(), "{}");
+}

@@ -103,20 +103,44 @@ pub(super) fn read_receipt(value: io::Result<Option<Vec<u8>>>) -> Result<(Option
     }
 }
 
+use std::ffi::c_void;
+const EXTENDED_ACL: i32 = 0x100;
+unsafe extern "C" {
+    fn acl_init(count: i32) -> *mut c_void;
+    fn acl_set_fd_np(fd: i32, acl: *mut c_void, kind: i32) -> i32;
+    fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
+    fn acl_to_text(acl: *mut c_void, len: *mut isize) -> *mut libc::c_char;
+    fn acl_free(ptr: *mut c_void) -> i32;
+}
+
+// A directory can grant read access through an inherited ACL even when the creation
+// mode is 0600. Establish privacy on the empty inode before putting any data into it.
+fn make_private(file: &File) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    unsafe {
+        let acl = acl_init(0);
+        if acl.is_null() {
+            return Err(Code::Io);
+        }
+        let result = acl_set_fd_np(file.as_raw_fd(), acl, EXTENDED_ACL);
+        let error = io::Error::last_os_error();
+        acl_free(acl);
+        if result != 0 {
+            return Err(io_code(error));
+        }
+    }
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(io_code)
+}
+
 // Darwin exposes ACLs separately from extended attributes. Compare their external
 // representation as well as the mode and attributes after an exchange.
 fn protections(file: &File) -> Result<String> {
-    use std::ffi::c_void;
-    unsafe extern "C" {
-        fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
-        fn acl_to_text(acl: *mut c_void, len: *mut isize) -> *mut libc::c_char;
-        fn acl_free(ptr: *mut c_void) -> i32;
-    }
     let meta = file.metadata().map_err(io_code)?;
     let mut parts =
         vec![serde_json::to_vec(&(meta.mode(), meta.uid(), meta.gid(), meta.st_flags())).unwrap()];
     unsafe {
-        let acl = acl_get_fd_np(file.as_raw_fd(), 0x100); // ACL_TYPE_EXTENDED
+        let acl = acl_get_fd_np(file.as_raw_fd(), EXTENDED_ACL);
         if !acl.is_null() {
             let mut len = 0;
             let text = acl_to_text(acl, &mut len);
@@ -240,6 +264,7 @@ impl FileState {
         opts.write(true).create_new(true).mode(0o600);
         let mut file = dir.open_with(&name, &opts).map_err(io_code)?.into_std();
         let temp = Staged { dir, name };
+        make_private(&file)?;
         file.write_all(data.as_bytes()).map_err(io_code)?;
         if let Some(original) = &self.file {
             if unsafe {
@@ -374,15 +399,16 @@ pub fn backup_name(target: &Path, stamp: u128) -> Result<OsString> {
 pub fn backup(dir: &Dir, name: &std::ffi::OsStr, data: &str) -> Result<()> {
     let mut opts = OpenOptions::new();
     opts.write(true).create_new(true).mode(0o600);
-    let mut f = dir.open_with(name, &opts).map_err(io_code)?;
-    if f.write_all(data.as_bytes())
-        .and_then(|()| f.sync_all())
-        .is_err()
-    {
+    let mut f = dir.open_with(name, &opts).map_err(io_code)?.into_std();
+    let result = make_private(&f).and_then(|()| {
+        f.write_all(data.as_bytes())
+            .and_then(|()| f.sync_all())
+            .map_err(io_code)
+    });
+    if result.is_err() {
         let _ = dir.remove_file(name);
-        return Err(Code::Io);
     }
-    Ok(())
+    result
 }
 pub fn parent(root: &Dir, target: &Path) -> Result<Dir> {
     let parent = target.parent().ok_or(Code::InvalidPath)?;
