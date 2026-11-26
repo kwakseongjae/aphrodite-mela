@@ -6,8 +6,8 @@ import {
   writeBreadcrumb,
   storeVanished,
   crumbFor,
-  vanishedHtml,
 } from '../src/workspace/breadcrumb';
+import {troubleDialog} from '../src/ui/notices';
 
 const slot = (seed: Record<string, string> = {}) => {
   const map = new Map(Object.entries(seed));
@@ -57,28 +57,33 @@ test('a breadcrumb that never held anything is not worth a warning', () => {
   assert.equal(storeVanished({data: null}, empty), undefined, 'nothing was there to lose');
 });
 
+const notice = (crumb: ReturnType<typeof crumbFor>, ko: boolean) => {
+  const d = troubleDialog({kind: 'vanished', path: crumb.path, boards: crumb.entries}, 'home', ko);
+  return d.title + d.subtitle + d.body;
+};
+
 test('the notice names the folder and what was in it, and escapes the path', () => {
   const crumb = crumbFor('/Users/x/<script>/store', 317, 18, new Date('2026-09-17T00:00:00Z'));
-  const ko = vanishedHtml(crumb, true);
-  assert.match(ko, /18개의 보드/, 'it says how much it remembers');
-  assert.match(ko, /저장 폴더가 있던 자리에 없습니다/);
+  const ko = notice(crumb, true);
+  assert.match(ko, /보드 18개/, 'it says how much it remembers');
+  assert.match(ko, /보드를 모아 둔 폴더를 찾을 수 없어요/);
   assert.ok(!ko.includes('<script>'), 'the path is escaped, not executed');
   assert.match(ko, /&lt;script&gt;/);
-  const en = vanishedHtml(crumb, false);
-  assert.match(en, /18 boards were saved here/);
+  const en = notice(crumb, false);
+  assert.match(en, /18 boards were kept in this folder/);
   assert.match(en, /Nothing has been deleted/, 'it leads with the reassurance');
 });
 
 test('one board reads as one, not as one boards', () => {
   const one = crumbFor('/a', 2, 1, new Date('2026-09-17T00:00:00Z'));
-  assert.match(vanishedHtml(one, false), /1 board were|1 board was/);
-  assert.ok(!vanishedHtml(one, false).includes('1 boards'), 'no bare plural on one');
+  assert.match(notice(one, false), /1 board was/);
+  assert.ok(!notice(one, false).includes('1 boards'), 'no bare plural on one');
 });
 
 /* Starting fresh is the only destructive door in this notice, so it must be a deliberate press and
    never something the notice does on the person's behalf. */
 test('the notice offers looking again before starting fresh', () => {
-  const html = vanishedHtml(crumbFor('/a', 2, 3, new Date()), false);
+  const html = notice(crumbFor('/a', 2, 3, new Date()), false);
   assert.ok(
     html.indexOf('disk-reload') < html.indexOf('disk-start-fresh'),
     'the safe action comes first',

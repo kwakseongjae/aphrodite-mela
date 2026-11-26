@@ -34,7 +34,7 @@ check('an agent cannot open the door for itself', async () => {
   const refused = await agent('act', {action: 'agent-connect-toggle'});
   assert.equal(refused.status, 403, 'flipping the switch is the person\'s, like approving');
   assert.match(refused.error, /the person's to decide/);
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'no banner appeared');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false, 'no mark appeared');
 });
 
 /* The request is a dialog in the middle of the screen (0.3-1b). The person answers it with their own
@@ -78,7 +78,7 @@ check('the request reaches the person with its name on it, in the middle of the 
   assert.match(text, /⌘Z/);
   assert.match(text, /not be asked again|다음부터는 묻지 않습니다/);
   assert.equal(await evaluate(`document.activeElement?.dataset.action`), 'ask-allow', 'Allow has the focus, so Enter allows');
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'asking did not open anything');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false, 'asking did not open anything');
   const again = await agent('connect', {}, 'claude-code');
   assert.equal(again.status, 'waiting', 'asking twice does not put up a second request');
 });
@@ -94,7 +94,7 @@ check('the focus stays in the request', async () => {
 check('the person allows it with one click, and the agent may write', async () => {
   await press('ask-allow');
   assert.equal(await dialog(), '', 'the request is answered and gone');
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'connected mode is on');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true, 'connected mode is on');
   const allowed = await agent('edit', {reason: WHY, field: 'title', text: 'Asked and allowed'});
   assert.equal(allowed.status, undefined, JSON.stringify(allowed));
   await personPresses('agent-disconnect');
@@ -225,7 +225,7 @@ check('the guide tells an agent where it stands without asking permission', asyn
 check('the person turns it on, and the banner says so', async () => {
   await personPresses('agent-connect-toggle');
   await sleep(120);
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'the connected banner is up');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true, 'the connected mark is up');
 });
 
 check('now the agent may write, and the write is not refused by the rule', async () => {
@@ -257,7 +257,7 @@ check('a second agent is refused by name while the first holds it', async () => 
 check('disconnecting closes the door again', async () => {
   await personPresses('agent-disconnect');
   await sleep(120);
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false);
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false);
   const refused = await agent('edit', {reason: WHY, field: 'title', text: 'x'});
   assert.equal(refused.status, 423);
 });
@@ -285,7 +285,7 @@ check('the person allows an agent by name, and a restart remembers it', async ()
   assert.equal(again.status, 'already-open', 'and it is not asked again');
   const write = await agent('edit', {reason: WHY, field: 'title', text: 'remembered'}, 'claude-code');
   assert.notEqual(write.status, 423, JSON.stringify(write));
-  assert.equal(await evaluate(`document.querySelector('.connect-banner')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the banner names who is let in, as a person knows it');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark')?.textContent ?? ''`).then(t => t.includes('Claude Code')), true, 'the mark names who is let in, as a person knows it');
   await personClicks('agent-connect');
   await sleep(250);
   const listed = await evaluate(`document.querySelector('#modal-root .connect-allowed')?.textContent ?? ''`);

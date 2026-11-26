@@ -23,7 +23,7 @@ check('a blank project opens and the door is opened by the person', async () => 
   assert.equal(await evaluate(`document.querySelector('#app').dataset.screen`), 'editor', 'the editor is open');
   await pressDoor('agent-connect-toggle');
   await sleep(250);
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true);
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true);
   // Flipping the switch leaves its dialog open, as it does for a person; they close it to carry on.
   await presses('Escape');
   await sleep(250);

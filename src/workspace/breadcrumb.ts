@@ -85,36 +85,3 @@ export function storeVanished(
 export function crumbFor(path: string, revision: number, entries: number, now: Date): Breadcrumb {
   return {path, revision, entries, at: now.toISOString().slice(0, 10)};
 }
-
-/**
- * The notice, in the person's language.
- *
- * It says the path, because the fix is almost always "the folder moved" and they are the only one
- * who can put it back. It does not offer to rebuild anything: the one dangerous action here is
- * writing a fresh empty store over the situation, and that stays behind an explicit press.
- */
-export function vanishedHtml(crumb: Breadcrumb, ko: boolean): string {
-  const t = (en: string, kr: string) => (ko ? kr : en);
-  const esc = (v: string) =>
-    v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const count = crumb.entries;
-  return `<div class="disk-vanished ui-banner ui-banner-warn" role="alert">
-    <i data-lucide="circle-alert" class="ui-icon ui-icon-sm" aria-hidden="true"></i>
-    <div class="ui-banner-body">
-      <p class="ui-banner-title">${t('Your saved folder is not where it was.', '저장 폴더가 있던 자리에 없습니다.')}</p>
-      <p class="ui-banner-text">${t(
-        `Nothing has been deleted. Last time, ${count} board${count === 1 ? '' : 's'} were saved here:`,
-        `아무것도 지워지지 않았습니다. 마지막에 이곳에 ${count}개의 보드가 저장돼 있었습니다:`,
-      )}</p>
-      <p class="ui-banner-text"><code class="ui-mono">${esc(crumb.path)}</code></p>
-      <p class="ui-banner-text">${t(
-        'If you moved it, put it back and press Look again. Starting fresh will leave the old folder untouched wherever it is.',
-        '옮기셨다면 제자리에 돌려놓고 다시 확인을 누르세요. 새로 시작해도 예전 폴더는 그대로 남습니다.',
-      )}</p>
-    </div>
-    <div class="ui-banner-actions">
-      <button type="button" class="ui-btn ui-btn-secondary" data-action="disk-reload">${t('Look again', '다시 확인')}</button>
-      <button type="button" class="ui-btn ui-btn-quiet" data-action="disk-start-fresh">${t('Start fresh', '새로 시작')}</button>
-    </div>
-  </div>`;
-}

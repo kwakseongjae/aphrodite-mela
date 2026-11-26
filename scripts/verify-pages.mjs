@@ -804,7 +804,7 @@ check('a link that arrives while the person is asked who may edit waits for thei
   assert.equal(await pageView(), '', 'and the link waits');
   await personPresses('ask-decline');
   await waitFor(async () => (await pageView()) === viewId, 'the link to open once the person has answered');
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'the answer was the person\'s: declined');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false, 'the answer was the person\'s: declined');
   await personPresses('page-view-close'); await sleep(300);
   await personPresses('agent-connect-toggle'); await sleep(250); await presses('Escape'); await sleep(5_200);
 });
@@ -1332,7 +1332,7 @@ check('a board file waits for the request to edit that comes up while it is on i
   assert.equal((await agent('contract', {})).project.project_id, board, 'and the board waits behind it');
   await personPresses('ask-decline');
   await waitFor(async () => (await count()) > before && (await agent('contract', {})).project.project_id !== board, 'the board to open once the person has answered', 30);
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), false, 'the answer was the person\'s: declined');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), false, 'the answer was the person\'s: declined');
   await evaluate(`window.aphroditeOpenLink(${JSON.stringify('aphrodite://open?board=' + board)})`);
   await waitFor(async () => (await agent('contract', {})).project.project_id === board, 'back on the board');
   await sleep(5_200);

@@ -67,16 +67,57 @@
 .ui-side.library .library-bottom > .ui-icon { flex-shrink: 0; color: var(--ui-text-2); }
 .ui-side.library .library-drop { flex: 1 1 auto; min-width: 0; }
 
-/* The strips over the board: connected, agent mode, a save that did not reach the disk. */
-.ui-strip.connect-banner, .ui-strip.agent-banner { position: relative; z-index: 70; flex-shrink: 0; }
-.ui-strip.disk-warning { flex-shrink: 0; }
+/* The one strip over the board: agent mode, until it goes with agent mode (src/ui/notices.ts). */
+.ui-strip.agent-banner { position: relative; z-index: 70; flex-shrink: 0; }
 .ui-strip code { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); color: var(--ui-text-2); }
 .ui-strip b { font-weight: var(--ui-w-semibold); color: var(--ui-text-1); }
 .ui-strip .ui-strip-changes b { color: inherit; }
-.ui-strip .connect-sep, .ui-strip .agent-banner-sep { color: var(--ui-text-2); }
-.ui-strip .connect-note, .ui-strip .agent-banner-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ui-strip.disk-warning > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ui-strip .disk-warning-actions { display: flex; gap: var(--ui-space-2); }
+.ui-strip .agent-banner-sep { color: var(--ui-text-2); }
+.ui-strip .agent-banner-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Marks (src/ui/notices.ts): how things stand now, beside Preview and Export, and in home's side list. */
+.ui-notice-marks { display: flex; align-items: center; gap: var(--ui-space-2); min-width: 0; margin-right: auto; }
+.ui-notice-marks:empty, .ui-home-marks:empty { display: none; }
+.ui-btn.notice-mark-trouble { gap: var(--ui-space-2); border-color: transparent; border-radius: var(--ui-radius-pill); background: var(--ui-warn-soft); color: var(--ui-warn-text); font-weight: var(--ui-w-semibold); }
+.ui-btn.notice-mark-trouble:hover:not(:disabled) { border-color: var(--ui-warn-text); background: var(--ui-warn-soft); color: var(--ui-warn-text); }
+.ui-notice-mark.notice-mark-connect { position: relative; }
+.ui-notice-mark.notice-mark-connect > summary { gap: var(--ui-space-2); list-style: none; white-space: nowrap; }
+.ui-notice-mark.notice-mark-connect > summary::-webkit-details-marker { display: none; }
+.ui-notice-mark.notice-mark-connect .connect-mark-logo { display: inline-flex; }
+.ui-notice-mark.notice-mark-connect .connect-mark-logo:empty { display: none; }
+.ui-notice-mark.notice-mark-connect .connect-mark-logo .ui-connect-mark { width: var(--ui-icon-20); height: var(--ui-icon-20); }
+.ui-notice-mark.notice-mark-connect > summary .ui-row-meta { color: var(--ui-text-2); }
+.ui-notice-mark.notice-mark-connect > summary .ui-row-meta b { color: var(--ui-agent-text); font-weight: var(--ui-w-semibold); }
+.ui-popover.notice-pop { position: absolute; top: calc(100% + var(--ui-space-1)); right: 0; z-index: 80; white-space: normal; word-break: keep-all; }
+.ui-notice-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--ui-space-1) var(--ui-space-3); margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
+.ui-notice-facts dt { color: var(--ui-text-2); }
+.ui-notice-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ui-notice-facts code { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); }
+.ui-home-marks { display: grid; gap: var(--ui-space-1); margin-bottom: var(--ui-space-1); }
+.ui-home-marks .ui-btn, .ui-home-marks .ui-notice-mark.notice-mark-connect > summary { width: 100%; justify-content: flex-start; }
+.ui-home-marks .ui-popover.notice-pop { top: auto; right: auto; bottom: calc(100% + var(--ui-space-1)); left: 0; }
+
+/* The dialog that stops the work: what happened, where the work is, then the ways on, the safe one first. */
+.ui-notice-lead { display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md); margin-bottom: var(--ui-space-3); border-radius: var(--ui-radius-2); background: var(--ui-warn-soft); color: var(--ui-warn-text); }
+.ui-banner.notice-safe { margin: 0 0 var(--ui-space-4); }
+.ui-banner.notice-safe code { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); color: var(--ui-text-1); overflow-wrap: anywhere; }
+.ui-notice-choices { display: grid; gap: var(--ui-space-2); }
+.ui-option.notice-choice { appearance: none; grid-template-columns: var(--ui-control-md) minmax(0, 1fr) auto; align-items: center; width: 100%; margin: 0; padding: var(--ui-space-3); font: inherit; text-align: left; }
+.ui-option.notice-choice .ui-option-why { display: block; }
+.ui-option.notice-choice > .ui-icon { color: var(--ui-text-2); }
+.ui-notice-details { margin-top: var(--ui-space-4); font-size: var(--ui-text-12); line-height: var(--ui-lh-12); color: var(--ui-text-2); }
+.ui-notice-details > summary { cursor: default; }
+.ui-notice-details pre { margin: var(--ui-space-2) 0 0; padding: var(--ui-space-3); max-height: calc(var(--ui-control-lg) * 4); overflow: auto; border-radius: var(--ui-radius-2); background: var(--ui-bg-sunken); color: var(--ui-text-1); font-family: var(--ui-font-mono); font-size: var(--ui-text-11); line-height: var(--ui-lh-11); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ui-notice-details > .ui-btn { margin-top: var(--ui-space-2); }
+
+/* A screen that could not be drawn: one sheet over everything, readable without the app's state. */
+.ui-scrim.fatal-scrim { z-index: 1000; }
+.ui-modal.fatal-sheet { position: relative; font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); word-break: keep-all; }
+.ui-modal.fatal-sheet .ui-modal-body { padding: var(--ui-space-6); }
+.ui-modal.fatal-sheet .fatal-icon { margin-bottom: var(--ui-space-3); background: var(--ui-danger-soft); color: var(--ui-danger-text); }
+.ui-modal.fatal-sheet .ui-modal-title { font-size: var(--ui-text-20); line-height: var(--ui-lh-20); letter-spacing: var(--ui-track-20); }
+.ui-modal.fatal-sheet .fatal-actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin-top: var(--ui-space-5); }
+.ui-modal.fatal-sheet .fatal-close { position: absolute; top: var(--ui-space-3); right: var(--ui-space-3); }
 .ui-strip .ui-btn > .ui-kbd { margin-left: var(--ui-space-1); }
 
 /* The agent connection dialog. */

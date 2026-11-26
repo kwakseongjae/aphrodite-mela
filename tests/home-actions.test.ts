@@ -5,6 +5,7 @@ import {entryFor,cloneProject} from '../src/workspace/library';
 import {workspaceHome} from '../src/workspace/home';
 import {workspaceFormHtml} from '../src/workspace/workspace-ui';
 import {renameDialogHtml,deleteDialogHtml,workspaceDeleteDialogHtml,storageDialogHtml} from '../src/workspace/home-dialogs';
+import {troubleDialog,troubleMarkHtml,type Trouble} from '../src/ui/notices';
 
 /**
  * Everything a person can reach from home, read off the markup: each data-action with its arguments,
@@ -21,6 +22,7 @@ const c=cloneProject(a);c.name='Gamma';
 const book={version:1 as const,activeId:'personal',workspaces:[{id:'personal',name:'Mine',avatar:{kind:'color' as const,value:'#2f3a2f'},createdAt:''},{id:'client',name:'Client',avatar:{kind:'emoji' as const,value:'🌿'},createdAt:''}]};
 const lib={version:1 as const,entries:[entryFor(a),{...entryFor(b),pinned:true},{...entryFor(c),archived:true}]};
 const empty={version:1 as const,entries:[]};
+const said:Trouble={kind:'unread',detail:'Disk said no'};
 const names=new Map(lib.entries.map(e=>[e.project.id,e.project.name]));
 
 export function reachable(html:string){
@@ -38,7 +40,8 @@ export function reachable(html:string){
 }
 
 export const states:Record<string,()=>string>={
-  projects:()=>workspaceHome(lib,'recent','','Disk said no','system','en','grid',true,book,'open',true,'Claude Code'),
+  // 0.3-G2b: what the warning over the boards offered is in the dialog its mark opens, which is drawn here with it.
+  projects:()=>workspaceHome(lib,'recent','',troubleMarkHtml(said,false),'system','en','grid',true,book,'open',true,'Claude Code')+troubleDialog(said,'home',false).body,
   none:()=>workspaceHome(empty,'recent','','','system','en','grid',true,book),
   searchEmpty:()=>workspaceHome(lib,'recent','zzz','','system','en','grid',true,book),
   archive:()=>workspaceHome(lib,'archived','','','system','en','grid',true,book),

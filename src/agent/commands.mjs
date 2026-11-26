@@ -1347,7 +1347,7 @@ export const commands = [
     input: NOTHING,
     ...plain,
     surfaces: UI,
-    controls: [action('copy-prompt'), action('copy-storage-path'), action('dev-copy')],
+    controls: [action('copy-prompt'), action('copy-storage-path'), action('dev-copy'), action('fatal-copy')],
   },
   {
     id: 'outside.project-new',
@@ -1502,7 +1502,8 @@ export const commands = [
   ]),
   chrome('chrome.dialogs', 'Open or close a dialog', '창 열기·닫기', [
     action('commands'), field('command-search'), action('close-modal'), action('about'), action('brand-kit'), action('storage-info'), action('agent'),
-    action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'),
+    action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'), action('notice-open'),
+    action('fatal-redraw'), action('fatal-close'),
   ]),
   chrome('chrome.page-view', 'See a page on its own, or go back to the board', '페이지만 보기·보드로 돌아가기', [
     action('page-view'), action('page-view-close'),

@@ -7,6 +7,7 @@ import {linkOut} from '../src/free-page';
 import {esc} from '../src/html';
 import {exportBodyHtml} from '../src/editor/export-view';
 import {commandPaletteHtml} from '../src/editor/command-palette';
+import {troubleDialog} from '../src/ui/notices';
 import {editorCalls,noop} from './support/editor-calls';
 
 const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
@@ -52,7 +53,7 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     return [...markup.split('ui-modal-body">')[1].matchAll(/<(input|textarea|select|button)\b([^>]*)>/g)].map(([,tag,attrs])=>{
       const attr=(key:string)=>attrs.match(new RegExp(` ${key}="([^"]*)"`))?.[1];
       const action=attr('data-action');
-      return {...target(action??attr('id')??attr('name')??tag),tagName:tag.toUpperCase(),dataset:{action},
+      return {...target(action??attr('id')??attr('name')??tag),tagName:tag.toUpperCase(),dataset:{action,...(/ data-first-focus\b/.test(attrs)?{firstFocus:''}:{})},
         classList:{contains:(name:string)=>attr('class')?.split(' ').includes(name)},
         matches:(selector:string)=>selector===':disabled'&&attrs.includes(' disabled'),
         getClientRects:()=>attr('type')==='hidden'||attrs.includes(' hidden')?[]:[{}]};
@@ -81,7 +82,9 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     [renameDialogHtml('en',project),'name'],['<button>Back</button><textarea hidden></textarea><select disabled></select><textarea name="brief"></textarea>','brief'],
     ['<button>Back</button><select name="language"></select>','language'],[exported,'download-bundle'],
     [deleteDialogHtml('en',project),'close-modal'],[workspaceDeleteDialogHtml('ko','w',2),'close-modal'],
-    ['<iframe></iframe>','dialog'],['<div class="connect-switch"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="agent-connect-toggle" aria-pressed="true">On</button></div>','dialog'],[commandPaletteHtml([],'','en'),'command-search'],['<div class="ask-dialog"><button data-action="ask-allow">Allow</button></div>','ask-allow']
+    ['<iframe></iframe>','dialog'],['<div class="connect-switch"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="agent-connect-toggle" aria-pressed="true">On</button></div>','dialog'],[commandPaletteHtml([],'','en'),'command-search'],
+    // 0.3-G2b: a dialog that opens without a press starts on what loses nothing, which it names.
+    [troubleDialog({kind:'vanished',path:'/a',boards:2},'home',false).body,'close-modal'],[troubleDialog({kind:'full',detail:'os error 28'},'editor',true).body,'disk-backup'],['<div class="ask-dialog"><button data-action="ask-allow">Allow</button></div>','ask-allow']
   ];
   for(const [body,expected] of cases){
     focused=''; markup=''; showModal('Title','',body);

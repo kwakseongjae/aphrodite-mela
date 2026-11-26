@@ -1,7 +1,7 @@
 import { createIcons, createElement } from 'lucide';
-/** Last-resort crash surface: a blank webview hides everything, so uncaught errors are painted into the page. */
-window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
-window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
+/** Last-resort crash surface: a blank webview hides everything, so what stopped is said in one sheet over the page (src/ui/notices.ts). */
+window.addEventListener('error',e=>showFatal(`${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`));
+window.addEventListener('unhandledrejection',e=>showFatal(`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`));
  import { icons } from './icons';
 import { assemble, canonicalSystem, catalog, currentPage, agentRevision, approvalPrint, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
@@ -63,6 +63,7 @@ import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
+import {troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
@@ -99,7 +100,7 @@ import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,
 import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
-import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
+import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,type Breadcrumb} from './workspace/breadcrumb';
 import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,openingCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
@@ -435,6 +436,8 @@ const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}
 const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
+/** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
+function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
 let toasts:Toast[]=[];let toastId=0;
@@ -769,25 +772,35 @@ if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: dark)').add
 // Another tab of the app picked, or its storage was cleared: this one shows the same, and keeps nothing of its own.
 window.addEventListener('storage',e=>{if(e.key!==themeKey&&e.key!==null)return;const next=readTheme({getItem:k=>store.getItem(k)});if(next!==theme)showTheme(next);});
 
-/** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
+/** What sits above the screen: agent mode's strip, the one strip left, until it goes with agent mode. Everything else is a toast, the card, a dialog or a mark (src/ui/notices.ts). */
+function bannersHtml(){return agentBannerHtml();}
+/** The marks beside Preview and Export, and in home's side list: saving stopped, and who is connected. */
+function marksHtml(){return troubleMarkHtml(troubleNow(),uiLanguage==='ko')+connectMarkNow();}
+/** Repaints only the marks, keeping the connected one open if it was. */
+function paintMarks(){document.querySelectorAll<HTMLElement>('[data-notice-marks]').forEach(el=>{const open=!!el.querySelector('details[open]');el.innerHTML=marksHtml();if(open)el.querySelector('details')?.setAttribute('open','');hydrateIconsIn(el);});}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
-  slot.innerHTML=bannersHtml();if(pageView)placePageView();
+  slot.innerHTML=bannersHtml();if(pageView)placePageView();paintMarks();
   const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
 }
 
-/** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
-function connectBannerHtml(){
+/** Connected mode's mark: small, not a shield. The person keeps the screen; this says who else is on it, and holds their Disconnect. */
+function connectMarkNow(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
-  const holder=lease&&lease.label!==HUMAN?lease.label:'',left=allowedText()?`${ui('allowed','허용')} ${esc(allowedText())}`:'';
-  return `<div class="connect-banner ui-strip" role="status"><span class="ui-dot ui-dot-ok"></span><strong class="ui-strip-strong">${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <span class="connect-mark" data-connect-mark>${holder?callerMarkHtml(holder,true):''}</span><b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span class="ui-strip-changes"><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill ui-strip-push"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" class="ui-btn ui-btn-quiet" data-action="agent-disconnect">${icon('unplug','ui-icon ui-icon-sm')}${ui('Disconnect','연결 끊기')}</button></div>`;
+  const holder=lease&&lease.label!==HUMAN?lease.label:'';
+  return connectMarkHtml({who:allowedText(),holder:holder?callerText(holder):'',holderMark:holder?callerMarkHtml(holder,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
 }
+/** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
+function troubleNow():Trouble|undefined{if(vanished)return {kind:'vanished',path:vanished.path,boards:vanished.entries};if(startupError)return {kind:'unread',detail:startupError};if(storageIssue)return {kind:troubleKind(storageIssue),detail:storageIssue};return undefined;}
+let troubleSeen='';
+function openTrouble(t=troubleNow()){if(!t)return;const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko');showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
+/** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
+function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}const key=t.kind+':'+(t.kind==='vanished'?t.path:t.detail);if(key===troubleSeen)return true;if(modalRoot.children.length||askOpen())return false;troubleSeen=key;openTrouble(t);return true;}
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
   const frame=delegation.scope.frameId?project.pages.find(p=>p.id===delegation!.scope.frameId)?.name:undefined;
@@ -938,7 +951,7 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,theme,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,marksHtml(),theme,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
   // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
@@ -974,11 +987,11 @@ function render() {
       <div class="canvas-scroll space ui-floor" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}"${isStarterPage(project,p)?' hidden':''} data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head ui-frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span class="ui-frame-name">${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal ui-pill ui-pill-agent">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved ui-pill ui-pill-ok">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span class="ui-frame-size">${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<button type="button" class="frame-open ui-icon-btn" data-action="page-view" data-id="${esc(p.id)}" aria-label="${ui('See this page on its own','이 페이지만 보기')}" title="${ui('See this page on its own','이 페이지만 보기')}">${icon('eye')}</button>`:''}${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" class="ui-btn ui-btn-primary" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" class="ui-btn ui-btn-secondary" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" class="ui-btn ui-btn-quiet" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${shown.length?'':`<div class="board-empty ui-empty" role="note">${icon('upload','ui-icon ui-icon-lg')}<p class="ui-empty-title">${ui('This board is empty.','아직 빈 보드예요.')}</p><p class="ui-empty-text">${ui('Drop pictures or videos here, or let an agent put pages on it.','그림이나 영상을 여기에 끌어다 놓거나, 에이전트가 페이지를 올리게 하세요.')}</p><div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="agent-connect">${icon('bot','ui-icon ui-icon-sm')}${ui('How to connect an agent','에이전트 연결 방법 보기')}</button></div></div>`}
-      ${boardOnly?`<div class="board-actions"><button class="ui-btn ui-btn-secondary ui-btn-md" data-action="preview"${shown.length?'':` disabled title="${esc(nothingToPreview(uiLanguage==='ko'))}"`}>${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>`:''}
+      ${boardOnly?`<div class="board-actions"><span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span><button class="ui-btn ui-btn-secondary ui-btn-md" data-action="preview"${shown.length?'':` disabled title="${esc(nothingToPreview(uiLanguage==='ko'))}"`}>${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>`:''}
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen,sections,empty:!shown.length})}
       <details class="help-fab"${helpOpen?' open':''}><summary class="ui-fab" aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage,undefined,undefined,theme)}</details>
     </main>
-    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top"><button class="inspector-action ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="inspector-action primary ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>${inspectorPanelHtml()}</aside>
+    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${boardOnly?'':`<span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span>`}<button class="inspector-action ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="inspector-action primary ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>${inspectorPanelHtml()}</aside>
   </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`);
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
@@ -1157,7 +1170,9 @@ function inspectorHtml(page:Page) {
 function focusModal(){
   const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
   if(!modal||!body)return;
+  // A dialog that opened without a press names what it starts on: the choice that loses nothing (src/ui/notices.ts).
   const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
+  const named=controls.find(el=>el.dataset.firstFocus!==undefined);if(named){named.focus();return;}
   const first=controls.some(el=>el.dataset.action==='open-link'||el.dataset.action==='agent-connect-toggle'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
     controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
   (first??modal).focus();
@@ -1744,6 +1759,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
+    case 'notice-open': openTrouble(); break;
+    case 'fatal-redraw': document.querySelector('.fatal-scrim')?.remove();render(); break;
+    case 'fatal-close': document.querySelector('.fatal-scrim')?.remove(); break;
+    case 'fatal-copy': {try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
        breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */
@@ -2564,10 +2583,9 @@ installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 /** The left panel's line on where the board is saved (src/editor/save-badge.ts). */
 function saveBadge(state:SaveState){return saveBadgeHtml(state,{native:nativeDesktop,ko:uiLanguage==='ko',title:control(state==='saved'?(nativeDesktop?'Saved to disk':'Saved locally'):state==='saving'?'Saving to disk…':'Unsaved')});}
-function diskWarningHtml(){return `<div class="disk-warning ui-strip ui-strip-warn" role="alert">${icon('circle-alert','ui-icon ui-icon-sm')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(storageIssue)}</span><span class="disk-warning-actions"><button class="ui-btn ui-btn-secondary" data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button class="ui-btn ui-btn-secondary" data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
 function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';  /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
-  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
+  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);paintMarks();if(error){if(!troubleOpened())toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else if(!troubleNow())troubleSeen='';});}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
 async function reloadFromDisk(){
   if(!nativeDesktop)return;
@@ -2575,10 +2593,12 @@ async function reloadFromDisk(){
   return turn(()=>reloadFromDiskNow());
 }
 async function reloadFromDiskNow(){
+  // Pressed from the dialog: it closes, and the mark or a toast says how it went.
+  if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
   const stored=await bounded(invoke<{revision:number;data:string|null;path:string}>('workspace_read'));
   storagePath=stored.path;
   if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
-  diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;
+  diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;troubleSeen='';
   /* Looking again is the first thing the notice offers, so it has to answer either way: the folder
      is back and the banner goes, or it is still missing and we say that rather than appearing to
      have done nothing. */
@@ -2625,7 +2645,7 @@ async function boot(){
       await getCurrentWindow().onCloseRequested(closeRequests(closer,()=>getCurrentWindow().destroy(),error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)),saveTyping));
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
-  render();if(startupError)toast(startupError);
+  render();if(!troubleOpened()&&startupError)toast(startupError);
   void paintPaper();
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
   // What macOS opened is opened in the line of what comes in.
@@ -2642,6 +2662,6 @@ async function boot(){
     window.addEventListener('beforeunload',e=>{saveTyping();if(!lastSaved||leaving){e.preventDefault();e.returnValue='';}});
     // And closes the window the way the desktop does, with a window that only counts that it went.
     (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
-  if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
+  if(screen==='home'&&!startupError&&!troubleNow()&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

@@ -6,7 +6,7 @@ import {updateNoticeHtml,type UpdateInfo} from '../../src/update-notice';
 import {welcomeHtml,tourCardHtml,tourSteps} from '../../src/workspace/onboarding';
 import {vaultHtml} from '../../src/workspace/vault';
 import {agentPanelHtml,startDelegation} from '../../src/agent/delegation';
-import {vanishedHtml,crumbFor} from '../../src/workspace/breadcrumb';
+import {troubleDialog} from '../../src/ui/notices';
 import {languageSettingsHtml} from '../../src/i18n';
 import {initialProject} from '../../src/model';
 
@@ -61,7 +61,7 @@ export const states:Record<string,()=>string>={
   vault:()=>vaultHtml({path:'/Users/someone/Aphrodite/project-vault-v1/p1',snapshot:'DESIGN.md',files:[{name:'DESIGN.md',kind:'snapshot',bytes:2048},{name:'notes.md',kind:'document',bytes:900,source:'import'},{name:'hero.png',kind:'image',bytes:40000}],externalReferences:[1]},'ko'),
   agentPanel:()=>agentPanelHtml(delegation,[{seq:1,kind:'edit.copy',at:'2026-11-24T00:01:00.000Z'}],'en',{frameName:'Home',channel:'http://127.0.0.1:1234'}),
   agentPanelEmpty:()=>agentPanelHtml(delegation,[],'ko'),
-  vanished:()=>vanishedHtml(crumbFor('/Users/someone/Aphrodite',3,2,new Date('2026-11-24T00:00:00Z')),false),
+  vanished:()=>troubleDialog({kind:'vanished',path:'/Users/someone/Aphrodite',boards:2},'home',false).body,
   languageEditor:()=>languageSettingsHtml('en','ko'),
   languageHome:()=>languageSettingsHtml('ko'),
 };

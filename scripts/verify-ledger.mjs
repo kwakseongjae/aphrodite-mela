@@ -152,7 +152,7 @@ check('a sample project is open and the door is open to agents', async () => {
   await personPresses('agent-connect-toggle');
   await sleep(250);
   await closeDialogs();
-  assert.equal(await evaluate(`document.querySelector('.connect-banner') !== null`), true, 'agents may edit alongside the person');
+  assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true, 'agents may edit alongside the person');
   await sleep(5_200); // the person's press holds the screen for five seconds
 });
 
