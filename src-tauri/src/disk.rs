@@ -1,10 +1,33 @@
 //! A native save acknowledges the same result after its filesystem work finishes.
 use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+// The frontend gives window destruction ten seconds after the saves have drained.
+const WINDOW_CLOSE_LIMIT: Duration = Duration::from_secs(10);
+struct Close {
+    label: String,
+    ticket: String,
+    until: Instant,
+}
 
 struct Writes {
     active: usize,
-    closing: Option<(String, String)>,
+    closing: Option<Close>,
+}
+impl Writes {
+    fn close_remaining(&mut self) -> Option<Duration> {
+        let remaining = self
+            .closing
+            .as_ref()?
+            .until
+            .saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            self.closing = None;
+            None
+        } else {
+            Some(remaining)
+        }
+    }
 }
 static WRITES: Mutex<Writes> = Mutex::new(Writes {
     active: 0,
@@ -29,19 +52,23 @@ pub async fn disk_begin_close<R: tauri::Runtime>(
     timeout_ms: u64,
 ) -> Result<bool, String> {
     let label = window.label().to_owned();
-    let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms.min(10_000));
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(10_000));
     tauri::async_runtime::spawn_blocking(move || {
         let (mut state, _) = FINISHED
             .wait_timeout_while(
                 WRITES.lock().unwrap(),
-                deadline.saturating_duration_since(std::time::Instant::now()),
+                deadline.saturating_duration_since(Instant::now()),
                 |s| s.active > 0,
             )
             .unwrap();
-        if state.active != 0 || state.closing.is_some() {
+        if state.active != 0 || state.close_remaining().is_some() || Instant::now() >= deadline {
             return false;
         }
-        state.closing = Some((label, ticket));
+        state.closing = Some(Close {
+            label,
+            ticket,
+            until: Instant::now() + WINDOW_CLOSE_LIMIT,
+        });
         true
     })
     .await
@@ -56,25 +83,29 @@ pub fn release_close(label: &str, ticket: Option<&str>) {
     if state
         .closing
         .as_ref()
-        .is_some_and(|(owner, id)| owner == label && ticket.is_none_or(|t| t == id))
+        .is_some_and(|gate| gate.label == label && ticket.is_none_or(|t| t == gate.ticket))
     {
         state.closing = None;
+        FINISHED.notify_all();
     }
 }
 
 pub async fn write<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    let accepted = {
+    let (accepted, gated) = {
         let mut state = WRITES.lock().unwrap();
-        if state.closing.is_some() {
-            return Err("closing".into());
-        }
         state.active += 1;
-        Accepted
+        (Accepted, state.close_remaining().is_some())
     };
     tauri::async_runtime::spawn_blocking(move || {
         let _accepted = accepted;
+        if gated {
+            let mut state = WRITES.lock().unwrap();
+            while let Some(remaining) = state.close_remaining() {
+                state = FINISHED.wait_timeout(state, remaining).unwrap().0;
+            }
+        }
         work()
     })
     .await

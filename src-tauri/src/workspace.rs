@@ -116,6 +116,45 @@ pub fn workspace_recovery(app: tauri::AppHandle) -> Result<Value, String> {
 mod tests {
     use super::*;
     #[test]
+    fn recheck_6_a_workspace_save_waits_for_a_refused_or_late_close() {
+        use crate::disk;
+        use std::{future::Future, task::{Context, Waker}, time::Duration};
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let _serial = disk::TEST_SERIAL.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut context = mock_context(noop_assets());
+        context.config_mut().identifier = dir.path().to_str().unwrap().into();
+        let app = mock_builder().build(context).unwrap();
+        let web = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let root = dir.path().to_owned();
+        let save = |revision| {
+            let root = root.clone();
+            disk::write(move || save_at(&root, r#"{"version":1,"entries":[]}"#.into(), revision))
+        };
+        tauri::async_runtime::block_on(async {
+            for revision in 0..2 {
+                let window = web.as_ref().window();
+                assert!(disk::disk_begin_close(window.clone(), "leaving".into(), 1000).await.unwrap());
+                let mut pending = Box::pin(save(revision));
+                let first = pending.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+                assert!(first.is_pending(), "gate returned {first:?}");
+                std::thread::sleep(Duration::from_millis(20));
+                assert_eq!(read_at(&root).unwrap()["revision"], revision);
+                if revision == 0 {
+                    disk::disk_end_close(window, "leaving".into());
+                }
+                // A late close may never deliver its release. Both paths resume the queue.
+                let (finished, completion) = std::sync::mpsc::channel();
+                tauri::async_runtime::spawn(async move {
+                    let _ = finished.send(pending.await);
+                });
+                let limit = Duration::from_secs(if revision == 0 { 2 } else { 12 });
+                assert_eq!(completion.recv_timeout(limit).unwrap().unwrap(), revision+1);
+            }
+            assert_eq!(save(2).await.unwrap(), 3);
+        });
+    }
+    #[test]
     fn saves_and_keeps_previous() {
         let dir = tempfile::tempdir().unwrap();
         let s = r#"{"version":1,"entries":[]}"#;
