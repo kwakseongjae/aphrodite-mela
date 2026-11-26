@@ -258,7 +258,7 @@ pub(super) fn private_cwd(parent: &Path) -> Result<tempfile::TempDir, Code> {
         return Err(Code::InvalidPath);
     }
     for ancestor in parent.ancestors() {
-        for name in [".mcp.json", ".git"] {
+        for name in [".mcp.json", ".git", ".claude", "CLAUDE.md", "CLAUDE.local.md"] {
             match fs::symlink_metadata(ancestor.join(name)) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => (),
                 _ => return Err(Code::InvalidPath),

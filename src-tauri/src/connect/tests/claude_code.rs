@@ -578,7 +578,7 @@ fn opus_3_an_ancestor_project_or_shared_parent_prevents_launch() {
         fs::metadata(cwd.path()).unwrap().permissions().mode() & 0o777,
         0o700
     );
-    for marker in [".git", ".mcp.json"] {
+    for marker in [".git", ".mcp.json", ".claude", "CLAUDE.md", "CLAUDE.local.md"] {
         fs::write(h.engine.home.join(marker), []).unwrap();
         assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
         fs::remove_file(h.engine.home.join(marker)).unwrap();
