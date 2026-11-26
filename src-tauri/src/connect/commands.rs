@@ -13,7 +13,7 @@ fn sidecar(app_exe: &Path) -> Result<PathBuf> {
     Ok(exe)
 }
 
-fn runtime(app: tauri::AppHandle) -> Result<Engine> {
+fn runtime(app: tauri::AppHandle, inspect_images: bool) -> Result<Engine> {
     let home = app
         .path()
         .home_dir()
@@ -23,7 +23,7 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
     let app_exe = env::current_exe().map_err(|_| Code::InvalidPath)?;
     let exe = sidecar(&app_exe)?;
     let mut e = Engine::new(home.clone(), exe);
-    e.location = location(&app_exe);
+    e.location = location(&app_exe, inspect_images);
     if let Some(dir) = env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
         e.codex_home = PathBuf::from(dir);
     }
@@ -51,19 +51,20 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
 
 async fn run<T: Send + 'static>(
     app: tauri::AppHandle,
+    inspect_images: bool,
     work: impl FnOnce(Engine) -> Result<T> + Send + 'static,
 ) -> Result<T> {
-    tauri::async_runtime::spawn_blocking(move || work(runtime(app)?))
+    tauri::async_runtime::spawn_blocking(move || work(runtime(app, inspect_images)?))
         .await
         .map_err(|_| Code::WorkerFailed)?
 }
 #[tauri::command]
 pub async fn connect_status(app: tauri::AppHandle) -> Result<Vec<Status>> {
-    run(app, |e| TOOLS.iter().map(|&t| e.status(t)).collect()).await
+    run(app, false, |e| TOOLS.iter().map(|&t| e.status(t)).collect()).await
 }
 #[tauri::command]
 pub async fn connect_ask(app: tauri::AppHandle) -> Result<Status> {
-    run(app, |e| e.ask_claude()).await
+    run(app, false, |e| e.ask_claude()).await
 }
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -115,7 +116,7 @@ impl Engine {
                 tool,
                 path: self.path(tool),
                 code,
-                snippet: tool.snippet(self.executable()),
+                snippet: tool.file_snippet(self.executable()),
             }),
             Err(code) => Err(code),
         }
@@ -127,7 +128,7 @@ pub async fn connect_preview(
     tool: Tool,
     action: Action,
 ) -> Result<Proposal> {
-    run(app, move |e| {
+    run(app, true, move |e| {
         e.prepare(
             tool,
             action,
@@ -146,7 +147,7 @@ pub async fn connect_apply(
     fingerprint: String,
     confirm_replacement: Option<bool>,
 ) -> Result<Proposal> {
-    run(app, move |e| {
+    run(app, true, move |e| {
         e.execute(
             tool,
             Action::Connect,
@@ -163,7 +164,7 @@ pub async fn connect_remove(
     fingerprint: String,
     confirm_removal: Option<bool>,
 ) -> Result<Proposal> {
-    run(app, move |e| {
+    run(app, true, move |e| {
         e.execute(
             tool,
             Action::Remove,
@@ -179,14 +180,18 @@ pub struct Snippet {
     text: String,
 }
 #[tauri::command]
-pub async fn connect_snippet(tool: Tool) -> Result<Snippet> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let exe = sidecar(&env::current_exe().map_err(|_| Code::InvalidPath)?)?;
-        Ok(Snippet {
-            tool,
-            text: tool.snippet(exe.to_str().ok_or(Code::SidecarMissing)?),
-        })
+pub async fn connect_snippet(
+    app: tauri::AppHandle,
+    tool: Tool,
+    action: Option<Action>,
+) -> Result<Snippet> {
+    run(app, false, move |e| {
+        let text = if tool == Tool::ClaudeCode {
+            claude::snippet(&e, action.unwrap_or(Action::Connect))?
+        } else {
+            tool.file_snippet(e.executable())
+        };
+        Ok(Snippet { tool, text })
     })
     .await
-    .map_err(|_| Code::WorkerFailed)?
 }

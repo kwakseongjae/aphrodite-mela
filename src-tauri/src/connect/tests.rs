@@ -169,7 +169,9 @@ fn only_documented_files_are_created_and_translocation_blocks_writes() {
         let file = e.path(tool);
         if tool == Tool::ClaudeCode {
             assert!(e.preview(tool, Action::Connect, 1).is_err());
-            assert!(tool.snippet(e.executable()).contains("claude mcp add"));
+            assert!(claude::snippet(&e, Action::Connect)
+                .unwrap()
+                .contains("claude mcp add"));
             assert!(!file.exists());
             continue;
         }
@@ -815,7 +817,7 @@ fn astra_9_a_directory_name_alone_does_not_establish_translocation() {
     fs::create_dir_all(&dir).unwrap();
     let exe = dir.join("fixture");
     fs::write(&exe, "fixture").unwrap();
-    assert_ne!(location(&exe), Location::Translocated);
+    assert_ne!(location(&exe, true), Location::Translocated);
 }
 
 #[test]
@@ -832,7 +834,10 @@ fn astra_7_valid_toml_outside_the_splicers_grammar_offers_copy_in_ipc() {
         .unwrap();
     let copy = serde_json::to_value(proposal).unwrap();
     assert_eq!(copy["code"], "unsupported_layout");
-    assert_eq!(copy["snippet"], Tool::Codex.snippet(h.engine.executable()));
+    assert_eq!(
+        copy["snippet"],
+        Tool::Codex.file_snippet(h.engine.executable())
+    );
 }
 
 #[test]
@@ -1166,14 +1171,14 @@ fn opus_8_a_writable_downloads_install_can_still_register_file_clients() {
         .join("Downloads/Aphrodite.app/Contents/MacOS/Aphrodite");
     fs::create_dir_all(exe.parent().unwrap()).unwrap();
     fs::write(&exe, []).unwrap();
-    assert_eq!(location(&exe), Location::Installed);
+    assert_eq!(location(&exe, true), Location::Installed);
     let installed = h
         .engine
         .home
         .join("Applications/Aphrodite.app/Contents/MacOS/Aphrodite");
     fs::create_dir_all(installed.parent().unwrap()).unwrap();
     fs::rename(exe, &installed).unwrap();
-    assert_eq!(location(&installed), Location::Installed);
+    assert_eq!(location(&installed, true), Location::Installed);
 }
 
 #[test]
@@ -1199,8 +1204,14 @@ fn astra_7_file_tools_refuse_multiply_linked_configurations_before_reading() {
         let file = h.engine.path(tool);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::hard_link(&private, &file).unwrap();
-        assert_eq!(h.engine.status(tool).unwrap().error, Some(Code::InvalidPath));
-        assert!(matches!(h.engine.preview(tool, Action::Connect, 1), Err(Code::InvalidPath)));
+        assert_eq!(
+            h.engine.status(tool).unwrap().error,
+            Some(Code::InvalidPath)
+        );
+        assert!(matches!(
+            h.engine.preview(tool, Action::Connect, 1),
+            Err(Code::InvalidPath)
+        ));
         fs::remove_file(file).unwrap();
     }
 }

@@ -226,35 +226,66 @@ fn quote(word: &str) -> String {
         format!("'{}'", word.replace('\'', "'\"'\"'"))
     }
 }
-impl Invocation {
-    fn new(program: &Program, args: &[&str]) -> Self {
-        let argv: Vec<String> = std::iter::once(program.path.to_str().unwrap())
+struct Lines<'a> {
+    program: &'a str,
+    profile: Option<&'a str>,
+}
+impl<'a> Lines<'a> {
+    fn new(e: &'a Engine, program: Option<&'a Program>) -> super::Result<Self> {
+        if !e.exe.is_absolute()
+            || e.executable().is_empty()
+            || e.executable().contains(char::is_control)
+        {
+            return Err(Code::InvalidPath);
+        }
+        if program.is_some_and(|p| !p.trusted) {
+            return Err(Code::CliUntrusted);
+        }
+        Ok(Self {
+            program: program.and_then(|p| p.path.to_str()).unwrap_or("claude"),
+            profile: e.profile()?,
+        })
+    }
+    fn for_action(&self, action: Action, sidecar: &str) -> Invocation {
+        let add = [
+            "mcp",
+            "add",
+            "--transport",
+            "stdio",
+            "--scope",
+            "user",
+            "aphrodite",
+            "--",
+            sidecar,
+        ];
+        let args: &[&str] = match action {
+            Action::Connect => &add,
+            Action::Remove => REMOVE_ARGS,
+        };
+        let argv: Vec<_> = std::iter::once(self.program)
             .chain(args.iter().copied())
             .map(str::to_owned)
             .collect();
-        let line = argv
+        let command = argv
             .iter()
             .map(|arg| quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        Self { argv, line }
+        let line = match self.profile {
+            Some(dir) => format!(
+                "CLAUDE_CONFIG_DIR='{}' {command}",
+                dir.replace('\'', "'\"'\"'")
+            ),
+            None => command,
+        };
+        Invocation { argv, line }
     }
-    fn add(program: &Program, path: &str) -> Self {
-        Self::new(
-            program,
-            &[
-                "mcp",
-                "add",
-                "--transport",
-                "stdio",
-                "--scope",
-                "user",
-                "aphrodite",
-                "--",
-                path,
-            ],
-        )
-    }
+}
+
+pub(super) fn snippet(e: &Engine, action: Action) -> super::Result<String> {
+    Ok(Lines::new(e, Program::find(e).as_ref())?
+        .for_action(action, e.executable())
+        .line)
 }
 
 #[derive(Serialize)]
@@ -289,17 +320,7 @@ impl State {
         )
     }
     fn plan(&self, e: &Engine, action: Action) -> Result<CommandPreview, CommandResult> {
-        if e.executable().is_empty()
-            || e.executable().contains(char::is_control)
-            || self
-                .program
-                .path
-                .to_str()
-                .unwrap()
-                .contains(char::is_control)
-        {
-            return Err(Code::InvalidPath.into());
-        }
+        let lines = Lines::new(e, Some(&self.program))?;
         let exists = self.entry.is_some();
         let owned = self.owned(e);
         let here = self.points_here(e);
@@ -315,10 +336,10 @@ impl State {
         let mut commands = vec![];
         let noop = action == Action::Connect && owned && here;
         if exists && !noop {
-            commands.push(Invocation::new(&self.program, REMOVE_ARGS));
+            commands.push(lines.for_action(Action::Remove, e.executable()));
         }
         if action == Action::Connect && !noop {
-            commands.push(Invocation::add(&self.program, e.executable()));
+            commands.push(lines.for_action(Action::Connect, e.executable()));
         }
         let will_repoint = action == Action::Connect && owned && !here;
         Ok(CommandPreview {
@@ -330,7 +351,7 @@ impl State {
                 .recorded
                 .as_ref()
                 .filter(|_| will_repoint)
-                .map(|path| Invocation::add(&self.program, path)),
+                .map(|path| lines.for_action(Action::Connect, path)),
             will_repoint,
             replacement_required: action == Action::Connect && foreign,
             confirmation_required: foreign,
@@ -347,10 +368,7 @@ pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
             tool: Tool::ClaudeCode,
             path: e.path(Tool::ClaudeCode),
             code: Code::CliNotFound,
-            snippet: match action {
-                Action::Connect => Tool::ClaudeCode.snippet(e.executable()),
-                Action::Remove => format!("claude {}", REMOVE_ARGS.join(" ")),
-            },
+            snippet: Lines::new(e, None)?.for_action(action, e.executable()).line,
         });
     };
     let home = files::root(&e.home)?.into_std_file();

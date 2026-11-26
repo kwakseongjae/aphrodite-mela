@@ -413,7 +413,10 @@ fn the_copy_fallback_for_an_absent_program_matches_the_requested_action() {
     fs::remove_file(f.e().cli_dirs[0].join("claude")).unwrap();
     let connect = f.proposal(Action::Connect);
     let remove = f.proposal(Action::Remove);
-    assert_eq!(connect["snippet"], CLAUDE.snippet(f.e().executable()));
+    assert_eq!(
+        connect["snippet"],
+        claude::snippet(f.e(), Action::Connect).unwrap()
+    );
     assert_eq!(remove["code"], "cli_not_found");
     assert_eq!(
         remove["snippet"],
@@ -593,3 +596,42 @@ fn astra_9_fake_profiles_and_post_write_failures_are_independent() {
     assert_eq!(f.status()["entryExists"], false);
 }
 
+#[test]
+fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
+    for shell in ["/bin/sh", "/bin/zsh", "/bin/bash"] {
+        let mut f = Fixture::new();
+        let profile = f.e().home.join(r#"한글 ' " $default \ 폴더"#);
+        f.0.engine.claude_config_dir = Some(profile.clone());
+        f.0.engine.exe = r#"/old 쌀 $ \ ' ".app/sidecar"#.into();
+        let preview = f.proposal(Action::Connect);
+        f.apply(Action::Connect, &preview, false);
+        f.0.engine.exe = r#"/new 쌀 $ \ ' ".app/sidecar"#.into();
+        let preview = f.proposal(Action::Connect);
+        let cmds = preview["commands"].as_array().unwrap();
+        assert_eq!(
+            claude::snippet(f.e(), Action::Remove).unwrap(),
+            cmds[0]["line"]
+        );
+        assert_eq!(
+            claude::snippet(f.e(), Action::Connect).unwrap(),
+            cmds[1]["line"]
+        );
+        for cmd in [&cmds[0], &cmds[1], &cmds[0], &preview["onAddFailure"]] {
+            let line = cmd["line"].as_str().unwrap();
+            assert!(line.starts_with("CLAUDE_CONFIG_DIR='"), "{line}");
+            let result = Command::new(shell)
+                .env_clear()
+                .env("HOME", &f.e().home)
+                .env("CLAUDE_CONFIG_DIR", f.e().home.join("wrong"))
+                .arg("-c")
+                .arg(line)
+                .output()
+                .unwrap();
+            assert!(result.status.success());
+            let calls = f.calls();
+            let call = calls.last().unwrap();
+            assert_eq!(call["profile"], json!(profile));
+            assert_eq!(call["args"], json!(&cmd["argv"].as_array().unwrap()[1..]));
+        }
+    }
+}

@@ -70,12 +70,9 @@ pub enum Tool {
     ClaudeDesktop,
 }
 impl Tool {
-    fn snippet(self, exe: &str) -> String {
+    fn file_snippet(self, exe: &str) -> String {
         match self {
-            Tool::ClaudeCode => format!(
-                "claude mcp add --transport stdio --scope user aphrodite -- '{}'",
-                exe.replace('\'', "'\"'\"'")
-            ),
+            Tool::ClaudeCode => unreachable!("Claude Code uses its invocation builder"),
             Tool::Codex => edit::toml_entry(exe, "\n"),
             _ => format!(
                 r#"{{"mcpServers":{{"aphrodite":{}}}}}"#,
@@ -217,10 +214,14 @@ impl Engine {
         }
     }
     fn profile(&self) -> Result<Option<&str>> {
-        self.claude_config_dir.as_ref().map(|path| {
-            path.to_str().filter(|s| path.is_absolute() && !s.contains(char::is_control))
-                .ok_or(Code::InvalidPath)
-        }).transpose()
+        self.claude_config_dir
+            .as_ref()
+            .map(|path| {
+                path.to_str()
+                    .filter(|s| path.is_absolute() && !s.contains(char::is_control))
+                    .ok_or(Code::InvalidPath)
+            })
+            .transpose()
     }
     fn executable(&self) -> &str {
         self.exe.to_str().unwrap_or("")
@@ -264,7 +265,9 @@ impl Engine {
         self.tool_status(Tool::ClaudeCode, true)
     }
     fn tool_status(&self, tool: Tool, ask: bool) -> Result<Status> {
-        if tool == Tool::ClaudeCode { self.profile()?; }
+        if tool == Tool::ClaudeCode {
+            self.profile()?;
+        }
         let path = self.path(tool);
         let mut out = Status {
             tool,
@@ -751,7 +754,7 @@ fn image_inventory(
     plist::Value::from_reader(output).ok()
 }
 
-fn location(exe: &Path) -> Location {
+fn location(exe: &Path, inspect_images: bool) -> Location {
     use std::{
         ffi::CStr,
         os::{fd::AsRawFd, unix::ffi::OsStrExt},
@@ -767,12 +770,15 @@ fn location(exe: &Path) -> Location {
     let mount = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
     ));
-    mount_location(
+    let result = mount_location(
         exe,
         mount,
         OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
         stat.f_flags & libc::MNT_RDONLY as u32 != 0,
         || {
+            if !inspect_images {
+                return None;
+            }
             image_inventory(
                 std::process::Command::new("/usr/bin/hdiutil")
                     .env_clear()
@@ -780,5 +786,10 @@ fn location(exe: &Path) -> Location {
                 std::time::Duration::from_secs(2),
             )
         },
-    )
+    );
+    if !inspect_images && result == Location::NotInApplications {
+        Location::Unknown
+    } else {
+        result
+    }
 }
