@@ -47,7 +47,7 @@ export const states:Record<string,()=>string>={
   palette:()=>commandPaletteHtml(commandTable(ctx),'','en'),
   paletteQuery:()=>commandPaletteHtml(commandTable(ctx),'frame','en'),
   paletteNone:()=>commandPaletteHtml(commandTable(ctx),'zzzzqqq','ko'),
-  toasts:()=>toastHtml([{id:1,message:'Saved',count:1,at:0},{id:2,message:'Deleted',count:3,at:0}]),
+  toasts:()=>toastHtml([{id:1,message:'Saved',count:1,at:0},{id:2,message:'Deleted',count:3,at:0},{id:3,message:'Page removed.',count:1,at:0,undo:'p:1'}],{undo:'p:1'}),
   updateOffer:()=>updateNoticeHtml(info,'offer','en'),
   updateWorking:()=>updateNoticeHtml(info,'working','en','42%'),
   updateInstalling:()=>updateNoticeHtml(info,'installing','ko'),

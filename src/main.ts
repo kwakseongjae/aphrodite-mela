@@ -440,7 +440,7 @@ function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[d
 let toasts:Toast[]=[];let toastId=0;
 const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
 function paintToasts(){
-  toastRoot.innerHTML=toastHtml(toasts);
+  toastRoot.innerHTML=toastHtml(toasts,{undo:undoToken(),ko:uiLanguage==='ko'});
   toastRoot.dataset.screen=screen;
   clearTimeout(toastTimer);
   const wait=nextExpiry(toasts,Date.now());
@@ -450,6 +450,10 @@ function paintToasts(){
 function toast(message:string){if(askOpen())return;notice(message);}
 /** A line shown even over the request to edit: what the person must not miss, a window that could not save before closing. */
 function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId);paintToasts();}
+/** The change on top of the undo stack, as a toast names it: a toast for that change offers Undo, one for any earlier change does not. */
+function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;return top?`${project.id}:${top.seq}`:'';}
+/** A finished change the shortcut can take back: the toast carries Undo, the same single step (data-action="undo"). */
+function undoable(message:string){if(askOpen())return;toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:undoToken()||undefined});paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
@@ -1363,7 +1367,7 @@ function bindDragAndDrop() {
   const canvas = app.querySelector<HTMLElement>('#design-canvas')!;
   if(canvas.dataset.nativeDropBound)return;canvas.dataset.nativeDropBound='true';
   canvas.addEventListener('drop',e=>{const raw=e.dataTransfer?.getData(catalogMime);if(!raw)return;e.preventDefault();e.stopImmediatePropagation();canvas.classList.remove('drop-active');canvas.querySelectorAll('.drop-before').forEach(el=>el.classList.remove('drop-before'));const choice=parseCatalogChoice(raw);if(!choice){toast(ui('Invalid catalog selection','유효하지 않은 카탈로그 선택입니다'));return;}const before=(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId;const d=who(e);if(d)addBlock(choice.kind,d,before,choice);});
-  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;const d=who(e);if(!d)return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;},d,'edit.move');toast(ui('Component moved · Undo available','컴포넌트를 옮겼습니다 · 실행 취소 가능'));});
+  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;const d=who(e);if(!d)return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;},d,'edit.move');undoable(ui('Component moved.','컴포넌트를 옮겼어요.'));});
   canvas.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('drop-active'); const wrap = (e.target as HTMLElement).closest('.block-wrap'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); wrap?.classList.add('drop-before'); });
   canvas.addEventListener('dragleave', e => { if (!canvas.contains(e.relatedTarget as Node)) { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
   canvas.addEventListener('drop', e => { e.preventDefault(); const kind = e.dataTransfer?.getData('application/aphrodite-component') as BlockKind; const before = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId; const d = who(e); if (catalog.some(c => c.kind === kind)) { if (d) addBlock(kind, d, before); } else { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
@@ -1533,9 +1537,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
     case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
     case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
-    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
+    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);undoable(ui('The proposal replaced its source frame.','제안을 원본 프레임에 적용했어요.'));break;}
     case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
-    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
+    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);undoable(ui('Proposal discarded.','제안을 버렸어요.'));break;}
     case 'zoom-fit': fitAll();break;
     case 'zoom-frame': fitFrame(project.activePageId);break;
     case 'zoom-100': zoomCenter(1);break;
@@ -1578,7 +1582,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const plan=vibePending.plan;
       commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
       recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false},d);
-      vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();toast(plan.changes.length+'개 필드 적용 · Undo로 전체 복원');break;
+      vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();undoable(ui(`${plan.changes.length} fields filled in.`,`${plan.changes.length}개 필드를 채웠어요.`));break;
     }
     case 'add': addBlock(el.dataset.kind as BlockKind,d); break;
     case 'component-explorer': explorerModal();break;
@@ -1608,7 +1612,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'add-section': case 'assemble-focus': tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }, d, 'edit.move'); break;
     case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }, d, 'edit.duplicate'); break;
-    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }, d, 'edit.delete'); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
+    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }, d, 'edit.delete'); undoable(ui('Component removed. What was inside it stays.','컴포넌트를 지웠어요. 안에 있던 것은 그대로 남아요.')); } break;
     case 'asset-category': {assetCategory=el.dataset.category as SampleCategory|'all'|'local';if(assetCategory==='local')await loadLocalLibrary();refreshLibraryPanel();break;}
     case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);
       // The person putting a library picture on the board lets it go out with the board, one it came without included (0.3-R fix 2 #18): saved
@@ -1691,7 +1695,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; }
       const candidate = candidatePages[Number(el.dataset.index)]; if (!candidate) break;
       commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
-      candidatePages = []; closeModal(); toast(ui('Direction added · Edit any component · Undo available','방향을 추가했습니다 · 컴포넌트를 편집하세요 · 실행 취소 가능')); break;
+      candidatePages = []; closeModal(); undoable(ui('Direction added. Edit any component.','방향을 추가했어요. 컴포넌트를 골라 고쳐 보세요.')); break;
     }
     case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { project.reference = image; }, d, 'edit.reference'); referenceModal(); }); break;
     case 'remove-reference': commit(() => { delete project.reference; }, d, 'edit.reference'); referenceModal(); break;
@@ -1762,7 +1766,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'add-page': showModal(ui('New page','새 페이지'), ui('It takes the board\'s design system as it is.','보드의 디자인 시스템을 그대로 이어받습니다.'), `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Page','페이지'), ui('Rename the page, or duplicate it to start the next screen.','페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.'), `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
     case 'duplicate-page': if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d, 'edit.page-duplicate'); closeModal(); break;
-    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
+    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); undoable(ui('Page removed.','페이지를 지웠어요.')); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
     case 'ask-allow': answerAsk(true);break;
@@ -1783,8 +1787,10 @@ document.addEventListener('click', e => {
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
   if (target.classList.contains('modal-backdrop')) { if(askOpen()){if(e.isTrusted)answerAsk(false);return;} closeModal(); return; }
   const chip=target.closest<HTMLElement>('[data-toast]');
-  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
+  // A toast's Undo is pressed and the toast goes with it; the line itself only puts the toast away.
+  // One drawn before a later change would take that change back instead, so it only goes.
+  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(!control||!chip.contains(control)||control.dataset.undoFor!==undoToken())return;}
   if (control?.hasAttribute('data-palette')) closeModal();
   if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
@@ -1942,7 +1948,7 @@ document.addEventListener('submit', async e => {
   } else if (form.id === 'fill-form') {
     if (!data.has('copy') && !data.has('images')) { toast('채울 콘텐츠를 한 가지 이상 선택해주세요.'); return; }
     let changed = 0;
-    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }, d!, 'edit.vibe'); closeModal(); toast(changed ? ui('Filled with local sample content · Undo available','로컬 샘플 콘텐츠로 채웠습니다 · 실행 취소 가능') : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
+    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }, d!, 'edit.vibe'); closeModal(); (changed?undoable:toast)(changed ? ui('Filled with sample content.','샘플 내용으로 채웠어요.') : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }

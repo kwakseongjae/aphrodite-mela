@@ -6,10 +6,17 @@
  * before it. These stack, the same message twice becomes one line with a count, and the oldest gives
  * way when there are too many to read.
  */
-export type Toast = {id: number; message: string; count: number; at: number};
+export type Toast = {id: number; message: string; count: number; at: number; undo?: string};
 
 /** Long enough to read a sentence, short enough not to sit over the work. */
 export const TOAST_LIFE = 4_200;
+/** However long the line, it does not sit over the work for good. */
+export const TOAST_LIFE_MAX = 10_000;
+/** Time to read a line to its end: a short one keeps TOAST_LIFE, a long one gets more, and one with Undo a little
+ *  more again, to be reached. */
+export function toastLife(message: string, undo = false): number {
+  return Math.min(TOAST_LIFE_MAX, Math.max(TOAST_LIFE, 1_400 + [...message].length * 70) + (undo ? 1_800 : 0));
+}
 /** More than this and nobody reads any of them. */
 export const TOAST_MAX = 3;
 
@@ -17,20 +24,20 @@ export const TOAST_MAX = 3;
  * Adds a message. Repeating what is already on screen bumps a count instead of pushing a duplicate —
  * "Deleted" three times is one line saying so, not three lines saying it.
  */
-export function pushToast(list: readonly Toast[], message: string, now: number, nextId: number): Toast[] {
+export function pushToast(list: readonly Toast[], message: string, now: number, nextId: number, o: {undo?: string} = {}): Toast[] {
   const text = message.trim();
   if (!text) return [...list];
   const existing = list.findIndex(t => t.message === text);
   if (existing >= 0) {
-    const bumped = {...list[existing], count: list[existing].count + 1, at: now};
+    const bumped = {...list[existing], count: list[existing].count + 1, at: now, ...(o.undo ? {undo: o.undo} : {})};
     return [...list.slice(0, existing), ...list.slice(existing + 1), bumped];
   }
-  return [...list, {id: nextId, message: text, count: 1, at: now}].slice(-TOAST_MAX);
+  return [...list, {id: nextId, message: text, count: 1, at: now, ...(o.undo ? {undo: o.undo} : {})}].slice(-TOAST_MAX);
 }
 
 /** Drops what has had its time. A bumped message gets its time back. */
 export function expireToasts(list: readonly Toast[], now: number): Toast[] {
-  return list.filter(t => now - t.at < TOAST_LIFE);
+  return list.filter(t => now - t.at < toastLife(t.message, !!t.undo));
 }
 
 export function dismissToast(list: readonly Toast[], id: number): Toast[] {
@@ -40,13 +47,21 @@ export function dismissToast(list: readonly Toast[], id: number): Toast[] {
 /** When the stack next needs sweeping, or 0 when there is nothing waiting. */
 export function nextExpiry(list: readonly Toast[], now: number): number {
   if (!list.length) return 0;
-  return Math.max(0, Math.min(...list.map(t => t.at + TOAST_LIFE - now)));
+  return Math.max(0, Math.min(...list.map(t => t.at + toastLife(t.message, !!t.undo) - now)));
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function toastHtml(list: readonly Toast[]): string {
+/**
+ * The stack as the page draws it. `undo` is the change that is last now: a toast made for that change offers Undo,
+ * which is the same single step as the shortcut, and one made for an earlier change does not, since pressing it
+ * would take back a change it does not name. Pressing the line itself puts it away.
+ */
+export function toastHtml(list: readonly Toast[], o: {undo?: string; ko?: boolean} = {}): string {
   return list
-    .map(t => `<button type="button" class="toast ui-toast" data-toast="${t.id}"><span class="ui-toast-text">${esc(t.message)}</span>${t.count > 1 ? `<span class="ui-toast-count">×${t.count}</span>` : ''}</button>`)
+    .map(t => {
+      const undo = !!t.undo && t.undo === o.undo;
+      return `<div class="toast ui-toast${undo ? ' ui-toast-undo' : ''}" data-toast="${t.id}"><span class="ui-toast-text">${esc(t.message)}</span>${t.count > 1 ? `<span class="ui-toast-count">×${t.count}</span>` : ''}${undo ? `<button type="button" class="ui-btn ui-btn-quiet toast-undo" data-action="undo" data-undo-for="${esc(t.undo!)}">${o.ko ? '되돌리기' : 'Undo'}</button>` : ''}</div>`;
+    })
     .join('');
 }

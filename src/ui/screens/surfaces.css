@@ -37,7 +37,9 @@
 .ui-toast-stack { position: fixed; left: 50%; bottom: var(--ui-space-5); transform: translateX(-50%); z-index: 100; display: grid; justify-items: center; gap: var(--ui-space-2); max-width: calc(var(--ui-control-lg) * 13); pointer-events: none; font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); word-break: keep-all; }
 .ui-toast-stack[data-screen="editor"] { bottom: calc(var(--ui-space-7) * 2); }
 .ui-toast-stack > .ui-toast { appearance: none; margin: 0; border: 0; font: inherit; text-align: left; cursor: default; pointer-events: auto; max-width: 100%; height: auto; min-height: var(--ui-control-lg); padding: var(--ui-space-2) var(--ui-space-4); animation: ui-toast-in var(--ui-dur) var(--ui-ease); }
+.ui-toast-stack > .ui-toast.ui-toast-undo { padding-right: var(--ui-space-2); }
 .ui-toast-text { min-width: 0; }
+.ui-toast > .toast-undo { flex-shrink: 0; height: var(--ui-control-sm); font-weight: var(--ui-w-semibold); }
 .ui-toast-count { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); opacity: 0.7; }
 @keyframes ui-toast-in { from { opacity: 0; transform: translateY(var(--ui-space-2)); } }
 
