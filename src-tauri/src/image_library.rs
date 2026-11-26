@@ -265,14 +265,25 @@ pub async fn image_library_import(app: AppHandle, name: String, base64: String, 
             .collect();
         let label = if stem.is_empty() { "image".to_string() } else { stem };
         let path = dir.join(format!("{label}-{id}.{}", extension(mime)));
-        if !path.exists() {
-            use std::io::Write;
-            let mut temp = tempfile::NamedTempFile::new_in(&dir).map_err(|e| e.to_string())?;
-            temp.write_all(&bytes).map_err(|e| e.to_string())?;
-            temp.persist(&path).map_err(|e| e.to_string())?;
-        }
+        publish_import(&path, &bytes).map_err(|e| e.to_string())?;
         Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
     }).await
+}
+
+// Readers can run during an import. Publish all bytes at once while retaining the library's
+// normal create mode (subject to umask) and first writer for this content-addressed name.
+fn publish_import(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::{io::{ErrorKind, Write}, os::unix::fs::PermissionsExt};
+    if path.exists() { return Ok(()); }
+    let mut temp = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o666))
+        .tempfile_in(path.parent().unwrap())?;
+    temp.write_all(bytes)?;
+    match temp.persist_noclobber(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.error),
+    }
 }
 
 /// Removes one picture from the library. The file is deleted; projects that used it show a gap.
@@ -414,5 +425,19 @@ mod tests {
         assert_eq!(extension("image/png"), "png");
         assert_eq!(extension("image/jpeg"), "jpg");
         assert_eq!(extension("image/webp"), "webp");
+    }
+
+    #[test]
+    fn an_import_publishes_a_complete_file_with_the_library_mode_and_keeps_an_existing_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let reference = dir.path().join("reference");
+        fs::write(&reference, b"mode").unwrap();
+        let target = dir.path().join("image.png");
+        publish_import(&target, b"first").unwrap();
+        publish_import(&target, b"second").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"first");
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode(),
+                   fs::metadata(reference).unwrap().permissions().mode());
     }
 }
