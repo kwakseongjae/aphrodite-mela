@@ -8,7 +8,7 @@ A paste or a desktop drop brings the HTML alone. Siblings come only through the 
 
 A folder contributes its top-level HTML and HTM documents in filename order. The title names each page, followed by its filename or the numbered default. A numeric viewport width uses the ordinary 240–3,200 pixel range. Other viewports use the 1,440 pixel desktop preset. A byte-order mark takes precedence over an HTML meta charset. A UTF-16 meta label without a BOM means UTF-8. Undecodable HTML bytes become replacement characters.
 
-The panel gives the shell a five-minute grant pinned to an open directory. A handed-over symlink is refused. References can reach visible files inside that directory and its subfolders. Hidden components, absolute paths, file URLs and escaping links are refused. Absolute symlinks need the same spelling of the granted root. Remote references stay in the source and are counted. Importing makes no network requests.
+The panel gives the shell a five-minute grant pinned to an open directory. A symlink at the selection or its immediate parent is refused with `symlink`. An OS hand-over of a hidden root folder, including a file directly inside it, is refused with `hidden`. References can reach visible files inside that directory and its subfolders. Hidden components, absolute paths, file URLs and escaping links are refused. Absolute symlinks need the same spelling of the granted root. Remote references stay in the source and are counted. Importing makes no network requests.
 
 - Images, posters, audio and video sources, valid srcset and image-set candidates, and CSS URLs can bring PNG, JPEG, GIF, WebP, MP4, WebM, Ogg, WAV, MP3, WOFF, WOFF2, TTF and OTF files. The board stores their bytes by SHA-256. Pages use its ordinary media references. Fonts reach frames through typed data URLs, up to 8 MiB. The desktop asset scope excludes fonts. MP3s retain their audio type and export extension. Their internal filename gives Tauri a binary fallback for supported headers it cannot identify.
 - Enabled, non-alternate CSS stylesheets can be inlined. Only leading, top-level imports are followed. The engine keeps cascade conditions, decodes a sheet before wrapping it and leaves scoped namespaces in their sheet. A parse failure, an unsafe rewritten closing tag or a change of base for a skipped relative reference can keep a sheet external.
@@ -22,7 +22,7 @@ A stylesheet link or script with an event-handler attribute stays external with 
 
 | Limit | Engine behavior |
 | --- | --- |
-| Folder scan | Examine up to 4,096 entries. A larger folder is refused with `folder_limit`. Keep the first 128 eligible document names in sort order and count the rest. |
+| Folder scan | Examine up to 4,096 entries. A larger folder returns `folder_limit` before the engine grants access or makes pages. Keep the first 128 eligible document names in sort order and count the rest. |
 | References | Follow up to 500 local references per page and up to 32 leading imports per sheet, to three further levels. Each stylesheet name is read at most once per import. |
 | Bytes | Allow up to 6,000,000 bytes per text file and 2,000,000 UTF-16 units per page. An import can read 128 MiB including media and copy 100 MiB of media. Rust checks the held file's size before reading or copying and also applies these aggregate ceilings to the grant. |
 | Diagnostics | Retain up to 128 reference issues and 128 document issues. Overflow counts include omitted document names. Each retained issue has a name and a reason code. |

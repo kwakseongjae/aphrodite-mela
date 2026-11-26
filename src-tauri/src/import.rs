@@ -35,6 +35,7 @@ struct Grant {
 }
 
 fn io_code(error: std::io::Error) -> Code {
+    if error.raw_os_error() == Some(libc::ELOOP) { return "symlink"; }
     match error.kind() {
         std::io::ErrorKind::NotFound => "missing",
         std::io::ErrorKind::PermissionDenied => "denied",
@@ -59,6 +60,7 @@ impl Kind {
 }
 
 fn open_root(path: &Path, expected: &fs::Metadata) -> Result<Dir, Code> {
+    if expected.is_symlink() { return Err("symlink"); }
     let file = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path).map_err(io_code)?;
     let actual = file.metadata().map_err(io_code)?;
@@ -170,6 +172,9 @@ impl Grants {
             None => return Err("invalid_name"),
         };
         let handed_path = if directory { path } else { parent }.to_owned();
+        if waiting && handed_path.file_name().is_some_and(|n| n.as_encoded_bytes().starts_with(b".")) {
+            return Err("hidden");
+        }
         const MAX_DOCUMENTS: usize = 128;
         let mut overflow = 0;
         let names = if directory {
@@ -330,6 +335,31 @@ mod tests {
             assert_eq!(copied.stored.bytes, 8);
             assert!(!closed, "an accepted import write still holds the window");
         });
+    }
+
+    #[test]
+    fn a_file_under_a_symlinked_parent_is_refused_as_a_symlink() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("one.html"), "").unwrap();
+        let alias = root.path().join("alias");
+        symlink(root.path(), &alias).unwrap();
+        let mut grants = Grants::default();
+        assert_eq!(grants.give(&alias.join("one.html"), Instant::now(), true).err(), Some("symlink"));
+        assert!(grants.0.is_empty());
+    }
+
+    #[test]
+    fn an_os_handover_cannot_grant_a_hidden_root() {
+        let root = tempfile::tempdir().unwrap();
+        let hidden = root.path().join(".private");
+        fs::create_dir(&hidden).unwrap();
+        let file = hidden.join("one.html");
+        fs::write(&file, "").unwrap();
+        let mut grants = Grants::default();
+        for path in [&hidden, &file] {
+            assert_eq!(grants.give(path, Instant::now(), true).err(), Some("hidden"));
+        }
+        assert!(grants.0.is_empty());
     }
 
     #[test]
