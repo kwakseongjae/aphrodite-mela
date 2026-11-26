@@ -855,3 +855,21 @@ fn astra_5_close_and_restart_wait_for_an_accepted_registration() {
         assert_eq!(result["code"], "registered");
     });
 }
+
+#[test]
+fn opus_10_the_guide_uses_generated_setup_and_undo_and_explains_the_active_lookup() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    let mut f = Fixture::new();
+    f.0.engine.cli_dirs.clear();
+    f.0.engine.exe = "/Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp".into();
+    for profile in [None, Some(PathBuf::from("/Users/ada/Claude Work"))] {
+        f.0.engine.claude_config_dir = profile;
+        for action in [Action::Connect, Action::Remove] {
+            let line = claude::snippet(f.e(), action).unwrap();
+            assert!(guide.lines().any(|l| l == line), "{line}");
+        }
+    }
+    for term in ["connect_status", "connect_ask", "connect_apply", "connect_remove", "health-check", "registered_record_missing", "unfinishedRepoint"] {
+        assert!(guide.contains(term), "{term}");
+    }
+}
