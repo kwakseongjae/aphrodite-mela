@@ -13,8 +13,10 @@ const unescapeCss = (s: string) => s.replace(/\\(?:([\da-f]{1,6})(?:\r\n|[\t\n\r
 function argument(n: values.Node): string | undefined {
   if (n.type === 'string' && !n.unclosed) return unescapeCss(n.value);
   if (n.type !== 'function' || unescapeCss(n.value).toLowerCase() !== 'url' || n.unclosed) return;
-  if (n.nodes.length === 1 && n.nodes[0].type === 'string') return unescapeCss(n.nodes[0].value);
-  return unescapeCss(values.stringify(n.nodes).trim());
+  if (n.nodes.length !== 1) return;
+  const inner = n.nodes[0];
+  if (inner.type === 'string' && !inner.unclosed) return unescapeCss(inner.value);
+  if (inner.type === 'word' && !/[\s"'()]/.test(inner.value.replace(/\\(?:[\da-f]{1,6}\s?|.)/gi, ''))) return unescapeCss(inner.value);
 }
 
 async function rewriteUrls(value: string, dir: string | null, refs: References): Promise<string> {
@@ -84,7 +86,19 @@ function conditional(sheet: string, rest: string): string {
   return wrappers.reduceRight((inner, head) => head + '{' + inner + '}', sheet);
 }
 
-export async function rewriteCss(source: string, dir: string | null, refs: References, chain: string[] = []): Promise<string | undefined> {
+export async function rewriteCss(source: string, dir: string | null, refs: References, chain: string[] = [], destination = dir): Promise<string | undefined> {
+  const undoFiles = refs.checkpoint(), before = refs.skippedCount;
+  const css = await sheetText(source, dir, refs, chain);
+  // A relative reference left behind in another folder would resolve against a new base.
+  if (css === undefined || (dir !== destination && before !== refs.skippedCount)) {
+    undoFiles();
+    return;
+  }
+  return css;
+}
+
+async function sheetText(source: string, dir: string | null, refs: References, chain: string[]): Promise<string | undefined> {
+  const before = refs.skippedCount;
   let root;
   try { root = postcss.parse(source, {from: undefined, map: false}); }
   catch { refs.skip(chain.at(-1) ?? '', 'invalid_css'); return; }
@@ -121,7 +135,7 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
     const undoFiles = refs.checkpoint();
     const text = await refs.text(to.name, url, 'style');
     if (text === undefined) continue;
-    const child = await rewriteCss(text, parent(to.name), refs, [...chain, to.name]);
+    const child = await rewriteCss(text, parent(to.name), refs, [...chain, to.name], dir);
     if (child === undefined) { undoFiles(); continue; }
     const css = conditional(child, node.params.slice(first.sourceEndIndex));
     try { expanded.add(node); node.replaceWith(postcss.parse(css, {from: undefined, map: false}).nodes); }
@@ -131,7 +145,10 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
   let inserted = false;
   for (const rule of leading) {
     if (expanded.has(rule)) inserted = true;
-    else if (inserted || chain.length > 1) return undefined;
+    else if (inserted || chain.length > 1) {
+      if (refs.skippedCount === before) refs.skip(chain.at(-1) ?? '', 'css_order');
+      return;
+    }
   }
   if (inserted && root.nodes.some(n => n.type === 'atrule' && n.name.toLowerCase() === 'namespace')) {
     refs.skip(chain.at(-1) ?? '', 'css_namespace'); return;

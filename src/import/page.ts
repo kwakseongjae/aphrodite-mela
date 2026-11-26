@@ -48,7 +48,7 @@ function baseDirectory(nodes: Element[], refs: References): string | null {
   }
   if (to.kind === 'keep' && (!url || /^[#?]/.test(url))) return '';
   if (to.kind === 'remote') refs.remote++;
-  else refs.skip(url, 'outside');
+  else refs.skip(url, to.kind === 'hidden' ? 'hidden' : 'outside');
   return null;
 }
 
@@ -109,7 +109,7 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
           const opening = srcAttr && !stylesheet
             ? source.slice(start.startOffset, srcAttr.startOffset) + source.slice(srcAttr.endOffset, start.endOffset)
             : '<style' + attrs + '>';
-          const raw = stylesheet ? await rewriteCss(text, parent(to.name), refs, [to.name]) : text;
+          const raw = stylesheet ? await rewriteCss(text, parent(to.name), refs, [to.name], dir) : text;
           if (raw !== undefined) {
             if (representable(opening, raw, tagName) && (stylesheet || loc.endTag)) {
               put(stylesheet ? start : loc, opening + raw + '</' + tagName + '>');
@@ -123,10 +123,11 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
     }
     if (tag === 'style') {
       const body = {startOffset: start.endOffset, endOffset: loc.endTag?.startOffset ?? loc.endOffset};
+      const undoFiles = refs.checkpoint();
       const text = source.slice(body.startOffset, body.endOffset), css = await rewriteCss(text, dir, refs);
       if (css !== undefined && css !== text) {
         if (representable('<style>', css, 'style')) put(body, css);
-        else refs.skip('', 'raw_end_tag');
+        else { undoFiles(); refs.skip('', 'raw_end_tag'); }
       }
     }
     for (const a of e.attrs) {

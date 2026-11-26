@@ -4,7 +4,7 @@ import {MAX_PAGE_HTML, type StoredMedia} from '../free-page';
 import {decode} from './document';
 import type {GrantedFiles, Issue} from './html';
 
-type Address = {kind: 'local'; name: string; fragment: string} | {kind: 'remote' | 'keep' | 'outside'};
+type Address = {kind: 'local'; name: string; fragment: string} | {kind: 'remote' | 'keep' | 'outside' | 'hidden'};
 export function address(raw: string, directory: string): Address {
   const url = raw.trim();
   if (/^(?:asset:|https?:\/\/asset\.localhost(?:[/:?#]|$))/i.test(url)) return {kind: 'outside'};
@@ -15,6 +15,7 @@ export function address(raw: string, directory: string): Address {
   if (/^(?:\/|[a-z][\w+.-]*:)|[\\\x00-\x1f\x7f]/i.test(path)) return {kind: 'outside'};
   const parts = directory.split('/').filter(Boolean);
   for (const part of path.split('/')) {
+    if (part.startsWith('.') && part !== '.' && part !== '..') return {kind: 'hidden'};
     if (part === '..') { if (!parts.length) return {kind: 'outside'}; parts.pop(); }
     else if (part && part !== '.') parts.push(part);
   }
@@ -69,22 +70,24 @@ export class References {
   readonly files = new Map<string, number>();
   readonly names = new Set<string>();
   private followed = 0;
+  skippedCount = 0;
   remote = 0;
   private expanded = 0;
   constructor(readonly source: ImportFiles, private readonly report: (issue: Issue) => void) {}
 
   checkpoint() {
-    const names = new Set(this.names), files = new Map(this.files);
+    const names = new Set(this.names), files = new Map(this.files), expanded = this.expanded;
     return () => {
+      this.expanded = expanded;
       for (const name of this.names) if (!names.has(name)) this.names.delete(name);
       for (const hash of this.files.keys()) if (!files.has(hash)) this.files.delete(hash);
     };
   }
-  skip(name: string, code: string) { this.report({name, code}); }
+  skip(name: string, code: string) { this.skippedCount++; this.report({name, code}); }
   locate(url: string, directory: string | null) {
     const to = address(url, directory ?? '');
     if (to.kind === 'remote') this.remote++;
-    else if (to.kind === 'outside') this.skip(url, 'outside');
+    else if (to.kind === 'outside' || to.kind === 'hidden') this.skip(url, to.kind);
     else if (to.kind === 'local') {
       if (directory === null) this.skip(url, 'outside_base');
       else if (to.name.split('/').some(part => part.startsWith('.'))) this.skip(url, 'hidden');

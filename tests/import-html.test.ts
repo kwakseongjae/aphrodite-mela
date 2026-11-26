@@ -430,3 +430,21 @@ test('the parser lock records the package funding metadata in npm’s generated 
     assert.deepEqual(lock.packages[key].funding, typeof manifest.funding === 'string' ? {url: manifest.funding} : manifest.funding);
   }
 });
+
+test('rejected inline CSS and relocated sheets leave only the files actually present in the page', async () => {
+  const inline = '<style>a{background:url("a.png#\\3c /style>")}</style>';
+  const r = await example(inline);
+  assert.equal(r.html, inline);
+  assert.equal(r.report.files.count, 0);
+  const link = '<link rel=stylesheet href="styles/a.css">';
+  const moved = await example(link, {'styles/a.css': '@import "bad.css";', 'styles/bad.css': 'p{'});
+  assert.equal(moved.html, link);
+  assert.ok(moved.report.skipped.some(i => i.code === 'invalid_css'));
+});
+
+test('malformed image-set URL arguments and hidden components before dot-dot cause no file reads', async () => {
+  const html = '<style>a{background:image-set(url("bad" a.png) 1x)}</style><script src=".hidden/../notes.js"></script>';
+  const r = await example(html, {'notes.js': '1'});
+  assert.deepEqual(r.reads, ['a.html']);
+  assert.deepEqual(r.report.skipped.map(i => i.code), ['invalid_candidate', 'hidden']);
+});
