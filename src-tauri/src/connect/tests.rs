@@ -153,7 +153,11 @@ fn replacements_require_confirmation_and_stale_previews_leave_no_backup() {
         let undo = e.preview(tool, Action::Remove, 4).unwrap();
         e.commit(tool, Action::Remove, &undo.fingerprint, false)
             .unwrap();
-        assert_eq!(fs::read_to_string(file).unwrap(), format!("{source}\n"));
+        assert!(!fs::read_to_string(file).unwrap().contains("aphrodite"));
+        assert_eq!(
+            fs::read_to_string(p.backup.unwrap()).unwrap(),
+            format!("{source}\n")
+        );
     }
 }
 
@@ -250,8 +254,8 @@ fn an_unowned_matching_command_is_reported_but_never_silently_claimed() {
                 Err(Code::ConfirmationRequired)
             ));
             assert!(matches!(
-                e.preview(tool, Action::Remove, 2),
-                Err(Code::ForeignEntry)
+                remove(e, tool, false),
+                Err(Code::ConfirmationRequired)
             ));
         } else {
             assert!(matches!(
@@ -329,7 +333,7 @@ fn a_parent_symlink_swap_and_two_simultaneous_applies_cannot_overwrite_another_f
 }
 
 #[test]
-fn codex_can_restore_a_foreign_server_with_children_separated_by_other_tables() {
+fn codex_removes_only_replaced_server_blocks_and_keeps_the_original_backup() {
     for text in ["[mcp_servers.'aphrodite']\ncommand='old'\n[z]\nother=8\n[mcp_servers.aphrodite.env]\nNAME='v'",
         "mcp_servers.aphrodite.command='old'\nmcp_servers.other.command='other'\nmcp_servers.aphrodite.args=['x']",
         "mcp_servers={aphrodite={command='old'}, other={command='unchanged'}}",
@@ -337,11 +341,15 @@ fn codex_can_restore_a_foreign_server_with_children_separated_by_other_tables() 
         let h=Home::new();let e=&h.engine;let tool=Tool::Codex;let f=h.file(tool,text);
         let p=e.preview(tool,Action::Connect,1).unwrap();
         e.commit(tool,Action::Connect,&p.fingerprint,true).unwrap();
+        let preserved=p.backup.unwrap();
         let edited=fs::read_to_string(&f).unwrap();
         assert!(!edited.contains("'old'"));assert!(!edited.contains("NAME='v'"));
         let p=e.preview(tool,Action::Remove,2).unwrap();
         e.commit(tool,Action::Remove,&p.fingerprint,false).unwrap();
-        assert_eq!(fs::read_to_string(f).unwrap(),text);
+        let result=fs::read_to_string(f).unwrap();
+        assert!(!result.contains("aphrodite"));
+        assert!(result.contains("other"));
+        assert_eq!(fs::read_to_string(preserved).unwrap(),text);
     }
 }
 
@@ -516,4 +524,112 @@ fn opus_7_copy_only_status_and_missing_config_directories_need_no_file_access() 
         assert!(h.engine.preview(tool, Action::Connect, 1).is_err());
         assert!(!p.parent().unwrap().exists());
     }
+}
+
+const WRITTEN: [Tool; 3] = [Tool::Codex, Tool::Cursor, Tool::ClaudeDesktop];
+fn connect(e: &Engine, tool: Tool, stamp: u128) -> Preview {
+    let p = e.preview(tool, Action::Connect, stamp).unwrap();
+    e.commit(
+        tool,
+        Action::Connect,
+        &p.fingerprint,
+        p.replacement_required,
+    )
+    .unwrap()
+}
+fn remove(e: &Engine, tool: Tool, confirm: bool) -> Result<Preview> {
+    let p = e.preview(tool, Action::Remove, 90)?;
+    e.commit(tool, Action::Remove, &p.fingerprint, confirm)
+}
+#[test]
+fn opus_1_repoint_keeps_the_first_original_for_every_client() {
+    for tool in WRITTEN {
+        let mut h = Home::new();
+        let original = if tool == Tool::Codex {
+            "# before"
+        } else {
+            "{\n}"
+        };
+        let path = h.file(tool, original);
+        let backup = connect(&h.engine, tool, 1).backup.unwrap();
+        h.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+        assert!(connect(&h.engine, tool, 2).backup.is_none());
+        remove(&h.engine, tool, false).unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+        assert!(!backup.exists());
+    }
+}
+#[test]
+fn astra_8_remove_after_two_paths_retires_a_config_we_created() {
+    for tool in WRITTEN {
+        let mut h = Home::new();
+        let path = h.engine.path(tool);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        h.engine.exe = "/app/one".into();
+        connect(&h.engine, tool, 1);
+        h.engine.exe = "/app/two".into();
+        connect(&h.engine, tool, 2);
+        remove(&h.engine, tool, false).unwrap();
+        assert!(!path.exists() && path.parent().unwrap().exists());
+    }
+}
+#[test]
+fn opus_2_removing_after_the_backup_is_deleted_needs_only_the_receipt() {
+    for input in ["{}", r#"{"mcpServers":{"aphrodite":{"command":"old"}}}"#] {
+        let h = Home::new();
+        let path = h.file(Tool::Cursor, input);
+        let p = connect(&h.engine, Tool::Cursor, 1);
+        fs::remove_file(p.backup.unwrap()).unwrap();
+        remove(&h.engine, Tool::Cursor, false).unwrap();
+        let after = fs::read_to_string(path).unwrap();
+        assert!(!after.contains("aphrodite"));
+        if input == "{}" {
+            assert_eq!(after, input);
+        }
+    }
+}
+#[test]
+fn opus_3_confirmed_removal_after_editor_rename_restores_the_original_bytes() {
+    for tool in WRITTEN {
+        let h = Home::new();
+        let original = if tool == Tool::Codex {
+            "# keep"
+        } else {
+            "{\n  \"other\": true\n}"
+        };
+        let path = h.file(tool, original);
+        let backup = connect(&h.engine, tool, 1).backup.unwrap();
+        let editor = path.with_extension("new");
+        fs::write(&editor, fs::read(&path).unwrap()).unwrap();
+        fs::rename(editor, &path).unwrap();
+        let status = h.engine.status(tool).unwrap();
+        assert_eq!(
+            (status.entry_exists, status.points_here, status.owned),
+            (Some(true), Some(true), Some(false))
+        );
+        assert!(matches!(
+            remove(&h.engine, tool, false),
+            Err(Code::ConfirmationRequired)
+        ));
+        remove(&h.engine, tool, true).unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+        assert!(!backup.exists());
+    }
+}
+#[test]
+fn astra_4_receipts_distinguish_the_physical_spelling_of_an_entry_key() {
+    let h = Home::new();
+    let path = h.file(Tool::Cursor, "{}");
+    connect(&h.engine, Tool::Cursor, 1);
+    let installed = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        installed.replace("\"aphrodite\"", r#""aphro\u0064ite""#),
+    )
+    .unwrap();
+    assert_eq!(h.engine.status(Tool::Cursor).unwrap().owned, Some(false));
+    assert!(matches!(
+        remove(&h.engine, Tool::Cursor, false),
+        Err(Code::ConfirmationRequired)
+    ));
 }

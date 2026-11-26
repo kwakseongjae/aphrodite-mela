@@ -245,3 +245,31 @@ pub fn parent(root: &Dir, target: &Path) -> Result<Dir> {
         }
     })
 }
+
+// An editor can replace the config inode. Keep the original digest and generated delimiters
+// on its directory too, for a *confirmed* undo. Only the config inode can establish ownership.
+fn history_key(name: &std::ffi::OsStr) -> String {
+    format!("{RECEIPT}.{}", super::hash(name.as_encoded_bytes()))
+}
+pub fn history(root: &Dir, target: &Path) -> Result<Option<Receipt>> {
+    let dir = parent(root, target)?.into_std_file();
+    let key = history_key(target.file_name().ok_or(Code::InvalidPath)?);
+    Ok(dir
+        .get_xattr(key)
+        .map_err(io_code)?
+        .and_then(|v| serde_json::from_slice::<Receipt>(&v).ok())
+        .filter(|r| r.path == target))
+}
+pub fn set_history(dir: &Dir, name: &std::ffi::OsStr, receipt: Option<&Receipt>) -> Result<()> {
+    let file = dir.try_clone().map_err(io_code)?.into_std_file();
+    let key = history_key(name);
+    if let Some(r) = receipt {
+        file.set_xattr(key, &serde_json::to_vec(r).unwrap())
+            .map_err(io_code)
+    } else {
+        match file.remove_xattr(key) {
+            Err(e) if e.raw_os_error() == Some(libc::ENOATTR) => Ok(()),
+            r => r.map_err(io_code),
+        }
+    }
+}

@@ -14,7 +14,7 @@ pub struct Change {
     pub after: String,
 }
 impl Change {
-    fn at(source: &str, range: Range<usize>, after: String) -> Self {
+    pub(super) fn at(source: &str, range: Range<usize>, after: String) -> Self {
         Self {
             start: range.start,
             before: source[range].to_owned(),

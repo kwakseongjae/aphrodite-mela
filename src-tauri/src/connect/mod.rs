@@ -36,7 +36,6 @@ pub enum Code {
     ForeignEntry,
     NoEntry,
     BackupExists,
-    BackupChanged,
     MoveToApplications,
     SidecarMissing,
     UnknownLocation,
@@ -134,7 +133,9 @@ struct Receipt {
     exe: String,
     stamp: u128,
     original: Option<String>,
-    connected: String,
+    // Delimiters and whitespace inserted around a newly created entry.
+    // A replacement of an existing definition has no wrapper.
+    wrapper: Option<(String, String)>,
     entry: String,
 }
 
@@ -293,6 +294,8 @@ impl Engine {
         let source = f.text.as_deref().unwrap_or("");
         let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
         let owner = self.owner(tool, relative, f, &layout);
+        let history = files::history(root, relative)?;
+        let prior = owner.or(history.as_ref());
         let foreign = !layout.entry.is_empty() && owner.is_none();
         let (changes, deletes_file) = match action {
             Action::Connect
@@ -305,18 +308,18 @@ impl Engine {
                 if layout.entry.is_empty() {
                     return Err(Code::NoEntry);
                 }
-                self.undo(
-                    root,
-                    relative,
-                    tool,
-                    source,
-                    layout,
-                    owner.ok_or(Code::ForeignEntry)?,
-                )?
+                if foreign && layout.command.as_deref() != Some(self.executable()) {
+                    return Err(Code::ForeignEntry);
+                }
+                self.undo(tool, source, layout, prior, foreign)?
             }
         };
         let target = self.home.join(relative);
-        let backup = if f.text.is_some() && !changes.is_empty() {
+        let backup = if action == Action::Connect
+            && prior.is_none()
+            && f.text.is_some()
+            && !changes.is_empty()
+        {
             Some(target.with_file_name(files::backup_name(relative, stamp)?))
         } else {
             None
@@ -332,6 +335,7 @@ impl Engine {
                 f.revision,
                 f.mode,
                 &f.receipt,
+                &history,
                 &changes,
                 stamp,
             ))
@@ -361,7 +365,9 @@ impl Engine {
         if !deletes_file && !preview.changes.is_empty() {
             let candidate = preview.edited(source)?;
             let after = edit::layout(tool, Some(&candidate), self.executable())?;
-            if action == Action::Connect && after.command.as_deref() != Some(self.executable()) {
+            if (action == Action::Connect && after.command.as_deref() != Some(self.executable()))
+                || (action == Action::Remove && !after.entry.is_empty())
+            {
                 return Err(Code::InvalidConfig);
             }
         }
@@ -369,66 +375,37 @@ impl Engine {
     }
     fn undo(
         &self,
-        root: &Dir,
-        relative: &Path,
         tool: Tool,
         source: &str,
         layout: Layout,
-        r: &Receipt,
+        prior: Option<&Receipt>,
+        foreign: bool,
     ) -> Result<(Vec<Change>, bool)> {
-        let original = if let Some(digest) = &r.original {
-            let b = relative.with_file_name(files::backup_name(relative, r.stamp)?);
-            let old = FileState::read(root, &b)?.text.ok_or(Code::BackupChanged)?;
-            if hash(&old) != *digest {
-                return Err(Code::BackupChanged);
-            }
-            Some(old)
-        } else {
-            None
-        };
-        let old = original.as_deref().unwrap_or("");
-        let previous = edit::layout(tool, original.as_deref(), &r.exe)?;
-        let installed = edit::edited(old, &previous.connect)?;
-        if hash(&installed) != r.connected {
-            return Err(Code::BackupChanged);
-        }
-        let exact = installed == source;
-        // Find the old edit relative to the parsed entry even if somebody edited a neighboring key.
-        let old_layout = edit::layout(tool, Some(&installed), &r.exe)?;
-        let shift = layout.entry[0].start as i128 - old_layout.entry[0].start as i128;
-        let mut delta = 0i128;
-        let mut inverse = vec![];
-        for c in &previous.connect {
-            let pos = c.start as i128 + delta + shift;
-            let start = usize::try_from(pos).ok();
-            if !exact
-                && (previous.connect.len() != 1
-                    || !start
-                        .and_then(|at| source.get(at..))
-                        .is_some_and(|s| s.starts_with(&c.after)))
-            {
-                // The container we inserted now holds another server. Take just our property out.
-                if previous.entry.is_empty() {
-                    return Ok((layout.remove, false));
+        if let Some(r) = prior.filter(|r| r.entry == entry_hash(&layout, source)) {
+            if let (Some((prefix, suffix)), [entry]) = (&r.wrapper, layout.entry.as_slice()) {
+                if source[..entry.start].ends_with(prefix)
+                    && source[entry.end..].starts_with(suffix)
+                {
+                    let change = Change::at(
+                        source,
+                        entry.start - prefix.len()..entry.end + suffix.len(),
+                        String::new(),
+                    );
+                    let result = edit::edited(source, std::slice::from_ref(&change))?;
+                    let original = r
+                        .original
+                        .as_ref()
+                        .map_or(result.is_empty(), |h| *h == hash(&result));
+                    let deletes = original && r.original.is_none();
+                    if (!foreign || original)
+                        && (deletes || edit::layout(tool, Some(&result), self.executable()).is_ok())
+                    {
+                        return Ok((vec![change], deletes));
+                    }
                 }
-                return Err(Code::Changed);
-            }
-            inverse.push(Change {
-                start: start.ok_or(Code::Changed)?,
-                before: c.after.clone(),
-                after: c.before.clone(),
-            });
-            delta += c.after.len() as i128 - c.before.len() as i128;
-        }
-        if !exact && previous.entry.is_empty() {
-            // Another edit may have supplied a new comma, or added content around our former
-            // whole-file insertion. A structurally invalid inverse is never written.
-            let candidate = edit::edited(source, &inverse)?;
-            if edit::layout(tool, Some(&candidate), &r.exe).is_err() {
-                return Ok((layout.remove, false));
             }
         }
-        Ok((inverse, exact && original.is_none()))
+        Ok((layout.remove, false))
     }
     fn preview(&self, tool: Tool, action: Action, stamp: u128) -> Result<Preview> {
         self.validate(tool)?;
@@ -475,15 +452,32 @@ impl Engine {
         }
         let source = file.text.as_deref().unwrap_or("");
         let candidate = preview.edited(source)?;
+        let history = files::history(&root, &rel)?;
+        let before = edit::layout(tool, file.text.as_deref(), self.executable())?;
+        let owned = self.owner(tool, &rel, &file, &before);
+        let prior = owned.or(history.as_ref());
         let receipt = if action == Action::Connect {
             let layout = edit::layout(tool, Some(&candidate), self.executable())?;
+            let wrapper = if before.entry.is_empty() {
+                let c = &preview.changes[0];
+                let entry = &layout.entry[0];
+                Some((
+                    candidate[c.start..entry.start].into(),
+                    candidate[entry.end..c.start + c.after.len()].into(),
+                ))
+            } else {
+                prior
+                    .filter(|r| r.entry == entry_hash(&before, source))
+                    .and_then(|r| r.wrapper.clone())
+            };
             Some(Receipt {
                 tool,
                 path: rel.clone(),
                 exe: self.executable().into(),
-                stamp,
-                original: file.text.as_ref().map(hash),
-                connected: hash(&candidate),
+                stamp: prior.map_or(stamp, |r| r.stamp),
+                original: prior
+                    .map_or_else(|| file.text.as_ref().map(hash), |r| r.original.clone()),
+                wrapper,
                 entry: entry_hash(&layout, &candidate),
             })
         } else {
@@ -517,6 +511,10 @@ impl Engine {
             files::backup(&dir, name, source)?;
         }
         let result = unchanged().and_then(|()| {
+            if let Some(r) = &receipt {
+                files::set_history(&dir, name, Some(r))?;
+            }
+
             if let Some(temp) = temp {
                 temp.publish(name, file.text.is_some())
             } else {
@@ -524,10 +522,29 @@ impl Engine {
             }
         });
         if let Err(code) = result {
+            if receipt.is_some() {
+                files::set_history(&dir, name, history.as_ref())?;
+            }
             if let Some(name) = backup {
                 let _ = dir.remove_file(name);
             }
             return Err(code);
+        }
+        if action == Action::Remove {
+            if let Some(r) = prior.filter(|r| {
+                r.original
+                    .as_ref()
+                    .map_or(preview.deletes_file, |h| *h == hash(&candidate))
+            }) {
+                if r.original.is_some() {
+                    let backup = files::backup_name(&rel, r.stamp)?;
+                    match dir.remove_file(backup) {
+                        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Code::Io),
+                        _ => (),
+                    }
+                }
+                files::set_history(&dir, name, None)?;
+            }
         }
         Ok(preview)
     }
