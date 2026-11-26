@@ -214,7 +214,13 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         // Tauri installs js_init_script only in the main frame. A page, including a render's page,
         // receives neither the shell credential nor any grant through the frame message protocol.
         .js_init_script(format!("if(window===top)Object.defineProperty(window,'__APHRODITE_IMPORT__',{{value:'{key}'}});"))
-        .setup(move |app, _| { app.manage(ImportState { grants: Mutex::default(), shell: key }); Ok(()) })
+        .setup(move |app, _| {
+            app.manage(ImportState { grants: Mutex::default(), shell: key });
+            if let Ok(base) = app.path().app_data_dir() {
+                tauri::async_runtime::spawn_blocking(move || crate::board::sweep_imports(&base));
+            }
+            Ok(())
+        })
         .build()
 }
 
@@ -287,6 +293,7 @@ pub async fn html_import_finish(window: WebviewWindow, state: tauri::State<'_, I
     state.shell(&window, &shell)?;
     let base = window.path().app_data_dir().map_err(|_| "io")?;
     crate::disk::write(move || {
+        crate::board::sweep_imports(&base);
         for (ticket, keep) in receipts { crate::board::finish_import(&base, &ticket, keep)?; }
         Ok(())
     }).await

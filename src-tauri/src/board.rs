@@ -226,6 +226,21 @@ pub(crate) struct ImportAsset {
     pub receipt: Option<String>,
 }
 
+/// Discard abandoned private names, including receipts whose other hard link was published.
+pub(crate) fn sweep_imports(base: &Path) {
+    const KEPT: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+    let pending = base.join(UPLOADS).join("importing");
+    if !pending.is_dir() { return; }
+    let Ok(_held) = settling(base) else { return };
+    let Ok(entries) = fs::read_dir(pending) else { return };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_file() && meta.modified().ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age >= KEPT) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn import_marker(base: &Path, dest: &Path) -> PathBuf {
     base.join(UPLOADS).join("importing").join(dest.file_name().expect("board media filename"))
 }
@@ -240,7 +255,8 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
 
 /// Uncommitted files live in the private upload folder. A receipt links the bytes to one import.
 pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> Result<ImportAsset, &'static str> {
-    let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS).map_err(|_| "io")?).map_err(|_| "io")?.into_temp_path();
+    let pending = folder(&base.join(UPLOADS), "importing").map_err(|_| "io")?;
+    let incoming = tempfile::NamedTempFile::new_in(pending).map_err(|_| "io")?.into_temp_path();
     let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset).map_err(|e| {
         if e == UNKNOWN { "unsupported" } else if e == "the file is empty." { "empty" }
         else if e.starts_with("the file is ") { "too_large" } else { "io" }
@@ -252,9 +268,13 @@ pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> R
     let marker = import_marker(base, &dest);
     let _held = settling(base).map_err(|_| "io")?;
     if dest.try_exists().map_err(|_| "io")? { return Ok(ImportAsset {stored, receipt: None}); }
-    fs::create_dir_all(marker.parent().unwrap()).map_err(|_| "io")?;
     let new = !marker.try_exists().map_err(|_| "io")?;
-    if new { fs::rename(&incoming, &marker).map_err(|_| "io")?; }
+    if new {
+        fs::rename(&incoming, &marker).map_err(|_| "io")?;
+    } else {
+        // All outstanding receipts share the marker's modification time.
+        fs::File::open(&marker).and_then(|f| f.set_modified(std::time::SystemTime::now())).map_err(|_| "io")?;
+    }
     let ticket = format!("{}.{}", filename, crate::agent::random_token());
     if fs::hard_link(&marker, marker.with_file_name(&ticket)).is_err() {
         if new { let _ = fs::remove_file(&marker); }
@@ -273,7 +293,10 @@ pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<()
     let marker = import_marker(base, &dest);
     let claim = marker.with_file_name(receipt);
     let _held = settling(base)?;
-    if !claim.try_exists().map_err(|e| e.to_string())? { return Ok(()); }
+    if !claim.try_exists().map_err(|e| e.to_string())? {
+        if keep && !dest.try_exists().map_err(|e| e.to_string())? { return Err("missing".into()); }
+        return Ok(());
+    }
     if marker.try_exists().map_err(|e| e.to_string())? {
         if keep && !dest.try_exists().map_err(|e| e.to_string())? {
             fs::rename(&marker, &dest).map_err(|e| e.to_string())?;
@@ -327,15 +350,13 @@ fn published_file(base: &Path, sha: &str) -> Option<PathBuf> {
     BOARD_FILES.iter().map(|(ext, _)| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
 }
 
-/// A render or export may ask for committed bytes before its import's finish IPC arrives,
-/// including after an interrupted finish. Claim the private copy under the same lock.
+/// Readers can only look up files that have already been published.
 pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     if let Some(path) = published_file(base, sha) { return Some(path); }
     if !is_sha(sha) { return None; }
-    let pending = base.join(UPLOADS).join("importing");
     let previous = [("mp4", "video/mp4"), ("mp3", "audio/mpeg")].map(|(ext, mime)|
         (base.join(MEDIA).join(format!("{sha}.{ext}")), mime));
-    if !pending.is_dir() && !previous.iter().any(|(p, _)| p.is_file()) { return None; }
+    if !previous.iter().any(|(p, _)| p.is_file()) { return None; }
     let _held = settling(base).ok()?;
     if let Some(path) = published_file(base, sha) { return Some(path); }
     // Earlier versions stored these suffixes with broader signatures. Keep their paths for
@@ -347,15 +368,6 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
         if page_asset(&head) == Some(mime) {
             let dest = base.join(MEDIA).join(format!("{sha}.{}", extension(mime)));
             fs::hard_link(path, &dest).ok()?;
-            return Some(dest);
-        }
-    }
-    for (ext, _) in BOARD_FILES {
-        let name = format!("{sha}.{ext}");
-        let source = pending.join(&name);
-        if source.is_file() {
-            let dest = base.join(MEDIA).join(name);
-            fs::rename(source, &dest).ok()?;
             return Some(dest);
         }
     }
@@ -612,9 +624,10 @@ mod tests {
 
         let reading = tempfile::tempdir().unwrap();
         let staged = stage_page_asset(reading.path(), &PNG[..], PNG.len() as u64).unwrap();
-        let published = media_file(reading.path(), &staged.stored.sha).unwrap();
+        assert!(media_file(reading.path(), &staged.stored.sha).is_none());
+        assert!(media_stat(reading.path(), &staged.stored.sha).is_none());
         finish_import(reading.path(), &staged.receipt.unwrap(), false).unwrap();
-        assert_eq!(fs::read(published).unwrap(), PNG, "a board already reading this hash keeps it");
+        assert!(media_file(reading.path(), &staged.stored.sha).is_none());
 
         let other = tempfile::tempdir().unwrap();
         let held = stage_page_asset(other.path(), &PNG[..], PNG.len() as u64).unwrap();
@@ -623,6 +636,60 @@ mod tests {
         finish(other.path(), &upload).unwrap();
         finish_import(other.path(), &held.receipt.unwrap(), false).unwrap();
         assert!(media_file(other.path(), &held.stored.sha).is_some(), "a received board claimed the copy");
+    }
+
+    #[test]
+    fn an_interrupted_copy_is_already_in_the_private_sweep_directory_before_it_has_a_receipt() {
+        struct Interrupted<'a>(&'a Path);
+        impl Read for Interrupted<'_> {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                assert_eq!(fs::read_dir(self.0).unwrap().count(), 1, "in-flight temporary file");
+                Err(std::io::Error::other("interrupted copy"))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let pending = dir.path().join(UPLOADS).join("importing");
+        assert_eq!(stage_page_asset(dir.path(), Interrupted(&pending), 8).err(), Some("io"));
+    }
+
+    #[test]
+    fn sweeping_interrupted_imports_only_unlinks_old_private_copies_and_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let stage = |bytes: &[u8]| stage_page_asset(base, bytes, bytes.len() as u64).unwrap();
+        let old = stage(&PNG);
+        let pending = base.join(UPLOADS).join("importing");
+        let ticket = old.receipt.unwrap();
+        let old_receipt = pending.join(&ticket);
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(48 * 3600);
+        let age = |p: &Path| fs::File::open(p).unwrap().set_modified(long_ago).unwrap();
+        age(&old_receipt);
+        let partial = pending.join(".unfinished");
+        fs::write(&partial, b"partial").unwrap();
+        age(&partial);
+        let fresh = stage(b"GIF89a");
+        let renewed = stage(b"GIF87a");
+        age(&pending.join(renewed.receipt.unwrap()));
+        let renewed = stage(b"GIF87a");
+        let public = stage(b"ID3public");
+        // A second receipt shares this inode even after the first is published.
+        let abandoned = stage(b"ID3public");
+        finish_import(base, &public.receipt.unwrap(), true).unwrap();
+        let published = media_file(base, &public.stored.sha).unwrap();
+        age(&published);
+
+        sweep_imports(base);
+        assert!(!pending.join(format!("{}.png", old.stored.sha)).exists());
+        assert!(!partial.exists());
+        assert!(!old_receipt.exists());
+        assert_eq!(finish_import(base, &ticket, true).unwrap_err(), "missing");
+        assert!(!pending.join(abandoned.receipt.unwrap()).exists());
+        assert_eq!(fs::read(published).unwrap(), b"ID3public");
+        for asset in [fresh, renewed] {
+            assert!(media_file(base, &asset.stored.sha).is_none());
+            finish_import(base, &asset.receipt.unwrap(), true).unwrap();
+            assert!(media_file(base, &asset.stored.sha).is_some());
+        }
     }
 
     #[test]
