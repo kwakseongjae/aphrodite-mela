@@ -271,3 +271,8 @@ test('text kinds and dot components cannot bring notes, data or hidden files int
   assert.deepEqual(out.files.names, ['ok.cjs']);
   assert.deepEqual(out.skipped.map(i => i.name), ['notes.txt', 'data.csv', '.env', '.d/a.js', 'pic.txt']);
 });
+
+test('a UTF-16 meta label without a BOM decodes the UTF-8 title', async () => {
+  const {target} = setup();
+  assert.equal((await importHtml({text: Buffer.from('<meta charset="utf-16"><title>Café</title>')}, person, target)).pages[0]?.name, 'Café');
+});

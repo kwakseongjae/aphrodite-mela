@@ -38,7 +38,9 @@ export function decode(bytes: Uint8Array, html = false): string {
     if (!/<meta[\t\n\f\r />]/i.test(provisional) || !/charset/i.test(provisional)) return provisional;
     const meta = elements(provisional).find(e => e.tagName === 'meta' && attr(e, 'charset') && inDocument(e));
     encoding = meta && attr(meta, 'charset') || encoding;
-    if (/^utf-?8$/i.test(encoding)) return provisional;
+    // HTML maps both canonical UTF-16 encodings (including their labels) to UTF-8 here.
+    try { if (['utf-8', 'utf-16le', 'utf-16be'].includes(new TextDecoder(encoding).encoding)) return provisional; }
+    catch { return provisional; }
   }
   let decoder: TextDecoder;
   try { decoder = new TextDecoder(encoding); } catch { decoder = new TextDecoder(); }
