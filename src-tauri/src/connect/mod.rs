@@ -49,6 +49,21 @@ pub enum Tool {
     Cursor,
     ClaudeDesktop,
 }
+impl Tool {
+    fn snippet(self, exe: &str) -> String {
+        match self {
+            Tool::ClaudeCode => format!(
+                "claude mcp add --transport stdio --scope user aphrodite -- '{}'",
+                exe.replace('\'', "'\"'\"'")
+            ),
+            Tool::Codex => edit::toml_entry(exe, "\n"),
+            _ => format!(
+                r#"{{"mcpServers":{{"aphrodite":{}}}}}"#,
+                edit::json_entry(self, exe)
+            ),
+        }
+    }
+}
 const TOOLS: [Tool; 4] = [
     Tool::ClaudeCode,
     Tool::Codex,
@@ -66,6 +81,7 @@ pub enum Action {
 enum Location {
     Installed,
     Development,
+    NotInApplications,
     DiskImage,
     ReadOnly,
     Translocated,
@@ -169,20 +185,6 @@ impl Engine {
     fn executable(&self) -> &str {
         self.exe.to_str().unwrap_or("")
     }
-    fn snippet(&self, tool: Tool) -> String {
-        let exe = self.executable();
-        match tool {
-            Tool::ClaudeCode => format!(
-                "claude mcp add --transport stdio --scope user aphrodite -- '{}'",
-                exe.replace('\'', "'\"'\"'")
-            ),
-            Tool::Codex => edit::toml_entry(exe, "\n"),
-            _ => format!(
-                r#"{{"mcpServers":{{"aphrodite":{}}}}}"#,
-                edit::json_entry(tool, exe)
-            ),
-        }
-    }
     fn installed(&self, tool: Tool) -> bool {
         let (cli, app) = match tool {
             Tool::ClaudeCode => (Some("claude"), None),
@@ -267,7 +269,10 @@ impl Engine {
     fn validate(&self, tool: Tool) -> Result<()> {
         if matches!(
             self.location,
-            Location::Translocated | Location::DiskImage | Location::ReadOnly
+            Location::Translocated
+                | Location::DiskImage
+                | Location::ReadOnly
+                | Location::NotInApplications
         ) {
             return Err(Code::MoveToApplications);
         }
@@ -625,7 +630,7 @@ fn mount_location(
     mount: &Path,
     device: &OsStr,
     read_only: bool,
-    info: Option<&plist::Value>,
+    image_info: impl FnOnce() -> Option<plist::Value>,
 ) -> Location {
     if mount
         .components()
@@ -636,11 +641,21 @@ fn mount_location(
     if read_only {
         return Location::ReadOnly;
     }
-    let Some(info) = info else {
-        return Location::Unknown;
-    };
-    if mounted_image(mount, device, info) {
-        return Location::DiskImage;
+    if mount != Path::new("/") && mount != Path::new("/System/Volumes/Data") {
+        let Some(info) = image_info() else {
+            return Location::NotInApplications;
+        };
+        if info
+            .as_dictionary()
+            .and_then(|d| d.get("images"))
+            .and_then(|v| v.as_array())
+            .is_none()
+        {
+            return Location::NotInApplications;
+        }
+        if mounted_image(mount, device, &info) {
+            return Location::DiskImage;
+        }
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
         Location::Installed
@@ -648,6 +663,41 @@ fn mount_location(
         Location::Development
     }
 }
+fn image_inventory(
+    command: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<plist::Value> {
+    use std::{
+        io::Seek,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+    // A file can receive a plist larger than a pipe buffer while we wait on the child.
+    let mut output = tempfile::tempfile().ok()?;
+    let deadline = Instant::now() + timeout;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(output.try_clone().ok()?)
+        .spawn()
+        .ok()?;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) => return None,
+            Ok(None) if !left.is_zero() => std::thread::sleep(left.min(Duration::from_millis(10))),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    output.rewind().ok()?;
+    plist::Value::from_reader(output).ok()
+}
+
 fn location(exe: &Path) -> Location {
     use std::{
         ffi::CStr,
@@ -664,18 +714,18 @@ fn location(exe: &Path) -> Location {
     let mount = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
     ));
-    let info = std::process::Command::new("/usr/bin/hdiutil")
-        .env_clear()
-        .args(["info", "-plist"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| plist::Value::from_reader(std::io::Cursor::new(o.stdout)).ok());
     mount_location(
         exe,
         mount,
         OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
         stat.f_flags & libc::MNT_RDONLY as u32 != 0,
-        info.as_ref(),
+        || {
+            image_inventory(
+                std::process::Command::new("/usr/bin/hdiutil")
+                    .env_clear()
+                    .args(["info", "-plist"]),
+                std::time::Duration::from_secs(2),
+            )
+        },
     )
 }

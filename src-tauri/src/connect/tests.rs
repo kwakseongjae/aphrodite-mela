@@ -169,7 +169,7 @@ fn only_documented_files_are_created_and_translocation_blocks_writes() {
         let file = e.path(tool);
         if tool == Tool::ClaudeCode {
             assert!(e.preview(tool, Action::Connect, 1).is_err());
-            assert!(e.snippet(tool).contains("claude mcp add"));
+            assert!(tool.snippet(e.executable()).contains("claude mcp add"));
             assert!(!file.exists());
             continue;
         }
@@ -386,7 +386,7 @@ fn disk_image_mounts_are_identified_by_component_and_regular_external_disks_are_
             Path::new("/private/tmp/AppTranslocation/abc/d"),
             OsStr::new("fixture"),
             true,
-            None
+            || panic!("already classified")
         ),
         Location::Translocated
     );
@@ -752,7 +752,7 @@ fn astra_9_mount_identity_covers_home_mounted_images_and_read_only_volumes() {
     let exe = mount.join("Aphrodite.app/Contents/MacOS/Aphrodite");
     let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Users/x/mnt/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
     assert_eq!(
-        mount_location(&exe, mount, OsStr::new("fixture"), false, Some(&info)),
+        mount_location(&exe, mount, OsStr::new("fixture"), false, || Some(info)),
         Location::DiskImage
     );
     assert_eq!(
@@ -761,7 +761,7 @@ fn astra_9_mount_identity_covers_home_mounted_images_and_read_only_volumes() {
             Path::new("/ReadOnly"),
             OsStr::new("fixture"),
             true,
-            None
+            || panic!("already classified")
         ),
         Location::ReadOnly
     );
@@ -830,7 +830,7 @@ fn astra_7_valid_toml_outside_the_splicers_grammar_offers_copy_in_ipc() {
         .unwrap();
     let copy = serde_json::to_value(proposal).unwrap();
     assert_eq!(copy["code"], "unsupported_layout");
-    assert_eq!(copy["snippet"], h.engine.snippet(Tool::Codex));
+    assert_eq!(copy["snippet"], Tool::Codex.snippet(h.engine.executable()));
 }
 
 #[test]
@@ -1019,4 +1019,50 @@ fn recheck_5_an_edited_file_gets_a_fresh_mtime_and_os_origin_tags_do_not_conflic
     fs::File::open(&path).unwrap().set_modified(old).unwrap();
     remove(&h.engine, tool, false).unwrap();
     assert!(fs::metadata(path).unwrap().modified().unwrap() > old);
+}
+
+#[test]
+fn recheck_7_the_boot_and_data_mounts_need_no_image_inventory() {
+    use std::{
+        process::Command,
+        time::{Duration, Instant},
+    };
+    let exe = Path::new("/Applications/Aphrodite.app/Contents/MacOS/Aphrodite");
+    for mount in ["/", "/System/Volumes/Data"] {
+        assert_eq!(
+            mount_location(
+                exe,
+                Path::new(mount),
+                OsStr::new("device"),
+                false,
+                || panic!("system volumes need no probe")
+            ),
+            Location::Installed
+        );
+    }
+    let mut h = Home::new();
+    let start = Instant::now();
+    h.engine.location = mount_location(
+        exe,
+        Path::new("/mnt/other"),
+        OsStr::new("device"),
+        false,
+        || image_inventory(Command::new("/bin/sleep").arg("8"), Duration::from_secs(2)),
+    );
+    assert!(start.elapsed() < Duration::from_secs(4));
+    assert_eq!(h.engine.location, Location::NotInApplications);
+    assert!(matches!(
+        h.engine.validate(Tool::Cursor),
+        Err(Code::MoveToApplications)
+    ));
+    assert_eq!(
+        mount_location(
+            exe,
+            Path::new("/mnt/other"),
+            OsStr::new("device"),
+            false,
+            || image_inventory(&mut Command::new("/usr/bin/false"), Duration::from_secs(2))
+        ),
+        Location::NotInApplications
+    );
 }

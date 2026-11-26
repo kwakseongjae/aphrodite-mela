@@ -5,6 +5,14 @@ use std::{
 };
 use tauri::Manager;
 
+fn sidecar(app_exe: &Path) -> Result<PathBuf> {
+    let exe = app_exe.with_file_name("aphrodite-mcp");
+    if !exe.is_file() || exe.to_str().is_none() {
+        return Err(Code::SidecarMissing);
+    }
+    Ok(exe)
+}
+
 fn runtime(app: tauri::AppHandle) -> Result<Engine> {
     let home = app
         .path()
@@ -13,10 +21,7 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
         .canonicalize()
         .map_err(|_| Code::InvalidPath)?;
     let app_exe = env::current_exe().map_err(|_| Code::InvalidPath)?;
-    let exe = app_exe.with_file_name("aphrodite-mcp");
-    if !exe.is_file() || exe.to_str().is_none() {
-        return Err(Code::SidecarMissing);
-    }
+    let exe = sidecar(&app_exe)?;
     let mut e = Engine::new(home.clone(), exe);
     e.location = location(&app_exe);
     if let Some(dir) = env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
@@ -75,7 +80,7 @@ impl Engine {
                 tool,
                 path: self.path(tool),
                 code,
-                snippet: self.snippet(tool),
+                snippet: tool.snippet(self.executable()),
             }),
             Err(code) => Err(code),
         }
@@ -148,12 +153,14 @@ pub struct Snippet {
     text: String,
 }
 #[tauri::command]
-pub async fn connect_snippet(app: tauri::AppHandle, tool: Tool) -> Result<Snippet> {
-    run(app, move |e| {
+pub async fn connect_snippet(tool: Tool) -> Result<Snippet> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = sidecar(&env::current_exe().map_err(|_| Code::InvalidPath)?)?;
         Ok(Snippet {
             tool,
-            text: e.snippet(tool),
+            text: tool.snippet(exe.to_str().ok_or(Code::SidecarMissing)?),
         })
     })
     .await
+    .map_err(|_| Code::WorkerFailed)?
 }
