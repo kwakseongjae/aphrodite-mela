@@ -35,7 +35,7 @@ export function fitsTree(text, structureLimit=protocol.limits.structure) {
   let level=0, structure=0, quoted=false;
   for (let i=0; i<text.length; i++) {
     const c=text[i];
-    if (quoted && c==='\\\\') { i++; continue; }
+    if (quoted && c==='\\') { i++; continue; }
     if (c==='"') { quoted=!quoted; continue; }
     if (quoted) continue;
     if (c==='{' || c==='[') {

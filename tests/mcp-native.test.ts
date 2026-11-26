@@ -277,3 +277,56 @@ test('Recheck 2 — six and forty slow calls finish, and only a full waiting que
     child.stdin.end();
   }
 });
+
+test('Third review 1 — escaped quotes keep brackets and commas inside request strings', () => {
+  const inputs = [
+    {x:'"'+'['.repeat(100)},
+    {x:'say "hi', y:','.repeat(300_000)},
+  ].map(params => JSON.stringify({id:1, method:'ping', params}));
+  const replies = rawTranscript(inputs.join('\n')+'\n');
+  assert.deepEqual(replies.map(r => r.result), [{}, {}]);
+});
+
+type ResponseCase = {body:string, status?:number, text:string, isError?:boolean};
+
+async function responseTranscript(cases:ResponseCase[]) {
+  const dir = mkdtempSync(join(tmpdir(), 'aph-response-'));
+  const file = join(dir, 'endpoint.json');
+  let current = cases[0];
+  const app = createServer((_req, res) => res.writeHead(current.status ?? 200).end(current.body));
+  const children = [];
+  try {
+    await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+    const {port} = app.address() as {port:number};
+    writeFileSync(file, JSON.stringify({base:'http://127.0.0.1:'+port, token:'test'}));
+    for (const [cmd,args] of [[process.execPath,[nodeServer]], [native,[]]] as const) {
+      children.push(spawn(cmd, [...args], {env:{...process.env, APHRODITE_ENDPOINT_FILE:file}}));
+    }
+    const outputs = children.map(child => frames(child.stdout));
+    for (const item of cases) {
+      current = item;
+      for (const child of children)
+        child.stdin.write('{"id":1,"method":"tools/call","params":{"name":"aphrodite_get_contract"}}\n');
+      const replies = await Promise.all(outputs.map(out => out.next()));
+      assert.ok(replies[0].value?.equals(replies[1].value), 'complete reply frames differ');
+      const {result} = JSON.parse(replies[0].value.toString());
+      assert.equal(result.isError, item.isError ?? false);
+      assert.equal(result.content[0].text, item.text);
+    }
+  } finally {
+    for (const child of children) child.kill();
+    app.closeAllConnections();
+    app.close();
+    if (existsSync(file)) unlinkSync(file);
+    rmdirSync(dir);
+  }
+}
+
+test('Third review 1 — response formatting counts only structure outside escaped strings', async () => {
+  const small = {a:'"'+'['.repeat(100)};
+  const deep = '{"a":'+JSON.stringify('"')+',"b":'+'['.repeat(5000)+'0'+']'.repeat(5000)+'}';
+  await responseTranscript([
+    {body:JSON.stringify(small), text:JSON.stringify(small, null, 2)},
+    {body:deep, text:deep},
+  ]);
+});
