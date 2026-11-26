@@ -67,6 +67,7 @@ enum Location {
     Installed,
     Development,
     DiskImage,
+    ReadOnly,
     Translocated,
     Unknown,
 }
@@ -126,7 +127,7 @@ fn entry_hash(layout: &Layout, source: &str) -> String {
 
 // This receipt is an extended attribute of the new inode. The config and the proof we wrote it
 // become visible in the same rename. The only copy of replaced text is the person's adjacent backup.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Receipt {
     tool: Tool,
     path: PathBuf,
@@ -269,7 +270,10 @@ impl Engine {
         Ok(out)
     }
     fn validate(&self, tool: Tool) -> Result<()> {
-        if matches!(self.location, Location::Translocated | Location::DiskImage) {
+        if matches!(
+            self.location,
+            Location::Translocated | Location::DiskImage | Location::ReadOnly
+        ) {
             return Err(Code::MoveToApplications);
         }
         if self.location == Location::Unknown {
@@ -334,6 +338,8 @@ impl Engine {
                 hash(source),
                 f.revision,
                 f.mode,
+                &f.protection,
+                files::identity(&files::parent(root, relative)?)?,
                 &f.receipt,
                 &history,
                 &changes,
@@ -485,17 +491,19 @@ impl Engine {
         };
         let dir = files::parent(&root, &rel)?;
         let name = rel.file_name().ok_or(Code::InvalidPath)?;
-        let temp = if preview.deletes_file {
-            None
-        } else {
-            Some(file.temp(&dir, &candidate, receipt.as_ref())?)
-        };
-        let unchanged = || -> Result<()> {
+        let reachable = || {
             if rel != files::resolve(&root, &self.home, &path)? {
                 return Err(Code::Changed);
             }
+            files::check_parent(&root, &rel, &dir)
+        };
+        reachable()?;
+        let temp = file.temp(&dir, &candidate, receipt.as_ref())?;
+        let unchanged = || -> Result<()> {
+            reachable()?;
             let now = FileState::read(&dir, Path::new(name))?;
-            if now.revision != file.revision
+            if now.protection != file.protection
+                || now.revision != file.revision
                 || now.mode != file.mode
                 || now.text != file.text
                 || serde_json::to_vec(&now.receipt).unwrap()
@@ -515,11 +523,7 @@ impl Engine {
                 files::set_history(&dir, name, Some(r))?;
             }
 
-            if let Some(temp) = temp {
-                temp.publish(name, file.text.is_some())
-            } else {
-                dir.remove_file(name).map_err(|_| Code::Io)
-            }
+            temp.publish_checked(name, &file, preview.deletes_file, reachable)
         });
         if let Err(code) = result {
             if receipt.is_some() {
@@ -561,30 +565,66 @@ fn mounted_image(exe: &Path, info: &plist::Value) -> bool {
         .filter_map(|e| e.as_dictionary()?.get("mount-point")?.as_string())
         .any(|mount| exe.starts_with(mount))
 }
-fn location(exe: &Path) -> Location {
-    if exe
+fn mount_location(
+    exe: &Path,
+    mount: &Path,
+    read_only: bool,
+    info: Option<&plist::Value>,
+) -> Location {
+    if mount
         .components()
         .any(|c| c.as_os_str() == OsStr::new("AppTranslocation"))
     {
         return Location::Translocated;
     }
-    if exe.starts_with("/Volumes") {
-        let info = std::process::Command::new("/usr/bin/hdiutil")
-            .env_clear()
-            .args(["info", "-plist"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| plist::Value::from_reader(std::io::Cursor::new(o.stdout)).ok());
-        match info {
-            Some(v) if mounted_image(exe, &v) => return Location::DiskImage,
-            None => return Location::Unknown,
-            _ => (),
-        }
+    if read_only {
+        return Location::ReadOnly;
+    }
+    let Some(info) = info else {
+        return Location::Unknown;
+    };
+    if mounted_image(mount, info) {
+        return Location::DiskImage;
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
         Location::Installed
     } else {
         Location::Development
     }
+}
+fn location(exe: &Path) -> Location {
+    use std::{
+        ffi::CStr,
+        os::{fd::AsRawFd, unix::ffi::OsStrExt},
+    };
+    if exe
+        .components()
+        .any(|c| c.as_os_str() == OsStr::new("AppTranslocation"))
+    {
+        return Location::Translocated;
+    }
+    let Ok(file) = std::fs::File::open(exe) else {
+        return Location::Unknown;
+    };
+    let mut stat = std::mem::MaybeUninit::uninit();
+    if unsafe { libc::fstatfs(file.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+        return Location::Unknown;
+    }
+    let stat = unsafe { stat.assume_init() };
+    let mount = Path::new(OsStr::from_bytes(
+        unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
+    ));
+    let info = std::process::Command::new("/usr/bin/hdiutil")
+        .env_clear()
+        .args(["info", "-plist"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| plist::Value::from_reader(std::io::Cursor::new(o.stdout)).ok());
+    mount_location(
+        exe,
+        mount,
+        stat.f_flags & libc::MNT_RDONLY as u32 != 0,
+        info.as_ref(),
+    )
 }

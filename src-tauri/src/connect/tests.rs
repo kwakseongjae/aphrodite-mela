@@ -396,7 +396,9 @@ fn a_file_first_created_by_another_process_wins_even_at_the_final_rename() {
     let f = FileState::read(&dir, name).unwrap();
     let pending = f.temp(&dir, "our bytes", None).unwrap();
     dir.write(name, "their bytes").unwrap();
-    assert!(pending.publish(name.as_os_str(), false).is_err());
+    assert!(pending
+        .publish_checked(name.as_os_str(), &f, false, || Ok(()))
+        .is_err());
     assert_eq!(dir.read_to_string(name).unwrap(), "their bytes");
 }
 
@@ -632,4 +634,123 @@ fn astra_4_receipts_distinguish_the_physical_spelling_of_an_entry_key() {
         remove(&h.engine, Tool::Cursor, false),
         Err(Code::ConfirmationRequired)
     ));
+}
+
+#[test]
+fn astra_1_effective_access_and_preserved_acl_govern_the_replacement() {
+    use std::process::Command;
+    let h = Home::new();
+    let path = h.file(Tool::Cursor, "{}");
+    let user = std::env::var("USER").unwrap();
+    let acl = |entry: &str| {
+        assert!(Command::new("/bin/chmod")
+            .args(["+a", &format!("{user} deny {entry}")])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success())
+    };
+    acl("write");
+    assert!(matches!(
+        h.engine.preview(Tool::Cursor, Action::Connect, 1),
+        Err(Code::NotWritable)
+    ));
+    assert!(Command::new("/bin/chmod")
+        .arg("-N")
+        .arg(&path)
+        .status()
+        .unwrap()
+        .success());
+    acl("execute");
+    xattr::set(&path, "studio.test.other", b"unchanged").unwrap();
+    let listing = || {
+        Command::new("/bin/ls")
+            .arg("-le")
+            .arg(&path)
+            .output()
+            .unwrap()
+            .stdout
+    };
+    let acl_line = |bytes: Vec<u8>| {
+        String::from_utf8(bytes)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let before = acl_line(listing());
+    assert!(before.contains("deny execute"));
+    connect(&h.engine, Tool::Cursor, 1);
+    assert_eq!(acl_line(listing()), before);
+    assert_eq!(
+        xattr::get(path, "studio.test.other").unwrap().unwrap(),
+        b"unchanged"
+    );
+}
+
+#[test]
+fn astra_2_the_displaced_save_is_checked_for_connect_and_remove() {
+    let h = Home::new();
+    let dir = files::root(&h.engine.home).unwrap();
+    let name = Path::new("local.json");
+    for delete in [false, true] {
+        dir.write(name, "first").unwrap();
+        let expected = FileState::read(&dir, name).unwrap();
+        let staged = expected.temp(&dir, "second", None).unwrap();
+        dir.write(name, "editor").unwrap();
+        assert!(matches!(
+            staged.publish_checked(name.as_os_str(), &expected, delete, || Ok(())),
+            Err(Code::Changed)
+        ));
+        assert_eq!(dir.read(name).unwrap(), b"editor");
+    }
+}
+
+#[test]
+fn astra_3_publication_requires_the_same_reachable_directory() {
+    let h = Home::new();
+    let path = h.file(Tool::Cursor, "{}");
+    let root = files::root(&h.engine.home).unwrap();
+    let relative = path.strip_prefix(&h.engine.home).unwrap();
+    let handle = files::parent(&root, relative).unwrap();
+    fs::rename(path.parent().unwrap(), h.engine.home.join("moved")).unwrap();
+    fs::create_dir(path.parent().unwrap()).unwrap();
+    assert!(matches!(
+        files::check_parent(&root, relative, &handle),
+        Err(Code::Changed)
+    ));
+}
+
+#[test]
+fn opus_8_unsupported_xattrs_leave_status_readable_and_apply_copy_only() {
+    let unsupported = || Err(std::io::Error::from_raw_os_error(libc::ENOTSUP));
+    let (receipt, supported) = files::read_receipt(unsupported()).unwrap();
+    assert!(receipt.is_none() && !supported);
+    let h = Home::new();
+    let path = h.file(Tool::Cursor, "{}");
+    let root = files::root(&h.engine.home).unwrap();
+    let rel = path.strip_prefix(&h.engine.home).unwrap();
+    let mut f = FileState::read(&root, rel).unwrap();
+    f.xattrs = supported;
+    assert!(matches!(
+        h.engine
+            .plan(&root, rel, Tool::Cursor, Action::Connect, 1, &f),
+        Err(Code::NoExtendedAttributes)
+    ));
+}
+
+#[test]
+fn astra_9_mount_identity_covers_home_mounted_images_and_read_only_volumes() {
+    let mount = Path::new("/Users/x/mnt/Aphrodite");
+    let exe = mount.join("Aphrodite.app/Contents/MacOS/Aphrodite");
+    let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Users/x/mnt/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
+    assert_eq!(
+        mount_location(&exe, mount, false, Some(&info)),
+        Location::DiskImage
+    );
+    assert_eq!(
+        mount_location(&exe, Path::new("/ReadOnly"), true, None),
+        Location::ReadOnly
+    );
 }

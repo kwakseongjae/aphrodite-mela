@@ -5,16 +5,20 @@ use cap_std::{
     fs::{Dir, OpenOptions, OpenOptionsExt},
 };
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs::File,
     io::{self, Read, Write},
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::fd::AsRawFd,
+    os::{macos::fs::MetadataExt as MacMetadataExt, unix::fs::MetadataExt},
     path::{Component, Path, PathBuf},
 };
 use xattr::FileExt;
 
 const RECEIPT: &str = "studio.aphrodite.mela.mcp-entry";
 fn io_code(e: io::Error) -> Code {
+    if e.raw_os_error() == Some(libc::ENOTSUP) {
+        return Code::NoExtendedAttributes;
+    }
     match e.kind() {
         io::ErrorKind::PermissionDenied => Code::NotWritable,
         io::ErrorKind::AlreadyExists => Code::BackupExists,
@@ -87,9 +91,65 @@ pub fn resolve(root: &Dir, home: &Path, path: &Path) -> Result<PathBuf> {
     Err(Code::InvalidPath)
 }
 
+pub(super) fn read_receipt(value: io::Result<Option<Vec<u8>>>) -> Result<(Option<Receipt>, bool)> {
+    match value {
+        Err(e) if e.raw_os_error() == Some(libc::ENOTSUP) => Ok((None, false)),
+        result => Ok((
+            result
+                .map_err(io_code)?
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok()),
+            true,
+        )),
+    }
+}
+
+// Darwin exposes ACLs separately from extended attributes. Compare their external
+// representation as well as the mode and attributes after an exchange.
+fn protections(file: &File) -> Result<String> {
+    use std::ffi::c_void;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
+        fn acl_to_text(acl: *mut c_void, len: *mut isize) -> *mut libc::c_char;
+        fn acl_free(ptr: *mut c_void) -> i32;
+    }
+    let meta = file.metadata().map_err(io_code)?;
+    let mut parts =
+        vec![serde_json::to_vec(&(meta.mode(), meta.uid(), meta.gid(), meta.st_flags())).unwrap()];
+    unsafe {
+        let acl = acl_get_fd_np(file.as_raw_fd(), 0x100); // ACL_TYPE_EXTENDED
+        if !acl.is_null() {
+            let mut len = 0;
+            let text = acl_to_text(acl, &mut len);
+            acl_free(acl);
+            if text.is_null() {
+                return Err(Code::Io);
+            }
+            parts.push(std::slice::from_raw_parts(text.cast::<u8>(), len as usize).to_vec());
+            acl_free(text.cast());
+        } else if !matches!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(libc::ENOENT | libc::ENOTSUP)
+        ) {
+            return Err(Code::Io);
+        }
+    }
+    let mut keys: Vec<_> = file.list_xattr().map_err(io_code)?.collect();
+    keys.sort();
+    for key in keys {
+        if key == RECEIPT {
+            continue;
+        }
+        parts.push(key.as_encoded_bytes().to_vec());
+        parts.push(file.get_xattr(key).map_err(io_code)?.ok_or(Code::Changed)?);
+    }
+    Ok(super::hash(serde_json::to_vec(&parts).unwrap()))
+}
+
 pub struct FileState {
     pub text: Option<String>,
     pub mode: u32,
+    pub protection: String,
+    pub xattrs: bool,
     pub revision: (u64, i64, i64),
     pub receipt: Option<Receipt>,
     file: Option<File>,
@@ -102,6 +162,8 @@ impl FileState {
                 return Ok(Self {
                     text: None,
                     mode: 0o600,
+                    protection: String::new(),
+                    xattrs: true,
                     revision: (0, 0, 0),
                     receipt: None,
                     file: None,
@@ -123,18 +185,34 @@ impl FileState {
         let mut source = String::new();
         file.read_to_string(&mut source)
             .map_err(|_| Code::InvalidConfig)?;
-        let attr = file.get_xattr(RECEIPT).map_err(io_code)?;
+        let (receipt, xattrs) = read_receipt(file.get_xattr(RECEIPT))?;
         Ok(Self {
             text: Some(source),
             mode: meta.mode() & 0o7777,
             revision: (meta.ino(), meta.mtime(), meta.mtime_nsec()),
-            receipt: attr.and_then(|v| serde_json::from_slice(&v).ok()),
+            receipt,
+            xattrs,
+            protection: if xattrs {
+                protections(&file)?
+            } else {
+                String::new()
+            },
             file: Some(file),
         })
     }
     pub fn writable(&self, root: &Dir, target: &Path) -> Result<()> {
-        if self.mode & 0o222 == 0 {
-            return Err(Code::NotWritable);
+        if !self.xattrs {
+            return Err(Code::NoExtendedAttributes);
+        }
+        if self.file.is_some() {
+            // Open with the effective user's credentials, without truncating or following links.
+            let mut opts = OpenOptions::new();
+            opts.write(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            let check = root.open_with(target, &opts).map_err(io_code)?.into_std();
+            if check.metadata().map_err(io_code)?.ino() != self.revision.0 {
+                return Err(Code::Changed);
+            }
         }
         use std::os::fd::AsRawFd;
         let dir = parent(root, target)?;
@@ -164,21 +242,28 @@ impl FileState {
         let temp = Staged { dir, name };
         file.write_all(data.as_bytes()).map_err(io_code)?;
         if let Some(original) = &self.file {
-            for key in original.list_xattr().map_err(io_code)? {
-                if key == RECEIPT {
-                    continue;
-                }
-                if let Some(value) = original.get_xattr(&key).map_err(io_code)? {
-                    file.set_xattr(&key, &value).map_err(io_code)?;
-                }
+            if unsafe {
+                libc::fcopyfile(
+                    original.as_raw_fd(),
+                    file.as_raw_fd(),
+                    std::ptr::null_mut(),
+                    libc::COPYFILE_METADATA,
+                )
+            } != 0
+            {
+                return Err(io_code(io::Error::last_os_error()));
+            }
+            if file.get_xattr(RECEIPT).map_err(io_code)?.is_some() {
+                file.remove_xattr(RECEIPT).map_err(io_code)?;
+            }
+            if protections(&file)? != self.protection {
+                return Err(Code::Changed);
             }
         }
         if let Some(r) = receipt {
             file.set_xattr(RECEIPT, &serde_json::to_vec(r).unwrap())
                 .map_err(io_code)?;
         }
-        file.set_permissions(std::fs::Permissions::from_mode(self.mode))
-            .map_err(io_code)?;
         file.sync_all().map_err(io_code)?;
         Ok(temp)
     }
@@ -187,24 +272,71 @@ pub struct Staged<'d> {
     dir: &'d Dir,
     name: String,
 }
+fn rename(dir: &Dir, from: &OsStr, to: &OsStr, flags: rustix::fs::RenameFlags) -> Result<()> {
+    rustix::fs::renameat_with(dir, from, dir, to, flags).map_err(|e| match e {
+        rustix::io::Errno::EXIST | rustix::io::Errno::NOENT => Code::Changed,
+        _ => io_code(e.into()),
+    })
+}
+
+impl FileState {
+    fn matches(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.revision == other.revision
+            && self.protection == other.protection
+            && self.receipt == other.receipt
+    }
+}
+
+// Move a name aside exclusively before deleting it. If a later editor save occupies the
+// name, return that save. If yet another writer wins recovery, keep both files on disk.
+fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
+    use rustix::fs::RenameFlags;
+    let recovery = format!(".aphrodite-{}.recovery", uuid::Uuid::new_v4());
+    rename(dir, name, recovery.as_ref(), RenameFlags::NOREPLACE)?;
+    if FileState::read(dir, Path::new(&recovery)).is_ok_and(|now| expected.matches(&now)) {
+        return dir.remove_file(recovery).map_err(io_code);
+    }
+    rename(dir, recovery.as_ref(), name, RenameFlags::NOREPLACE)?;
+    Err(Code::Changed)
+}
 impl Staged<'_> {
-    pub fn publish(mut self, name: &std::ffi::OsStr, existing: bool) -> Result<()> {
-        use rustix::fs::{renameat_with, RenameFlags};
-        // A concurrent first creation must win even after our last fingerprint check.
-        let flags = if existing {
-            RenameFlags::empty()
-        } else {
-            RenameFlags::NOREPLACE
-        };
-        renameat_with(self.dir, self.name.as_str(), self.dir, name, flags).map_err(|e| {
-            if e == rustix::io::Errno::EXIST {
-                Code::Changed
-            } else {
-                io_code(e.into())
+    pub fn publish_checked(
+        mut self,
+        name: &OsStr,
+        expected: &FileState,
+        delete: bool,
+        reachable: impl Fn() -> Result<()>,
+    ) -> Result<()> {
+        use rustix::fs::RenameFlags;
+        let ours = FileState::read(self.dir, Path::new(&self.name))?;
+        reachable()?;
+        if expected.text.is_none() {
+            rename(self.dir, self.name.as_ref(), name, RenameFlags::NOREPLACE)?;
+            self.name.clear();
+            if reachable().is_err() {
+                retire(self.dir, name, &ours)?;
+                return Err(Code::Changed);
             }
-        })?;
-        self.name.clear();
-        Ok(())
+            return Ok(());
+        }
+        rename(self.dir, self.name.as_ref(), name, RenameFlags::EXCHANGE)?;
+        // Drop must never unlink the displaced file until we have identified it.
+        let displaced = std::mem::take(&mut self.name);
+        let correct = FileState::read(self.dir, Path::new(&displaced))
+            .is_ok_and(|now| expected.matches(&now));
+        if !correct || reachable().is_err() {
+            rename(self.dir, displaced.as_ref(), name, RenameFlags::EXCHANGE)?;
+            if FileState::read(self.dir, Path::new(&displaced)).is_ok_and(|now| ours.matches(&now))
+            {
+                self.dir.remove_file(displaced).map_err(io_code)?;
+            }
+            return Err(Code::Changed);
+        }
+        if delete {
+            retire(self.dir, name, &ours)?;
+        }
+        self.dir.remove_file(displaced).map_err(io_code)
     }
 }
 impl Drop for Staged<'_> {
@@ -272,4 +404,21 @@ pub fn set_history(dir: &Dir, name: &std::ffi::OsStr, receipt: Option<&Receipt>)
             r => r.map_err(io_code),
         }
     }
+}
+
+pub fn identity(dir: &Dir) -> Result<(u64, u64)> {
+    let m = dir
+        .try_clone()
+        .map_err(io_code)?
+        .into_std_file()
+        .metadata()
+        .map_err(io_code)?;
+    Ok((m.dev(), m.ino()))
+}
+pub fn check_parent(root: &Dir, target: &Path, staged: &Dir) -> Result<()> {
+    let current = parent(root, target).map_err(|_| Code::Changed)?;
+    if identity(&current)? != identity(staged)? {
+        return Err(Code::Changed);
+    }
+    Ok(())
 }
