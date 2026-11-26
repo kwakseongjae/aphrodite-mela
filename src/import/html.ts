@@ -4,6 +4,7 @@ import {visiblePages} from '../editor/starter';
 import {htmlProblem, MAX_PAGE_HTML, type StoredMedia} from '../free-page';
 import {MAX_PAGES, type Project} from '../model';
 import {libraryRefusal, type Library, type LibraryLimit} from '../workspace/library';
+import {carriedNow} from '../board-file';
 import {clip} from '../text';
 import {References, readCode} from './references';
 import {resolvePage} from './page';
@@ -102,6 +103,8 @@ export async function importHtml(input: TextInput | GrantedFiles, dispatch: Disp
     if (!next.docs.length) return;
     project.pages = next.project.pages;
     project.space = next.project.space;
+    const supplied = next.docs.flatMap(doc => [...doc.names].flatMap(name => media.get(name)?.sha ?? []));
+    carriedNow(project, supplied);
     result.pages = project.pages.slice(-next.docs.length).map(({id, name}) => ({id, name}));
     const files = new Map<string, number>();
     for (const doc of next.docs) for (const [sha, bytes] of doc.files) files.set(sha, bytes);

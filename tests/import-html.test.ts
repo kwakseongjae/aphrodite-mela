@@ -368,3 +368,17 @@ test('the batch and single-page fallback respect the live browser library includ
   assert.deepEqual(r.pages.map(p => p.name), ['b.html']);
   assert.deepEqual(r.documents, [{name: 'a.html', code: 'library_limit'}]);
 });
+
+test('a supplied photo clears its left-out mark for outgoing boards and pasted hashes stay withheld', async () => {
+  const {project, target} = setup(), {source, kept} = siblings();
+  const {outgoing} = await import('../src/board-file');
+  const {createHash} = await import('node:crypto');
+  const hash = createHash('sha256').update(fixture('siblings/photo.png')).digest('hex');
+  project.leftOut = [hash];
+  const host = {read: async (s: string) => kept.get(s), stat: async () => undefined};
+  await importHtml({text: '<img src="media:' + hash + '">'}, person, target);
+  assert.ok(outgoing(project, host).holds(hash));
+  await importHtml({...source, names: ['b.htm']}, person, target);
+  assert.ok(!outgoing(project, host).holds(hash));
+  assert.deepEqual(await outgoing(project, host).host.read(hash), kept.get(hash));
+});
