@@ -765,22 +765,43 @@ mod tests {
         }
     }
 
+    fn allowed_asset_response(ext: &str, answered: &str) -> bool {
+        matches!((ext, answered),
+            ("png", "image/png") | ("jpg", "image/jpeg") | ("gif", "image/gif") | ("webp", "image/webp") |
+            ("mp4", "video/mp4") | ("webm", "video/webm") | ("ogg", "audio/ogg") |
+            ("wav", "audio/x-wav" | "audio/wav") | ("mp3.bin", "audio/mpeg" | "application/octet-stream"))
+    }
+
+    #[test]
+    fn each_served_kind_requires_its_own_response_type() {
+        for (ext, _) in BOARD_FILES {
+            for wrong in ["text/plain", "application/xml", "image/svg+xml"] {
+                assert!(!allowed_asset_response(ext, wrong), "{ext}: {wrong}");
+            }
+        }
+        assert!(!allowed_asset_response("png", "audio/mpeg"));
+        assert!(!allowed_asset_response("mp4", "application/octet-stream"));
+    }
+
     #[test]
     fn all_four_mp3_heads_have_a_safe_actual_asset_response_and_keep_their_board_type() {
         use tauri::utils::mime_type::MimeType;
         let dir = tempfile::tempdir().unwrap();
-        for head in [&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"] {
+        for (head, answered) in [
+            (&b"ID3"[..], "audio/mpeg"), (b"\xff\xfb", "audio/mpeg"),
+            (b"\xff\xf3", "application/octet-stream"), (b"\xff\xf2", "application/octet-stream"),
+        ] {
             let bytes = [head, b"<p>sample</p>"].concat();
             let held = stage_page_asset(dir.path(), bytes.as_slice(), bytes.len() as u64).unwrap();
             finish_import(dir.path(), &held.receipt.unwrap(), true).unwrap();
             let path = media_file(dir.path(), &held.stored.sha).unwrap();
-            assert_ne!(MimeType::parse(&fs::read(&path).unwrap(), path.to_str().unwrap()), "text/html");
+            assert_eq!(MimeType::parse(&fs::read(&path).unwrap(), path.to_str().unwrap()), answered);
             assert_eq!(media_stat(dir.path(), &held.stored.sha).unwrap().mime, "audio/mpeg");
         }
     }
 
     #[test]
-    fn stored_font_and_sound_signatures_cannot_be_served_as_html() {
+    fn served_signatures_answer_with_an_allowed_type_and_fonts_stay_out_of_scope() {
         use tauri::utils::mime_type::MimeType;
         let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let scope = config["app"]["security"]["assetProtocol"]["scope"].as_array().unwrap();
@@ -806,7 +827,10 @@ mod tests {
                     assert_eq!(served, ext != "mp4", "{ext} static scope");
                     let detected = MimeType::parse(&bytes, &format!("x.{ext}"));
                     if [b"\xff\xfa".as_slice(), b"\xff\xe3", b"\xff\xe2"].contains(&head) { assert!(accepted.is_none(), "{head:?}"); }
-                    else { assert!(accepted.is_some()); assert_ne!(detected, "text/html", "{ext}"); }
+                    else {
+                        assert_eq!(accepted.map(extension), Some(ext));
+                        assert!(allowed_asset_response(ext, &detected), "{ext}: {detected}");
+                    }
                 }
             }
         }
