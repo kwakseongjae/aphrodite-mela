@@ -750,6 +750,7 @@ function showTheme(next:ThemeChoice){
   void paintPaper();
   if(screen==='home'){render();return;}
   document.querySelectorAll<HTMLElement>('[data-theme-menu]').forEach(group=>{group.querySelectorAll('[data-scheme]').forEach(row=>row.remove());group.insertAdjacentHTML('beforeend',themeRows(theme,uiLanguage));hydrateIconsIn(group);});
+  const search=modalRoot.querySelector<HTMLInputElement>('#command-search');if(search)renderPaletteList(search.value);
 }
 /** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the main window back to it (src-tauri/src/look.rs). */
 async function paintPaper(){
