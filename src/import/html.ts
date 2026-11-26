@@ -6,12 +6,18 @@ import {MAX_PAGES, type Project} from '../model';
 import {libraryRefusal, type Library, type LibraryLimit} from '../workspace/library';
 import {carriedNow} from '../board-file';
 import {clip} from '../text';
-import {References, readCode} from './references';
+import {References, ImportFiles, MAX_DOCUMENTS, MAX_DIAGNOSTICS, readCode} from './references';
 import {resolvePage} from './page';
 import {decode, elements, metadata, MAX_TEXT_BYTES} from './document';
 
 export const IMPORT_HTML = 'edit.import-html';
-export type GrantedFiles = {names: readonly string[]; read(name: string, kind: 'document' | 'style' | 'script'): Promise<Uint8Array>; media(name: string): Promise<StoredMedia>};
+export type GrantedFiles = {
+  names: readonly string[];
+  overflow?: number;
+  read(name: string, kind: 'document' | 'style' | 'script', limit: number): Promise<Uint8Array>;
+  media(name: string, limit: number): Promise<StoredMedia>;
+  finish?(kept: string[], staged: StoredMedia[]): Promise<void>;
+};
 type TextInput = {text: string | Blob | Uint8Array; name?: string};
 export type ImportTarget = {
   current(): Project;
@@ -20,7 +26,7 @@ export type ImportTarget = {
   commit(change: () => void, dispatch: Dispatch, row: typeof IMPORT_HTML): void;
 };
 export type Issue = {name: string; code: string};
-export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; skipped: Issue[]; documents: Issue[]};
+export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; overflow: {skipped: number; documents: number}; skipped: Issue[]; documents: Issue[]};
 type Document = {file: string; title?: string; html: string; width?: number; names: Set<string>; files: Map<string, number>};
 
 async function textOf(value: TextInput['text']): Promise<string> {
@@ -31,7 +37,7 @@ async function textOf(value: TextInput['text']): Promise<string> {
 
 async function prepare(file: string, input: TextInput | GrantedFiles, refs: References): Promise<Document> {
   if (file && !/\.html?$/i.test(file)) throw 'not_html';
-  const source = await textOf('text' in input ? input.text : await input.read(file, 'document'));
+  const source = await textOf('text' in input ? input.text : await refs.source.read(file, 'document'));
   if (source.length > MAX_PAGE_HTML) throw 'too_large';
   if (!source.trim()) throw 'empty';
   const nodes = elements(source);
@@ -57,14 +63,14 @@ function place(project: Project, docs: Document[], target: ImportTarget) {
 }
 
 /** Try the ordinary HTML batch once. If its combined design exceeds the save budget, keep each page that fits. */
-function fit(project: Project, docs: Document[], target: ImportTarget, refused: Issue[]) {
+function fit(project: Project, docs: Document[], target: ImportTarget, refuse: (issue: Issue) => void) {
   const batch = place(project, docs, target);
   if (!('code' in batch)) return {project: batch.project, docs};
   const kept: Document[] = [];
   for (const doc of docs) {
     const single = place(project, [doc], target);
     if (!('code' in single)) { project = single.project; kept.push(doc); }
-    else refused.push({name: doc.file, code: single.code});
+    else refuse({name: doc.file, code: single.code});
   }
   return {project, docs: kept};
 }
@@ -78,37 +84,47 @@ export async function importHtml(input: TextInput | GrantedFiles, dispatch: Disp
     if (project.id !== board) throw 'board_changed';
     return project;
   };
-  const result: ImportResult = {pages: [], files: {count: 0, bytes: 0, names: []}, remote: 0, skipped: [], documents: []};
-  const names = 'names' in input ? [...input.names].sort() : [input.name ?? (typeof File !== 'undefined' && input.text instanceof File ? input.text.name : '')];
-  const media = new Map<string, StoredMedia>();
-  const candidates: Document[] = [];
-  let at = 0, available = MAX_PAGES - live().pages.length;
-  while (at < names.length && available > 0) {
-    const file = names[at++], refs = new References('read' in input ? input : undefined, media);
-    try {
-      candidates.push(await prepare(file, input, refs));
-      available--;
-    } catch (e) { result.documents.push({name: file, code: readCode(e)}); }
-    result.remote += refs.remote;
-    for (const issue of refs.skipped) result.skipped.push(issue);
-    const project = live();
-    if (!available && at < names.length) {
-      available = MAX_PAGES - project.pages.length - fit(project, candidates, target, []).docs.length;
+  const result: ImportResult = {pages: [], files: {count: 0, bytes: 0, names: []}, remote: 0, overflow: {documents: 0, skipped: 0}, skipped: [], documents: []};
+  const names = 'names' in input ? input.names.slice(0, MAX_DOCUMENTS).sort() : [input.name ?? (typeof File !== 'undefined' && input.text instanceof File ? input.text.name : '')];
+  const disk = 'read' in input ? input : undefined;
+  const files = new ImportFiles(disk);
+  result.overflow.documents = disk ? (disk.overflow ?? 0) + disk.names.length - names.length : 0;
+  const report = (list: 'skipped' | 'documents', issue: Issue) => {
+    if (result[list].length < MAX_DIAGNOSTICS) result[list].push(issue);
+    else result.overflow[list]++;
+  };
+  let supplied: string[] = [];
+  try {
+    const candidates: Document[] = [];
+    let at = 0, available = MAX_PAGES - live().pages.length;
+    while (at < names.length && available > 0) {
+      const file = names[at++], refs = new References(files, issue => report('skipped', issue));
+      try {
+        candidates.push(await prepare(file, input, refs));
+        available--;
+      } catch (e) { report('documents', {name: file, code: readCode(e)}); }
+      result.remote += refs.remote;
+      const project = live();
+      if (!available && at < names.length) {
+        available = MAX_PAGES - project.pages.length - fit(project, candidates, target, () => {}).docs.length;
+      }
     }
+    for (; at < names.length; at++) report('documents', {name: names[at], code: 'board_limit'});
+    if (candidates.length) target.commit(() => {
+      const project = live();
+      const next = fit(project, candidates, target, issue => report('documents', issue));
+      if (!next.docs.length) return;
+      project.pages = next.project.pages;
+      project.space = next.project.space;
+      supplied = [...new Set(next.docs.flatMap(doc => [...doc.names].flatMap(name => files.media.get(name)?.sha ?? [])))];
+      carriedNow(project, supplied);
+      result.pages = project.pages.slice(-next.docs.length).map(({id, name}) => ({id, name}));
+      const brought = new Map<string, number>();
+      for (const doc of next.docs) for (const [sha, bytes] of doc.files) brought.set(sha, bytes);
+      result.files = {names: [...new Set(next.docs.flatMap(d => [...d.names]))].sort(), count: brought.size, bytes: [...brought.values()].reduce((a, b) => a + b, 0)};
+    }, dispatch, IMPORT_HTML);
+  } finally {
+    if (files.media.size) await disk?.finish?.(supplied, [...files.media.values()]);
   }
-  for (; at < names.length; at++) result.documents.push({name: names[at], code: 'board_limit'});
-  if (candidates.length) target.commit(() => {
-    const project = live();
-    const next = fit(project, candidates, target, result.documents);
-    if (!next.docs.length) return;
-    project.pages = next.project.pages;
-    project.space = next.project.space;
-    const supplied = next.docs.flatMap(doc => [...doc.names].flatMap(name => media.get(name)?.sha ?? []));
-    carriedNow(project, supplied);
-    result.pages = project.pages.slice(-next.docs.length).map(({id, name}) => ({id, name}));
-    const files = new Map<string, number>();
-    for (const doc of next.docs) for (const [sha, bytes] of doc.files) files.set(sha, bytes);
-    result.files = {names: [...new Set(next.docs.flatMap(d => [...d.names]))].sort(), count: files.size, bytes: [...files.values()].reduce((a, b) => a + b, 0)};
-  }, dispatch, IMPORT_HTML);
   return result;
 }

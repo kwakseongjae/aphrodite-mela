@@ -3,17 +3,22 @@ import {refusal, type Dispatch} from '../agent/dispatch';
 import type {StoredMedia} from '../free-page';
 import type {GrantedFiles} from './html';
 
-type Chosen = {grant: string; names: string[]};
+type Chosen = {grant: string; names: string[]; overflow: number};
 function credential() {
   const shell = typeof window !== 'undefined' && (window as Window & {__APHRODITE_IMPORT__?: string}).__APHRODITE_IMPORT__;
   if (!shell) throw 'person_only';
   return shell;
 }
 
-function files({grant, names}: Chosen, shell: string): GrantedFiles {
-  return Object.freeze({names: Object.freeze(names),
-    read: async (name: string, kind: 'document' | 'style' | 'script') => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name, kind})),
-    media: (name: string) => invoke<StoredMedia>('html_import_media', {shell, grant, name}),
+function files({grant, names, overflow}: Chosen, shell: string): GrantedFiles {
+  return Object.freeze({overflow, names: Object.freeze(names),
+    read: async (name: string, kind: 'document' | 'style' | 'script', limit: number) => new Uint8Array(await invoke<ArrayBuffer>('html_import_read', {shell, grant, name, kind, limit})),
+    media: (name: string, limit: number) => invoke<StoredMedia & {receipt?: string}>('html_import_media', {shell, grant, name, limit}),
+    finish: async (kept: string[], staged: (StoredMedia & {receipt?: string})[]) => {
+      const accepted = new Set(kept);
+      const receipts = staged.flatMap(f => f.receipt ? [[f.receipt, accepted.has(f.sha)]] : []);
+      if (receipts.length) await invoke('html_import_finish', {shell, receipts});
+    },
   });
 }
 

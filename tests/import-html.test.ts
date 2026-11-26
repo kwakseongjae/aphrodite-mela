@@ -186,7 +186,7 @@ test('an OS hand-over supplies only input and importing it requires the personâ€
     await assert.rejects(importHtml(input, undefined, target), e => e === 'person_only');
     assert.equal(project.ledger?.changes.length ?? 0, 0);
     assert.equal((await importHtml(input, person, target)).pages.length, 1);
-    assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html', kind: 'document'}]]);
+    assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html', kind: 'document', limit: 128 * 1024 * 1024}]]);
   } finally { Reflect.deleteProperty(globalThis, 'window'); }
 });
 
@@ -381,4 +381,43 @@ test('a supplied photo clears its left-out mark for outgoing boards and pasted h
   await importHtml({...source, names: ['b.htm']}, person, target);
   assert.ok(!outgoing(project, host).holds(hash));
   assert.deepEqual(await outgoing(project, host).host.read(hash), kept.get(hash));
+});
+
+test('501 pictures are bounded before the extra sibling is opened and diagnostics carry overflow counts', async () => {
+  const images = Array.from({length: 501}, (_, i) => '<img src="' + i + '.png">').join('');
+  const r = await example(images + '<script src="bad.txt"></script>'.repeat(300));
+  assert.equal(r.reads.length, 501); // One document and 500 pictures.
+  assert.equal(r.report.skipped[0].code, 'reference_limit');
+  assert.equal(r.report.skipped.length, 128);
+  assert.equal(r.report.overflow.skipped, 173);
+});
+
+test('100000 leading imports of an empty sheet read it once and stop after the sheet budget', async () => {
+  const r = await example('<link rel=stylesheet href="a.css">', {'a.css': '@import "e.css";'.repeat(100_000), 'e.css': ''});
+  assert.equal(r.reads.filter(n => n === 'e.css').length, 1);
+  assert.ok(r.report.skipped.some(i => i.code === 'css_import_limit'));
+  assert.equal(r.report.overflow.skipped, 100_000 - 32 - 128);
+});
+
+test('empty folder documents stop at the enumeration budget and overflow has a count', async () => {
+  const names = Array.from({length: 500}, (_, i) => i.toString().padStart(3, '0') + '.html');
+  let reads = 0;
+  const r = await importHtml({names, read: async () => { reads++; return Buffer.from(''); }, media: async () => { throw 'missing'; }}, person, setup().target);
+  assert.equal(reads, 128);
+  assert.equal(r.documents.length, 128);
+  assert.equal(r.overflow.documents, 372);
+});
+
+test('media copies for a refused page are released and accepted siblings stay carried', async () => {
+  const released: string[][] = [];
+  const source = {names: ['a.html'], read: async () => Buffer.from('<img src="photo.png">'),
+    media: async () => ({sha: '1'.repeat(64), bytes: 70, mime: 'image/png'}),
+    finish: async (kept: string[]) => { released.push(kept); }};
+  const {target} = setup();
+  target.storage = () => ({library: {version: 1, entries: []}, limit: {unit: 'chars', limit: 1}});
+  const refused = await importHtml(source, person, target);
+  assert.equal(refused.pages.length, 0);
+  assert.deepEqual(released, [[]]);
+  await importHtml(source, person, setup().target);
+  assert.deepEqual(released[1], ['1'.repeat(64)]);
 });

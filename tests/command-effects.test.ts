@@ -54,7 +54,7 @@ const INTERNAL_COMMANDS=[
  */
 const FILE_READS=['board_media_import'];
 // The shell's person-only import receives names from an OS picker or hand-over, and reads only in that grant.
-const GRANTED_FILES=['html_import_pick','html_import_take','html_import_read','html_import_media'];
+const GRANTED_FILES=['html_import_pick','html_import_take','html_import_read','html_import_media','html_import_finish'];
 const EFFECT=new RegExp([
   `\\binvoke(?:<[^\\n]*?>)?\\('(?:${EXTERNAL_COMMANDS.join('|')})'`,
   'navigator\\.clipboard\\.write',

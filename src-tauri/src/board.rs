@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::os::unix::fs::MetadataExt;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
@@ -162,6 +163,7 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
     let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
     let _held = settling(base)?;
     if dest.exists() {
+        remove_if_present(&import_marker(base, &dest))?;
         let _ = fs::remove_file(incoming);
         let _ = fs::remove_file(mark(base, &dest)?);
     } else {
@@ -218,14 +220,74 @@ fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, Str
     settle(base, &incoming, sha, mime, bytes, stage)
 }
 
-/// Stores a sibling from its already granted handle. The path is never reopened during the copy.
-pub(crate) fn store_page_asset(base: &Path, from: impl Read) -> Result<Stored, &'static str> {
+#[derive(Serialize)]
+pub(crate) struct ImportAsset {
+    #[serde(flatten)]
+    pub stored: Stored,
+    pub receipt: Option<String>,
+}
+
+fn import_marker(base: &Path, dest: &Path) -> PathBuf {
+    base.join(UPLOADS).join("importing").join(dest.file_name().expect("board media filename"))
+}
+
+fn remove_if_present(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// A new file is readable when the synchronous board change runs. Hard links in the private
+/// upload folder record each outstanding import. Existing permanent files need no receipt.
+pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> Result<ImportAsset, &'static str> {
     let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS).map_err(|_| "io")?).map_err(|_| "io")?.into_temp_path();
     let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset).map_err(|e| {
         if e == UNKNOWN { "unsupported" } else if e == "the file is empty." { "empty" }
         else if e.starts_with("the file is ") { "too_large" } else { "io" }
     })?;
-    settle(base, &incoming, sha, mime, bytes, None).map_err(|_| "io")
+    if bytes != expected { return Err("changed"); }
+    let stored = Stored {sha, mime: mime.to_string(), bytes};
+    let filename = format!("{}.{}", stored.sha, extension(mime));
+    let dest = base.join(MEDIA).join(&filename);
+    let marker = import_marker(base, &dest);
+    let _held = settling(base).map_err(|_| "io")?;
+    let new = !dest.try_exists().map_err(|_| "io")?;
+    if !new && !marker.try_exists().map_err(|_| "io")? { return Ok(ImportAsset {stored, receipt: None}); }
+    fs::create_dir_all(marker.parent().unwrap()).map_err(|_| "io")?;
+    let ticket = format!("{}.{}", filename, crate::agent::random_token());
+    let receipt = marker.with_file_name(&ticket);
+    if new { fs::hard_link(&incoming, &marker).map_err(|_| "io")?; }
+    let reserve = fs::hard_link(&marker, &receipt).and_then(|_| {
+        if new { fs::rename(&incoming, &dest) } else { Ok(()) }
+    });
+    if reserve.is_err() {
+        let _ = fs::remove_file(&receipt);
+        if new { let _ = fs::remove_file(&marker); }
+        return Err("io");
+    }
+    Ok(ImportAsset {stored, receipt: Some(ticket)})
+}
+
+/// An import can relinquish only its own private receipt. The last refusal removes a file only
+/// while it has the provisional marker and no other receipt. Every ordinary store clears the marker.
+pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<(), String> {
+    let mut parts = receipt.split('.');
+    let (sha, ext, token) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    if !is_sha(sha) || !BOARD_FILES.iter().any(|(e, _)| *e == ext) || parts.next().is_some()
+        || token.len() != 48 || !token.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid_name".into()); }
+    let dest = base.join(MEDIA).join(format!("{sha}.{ext}"));
+    let marker = import_marker(base, &dest);
+    let claim = marker.with_file_name(receipt);
+    let _held = settling(base)?;
+    if !claim.try_exists().map_err(|e| e.to_string())? { return Ok(()); }
+    if keep { remove_if_present(&marker)?; }
+    else if marker.try_exists().map_err(|e| e.to_string())? && fs::metadata(&claim).map_err(|e| e.to_string())?.nlink() == 3 {
+        remove_if_present(&dest)?;
+        remove_if_present(&marker)?;
+    }
+    remove_if_present(&claim)
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {
@@ -502,6 +564,33 @@ pub fn free_page_write(app: AppHandle, page: String, key: String, html: String, 
 #[cfg(test)]
 mod tests {
     #[test]
+    fn refused_imports_release_only_their_own_uncommitted_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = || stage_page_asset(dir.path(), &PNG[..], PNG.len() as u64).unwrap();
+        let first = stage();
+        let second = stage();
+        let file = || media_file(dir.path(), &first.stored.sha);
+        finish_import(dir.path(), &first.receipt.unwrap(), false).unwrap();
+        assert!(file().is_some(), "another import still holds the copy");
+        finish_import(dir.path(), &second.receipt.unwrap(), false).unwrap();
+        assert!(file().is_none());
+        let accepted = stage();
+        let refused = stage();
+        finish_import(dir.path(), &accepted.receipt.unwrap(), true).unwrap();
+        finish_import(dir.path(), &refused.receipt.unwrap(), false).unwrap();
+        assert!(file().is_some(), "the accepted copy stays");
+        assert!(stage().receipt.is_none(), "a previously carried file needs no lease");
+
+        let other = tempfile::tempdir().unwrap();
+        let held = stage_page_asset(other.path(), &PNG[..], PNG.len() as u64).unwrap();
+        let upload = begin(other.path()).unwrap();
+        append(other.path(), &upload, &PNG).unwrap();
+        finish(other.path(), &upload).unwrap();
+        finish_import(other.path(), &held.receipt.unwrap(), false).unwrap();
+        assert!(media_file(other.path(), &held.stored.sha).is_some(), "a received board claimed the copy");
+    }
+
+    #[test]
     fn stored_font_and_sound_signatures_cannot_be_served_as_html() {
         use tauri::utils::mime_type::MimeType;
         let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
@@ -540,8 +629,10 @@ mod tests {
     #[test]
     fn a_font_can_be_held_by_hash_and_read_back() {
         let dir = tempfile::tempdir().unwrap();
-        let one = store_page_asset(dir.path(), &b"wOF2font"[..]).unwrap();
-        let two = store_page_asset(dir.path(), &b"wOF2font"[..]).unwrap();
+        let first = stage_page_asset(dir.path(), &b"wOF2font"[..], 8).unwrap();
+        finish_import(dir.path(), &first.receipt.unwrap(), true).unwrap();
+        let one = first.stored;
+        let two = stage_page_asset(dir.path(), &b"wOF2font"[..], 8).unwrap().stored;
         assert_eq!(one, two);
         assert_eq!(one.mime, "font/woff2");
         assert_eq!(media_stat(dir.path(), &one.sha), Some(one));

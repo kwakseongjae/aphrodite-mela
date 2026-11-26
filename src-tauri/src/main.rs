@@ -98,6 +98,7 @@ fn main() {
             import::html_import_take,
             import::html_import_read,
             import::html_import_media,
+            import::html_import_finish,
             opened::opened_take,
             opened::opened_file_read
         ])

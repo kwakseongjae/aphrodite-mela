@@ -4,7 +4,7 @@ use cap_std::fs::Dir;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use rustix::fs::{openat, Mode, OFlags};
 use serde::Serialize;
-use std::{collections::VecDeque, fs, io::Read, path::{Component, Path, PathBuf}, sync::{Arc, Mutex}, time::{Duration, Instant}};
+use std::{collections::{BTreeSet, VecDeque}, fs, io::Read, path::{Component, Path, PathBuf}, sync::{Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
@@ -24,11 +24,14 @@ fn token() -> Result<String, Code> {
 }
 
 #[derive(Clone, Serialize)]
-pub struct Chosen { grant: String, names: Vec<String> }
+pub struct Chosen { grant: String, names: Vec<String>, overflow: usize }
+
+struct Budget { read: u64, copy: u64 }
 
 struct Grant {
     dir: Dir,
     handed_path: PathBuf,
+    budget: Mutex<Budget>,
 }
 
 fn io_code(error: std::io::Error) -> Code {
@@ -64,6 +67,19 @@ fn open_root(path: &Path, expected: &fs::Metadata) -> Result<Dir, Code> {
 }
 
 impl Grant {
+    fn reader(&self, name: &str, kind: Kind, limit: u64) -> Result<(std::io::Take<fs::File>, u64), Code> {
+        let media = matches!(kind, Kind::Media);
+        let file = self.open_kind(name, kind, if media { crate::board::MAX_MEDIA_BYTES } else { MAX_TEXT_BYTES })?;
+        let size = file.metadata().map_err(io_code)?.len();
+        let mut budget = self.budget.lock().unwrap();
+        if size > budget.read { return Err("read_limit"); }
+        if media && (size > budget.copy || size > limit) { return Err("copy_limit"); }
+        if size > limit { return Err("read_limit"); }
+        budget.read -= size;
+        if media { budget.copy -= size; }
+        Ok((file.take(size), size))
+    }
+
     /// Inspect each link from the held directory. Even a broken link leading out is refused before
     /// looking up its target. cap-std repeats confinement on the final open in case names changed.
     fn resolve(&self, path: &Path) -> Result<PathBuf, Code> {
@@ -144,24 +160,27 @@ impl Grants {
             let anchored = dir.symlink_metadata(name).map_err(io_code)?;
             if (selected.dev(), selected.ino()) != (anchored.dev(), anchored.ino()) { return Err("changed"); }
         }
+        const MAX_DOCUMENTS: usize = 128;
+        let mut overflow = 0;
         let names = if directory {
-            let mut names = Vec::new();
-            for entry in dir.entries().map_err(io_code)? {
+            let mut names = BTreeSet::new();
+            for (index, entry) in dir.entries().map_err(io_code)?.enumerate() {
+                if index == 4096 { return Err("folder_limit"); }
                 let entry = entry.map_err(io_code)?;
                 let name = entry.file_name();
                 if !name.as_encoded_bytes().starts_with(b".") && html_name(Path::new(&name)) && !entry.file_type().map_err(io_code)?.is_dir() {
-                    names.push(name.into_string().map_err(|_| "invalid_name")?);
+                    names.insert(name.into_string().map_err(|_| "invalid_name")?);
+                    if names.len() > MAX_DOCUMENTS { names.pop_last(); overflow += 1; }
                 }
             }
-            names.sort();
-            names
+            names.into_iter().collect()
         } else {
             vec![path.file_name().and_then(|s| s.to_str()).ok_or("invalid_name")?.to_owned()]
         };
-        let chosen = Chosen { grant: token()?, names };
+        let chosen = Chosen { grant: token()?, names, overflow };
         self.0.retain(|e| e.until > now);
         if self.0.len() >= 20 { self.0.pop_front(); }
-        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, handed_path: parent.to_owned()}), until: now + LIFETIME, waiting });
+        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, handed_path: parent.to_owned(), budget: Mutex::new(Budget {read: 128 << 20, copy: 100 << 20})}), until: now + LIFETIME, waiting });
         Ok(chosen)
     }
 
@@ -203,8 +222,6 @@ pub fn route_file(url: &tauri::Url, inspect: impl FnOnce(&Path) -> bool) -> bool
     url.scheme() == "file" && url.to_file_path().is_ok_and(|path| inspect(&path))
 }
 
-
-
 #[tauri::command]
 pub async fn html_import_pick(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, folder: bool) -> Result<Option<Chosen>, Code> {
     state.shell(&window, &shell)?;
@@ -223,36 +240,79 @@ pub fn html_import_take(window: WebviewWindow, state: tauri::State<'_, ImportSta
     Ok(grants.0.iter_mut().filter_map(|e| std::mem::take(&mut e.waiting).then(|| e.chosen.clone())).collect())
 }
 
-fn read_text(file: fs::File) -> Result<Vec<u8>, Code> {
+fn read_text(file: impl Read) -> Result<Vec<u8>, Code> {
     let mut bytes = Vec::new();
     file.take(MAX_TEXT_BYTES + 1).read_to_end(&mut bytes).map_err(io_code)?;
     if bytes.len() as u64 > MAX_TEXT_BYTES { Err("too_large") } else { Ok(bytes) }
 }
 
 #[tauri::command]
-pub async fn html_import_read(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, kind: Kind) -> Result<tauri::ipc::Response, Code> {
+pub async fn html_import_read(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, kind: Kind, limit: u64) -> Result<tauri::ipc::Response, Code> {
     state.shell(&window, &shell)?;
     let dir = state.grants.lock().unwrap().get(&grant, Instant::now())?;
     if matches!(kind, Kind::Media) { return Err("unsupported"); }
-    let bytes = tauri::async_runtime::spawn_blocking(move || read_text(dir.open_kind(&name, kind, MAX_TEXT_BYTES)?)).await.map_err(|_| "io")??;
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let (file, size) = dir.reader(&name, kind, limit)?;
+        let bytes = read_text(file)?;
+        if bytes.len() as u64 != size { return Err("changed"); }
+        Ok(bytes)
+    }).await.map_err(|_| "io")??;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
-pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String) -> Result<crate::board::Stored, Code> {
+pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, limit: u64) -> Result<crate::board::ImportAsset, Code> {
     state.shell(&window, &shell)?;
     let dir = state.grants.lock().unwrap().get(&grant, Instant::now())?;
     let base = window.path().app_data_dir().map_err(|_| "io")?;
     tauri::async_runtime::spawn_blocking(move || {
-        let file = dir.open_kind(&name, Kind::Media, crate::board::MAX_MEDIA_BYTES)?;
-        crate::board::store_page_asset(&base, file)
+        let (file, size) = dir.reader(&name, Kind::Media, limit)?;
+        crate::board::stage_page_asset(&base, file, size)
     }).await.map_err(|_| "io")?
+}
+
+/// Settle after the final fit, including when reading failed or the person switched boards.
+#[tauri::command]
+pub async fn html_import_finish(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, receipts: Vec<(String, bool)>) -> Result<(), String> {
+    state.shell(&window, &shell)?;
+    let base = window.path().app_data_dir().map_err(|_| "io")?;
+    crate::disk::write(move || {
+        for (ticket, keep) in receipts { crate::board::finish_import(&base, &ticket, keep)?; }
+        Ok(())
+    }).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{cell::Cell, fs, os::unix::fs::symlink};
+
+    #[test]
+    fn bounded_enumeration_keeps_the_first_128_documents_and_counts_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        for i in (0..150).rev() { fs::write(root.path().join(format!("{i:03}.html")), "").unwrap(); }
+        let chosen = Grants::default().give(root.path(), Instant::now(), false).unwrap();
+        assert_eq!(chosen.names.len(), 128);
+        assert_eq!(chosen.names.last().unwrap(), "127.html");
+        assert_eq!(chosen.overflow, 22);
+    }
+
+    #[test]
+    fn byte_budgets_refuse_at_the_file_handle_before_any_read_or_copy() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("a.html"), "12345").unwrap();
+        fs::write(root.path().join("p.png"), "1234").unwrap();
+        let mut grants = Grants::default();
+        let chosen = grants.give(root.path(), Instant::now(), false).unwrap();
+        let grant = grants.get(&chosen.grant, Instant::now()).unwrap();
+        *grant.budget.lock().unwrap() = Budget { read: 8, copy: 3 };
+        assert!(matches!(grant.reader("p.png", Kind::Media, 9), Err("copy_limit")));
+        assert!(matches!(grant.reader("a.html", Kind::Document, 4), Err("read_limit")));
+        let (mut first, _) = grant.reader("a.html", Kind::Document, 5).unwrap();
+        fs::write(root.path().join("a.html"), "123456").unwrap();
+        assert_eq!(std::io::copy(&mut first, &mut std::io::sink()).unwrap(), 5);
+        assert!(matches!(grant.reader("a.html", Kind::Document, 9), Err("read_limit")));
+    }
 
     #[test]
     fn a_handed_folder_link_and_a_substituted_directory_cannot_become_grants() {

@@ -3,6 +3,7 @@ import values from 'postcss-value-parser';
 import {parent, portable, type References} from './references';
 
 export const IMPORT_DEPTH = 3;
+export const IMPORTS_PER_SHEET = 32;
 const unescapeCss = (s: string) => s.replace(/\\(?:([\da-f]{1,6})(?:\r\n|[\t\n\r\f ])?|([\s\S]))/gi, (_, hex: string, char: string) => {
   if (!hex) return /[\r\n\f]/.test(char) ? '' : char;
   const point = parseInt(hex, 16);
@@ -103,6 +104,7 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
   const expanded = new Set<AtRule>();
   const nodes: (AtRule | Declaration)[] = [];
   root.walk(n => { if (n.type === 'decl' || n.type === 'atrule') nodes.push(n); });
+  let imports = 0;
   for (const node of nodes) {
     if (node.type === 'decl') { node.value = await rewriteUrls(node.value, dir, refs); continue; }
     if (['charset', 'namespace'].includes(node.name.toLowerCase())) continue;
@@ -111,6 +113,7 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
     const url = first && argument(first);
     if (url === undefined || !first) continue;
     if (!leading.has(node)) { refs.skip(url, 'css_import_position'); continue; }
+    if (++imports > IMPORTS_PER_SHEET) { refs.skip(url, 'css_import_limit'); continue; }
     const to = refs.locate(url, dir);
     if (!to) { if (portable(url) !== url) node.params = '"#"'; continue; }
     if (chain.includes(to.name)) { refs.skip(url, 'css_cycle'); continue; }
