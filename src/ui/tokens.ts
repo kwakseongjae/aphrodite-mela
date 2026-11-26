@@ -56,14 +56,15 @@ export const scale={
 } as const;
 
 /**
- * Two roles keep what is not the app's own look the same in both themes (0.3-L5): bg-paper is the sheet a design system's
- * component is shown on in the catalog and the brand's wordmark sits on, paper in either theme as bg-page is white; art-blend
- * is how the newspaper cutouts meet the ground under them, multiplied into the light paper and drawn as they are on the dark.
+ * Three roles keep what is not the app's own look the same in both themes (0.3-L5): bg-paper is the sheet a design system's
+ * component is shown on in the catalog and the brand's wordmark and a reference poster sit on, paper in either theme as bg-page
+ * is white; bg-media is the ink behind a picture or video, so a transparent one looks the same in both; art-blend is how the
+ * newspaper cutouts meet the ground under them, multiplied into the light paper and drawn as they are on the dark.
  */
 type Roles=Record<string,string>;
 const light:Roles={
   'color-scheme':'light','art-blend':'multiply',
-  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-page':'{white}','bg-paper':'{n-100}','bg-canvas':'{floor-light}','canvas-dot':'rgb(33 31 25 / 0.16)',
+  'bg-app':'{n-50}','bg-panel':'{n-0}','bg-raised':'{n-0}','bg-sunken':'{n-100}','bg-page':'{white}','bg-paper':'{n-100}','bg-media':'{n-900}','bg-canvas':'{floor-light}','canvas-dot':'rgb(33 31 25 / 0.16)',
   'bg-hover':'{n-100}','bg-active':'{n-200}','bg-inverse':'{n-900}','line':'{n-200}','line-strong':'{n-300}','edge-control':'{n-500}',
   'text-1':'{n-900}','text-2':'{n-600}','text-3':'{n-500}','text-inverse':'{n-50}',
   accent:'{n-900}','accent-hover':'{ink-hover-light}','accent-pressed':'{ink-hover-light}','accent-soft':'{ink-soft-light}','accent-text':'{n-900}','on-accent':'{n-50}',
@@ -83,7 +84,7 @@ const light:Roles={
 };
 const dark:Roles={
   'color-scheme':'dark','art-blend':'normal',
-  'bg-app':'{d-50}','bg-panel':'{d-100}','bg-raised':'{d-200}','bg-sunken':'{d-0}','bg-page':'{white}','bg-paper':'{n-100}','bg-canvas':'{floor-dark}','canvas-dot':'rgb(243 239 227 / 0.14)',
+  'bg-app':'{d-50}','bg-panel':'{d-100}','bg-raised':'{d-200}','bg-sunken':'{d-0}','bg-page':'{white}','bg-paper':'{n-100}','bg-media':'{n-900}','bg-canvas':'{floor-dark}','canvas-dot':'rgb(243 239 227 / 0.14)',
   'bg-hover':'{d-300}','bg-active':'{d-400}','bg-inverse':'{d-950}','line':'{d-400}','line-strong':'{d-500}','edge-control':'{d-600}',
   'text-1':'{d-950}','text-2':'{d-800}','text-3':'{d-700}','text-inverse':'{d-50}',
   accent:'{d-950}','accent-hover':'{white}','accent-pressed':'{white}','accent-soft':'{ink-soft-dark}','accent-text':'{d-950}','on-accent':'{d-50}',

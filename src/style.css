@@ -366,7 +366,7 @@ input[type=color]::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);b
 .space-frame.entered .board-shield{display:none}
 .space-frame.entered{outline:2px solid var(--ui-select)}
 .space.panning .board-frame,.space-frame.dragging .board-frame{pointer-events:none}
-.board-media{background:var(--ui-bg-inverse)}
+.board-media{background:var(--ui-bg-media)}
 .board-media img,.board-media video{display:block;width:100%;height:100%;object-fit:contain}
 .board-media .board-play{position:absolute;left:50%;top:50%;z-index:1;transform:translate(-50%,-50%) scale(var(--inv,1));background:var(--ui-bg-raised);box-shadow:var(--ui-shadow-panel)}
 .board-media .board-play.is-on{top:auto;bottom:var(--ui-space-3);left:var(--ui-space-3);transform:scale(var(--inv,1));transform-origin:0 100%}
@@ -375,7 +375,7 @@ input[type=color]::-webkit-color-swatch{border:1px solid var(--ui-swatch-edge);b
 .page-view{position:fixed;top:var(--page-view-top,0);right:0;bottom:0;left:0;z-index:40;display:flex;flex-direction:column;background:var(--ui-bg-app);font-family:var(--ui-font-sans);color:var(--ui-text-1)}
 .page-view-body{position:relative;flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;overflow:auto;background:var(--ui-bg-sunken)}
 .page-view-frame{display:block;flex:1;width:100%;height:100%;border:0;background:var(--ui-bg-page)}
-.page-view-media{align-self:center;max-width:100%;max-height:100%;object-fit:contain}
+.page-view-media{align-self:center;max-width:100%;max-height:100%;object-fit:contain;background:var(--ui-bg-media)}
 .frame-open{display:inline-flex;align-items:center;padding:var(--ui-space-1);border-radius:var(--ui-radius-1);color:var(--ui-text-2)}
 .frame-open:hover{background:var(--ui-bg-hover);color:var(--ui-text-1)}
 .frame-open svg{width:var(--ui-icon-14);height:var(--ui-icon-14)}
@@ -577,7 +577,7 @@ img[data-local-missing="gone"]{outline:1px dashed var(--ui-warn-text);outline-of
 /* A fixed, shallow poster: the panel is a list to scan, not a gallery. Three cards fit where one
    full-bleed thumbnail did. */
 .reference-poster{position:relative;height:104px;border-radius:7px;overflow:hidden;background:var(--ui-bg-sunken);display:grid;place-items:center}
-.reference-poster img{width:100%;height:100%;object-fit:cover;display:block}
+.reference-poster img{width:100%;height:100%;object-fit:cover;display:block;background:var(--ui-bg-paper)}
 .reference-blank{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ui-text-3)}
 .reference-poster-missing::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,var(--ui-bg-sunken) 0 6px,var(--ui-bg-panel) 6px 12px)}
 .reference-source{position:absolute;left:6px;bottom:6px;padding:2px 6px;border-radius:4px;background:color-mix(in srgb, var(--ui-bg-page) 91%, transparent);font-size:9.5px;color:var(--ui-text-2)}

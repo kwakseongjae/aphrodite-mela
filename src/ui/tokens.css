@@ -134,6 +134,7 @@
   --ui-bg-sunken: var(--ui-n-100);
   --ui-bg-page: var(--ui-white);
   --ui-bg-paper: var(--ui-n-100);
+  --ui-bg-media: var(--ui-n-900);
   --ui-bg-canvas: var(--ui-floor-light);
   --ui-canvas-dot: rgb(33 31 25 / 0.16);
   --ui-bg-hover: var(--ui-n-100);
@@ -191,6 +192,7 @@
   --ui-bg-sunken: var(--ui-d-0);
   --ui-bg-page: var(--ui-white);
   --ui-bg-paper: var(--ui-n-100);
+  --ui-bg-media: var(--ui-n-900);
   --ui-bg-canvas: var(--ui-floor-dark);
   --ui-canvas-dot: rgb(243 239 227 / 0.14);
   --ui-bg-hover: var(--ui-d-300);
@@ -249,6 +251,7 @@
     --ui-bg-sunken: var(--ui-d-0);
     --ui-bg-page: var(--ui-white);
     --ui-bg-paper: var(--ui-n-100);
+    --ui-bg-media: var(--ui-n-900);
     --ui-bg-canvas: var(--ui-floor-dark);
     --ui-canvas-dot: rgb(243 239 227 / 0.14);
     --ui-bg-hover: var(--ui-d-300);
