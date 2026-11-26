@@ -138,15 +138,28 @@ test('a section an agent adds to the hidden page shows it beside the page alread
   }
 });
 
-test('the move is part of the change that showed it: one undo takes back the section and the move, and the page stays shown', () => {
+test('one undo takes back the reveal edit and keeps the shown starter clear through older undo and redo', () => {
   const h = newHistory();
   let p = opened(newBoard('Empty'));
   p = apply(h, p, {ops: [{op: 'html_page', name: 'Briefing', html: PAGE}]});
-  const starter = p.pages[0].id;
+  const [starter, html] = p.pages.map(page => page.id);
   p = apply(h, p, {ops: [{op: 'add', component_kind: 'hero'}]});
+  const beside = {...p.space!.frames[starter]}, reveal = p.ledger!.seq;
   p = stepForScreen(p, 'undo', h, YOU)!.project;
-  assert.deepEqual([p.pages[0].blocks.length, p.space!.frames[starter].x], [0, 0], 'the section and the move are taken back together');
-  assert.equal(isStarterPage(p, p.pages[0]), false, 'the brief\'s rule: a page once shown stays shown, here back on its first place');
+  assert.equal(p.pages[0].blocks.length, 0);
+  assert.deepEqual(p.space!.frames[starter], beside, 'the old spot is occupied');
+  assert.equal(isStarterPage(p, p.pages[0]), false, 'a page once shown stays shown');
+  assert.equal(p.ledger!.changes.at(-1)!.undoes, reveal);
+  assert.equal(overlap(p, starter, html), false);
+  p = stepForScreen(p, 'undo', h, YOU)!.project;
+  assert.deepEqual(p.pages.map(page => page.id), [starter]);
+  assert.equal(p.space!.frames[starter].x, 0, 'the old spot is now free');
+  p = stepForScreen(p, 'redo', h, YOU)!.project;
+  assert.equal(overlap(p, starter, html), false, 'replaying a layout from before the reveal still shows both frames');
+  p = stepForScreen(p, 'redo', h, YOU)!.project;
+  assert.equal(p.pages[0].blocks.length, 1);
+  assert.deepEqual(p.space!.frames[starter], beside);
+  assert.equal(p.approvedFingerprint, undefined);
 });
 
 test('a starter that shows where nothing else is stays where it was', () => {

@@ -1,7 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject} from '../src/model';
-import {entryFor,cloneProject} from '../src/workspace/library';
+import {newBoard} from '../src/editor/starter';
+import {editorBoard,editorCalls} from './support/editor-calls';
+import {personAt} from '../src/agent/dispatch';
+import {entryFor,cloneProject,upsertProject} from '../src/workspace/library';
 import {workspaceHome,projectCards} from '../src/workspace/home';
 
 function library(){
@@ -45,4 +48,23 @@ test('the archived filter and empty states still render',()=>{
   const lib=library();
   assert.match(projectCards(lib,'archived','','en','grid'),/Gamma/);
   assert.match(projectCards(lib,'pinned','zzz','en','grid'),/folio-empty/);
+});
+
+test('returning Home counts only shown pages on the card and list in both languages',()=>{
+  const project=newBoard('Empty'),board=editorBoard(project),person=personAt({isTrusted:true});
+  let library=upsertProject({version:1,entries:[]},project);
+  board.persist=()=>{library=upsertProject(library,project);};
+  editorCalls(['function commit('],board);
+  const {commit}=board as typeof board & {commit:Function};
+  function counts(en:string,ko:string){
+    for(const view of ['grid','list'] as const)for(const language of ['en','ko'] as const){
+      const html=workspaceHome(library,'recent','','','system',language,view);
+      assert.ok(html.includes('>'+ (language==='ko'?ko:en)+' · '),language+' '+view);
+    }
+  }
+  counts('No pages yet.','아직 페이지가 없어요.');
+  commit(()=>project.pages.push({id:'article',name:'Article',kind:'html',html:'<p>Article</p>',blocks:[]}),person,'edit.page-add');
+  counts('1 page','1 페이지');
+  commit(()=>board.revealStarter(project,project.activePageId),person,'edit.page-view-edit');
+  counts('2 pages','2 페이지');
 });

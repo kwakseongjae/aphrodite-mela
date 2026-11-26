@@ -1,6 +1,7 @@
 import {appLockup} from '../design/logo';
 import {esc} from '../html';
 import {isApproved} from '../model';
+import {visiblePages} from '../editor/starter';
 import {visibleEntries,workspaceCounts,type Library,type LibraryFilter,type ProjectEntry} from './library';
 import {workspaceSwitcherHtml} from './workspace-ui';
 import type {WorkspaceBook} from './workspaces';
@@ -41,7 +42,7 @@ function moreMenu(e:ProjectEntry,t:Copy,book?:WorkspaceBook){
 }
 function previewStyle(e:ProjectEntry){const s=e.project.system;return `--preview-paper:${s.background};--preview-ink:${s.foreground};--preview-accent:${s.accent};background:${s.background};color:${s.foreground}`;}
 function photoOf(e:ProjectEntry){const blocks=e.project.pages[0].blocks;return blocks.find(b=>b.image)?.image||e.project.reference;}
-function pagesLabel(e:ProjectEntry,t:Copy,language:Language){return `${e.project.pages.length} ${language==='en'&&e.project.pages.length===1?'page':t.pages}`;}
+function pagesLabel(e:ProjectEntry,t:Copy,language:Language){const count=visiblePages(e.project).length;return count?`${count} ${language==='en'&&count===1?'page':t.pages}`:t.noPages;}
 function status(e:ProjectEntry,t:Copy){return `<span class="ui-dot${isApproved(e.project)?' ui-dot-ok':''}" aria-hidden="true"></span><span>${isApproved(e.project)?t.approved:t.draft}</span><span class="ui-board-card-when">${esc(e.updatedAt.slice(0,10))}</span>`;}
 function card(e:ProjectEntry,t:Copy,language:Language,book?:WorkspaceBook){
   const p=e.project,blocks=p.pages[0].blocks,photo=photoOf(e);

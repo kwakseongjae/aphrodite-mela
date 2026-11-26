@@ -7,9 +7,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {MAX_MEDIA_BYTES, MAX_BROWSER_MEDIA_BYTES, sniffMedia, mediaRefusal, mediaFrame, mediaMimes, browserFrameHost, desktopFrameHost, type FrameHost} from '../src/free-page.ts';
-import {validFrameLayout} from '../src/editor/space.ts';
+import {newBoard,visiblePages} from '../src/editor/starter';
+import {personAt} from '../src/agent/dispatch';
+import {isBoardFileName} from '../src/board-file';
+import {editorBoard,editorCalls,noop} from './support/editor-calls';
+import {screenToWorld,validFrameLayout} from '../src/editor/space.ts';
 import {parseBatch} from '../src/agent/ops.ts';
-import {runBatch, importMedia, heldBatch} from '../src/agent/apply.ts';
+import {runBatch, importMedia, heldBatch, preflightBatch} from '../src/agent/apply.ts';
 import {initialProject, parseProject, MAX_PAGES, MAX_PAGE_NAME} from '../src/model.ts';
 
 const bytes = (...parts: (number[] | string)[]) => Uint8Array.from(parts.flatMap(p => typeof p === 'string' ? [...p].map(c => c.charCodeAt(0)) : p));
@@ -197,4 +201,31 @@ test('a batch with files is held to the page it arrived on, and lands there afte
   const ahead = main.slice(main.indexOf('const held:Batch=heldBatch(batch,project);'), main.indexOf('const imported=withFiles?await importMedia('));
   assert.doesNotMatch(ahead, /await /, 'nothing before the copy waits');
   assert.match(main, /const result=runBatch\(project,held,selected,media\);/);
+});
+
+test('the sidebar sends people to the board where a dropped picture is placed',async()=>{
+  const project=newBoard('Board'),events=new Map<string,Function>();
+  const space={getBoundingClientRect:()=>({left:10,top:20}),addEventListener:(type:string,fn:Function)=>events.set(type,fn)};
+  const sha='3'.repeat(64);
+  const screen={...editorBoard(project),spaceAbort:undefined,AbortController,document:{getElementById:(id:string)=>id==='canvas-scroll'?space:null},
+    cameraProjectId:project.id,spaceHeld:false,applyCamera:noop,camera:{x:0,y:0,zoom:1},visiblePages,screenToWorld,who:personAt,isBoardFileName,
+    frameHost:{maxBytes:MAX_MEDIA_BYTES,put:async()=>({sha,mime:'image/png'}),mediaUrl:async()=> 'blob:picture'},mediaSize:async()=>({width:50,height:50}),
+    mediaRefusal,MAX_PAGES,preflightBatch,selected:'',libraryRefusal:noop,library:{},diskQueue:null,BROWSER_LIBRARY_ESTIMATE:5_000_000,
+    mediaFrame,runBatch,carriedNow:noop};
+  editorCalls(['function commit(','function mountSpace(','function spaceEl(','function spaceLocal(','async function putMedia('],screen);
+  const host=screen as typeof screen & {mountSpace:Function;putMedia:(...args:unknown[])=>Promise<void>};
+  let placed:Promise<void>|undefined;
+  const put=host.putMedia;host.putMedia=(...args)=>placed=put(...args);
+  host.mountSpace();
+  const png=new File([Uint8Array.of(137,80,78,71,13,10,26,10)],'Photo.png',{type:'image/png'});
+  events.get('drop')!({isTrusted:true,preventDefault:noop,clientX:70,clientY:90,dataTransfer:{files:[png]}});
+  await placed;
+  const [page]=visiblePages(screen.project);
+  assert.equal(page.name,'Photo.png');
+  const frame=screen.project.space!.frames[page.id];
+  assert.deepEqual([frame.x,frame.y],[60,70]);assert.equal(screen.project.ledger?.changes.at(-1)?.source,'media:drop');
+  const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+  const caption=main.match(/<span class="library-drop">(.+?)<\/span>/)![1];
+  assert.ok(caption.includes('Drop pictures or videos onto the board.'));
+  assert.ok(caption.includes('그림이나 영상을 보드에 끌어다 놓으세요.'));
 });

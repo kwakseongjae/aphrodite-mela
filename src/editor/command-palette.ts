@@ -11,7 +11,7 @@ export type Command={id:string;action:string;data?:Record<string,string>;en:stri
 export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean;theme?:ThemeChoice};
 
 /** The rows that work on sections (0.3-L4b): left out while the board has no section page, like their dock buttons. */
-const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference','moa']);
+const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference']);
 
 /**
  * Whether an action works on sections: a row above that a board without a section page leaves out, adding a component,
