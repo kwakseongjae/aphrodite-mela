@@ -27,6 +27,7 @@ pub struct Chosen { grant: String, names: Vec<String> }
 struct Grant {
     dir: Dir,
     path: PathBuf,
+    handed_path: PathBuf,
 }
 
 fn io_code(error: std::io::Error) -> Code {
@@ -38,20 +39,46 @@ fn io_code(error: std::io::Error) -> Code {
 }
 
 impl Grant {
+    /// Inspect each link from the held directory. Even a broken link leading out is refused before
+    /// looking up its target. cap-std repeats confinement on the final open in case names changed.
+    fn resolve(&self, path: &Path) -> Result<PathBuf, Code> {
+        let mut remaining: VecDeque<_> = path.iter().map(|s| s.to_owned()).collect();
+        let mut relative = PathBuf::new();
+        let mut links = 0;
+        while let Some(part) = remaining.pop_front() {
+            if part == "." { continue; }
+            if part == ".." {
+                if !relative.pop() { return Err("outside"); }
+                continue;
+            }
+            relative.push(part);
+            let meta = self.dir.symlink_metadata(&relative).map_err(io_code)?;
+            if meta.is_symlink() {
+                links += 1;
+                if links > 40 { return Err("invalid_name"); }
+                let link = self.dir.read_link_contents(&relative).map_err(io_code)?;
+                relative.pop();
+                let target = if link.is_absolute() {
+                    relative.clear();
+                    link.strip_prefix(&self.path).or_else(|_| link.strip_prefix(&self.handed_path)).map_err(|_| "outside")?
+                } else { &link };
+                for component in target.iter().rev() { remaining.push_front(component.to_owned()); }
+            }
+        }
+        Ok(relative)
+    }
+
     fn open(&self, name: &str, limit: u64) -> Result<fs::File, Code> {
         let path = Path::new(name);
         if name.is_empty() || name.contains(['\\', '\0']) || name.split('/').next().unwrap_or("").contains(':')
             || path.components().any(|part| !matches!(part, Component::Normal(_) | Component::CurDir)) {
             return Err("outside");
         }
-        // Resolve aliases, including an absolute symlink that still names a file inside. The final
-        // open stays relative to the held directory even if a symlink or directory is swapped meanwhile.
-        let real = fs::canonicalize(self.path.join(path)).map_err(io_code)?;
-        let relative = real.strip_prefix(&self.path).map_err(|_| "outside")?;
+        let relative = self.resolve(path)?;
         let check = |regular: bool, len: u64| {
             if !regular { Err("not_file") } else if len > limit { Err("too_large") } else { Ok(()) }
         };
-        let meta = self.dir.metadata(relative).map_err(io_code)?;
+        let meta = self.dir.metadata(&relative).map_err(io_code)?;
         check(meta.is_file(), meta.len())?;
         let mut options = OpenOptions::new();
         options.read(true).custom_flags(libc::O_NONBLOCK);
@@ -88,7 +115,7 @@ impl Grants {
         let chosen = Chosen { grant: token()?, names };
         self.0.retain(|e| e.until > now);
         if self.0.len() >= 20 { self.0.pop_front(); }
-        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, path: path_name}), until: now + LIFETIME, waiting });
+        self.0.push_back(Entry { chosen: chosen.clone(), root: Arc::new(Grant {dir, path: path_name, handed_path: parent.to_owned()}), until: now + LIFETIME, waiting });
         Ok(chosen)
     }
 
@@ -182,6 +209,7 @@ mod tests {
         fs::write(root.join("index.html"), b"<p>inside").unwrap();
         fs::write(temp.path().join("outside.js"), b"outside").unwrap();
         symlink("../outside.js", root.join("away.js")).unwrap();
+        symlink("../absent.js", root.join("absent.js")).unwrap();
         symlink(temp.path(), root.join("away")).unwrap();
         symlink(root.join("index.html"), root.join("inside.html")).unwrap();
         fs::File::create(root.join("big.js")).unwrap().set_len(MAX_TEXT_BYTES + 1).unwrap();
@@ -197,7 +225,7 @@ mod tests {
             read_text(f)
         };
         for (name, code) in [("../outside.js", "outside"), ("/outside.js", "outside"), ("file:///outside.js", "outside"),
-            ("away.js", "outside"), ("away/outside.js", "outside"), ("missing", "missing"), ("big.js", "too_large")] {
+            ("away.js", "outside"), ("absent.js", "outside"), ("away/outside.js", "outside"), ("missing", "missing"), ("big.js", "too_large")] {
             assert_eq!(read(&chosen.grant, name, now), Err(code), "{name}");
         }
         assert_eq!(read("made-up", "index.html", now), Err("invalid_grant"));
