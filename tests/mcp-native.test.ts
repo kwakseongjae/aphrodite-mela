@@ -1,7 +1,7 @@
 import test, {before} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn, execFileSync, spawnSync} from 'node:child_process';
-import {createInterface} from 'node:readline';
+import {Readable} from 'node:stream';
 import {createServer} from 'node:http';
 import {existsSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
 import {join} from 'node:path';
@@ -35,6 +35,26 @@ test('the generated native manifest agrees with its sources, including call plum
   } finally {unlinkSync(fixture);rmdirSync(dir);}
 });
 
+async function* frames(stream:Readable):AsyncGenerator<Buffer> {
+  let parts:Buffer[]=[];
+  for await (const chunk of stream) {
+    let bytes=Buffer.from(chunk);
+    for(let lf=bytes.indexOf(10);lf>=0;lf=bytes.indexOf(10)){
+      parts.push(bytes.subarray(0,lf+1));
+      yield Buffer.concat(parts);
+      parts=[];bytes=bytes.subarray(lf+1);
+    }
+    if(bytes.length)parts.push(bytes);
+  }
+  assert.equal(parts.length,0,'unterminated protocol frame');
+}
+
+test('the transcript retains every byte of the line terminator', async () => {
+  const out:Buffer[]=[];
+  for await (const frame of frames(Readable.from([Buffer.from('a\r'),Buffer.from('\nb\n')]))){out.push(frame);}
+  assert.deepEqual(out.map(b=>b.toString()),['a\r\n','b\n']);
+});
+
 test('both stdio servers return identical lines and send identical loopback calls', {timeout:45000}, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'aph-transcript-'));
   const file = join(dir,'endpoint.json');
@@ -55,7 +75,7 @@ test('both stdio servers return identical lines and send identical loopback call
   const running=clients.map(([cmd,args])=>{
     const child=spawn(cmd,[...args],{stdio:['pipe','pipe','inherit'],env:{...process.env,APHRODITE_ENDPOINT_FILE:file}});
     t.after(()=>child.kill());
-    return {child,out:createInterface({input:child.stdout})[Symbol.asyncIterator]()};
+    return {child,out:frames(child.stdout)};
   });
   let id=0;
   async function line(input:string) {
@@ -65,8 +85,8 @@ test('both stdio servers return identical lines and send identical loopback call
       assert.equal(next.done,false);
       return next.value!;
     }));
-    assert.equal(answers[1],answers[0],input);
-    return JSON.parse(answers[0]);
+    assert.ok(answers[0].equals(answers[1]),input);
+    return JSON.parse(answers[0].toString('utf8'));
   }
   const rpc=(method:string,params:unknown={})=>line(JSON.stringify({jsonrpc:'2.0',id:++id,method,params}));
   const call=(name:string,args:unknown={})=>rpc('tools/call',{name,arguments:args});
