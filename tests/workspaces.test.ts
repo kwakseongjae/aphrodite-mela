@@ -111,7 +111,7 @@ test('avatar style and content escape values that would break out of HTML',()=>{
   const quoted=ws({id:'q',name:'"Hi there'});
   assert.equal(avatarContent(quoted),esc('"T'));
   const emoji=ws({id:'e',name:'Safe',avatar:{kind:'emoji',value:'<>'}});
-  assert.equal(avatarStyle(emoji),'background:#f0efe8');
+  assert.equal(avatarStyle(emoji),'background:var(--ui-bg-sunken)');
   assert.equal(avatarContent(emoji),esc('<>'));
   const jab=ws({id:'j',name:'Safe',avatar:{kind:'emoji',value:'x"'}});
   assert.doesNotMatch(avatarContent(jab),/"/);
