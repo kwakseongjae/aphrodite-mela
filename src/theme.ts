@@ -36,3 +36,6 @@ export function shownTheme(choice:ThemeChoice,systemDark:boolean):'light'|'dark'
 export function applyTheme(root:Pick<Element,'setAttribute'|'removeAttribute'>,choice:ThemeChoice){
   if(choice==='system')root.removeAttribute('data-theme');else root.setAttribute('data-theme',choice);
 }
+
+/** The desktop's half of a pick: one command that keeps it for the next launch and puts it on the main window only (src-tauri/src/look.rs). */
+export function nativeLook(invoke:(command:string,args:Record<string,unknown>)=>Promise<unknown>,choice:ThemeChoice){return invoke('window_look',{look:choice});}

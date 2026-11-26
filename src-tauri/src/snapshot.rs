@@ -67,6 +67,8 @@ async fn render(app: AppHandle, html: String, width: f64, height: f64, free: boo
         .position(-9_000.0, -9_000.0)
         .build()
         .map_err(|e| format!("could not open an off-screen webview: {e}"))?;
+    // The person's design is drawn light, whatever the app's look or the Mac's (src-tauri/src/look.rs).
+    crate::look::light_only(&window);
     let bridge = app.state::<crate::agent::AgentBridge>();
     let loaded = crate::page_wall::put_then_load(&window, |wall| {
         crate::page_wall::may_render(free, wall)?;

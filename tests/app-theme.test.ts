@@ -16,11 +16,14 @@ test('the app document sets no theme of its own, and a same-origin script picks 
 });
 
 /** public/theme.js run against a stored value, as the browser runs it before anything else. */
+const metas:Record<string,string>[]=[];
 function boot(stored:Record<string,string>){
   const attrs:Record<string,string>={};
   const localStorage={getItem:(k:string)=>k in stored?stored[k]:null};
   const documentElement={setAttribute:(k:string,v:string)=>{attrs[k]=v;},removeAttribute:(k:string)=>{delete attrs[k];}};
-  runInNewContext(readFileSync(new URL('../public/theme.js',import.meta.url),'utf8'),{localStorage,document:{documentElement}});
+  metas.splice(0,metas.length,{content:'light'},{content:'dark'});
+  const querySelectorAll=(s:string)=>s==='meta[name="theme-color"]'?metas.map(m=>({setAttribute:(k:string,v:string)=>{m[k]=v;}})):[];
+  runInNewContext(readFileSync(new URL('../public/theme.js',import.meta.url),'utf8'),{localStorage,document:{documentElement,querySelectorAll}});
   return attrs['data-theme']??'system';
 }
 
@@ -73,15 +76,39 @@ test('the window and the browser bar start on the paper of the theme the Mac is 
     assert.equal(String(w.backgroundColor).toLowerCase(),light,'tauri.conf.json window backgroundColor');
     assert.equal('theme' in w,false,'the window\'s title bar follows the Mac');
   }
-  const rust=readFileSync(new URL('../src-tauri/src/main.rs',import.meta.url),'utf8');
-  const rgb=/Theme::Dark[\s\S]{0,200}?Color\((\d+),\s*(\d+),\s*(\d+),\s*255\)/.exec(rust);
-  assert.ok(rgb,'main.rs puts a dark Mac\'s window on the dark paper');
-  assert.equal('#'+rgb!.slice(1,4).map(n=>Number(n).toString(16).padStart(2,'0')).join(''),dark);
+  const look=readFileSync(new URL('../src-tauri/src/look.rs',import.meta.url),'utf8');
+  const paper=(name:string)=>{const rgb=new RegExp(name+':\\s*\\(u8, u8, u8\\)\\s*=\\s*\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)').exec(look);assert.ok(rgb,name);return '#'+rgb!.slice(1,4).map(n=>Number(n).toString(16).padStart(2,'0')).join('');};
+  assert.equal(paper('LIGHT_PAPER'),light,'look.rs light paper');
+  assert.equal(paper('DARK_PAPER'),dark,'look.rs dark paper');
   const app=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   assert.equal(/<meta name="theme-color" content="([^"]+)" media="\(prefers-color-scheme: light\)"/.exec(app)?.[1].toLowerCase(),light,'index.html theme-color, light');
   assert.equal(/<meta name="theme-color" content="([^"]+)" media="\(prefers-color-scheme: dark\)"/.exec(app)?.[1].toLowerCase(),dark,'index.html theme-color, dark');
+});
+
+/* 0.3-L5 fix 1 #1, #2, #5: macOS's own theme setter changes every window the app opens, and the background setter the JS API calls
+   was sent under a name the window never read. One command of the app's own puts the look on the main window only, and the
+   window is put on it before it is shown; the windows that draw the person's design are held light. */
+test('the desktop look is the app\'s own command, on the main window only, before the window is shown',async()=>{
+  const {nativeLook}=await import('../src/theme.ts');
+  const calls:[string,Record<string,unknown>][]=[];
+  await nativeLook(async(c,a)=>{calls.push([c,a]);},'dark');
+  assert.deepEqual(calls,[['window_look',{look:'dark'}]]);
+  const look=readFileSync(new URL('../src-tauri/src/look.rs',import.meta.url),'utf8');
+  assert.match(look,/#\[tauri::command\]\s*pub fn window_look\(app: AppHandle, look: String\)/,'the command reads the argument the app sends');
+  assert.match(look,/get_webview_window\("main"\)/,'and puts it on the main window');
+  assert.match(look,/msg_send!\[ns_window, setAppearance: chosen\]/,'as that window\'s own appearance');
+  assert.doesNotMatch(look,/set_theme/,'never the application\'s');
+  const rust=readFileSync(new URL('../src-tauri/src/main.rs',import.meta.url),'utf8');
+  assert.match(rust,/look::window_look,/,'registered');
+  assert.match(rust,/look::apply\(&window, look::saved\(app\.handle\(\)\)\);\s*let _ = window\.show\(\);/,'the saved look goes on before the window is shown');
+  const tauri=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url),'utf8'));
+  for(const w of tauri.app.windows)assert.equal(w.visible,false,'the window opens hidden');
   const caps=JSON.parse(readFileSync(new URL('../src-tauri/capabilities/default.json',import.meta.url),'utf8'));
-  for(const p of ['core:window:allow-set-theme','core:window:allow-set-background-color'])assert.ok(caps.permissions.includes(p),p);
+  assert.deepEqual(caps.permissions.filter((p:string)=>/set-theme|set-background-color/.test(p)),[],'the page is given no window setter of its own');
+  const snapshot=readFileSync(new URL('../src-tauri/src/snapshot.rs',import.meta.url),'utf8');
+  assert.match(snapshot,/\.build\(\)[\s\S]{0,200}?crate::look::light_only\(&window\);[\s\S]*put_then_load/,'a render window is held light before its page loads');
+  const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+  assert.doesNotMatch(main,/getCurrentWindow\(\)\.set(Theme|BackgroundColor)|plugin:window\|set_(theme|background_color)/,'the app calls no window setter that reaches other windows');
 });
 
 /* 0.3-L5: the one switch is offered in three places with one action: home's theme menu, the editor's help menu and the command palette. */
@@ -107,4 +134,15 @@ test('the page and the paper are the same in both themes, and the cutouts are mu
   assert.equal(themes.light['art-blend'],'multiply');
   assert.equal(themes.dark['art-blend'],'normal');
   for(const sheet of ['src/ui/screens/surfaces.css','src/design/studio.css'])assert.doesNotMatch(readFileSync(new URL('../'+sheet,import.meta.url),'utf8'),/mix-blend-mode:\s*multiply/,sheet+' blends through the token');
+});
+
+/* 0.3-L5 fix 1 #5: the browser bar is on the picked paper from the first script, not after the app has started. */
+test('the first script puts both browser-bar colours on the picked paper, and leaves them to the Mac otherwise',async()=>{
+  const {resolve}=await import('../src/ui/tokens.ts');
+  boot({'aphrodite-theme':'dark'});
+  assert.deepEqual(metas.map(m=>m.content.toLowerCase()),[resolve('dark','bg-app')!.toLowerCase(),resolve('dark','bg-app')!.toLowerCase()]);
+  boot({'aphrodite-theme':'light'});
+  assert.deepEqual(metas.map(m=>m.content.toLowerCase()),[resolve('light','bg-app')!.toLowerCase(),resolve('light','bg-app')!.toLowerCase()]);
+  boot({});
+  assert.deepEqual(metas.map(m=>m.content),['light','dark'],'following the Mac touches neither');
 });

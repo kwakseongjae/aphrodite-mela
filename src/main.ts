@@ -88,7 +88,7 @@ const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
 import {helpMenuHtml,themeRows} from './editor/help-menu';
-import {readTheme,saveTheme,shownTheme,applyTheme,isThemeChoice,type ThemeChoice} from './theme';
+import {readTheme,saveTheme,shownTheme,applyTheme,isThemeChoice,nativeLook,type ThemeChoice} from './theme';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
@@ -743,7 +743,7 @@ function setTheme(next:ThemeChoice){
   if(screen==='home'){render();return;}
   document.querySelectorAll<HTMLElement>('[data-theme-menu]').forEach(group=>{group.querySelectorAll('[data-scheme]').forEach(row=>row.remove());group.insertAdjacentHTML('beforeend',themeRows(theme,uiLanguage));hydrateIconsIn(group);});
 }
-/** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the title bar back to it. */
+/** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the main window back to it (src-tauri/src/look.rs). */
 async function paintPaper(){
   const shown=shownTheme(theme,systemDark());
   const paperOf=(look:'light'|'dark')=>{const probe=document.createElement('i');probe.dataset.theme=look;probe.hidden=true;document.body.append(probe);const value=getComputedStyle(probe).getPropertyValue('--ui-bg-app').trim();probe.remove();return value;};
@@ -751,7 +751,7 @@ async function paintPaper(){
   // Each meta answers its own media query; a pick puts both on the picked paper, following the Mac gives each its own back.
   document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach(m=>{const value=theme==='system'?paperOf(/dark/.test(m.media)?'dark':'light'):paper;if(value)m.content=value;});
   if(!nativeDesktop)return;
-  try{const {getCurrentWindow}=await import('@tauri-apps/api/window');const w=getCurrentWindow();await w.setTheme(theme==='system'?null:shown);if(paper)await w.setBackgroundColor(paper);}catch{/* the page is drawn in its theme either way */}
+  try{await nativeLook(invoke,theme);}catch{/* the page is drawn in its theme either way */}
 }
 if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(theme==='system')void paintPaper();});
 
