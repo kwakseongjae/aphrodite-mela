@@ -1,4 +1,4 @@
-import {playbook} from '../../src/agent/playbook.mjs';
+import {playbook, toolList} from '../../src/agent/playbook.mjs';
 
 const notRunning = 'Aphrodite is not running. Ask the person to open the app, then try again.';
 export const protocol = {
@@ -9,6 +9,6 @@ export const protocol = {
     'Editing needs the person to have opened the door; if a call comes back saying so, tell them rather than retrying.',
   ].join(' '),
   notRunning,
-  offlineGuide: playbook + '\n\n## Right now\n' + notRunning,
+  offlineGuide: [playbook, toolList, '## Right now\n' + notRunning].join('\n\n'),
   timeout: 'Aphrodite did not answer in time. It may be busy or mid-dialog — ask the person to check the app.',
 };

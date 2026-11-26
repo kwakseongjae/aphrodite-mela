@@ -5,6 +5,8 @@ import {mkdtempSync, rmdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 
+import {playbook, toolList} from '../src/agent/guide';
+
 const nodeServer = 'mcp/aphrodite-mcp/index.mjs';
 
 test('a closed app still supplies its playbook to the Node client', () => {
@@ -16,6 +18,7 @@ test('a closed app still supplies its playbook to the Node client', () => {
     });
     const {isError,content} = JSON.parse(result).result;
     assert.equal(isError, false);
+    assert.equal(content[0].text.split('## Right now')[0],playbook+'\n\n'+toolList+'\n\n');
     assert.match(content[0].text, /^# Working with Aphrodite[\s\S]+open the app/i);
   } finally { rmdirSync(dir); }
 });

@@ -5,8 +5,6 @@
  * true right now — which project is open, whether the door is open, who is holding the screen. An
  * agent that starts here should not have to guess at any of the rest.
  */
-import {mcpTools} from './commands.mjs';
-
 export type GuideStatus = {
   mode: 'design' | 'connected' | 'delegated';
   holder: string | null;
@@ -19,17 +17,8 @@ export type GuideStatus = {
   screen?: 'home' | 'editor';
 };
 
-import {playbook} from './playbook.mjs';
-export {playbook};
-
-/**
- * Every tool, by name and what it is for, generated from the command table (commands.mjs) so the
- * guide can never name a tool that does not exist or leave out one that does.
- */
-export const toolList = [
-  '## Tools',
-  ...mcpTools().map(tool => `- \`${tool.name}\` — ${tool.title}`),
-].join('\n');
+import {playbook, toolList} from './playbook.mjs';
+export {playbook, toolList};
 
 /** The guide plus what is true at this moment. */
 export function guideFor(status: GuideStatus): string {

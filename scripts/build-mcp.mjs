@@ -1,6 +1,6 @@
 // Build the independent stdio executable, without linking Tauri or starting a window.
 import {execFileSync} from 'node:child_process';
-import {copyFileSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {toolManifest, tools, refusalText, FALLBACK_CALLER} from '../mcp/aphrodite-mcp/tools.mjs';
 import {promptManifest, prompts} from '../mcp/aphrodite-mcp/prompts.mjs';
 import {protocol} from '../mcp/aphrodite-mcp/protocol.mjs';
@@ -26,10 +26,16 @@ const manifest = {version, ...protocol, fallbackCaller:FALLBACK_CALLER, tools:to
   board:refusalText({error:'',open:{name:marker}},403).split(marker),
   boardWithId:refusalText({error:'',open:{name:marker,project_id:marker}},403).split(marker),
 };
-mkdirSync(bin,{recursive:true});
-const path = bin+'/mcp-manifest.json';
+const path = bin + '/mcp-manifest.json';
 const json = JSON.stringify(manifest);
-try { if (readFileSync(path,'utf8') !== json) writeFileSync(path,json); }
-catch (error) { if(error.code !== 'ENOENT') throw error; writeFileSync(path,json); }
-execFileSync('cargo',['build','--locked','--manifest-path','mcp/native/Cargo.toml','--release','--target',triple,'--target-dir',target],{stdio:'inherit'});
-copyFileSync(`${target}/${triple}/release/aphrodite-mcp`,`${bin}/aphrodite-mcp-${triple}`);
+if (process.argv[2] === '--check-manifest') {
+  if (readFileSync(process.argv[3] || path, 'utf8') !== json) {
+    console.error('The generated MCP manifest differs from its source. Regenerate it with node scripts/build-mcp.mjs.');
+    process.exitCode = 1;
+  }
+} else {
+  mkdirSync(bin, {recursive: true});
+  if (!existsSync(path) || readFileSync(path, 'utf8') !== json) writeFileSync(path, json);
+  execFileSync('cargo',['build','--locked','--manifest-path','mcp/native/Cargo.toml','--release','--target',triple,'--target-dir',target],{stdio:'inherit'});
+  copyFileSync(`${target}/${triple}/release/aphrodite-mcp`,`${bin}/aphrodite-mcp-${triple}`);
+}

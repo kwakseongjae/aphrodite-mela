@@ -1,9 +1,9 @@
-import test from 'node:test';
+import test, {before} from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn, execFileSync} from 'node:child_process';
+import {spawn, execFileSync, spawnSync} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {createServer} from 'node:http';
-import {mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
+import {existsSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {toolManifest, tools} from '../mcp/aphrodite-mcp/tools.mjs';
@@ -12,13 +12,27 @@ const triple = execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (
 const native = `src-tauri/bin/aphrodite-mcp-${triple}`;
 const nodeServer = 'mcp/aphrodite-mcp/index.mjs';
 
-test('the generated native manifest agrees with the command and prompt sources', () => {
-  execFileSync(process.execPath, ['scripts/build-mcp.mjs'], {stdio:'inherit', env:{...process.env, TAURI_ENV_TARGET_TRIPLE:triple}});
-  const manifest = JSON.parse(readFileSync('src-tauri/bin/mcp-manifest.json','utf8'));
-  assert.deepEqual(manifest.tools, toolManifest());
-  assert.deepEqual(manifest.prompts.map((p:{description:string})=>p.description),
-    JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',
-      "import {prompts} from './mcp/aphrodite-mcp/prompts.mjs';console.log(JSON.stringify(prompts.map(p=>p.description)))"],{encoding:'utf8'})));
+const buildScript = 'scripts/build-mcp.mjs';
+const manifestFile = 'src-tauri/bin/mcp-manifest.json';
+
+before(() => {
+  if (existsSync(manifestFile)) execFileSync(process.execPath,[buildScript,'--check-manifest',manifestFile]);
+  execFileSync(process.execPath,[buildScript],{stdio:'inherit',env:{...process.env,TAURI_ENV_TARGET_TRIPLE:triple}});
+});
+
+test('the generated native manifest agrees with its sources, including call plumbing', () => {
+  const generated=JSON.parse(readFileSync(manifestFile,'utf8'));
+  assert.deepEqual(generated.tools,toolManifest());
+  execFileSync(process.execPath,[buildScript,'--check-manifest',manifestFile]);
+  const dir=mkdtempSync(join(tmpdir(),'aph-manifest-'));
+  const fixture=join(dir,'stale.json');
+  try {
+    generated.routes.aphrodite_guide.path='/outdated';
+    writeFileSync(fixture,JSON.stringify(generated));
+    const check=spawnSync(process.execPath,[buildScript,'--check-manifest',fixture],{encoding:'utf8'});
+    assert.equal(check.status,1);
+    assert.match(check.stderr,/manifest differs/);
+  } finally {unlinkSync(fixture);rmdirSync(dir);}
 });
 
 test('both stdio servers return identical lines and send identical loopback calls', {timeout:45000}, async t => {
@@ -83,6 +97,9 @@ test('both stdio servers return identical lines and send identical loopback call
       assert.equal(calls.at(-1),calls.at(-2),tool.name);
     }
   }
+  await call('aphrodite_apply_edits',{ops:[{offset:0.0000001,width:100000000000000000000}]});
+  assert.equal(calls.at(-1),calls.at(-2),'the JSON body uses the same number spelling');
+  await line('{"id":1e-7,"method":"ping"}');
   endpoint(process.pid,'rotated');
   status=403;response={error:'writing is off',open:{name:'B',project_id:'p'}};
   assert.match((await call('aphrodite_apply_edits')).result.content[0].text,/writing is off.*"B"/);

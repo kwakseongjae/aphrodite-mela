@@ -187,7 +187,7 @@ fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
         .set("Content-Type", "application/json")
         .set("X-Aphrodite-Agent", who);
     let res = if post {
-        req.send_string(&Value::Object(fields).to_string())
+        req.send_string(&stringify(&Value::Object(fields), false))
     } else {
         req.call()
     };
@@ -240,15 +240,18 @@ fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
             .filter(|v| !v.is_null())
             .cloned()
             .unwrap_or(json!("image/png"));
-        return json!({"content":[{"type":"image","data":png,"mimeType":mime},{"type":"text","text":pretty(&payload)}],"isError":false});
+        return json!({"content":[{"type":"image","data":png,"mimeType":mime},{"type":"text","text":stringify(&payload,true)}],"isError":false});
     }
-    answer(json!(pretty(&payload)), false)
+    answer(json!(stringify(&payload, true)), false)
 }
 
 // JSON.stringify orders array-index keys numerically, and uses ECMAScript's spelling for doubles.
-fn pretty(value: &Value) -> String {
-    fn emit(v: &Value, depth: usize, out: &mut String) {
+fn stringify(value: &Value, pretty: bool) -> String {
+    fn emit(v: &Value, depth: usize, pretty: bool, out: &mut String) {
         let indent = |out: &mut String, d| {
+            if !pretty {
+                return;
+            }
             out.push('\n');
             out.push_str(&"  ".repeat(d));
         };
@@ -258,7 +261,7 @@ fn pretty(value: &Value) -> String {
             keys.sort_by_key(|k| {
                 k.parse::<u32>()
                     .ok()
-                    .filter(|i| i.to_string() == ***k)
+                    .filter(|i| i.to_string() == k.as_str())
                     .unwrap_or(u32::MAX)
             });
             keys.into_iter().map(|k| (Some(k), &map[k])).collect()
@@ -280,9 +283,9 @@ fn pretty(value: &Value) -> String {
             indent(out, depth + 1);
             if let Some(k) = key {
                 out.push_str(&serde_json::to_string(k).unwrap());
-                out.push_str(": ");
+                out.push_str(if pretty { ": " } else { ":" });
             }
-            emit(value, depth + 1, out);
+            emit(value, depth + 1, pretty, out);
         }
         if !entries.is_empty() {
             indent(out, depth);
@@ -290,7 +293,7 @@ fn pretty(value: &Value) -> String {
         out.push(if object { '}' } else { ']' });
     }
     let mut out = String::new();
-    emit(value, 0, &mut out);
+    emit(value, 0, pretty, &mut out);
     out
 }
 
@@ -300,7 +303,7 @@ fn send(msg: &Value, key: &str, value: Value) {
         reply["id"] = id.clone();
     }
     reply[key] = value;
-    let _ = writeln!(io::stdout().lock(), "{reply}");
+    let _ = writeln!(io::stdout().lock(), "{}", stringify(&reply, false));
 }
 fn error(msg: &Value, code: i32, message: String) {
     send(msg, "error", json!({"code":code,"message":message}));
@@ -311,7 +314,8 @@ fn main() {
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(env::var_os("HOME").unwrap_or_default())
+            env::home_dir()
+                .unwrap_or_default()
                 .join("Library/Application Support/studio.aphrodite.mela/agent-endpoint.json")
         });
     let client = ureq::AgentBuilder::new()
