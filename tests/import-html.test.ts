@@ -188,3 +188,28 @@ test('only an OS hand-over can vouch for the source of a native import', async (
     assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html'}]]);
   } finally { Reflect.deleteProperty(globalThis, 'window'); }
 });
+
+test('HTML metadata comes from the document, including a late charset and an in-folder base', async () => {
+  const {target, project} = setup();
+  const html = '<!doctype html><!--' + ' '.repeat(1200) + '--><template><base href="../"><title>Template</title></template>' +
+    '<meta charset=windows-1252><title>Café</title><base href="media/"><img src="image.png">';
+  const reads: string[] = [];
+  const out = await importHtml({names: ['a.html'], read: async () => Buffer.from(html, 'latin1'), media: async name => {
+    reads.push(name); return {sha: '1'.repeat(64), mime: 'image/png', bytes: 5};
+  }}, person, target);
+  assert.equal(out.pages[0].name, 'Café');
+  assert.deepEqual(reads, ['media/image.png']);
+  assert.match(project.pages[1].html!, /media:1{64}/);
+});
+
+test('deferred scripts see the body, and inlining cannot discard an integrity requirement', async () => {
+  const {target, project} = setup(), reads: string[] = [];
+  const html = '<html><head><script defer src="a.js"></script><link rel=stylesheet href="protected.css" integrity="sha384-test"></head><body><main>Ready</main></body></html>';
+  const out = await importHtml({names: ['a.html'], read: async n => {
+    reads.push(n); return Buffer.from(n === 'a.html' ? html : 'document.body.dataset.ready=1');
+  }, media: async () => { throw 'missing'; }}, person, target);
+  const stored = project.pages[1].html!;
+  assert.ok(stored.indexOf('<main>Ready') < stored.indexOf('document.body.dataset.ready=1'));
+  assert.deepEqual(reads, ['a.html', 'a.js']);
+  assert.deepEqual(out.skipped, [{name: 'protected.css', code: 'integrity'}]);
+});

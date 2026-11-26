@@ -1,6 +1,6 @@
 import {esc} from '../html';
 import {MAX_PAGE_HTML} from '../free-page';
-import {attr, type Element} from './document';
+import {attr, inDocument, type Element} from './document';
 import {rewriteCss} from './css';
 import {address, parent, portable, type References} from './references';
 
@@ -31,7 +31,7 @@ async function srcset(value: string, dir: string | null, refs: References) {
 }
 
 function baseDirectory(nodes: Element[], refs: References): string | null {
-  const base = nodes.find(e => e.tagName === 'base' && attr(e, 'href') !== undefined);
+  const base = nodes.find(e => e.tagName === 'base' && attr(e, 'href') !== undefined && inDocument(e));
   if (!base) return '';
   const url = attr(base, 'href')!, to = address(url, '');
   if (to.kind === 'local') {
@@ -58,6 +58,7 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
   };
   const dir = baseDirectory(nodes, refs);
   const seen = new Set<number>();
+  const deferred: string[] = [];
   for (const e of nodes) {
     const loc = e.sourceCodeLocation!, start = loc.startTag!, tag = e.tagName;
     if (seen.has(start.startOffset)) continue;
@@ -67,7 +68,9 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
     const external = stylesheet ? href : tag === 'script' ? src : undefined;
     if (external !== undefined) {
       const to = refs.locate(external, dir);
-      if (to) {
+      if (to && attr(e, 'integrity')?.trim()) {
+        refs.skip(external, 'integrity');
+      } else if (to) {
         const text = await refs.text(to.name, external, stylesheet ? 'style' : 'script');
         if (text !== undefined) {
           if (stylesheet) {
@@ -77,7 +80,11 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
           } else {
             const attribute = loc.attrs!.src;
             const opening = source.slice(start.startOffset, attribute.startOffset) + source.slice(attribute.endOffset, start.endOffset);
-            put(loc, opening + text + '</script>');
+            const script = opening + text + '</script>';
+            if (attr(e, 'defer') !== undefined && attr(e, 'async') === undefined && attr(e, 'type')?.toLowerCase() !== 'module' && inDocument(e)) {
+              deferred.push(script);
+              put(loc, '');
+            } else put(loc, script);
           }
           continue;
         }
@@ -107,6 +114,11 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
       }
       if (value !== a.value) put(loc.attrs?.[key], key + '="' + esc(value) + '"');
     }
+  }
+  if (deferred.length) {
+    const body = nodes.find(e => e.tagName === 'body' && inDocument(e));
+    const end = body?.sourceCodeLocation?.endTag?.startOffset ?? source.length;
+    put({startOffset: end, endOffset: end}, deferred.join(''));
   }
   let at = 0;
   const output: string[] = [];
