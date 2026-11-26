@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 import {deleteDialogHtml,renameDialogHtml,workspaceDeleteDialogHtml} from '../src/workspace/home-dialogs';
+import {linkOut} from '../src/free-page';
+import {esc} from '../src/html';
 import {exportBodyHtml} from '../src/editor/export-view';
 import {commandPaletteHtml} from '../src/editor/command-palette';
 import {editorCalls,noop} from './support/editor-calls';
@@ -65,10 +67,13 @@ test('opening a dialog focuses its first field, primary action or keep answer an
       if(selector==='input,textarea,button')return target('header-close');
       return null;
     }};
-  const screen={modalRoot,app:{},document:{activeElement:null},window:{},modalReturnFocus:null,comparisonObserver:null,
+  const frame={contentWindow:{},closest:()=>true};
+  let message:(e:object)=>void=noop;
+  const screen={modalRoot,app:{},document:{activeElement:null,querySelectorAll:()=>[frame]},window:{},modalReturnFocus:null,comparisonObserver:null,
+    addEventListener:(_name:string,fn:typeof message)=>{message=fn;},ui:(en:string)=>en,linkOut,esc,leavePage:noop,
     askOpen:()=>markup.includes('class="ask-dialog"'),control:(s:string)=>s,icon:()=>'',hydrateIcons:noop,hydrateNativeLibraries:noop,syncStateAttributes:noop,
     setTimeout:(fn:()=>void)=>{later=fn;}};
-  editorCalls(['function showModal(','function focusModal('],screen);
+  editorCalls(['function showModal(','function focusModal(','function offerLink(',"addEventListener('message'"],screen);
   const {showModal}=screen as typeof screen & {showModal:Function};
   const project={id:'board',name:'Board'};
   const exported=exportBodyHtml({sections:true,ko:false,approved:false,shown:'board',view:'prompt',code:'',pageCard:'',pages:1,boardExtension:'aphrodite',labels:{copyPrompt:'Copy',bundle:'Save ZIP'}});
@@ -84,6 +89,10 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     later();
     assert.equal(focused,expected);
   }
+  focused='';markup='';
+  message({source:frame.contentWindow,data:{aphrodite:'frame',kind:'link',href:'https://example.org/article'}});
+  assert.match(markup,/data-action="open-link"/);
+  later();assert.equal(focused,'close-modal','Enter or Space on the first focused answer stays in the app');
   focused='';markup='';showModal('Commands','',commandPaletteHtml([],'','en'));
   focused='command-search';later();
   assert.equal(focused,'command-search','the deferred focus preserves a field already focused by its opener');
