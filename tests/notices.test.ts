@@ -275,6 +275,19 @@ test('Draw again keeps the sheet until the screen is drawn, and the sheet answer
   assert.doesNotMatch(renderFailedHtml('x',{ko:true,board:true}),/그대로 있어요/,'it claims nothing it cannot know when the app stopped');
 });
 
+/* Astra medium 11: a page seen on its own covers the editor, so its bar carries the marks too, and a write updates every
+   copy; the connected mark's popover is placed in the window, never clipped by a narrow panel. */
+test('the marks ride on the page seen on its own, every copy counts writes, and the popover stays in the window',()=>{
+  const main=readFileSync('src/main.ts','utf8');
+  const bar=main.slice(main.indexOf('function openPageView('),main.indexOf('function closePageView('));
+  assert.match(bar,/<span class="ui-notice-marks" data-notice-marks>\$\{marksHtml\(\)\}<\/span><button type="button" class="page-view-edit/,'beside Edit in the app');
+  const bump=main.slice(main.indexOf('function bumpConnect('),main.indexOf('let tokensOpen'));
+  assert.doesNotMatch(bump,/app\.querySelector/,'a write is counted on every mark, the page view\'s too');
+  assert.match(main,/document\.addEventListener\('toggle',e=>\{const d=e\.target;if\(!\(d instanceof HTMLDetailsElement\)\|\|!d\.matches\('\.notice-mark-connect'\)\|\|!d\.open\)return;placeMarkPopover\(d\);\},true\);/);
+  const css=readFileSync('src/ui/screens/shell.css','utf8');
+  assert.match(css,/\.ui-popover\.notice-pop\.is-placed \{ position: fixed;/);
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};

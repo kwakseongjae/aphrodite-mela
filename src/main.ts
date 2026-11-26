@@ -212,7 +212,7 @@ function openPageView(id:string,hop=false){
   const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
   leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;if(!hop){pageViewStopped=false;pageViewHops.reset();}
   const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
-  pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar ui-pagebar"><button type="button" class="page-view-back ui-icon-btn" data-action="page-view-close" aria-label="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left','ui-icon')}</button><span class="ui-pagebar-from">${esc(project.name)}</span><span class="ui-pagebar-slash">/</span><strong class="page-view-title ui-pagebar-title">${esc(page.name)}</strong><span class="page-view-kind ui-pagebar-size">${kind}</span><span class="ui-pagebar-push"></span><button type="button" class="page-view-edit ui-btn ui-btn-primary ui-btn-md" data-action="page-view-edit">${icon('mouse-pointer-2','ui-icon ui-icon-sm')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
+  pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar ui-pagebar"><button type="button" class="page-view-back ui-icon-btn" data-action="page-view-close" aria-label="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left','ui-icon')}</button><span class="ui-pagebar-from">${esc(project.name)}</span><span class="ui-pagebar-slash">/</span><strong class="page-view-title ui-pagebar-title">${esc(page.name)}</strong><span class="page-view-kind ui-pagebar-size">${kind}</span><span class="ui-pagebar-push"></span><span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span><button type="button" class="page-view-edit ui-btn ui-btn-primary ui-btn-md" data-action="page-view-edit">${icon('mouse-pointer-2','ui-icon ui-icon-sm')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
   hydrateIconsIn(pageViewRoot);syncStateAttributes();
   const body=pageViewRoot.querySelector<HTMLElement>('[data-page-view-body]')!;
   if(isFreePage(page))void freePageFrame(page,'page-view-frame',made=>{body.append(made);}).then(frame=>{if(!frame){if(body.isConnected)body.innerHTML=unframedHtml(page);return;}if(!frame.isConnected)return;return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);}).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));
@@ -409,11 +409,11 @@ function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:
 /** Updates the connected banner in place, so a write does not cost a full render. */
 function bumpConnect(by:string){
   connectWrites++;
-  const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
-  if(count)count.textContent=String(connectWrites);
-  if(who)who.textContent=callerText(by);
-  const mark=app.querySelector('[data-connect-mark]');if(mark){mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);}
-  if(!count)render();
+  // Every copy of the mark, the page seen on its own's too.
+  const counts=document.querySelectorAll('[data-connect-writes]');counts.forEach(c=>{c.textContent=String(connectWrites);});
+  document.querySelectorAll('[data-connect-who]').forEach(w=>{w.textContent=callerText(by);});
+  document.querySelectorAll<HTMLElement>('[data-connect-mark]').forEach(mark=>{mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);});
+  if(!counts.length)render();
 }
 let tokensOpen=false;
 const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:ui('Line','선'),muted:ui('Muted','보조'),danger:ui('Danger','위험'),success:ui('Success','성공'),warning:ui('Warning','주의')})[name];
@@ -801,6 +801,9 @@ window.addEventListener('storage',e=>{if(e.key!==themeKey&&e.key!==null)return;c
 function bannersHtml(){return agentBannerHtml();}
 /** The marks beside Preview and Export, and in home's side list: saving stopped, and who is connected. */
 function marksHtml(){return troubleMarkHtml(troubleNow(),uiLanguage==='ko')+connectMarkNow();}
+/** The connected mark's popover, placed in the window under its mark rather than inside a panel that may clip it. */
+function placeMarkPopover(d:HTMLDetailsElement){const pop=d.querySelector<HTMLElement>('.notice-pop'),at=d.querySelector('summary')?.getBoundingClientRect();if(!pop||!at)return;pop.classList.add('is-placed');const w=pop.offsetWidth,h=pop.offsetHeight,gap=4;const below=at.bottom+gap+h<=innerHeight;pop.style.top=`${Math.max(gap,below?at.bottom+gap:at.top-gap-h)}px`;pop.style.left=`${Math.min(Math.max(gap,at.right-w),innerWidth-w-gap)}px`;}
+document.addEventListener('toggle',e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.matches('.notice-mark-connect')||!d.open)return;placeMarkPopover(d);},true);
 /** What each slot was last painted with: a save that changes nothing there does not take the focus out of an open mark. */
 const marksPainted=new WeakMap<Element,string>();
 /** Repaints only the marks, keeping the connected one open if it was. */

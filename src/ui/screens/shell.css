@@ -89,6 +89,8 @@
 .ui-notice-mark.notice-mark-connect > summary .ui-row-meta { color: var(--ui-text-2); }
 .ui-notice-mark.notice-mark-connect > summary .ui-row-meta b { color: var(--ui-agent-text); font-weight: var(--ui-w-semibold); }
 .ui-popover.notice-pop { position: absolute; top: calc(100% + var(--ui-space-1)); right: 0; z-index: 80; white-space: normal; word-break: keep-all; }
+/* Placed by main.ts in the window, under its mark (above it when there is no room below), so no panel clips it. */
+.ui-popover.notice-pop.is-placed { position: fixed; right: auto; bottom: auto; z-index: 120; max-width: calc(100vw - var(--ui-space-4)); }
 .ui-notice-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--ui-space-1) var(--ui-space-3); margin: 0; font-size: var(--ui-text-12); line-height: var(--ui-lh-12); }
 .ui-notice-facts dt { color: var(--ui-text-2); }
 .ui-notice-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
