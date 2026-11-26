@@ -1128,3 +1128,15 @@ fn astra_1_an_env_symlink_still_checks_its_selected_interpreter() {
     assert_eq!(json!(f.e().status(CLAUDE).unwrap())["trusted"], false);
     assert!(f.calls().is_empty());
 }
+#[test]
+fn astra_7_the_registration_lock_refuses_settings_aliases_before_opening() {
+    let f = Fixture::new();
+    let path = record_path(&f).with_extension("lock");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let settings = f.e().path(CLAUDE);
+    fs::write(&settings, []).unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o400)).unwrap();
+    fs::hard_link(settings, path).unwrap();
+    assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
+    assert!(f.calls().is_empty());
+}

@@ -45,6 +45,35 @@ fn private_file(meta: &fs::Metadata) -> bool {
         && meta.mode() & 0o777 == 0o600
 }
 
+fn open_lock(path: &Path) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    if !path.try_exists().map_err(|_| Code::Io)? {
+        match options.clone().create_new(true).open(path) {
+            Ok(file) => {
+                files::make_private(&file)?;
+                return Ok(file);
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(_) => return Err(Code::Io),
+        }
+    }
+    let before = fs::symlink_metadata(path).map_err(|_| Code::Io)?;
+    if !private_file(&before) || !controlled(path) {
+        return Err(Code::InvalidPath);
+    }
+    let file = options.open(path).map_err(|_| Code::Io)?;
+    let after = file.metadata().map_err(|_| Code::Io)?;
+    if !private_file(&after) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {
+        return Err(Code::Changed);
+    }
+    Ok(file)
+}
+
 pub(super) struct Store {
     path: PathBuf,
     _lock: File,
@@ -69,18 +98,7 @@ impl Store {
         if !controlled(dir) {
             return Err(Code::InvalidPath);
         }
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path.with_extension("lock"))
-            .map_err(|_| Code::Io)?;
-        if !private_file(&lock.metadata().map_err(|_| Code::Io)?) {
-            return Err(Code::InvalidPath);
-        }
+        let lock = open_lock(&path.with_extension("lock"))?;
         let deadline = Instant::now() + Duration::from_millis(750);
         loop {
             match fs2::FileExt::try_lock_exclusive(&lock) {
