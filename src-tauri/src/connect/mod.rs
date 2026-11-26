@@ -315,7 +315,7 @@ impl Engine {
         };
         let target = self.home.join(relative);
         let backup = if action == Action::Connect
-            && prior.is_none()
+            && owner.is_none()
             && f.text.is_some()
             && !changes.is_empty()
         {
@@ -473,16 +473,14 @@ impl Engine {
                     candidate[entry.end..c.start + c.after.len()].into(),
                 ))
             } else {
-                prior
-                    .filter(|r| Some(&r.entry) == entry_hash(&before, source).as_ref())
-                    .and_then(|r| r.wrapper.clone())
+                owned.and_then(|r| r.wrapper.clone())
             };
             Some(Receipt {
                 tool,
                 path: rel.clone(),
                 exe: self.executable().into(),
-                stamp: prior.map_or(stamp, |r| r.stamp),
-                original: prior
+                stamp: owned.map_or(stamp, |r| r.stamp),
+                original: owned
                     .map_or_else(|| file.text.as_ref().map(hash), |r| r.original.clone()),
                 wrapper,
                 entry: entry_hash(&layout, &candidate).ok_or(Code::UnsupportedLayout)?,

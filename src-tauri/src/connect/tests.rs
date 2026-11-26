@@ -884,3 +884,31 @@ fn astra_9_the_image_device_identifies_a_mount_reached_through_an_alias() {
         &info
     ));
 }
+
+#[test]
+fn recheck_3_every_confirmed_takeover_keeps_the_replaced_bytes() {
+    let h = Home::new();
+    let tool = Tool::Cursor;
+    let file = h.file(tool, "{}");
+    let first = connect(&h.engine, tool, 1).backup.unwrap();
+    let foreign =
+        br#"{"mcpServers":{"aphrodite":{"command":"/their/server","env":{"K":"v"}}},"x":1}"#;
+    fs::write(&file, foreign).unwrap();
+    let p = h.engine.preview(tool, Action::Connect, 2).unwrap();
+    assert!(p.replacement_required);
+    let second = p.backup.as_ref().expect("replacement needs a new backup");
+    assert_ne!(second, &first);
+    assert!(matches!(
+        h.engine
+            .commit(tool, Action::Connect, &p.fingerprint, false),
+        Err(Code::ConfirmationRequired)
+    ));
+    assert!(!second.exists());
+    h.engine
+        .commit(tool, Action::Connect, &p.fingerprint, true)
+        .unwrap();
+    remove(&h.engine, tool, false).unwrap();
+    assert_eq!(fs::read(second).unwrap(), foreign);
+    assert_eq!(fs::read(first).unwrap(), b"{}");
+    assert_eq!(fs::read(file).unwrap(), br#"{"mcpServers":{},"x":1}"#);
+}
