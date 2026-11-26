@@ -26,3 +26,15 @@ test('the sentences agents read still say project, word for word, and a person r
   assert.match(main,/esc\(boardWords\(providers\[b\.provider\?\?'own'\]\.source\)\)/,'the implementation note');
   assert.match(main,/boardWords\(s\.description\)/,'the design-system picker');
 });
+
+/* 0.3-L5 fix 2 (#11, #22): the not-saved strip and Home's warning say board too, and a short desktop error is only said as board when it is the whole message, so a name a person typed is never changed. */
+test('the storage warnings say board, and a name holding a shared phrase stays as typed',()=>{
+  assert.equal(boardWords('Unknown project'),'Unknown board');
+  assert.equal(boardWords('Save a project first'),'Save a board first');
+  assert.equal(boardWords('Created the workspace Unknown project.'),'Created the workspace Unknown project.');
+  assert.equal(boardWords('Workspace exceeds 40MB; export large projects'),'Workspace exceeds 40MB; export large boards');
+  const main=read('src/main.ts');
+  // 0.3-G2b: the strip and Home's warning are one dialog now (src/ui/notices.ts), whose details say board the same way.
+  assert.match(main,/detail:boardWords\(saveTrouble\)/,'the not-saved dialog');
+  assert.match(main,/detail:boardWords\(startupError\)/,"Home's unread-store dialog");
+});

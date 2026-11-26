@@ -21,17 +21,30 @@ const said:readonly [string,string][]=[
   ['Invalid project assembly shelf','Invalid board assembly shelf'],
   ['Project changed since preview. Create a new preview.','Board changed since preview. Create a new preview.'],
   ['Workspace exceeds 40MB; export large projects','Workspace exceeds 40MB; export large boards'],
-  ['Save a project first','Save a board first'],
-  ['Unknown project','Unknown board'],
   ['Project changed. Reopen the vault after saving.','Board changed. Reopen the vault after saving.'],
   ['Official React adapters + project tokens','Official React adapters + board tokens'],
   ['adapted with project-owned tokens','adapted with board-owned tokens'],
   ['Aphrodite original project preset.','Aphrodite original board preset.'],
   ['Other values retain prior project decisions.','Other values retain prior board decisions.'],
   ['Project-owned HTML/CSS','Board-owned HTML/CSS'],
+  ['프로젝트를 찾지 못했습니다.','보드를 찾지 못했습니다.'],
+  ['There is work that could not be saved. Save the project to a file first.','There is work that could not be saved. Keep it with Save a backup file first.'],
+  ['저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.','저장하지 못한 작업이 있습니다. 먼저 "백업 파일로 저장"으로 보드를 파일로 남겨 주세요.'],
+  ['Projects kept arriving in this workspace','Boards kept arriving in this workspace'],
+  ['이 작업 공간에 프로젝트가 계속 들어와','이 작업 공간에 보드가 계속 들어와'],
+  [' Its projects could not be put back; they are in ',' Its boards could not be put back; they are in '],
+  [' 프로젝트를 되돌리지 못했습니다. ',' 보드를 되돌리지 못했습니다. '],
+  ['Project changed. Select the reference again.','Board changed. Select the reference again.'],
+  ['미리보기 이후 프로젝트가 바뀌었습니다.','미리보기 이후 보드가 바뀌었습니다.'],
+  ['프로젝트 저장 실패','보드 저장 실패'],
+  ['문구는 프로젝트 설명에서 가져옵니다.','문구는 보드 설명에서 가져옵니다.'],
+  ['프로젝트 설명을 사용합니다.','보드 설명을 사용합니다.'],
 ];
+/** The desktop's short errors, said as board only when one is the whole message: a name a person typed can hold the same words (0.3-L5 fix 2). */
+const whole:ReadonlyMap<string,string>=new Map([['Save a project first','Save a board first'],['Unknown project','Unknown board']]);
 /** A shared sentence as a person reads it. */
 export function boardWords(text:string):string{
+  if(whole.has(text))return whole.get(text)!;
   for(const [shared,person] of said)text=text.split(shared).join(person);
   return text;
 }

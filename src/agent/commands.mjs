@@ -24,6 +24,16 @@
 export const grades = ['read', 'edit', 'outside', 'choose', 'human', 'chrome'];
 export const surfaceNames = ['ui', 'mcp', 'loopback', 'inApp'];
 
+// Both stdio adapters project the same named arguments, constants and defaults onto the HTTP request.
+function project(fields) {
+  const select = args => Object.fromEntries(Object.entries(fields).map(([key, rule]) => {
+    if (typeof rule === 'string') return [key, args[rule]];
+    if ('value' in rule) return [key, rule.value];
+    return [key, args[rule.arg] ?? rule.fallback];
+  }));
+  return Object.assign(select, {fields});
+}
+
 const READ = {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false};
 const WRITE = {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false};
 const DESTRUCTIVE = {readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false};
@@ -104,7 +114,7 @@ export const commands = [
         'Example: {"format": "concise"} — or {"page_id": "abc-1", "format": "detailed"} for one page with its body text.',
       ].join('\n'),
       annotations: {title: 'Read the design contract', ...READ},
-      params: args => ({format: args.format, pageId: args.page_id}),
+      params: project({format: 'format', pageId: 'page_id'}),
     },
   },
   {
@@ -140,7 +150,7 @@ export const commands = [
         'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
       ].join('\n'),
       annotations: {title: 'Read a page\'s html', ...READ},
-      params: args => ({page_id: args.page_id, start: args.start, end: args.end}),
+      params: project({page_id: 'page_id', start: 'start', end: 'end'}),
     },
   },
   {
@@ -173,7 +183,7 @@ export const commands = [
         'Example: {"page_id": "abc-1"}',
       ].join('\n'),
       annotations: {title: 'Read the words of a page', ...READ},
-      params: args => ({page_id: args.page_id}),
+      params: project({page_id: 'page_id'}),
     },
   },
   {
@@ -213,7 +223,7 @@ export const commands = [
         'Example: {"since": 12} — or {} for the latest 50, or {"since": "r2:1830:4fa1c2:9b0e11"} with a revision you were given.',
       ].join('\n'),
       annotations: {title: 'Read what changed', ...READ},
-      params: args => ({since: args.since, include_view: args.include_view, limit: args.limit}),
+      params: project({since: 'since', include_view: 'include_view', limit: 'limit'}),
     },
   },
   {
@@ -275,7 +285,7 @@ export const commands = [
         'Example: {"width": 390} for a phone, or {} for the page\'s own frame width.',
       ].join('\n'),
       annotations: {title: 'Look at the page', ...READ},
-      params: args => ({width: args.width, height: args.height, pageId: args.page_id}),
+      params: project({width: 'width', height: 'height', pageId: 'page_id'}),
     },
   },
   {
@@ -330,7 +340,7 @@ export const commands = [
         'Example: {}',
       ].join('\n'),
       annotations: {title: 'Ask to edit alongside the person', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
-      body: () => ({}),
+      body: project({}),
     },
   },
   {
@@ -378,17 +388,7 @@ export const commands = [
         'Example: {"action": "command", "query": "Preview"} — or {"action": "key", "key": "1", "shift": true} to fit everything on screen.',
       ].join('\n'),
       annotations: {title: 'Drive the interface directly', ...WRITE},
-      body: args => ({
-        action: args.action,
-        query: args.query,
-        selector: args.selector,
-        text: args.text,
-        submit: args.submit,
-        key: args.key,
-        meta: args.meta,
-        shift: args.shift,
-        reason: args.reason,
-      }),
+      body: project({action: 'action', query: 'query', selector: 'selector', text: 'text', submit: 'submit', key: 'key', meta: 'meta', shift: 'shift', reason: 'reason'}),
     },
   },
   {
@@ -499,7 +499,7 @@ export const commands = [
         'On a section page: {"reason": "The brief asks for a calmer first screen.", "base_revision": "r2:1830:4fa1c2:9b0e11", "page_id": "home-1", "ops": [{"op": "add", "component_kind": "hero", "variant": "stacked", "content": {"title": "Light, made meaningful"}}, {"op": "update", "block_id": "b-7f3a", "fields": {"label": "See the range"}}]}',
       ].join('\n'),
       annotations: {title: 'Change the design', ...WRITE},
-      body: args => ({ops: args.ops, patch: args.patch, page_id: args.page_id, reason: args.reason, base_revision: args.base_revision}),
+      body: project({ops: 'ops', patch: 'patch', page_id: 'page_id', reason: 'reason', base_revision: 'base_revision'}),
     },
   },
   {
@@ -644,7 +644,7 @@ export const commands = [
         'Example: {"scope": "project"}',
       ].join('\n'),
       annotations: {title: 'List the local picture library', ...READ},
-      body: args => ({action: 'list', scope: args.scope ?? 'global'}),
+      body: project({action: {value: 'list'}, scope: {arg: 'scope', fallback: 'global'}}),
     },
   },
   {
@@ -680,7 +680,7 @@ export const commands = [
         'Example: {"name": "lighting-hero", "base64": "iVBORw0KGgo…", "scope": "project"}',
       ].join('\n'),
       annotations: {title: 'Add a picture to the library', ...WRITE},
-      body: args => ({action: 'import', name: args.name, base64: args.base64, scope: args.scope ?? 'global'}),
+      body: project({action: {value: 'import'}, name: 'name', base64: 'base64', scope: {arg: 'scope', fallback: 'global'}}),
     },
   },
   {
@@ -714,7 +714,7 @@ export const commands = [
         'Example: {"image_id": "0123456789abcdef"}',
       ].join('\n'),
       annotations: {title: 'Delete a picture from the library', ...DESTRUCTIVE},
-      body: args => ({action: 'delete', id: args.image_id, scope: args.scope ?? 'global'}),
+      body: project({action: {value: 'delete'}, id: 'image_id', scope: {arg: 'scope', fallback: 'global'}}),
     },
   },
   {
@@ -806,7 +806,7 @@ export const commands = [
         'Example: {"url": "https://example.com/lighting", "note": "the grid breathes; photos run to the edge", "tags": ["editorial", "lighting"]}',
       ].join('\n'),
       annotations: {title: 'Keep something in the reference archive', ...WRITE},
-      body: args => ({url: args.url ?? '', title: args.title ?? '', note: args.note ?? '', tags: args.tags ?? [], scope: args.scope ?? 'project'}),
+      body: project({url: {arg: 'url', fallback: ''}, title: {arg: 'title', fallback: ''}, note: {arg: 'note', fallback: ''}, tags: {arg: 'tags', fallback: []}, scope: {arg: 'scope', fallback: 'project'}}),
     },
   },
   {
@@ -838,7 +838,7 @@ export const commands = [
         'Example: {"id": "3fc91b608b8b93c4"}',
       ].join('\n'),
       annotations: {title: 'Take something back out of the reference archive', ...WRITE},
-      body: args => ({id: args.id}),
+      body: project({id: 'id'}),
     },
   },
   {
@@ -883,7 +883,7 @@ export const commands = [
         'Example: {"id": "toss", "reason": "The person asked for the Toss look.", "base_revision": "r2:1830:4fa1c2:9b0e11"}',
       ].join('\n'),
       annotations: {title: 'Change the design system', ...WRITE},
-      body: args => ({id: args.id, markdown: args.markdown, name: args.name, tokens: args.tokens, reason: args.reason, base_revision: args.base_revision}),
+      body: project({id: 'id', markdown: 'markdown', name: 'name', tokens: 'tokens', reason: 'reason', base_revision: 'base_revision'}),
     },
   },
   {
@@ -915,7 +915,7 @@ export const commands = [
         'Example: {}',
       ].join('\n'),
       annotations: {title: 'Read the build contract', ...WRITE},
-      body: args => ({format: args.format ?? 'contract'}),
+      body: project({format: {arg: 'format', fallback: 'contract'}}),
     },
   },
   {

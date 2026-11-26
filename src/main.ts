@@ -475,7 +475,7 @@ function queueLibrary(next:Library):boolean{
 async function flushDisk(){if(diskQueue)await diskQueue.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
-  await guardSwitch();const entry=library.entries.find(e=>e.project.id===vaultProjectId);if(!entry)throw new Error('보드를 찾지 못했습니다.');
+  await guardSwitch();const entry=library.entries.find(e=>e.project.id===vaultProjectId);if(!entry)throw new Error('프로젝트를 찾지 못했습니다.');
   if(refresh||!vaultState)vaultState=await invoke<Vault>('vault_sync',{projectId:vaultProjectId,expected:entry.project,design:designMarkdown(entry.project)});
   showModal(ui('Board library','보드 자료함'),ui(`Snapshots, pictures and design documents kept for ${esc(entry.project.name)}.`,`${esc(entry.project.name)}의 스냅샷, 이미지, 디자인 문서를 모아 둡니다.`),vaultHtml(vaultState,uiLanguage),true);
 }
@@ -510,7 +510,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
     // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
     const slow=()=>new Unmissable(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
     saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();
-    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Unmissable(ui('There is work that could not be saved. Keep it with Save a backup file first.','저장하지 못한 작업이 있습니다. 먼저 "백업 파일로 저장"으로 보드를 파일로 남겨 주세요.'));}
+    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
     return await go();
   });
 }
@@ -530,7 +530,15 @@ async function bounded<T>(wait:Promise<T>,ms=SAVE_LIMIT,late:()=>Error=()=>new U
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;});}
+function nativeClose(timeoutMs:number){
+  if(!nativeDesktop)return {ready:Promise.resolve(true),release:()=>{}};
+  const ticket=crypto.randomUUID();
+  const ready=invoke<boolean>('disk_begin_close',{ticket,timeoutMs});
+  // A delayed IPC reply can arrive after the save deadline. Release its own ticket then.
+  const release=()=>{void ready.then(ok=>ok?invoke('disk_end_close',{ticket}):undefined).catch(()=>{});};
+  return {ready,release};
+}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -757,6 +765,7 @@ function showTheme(next:ThemeChoice){
   void paintPaper();
   if(screen==='home'){render();return;}
   document.querySelectorAll<HTMLElement>('[data-theme-menu]').forEach(group=>{group.querySelectorAll('[data-scheme]').forEach(row=>row.remove());group.insertAdjacentHTML('beforeend',themeRows(theme,uiLanguage));hydrateIconsIn(group);});
+  const search=modalRoot.querySelector<HTMLInputElement>('#command-search');if(search)renderPaletteList(search.value);
 }
 /** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the main window back to it (src-tauri/src/look.rs). */
 async function paintPaper(){
@@ -798,7 +807,7 @@ function connectMarkNow(){
   return connectMarkHtml({who:allowedText(),holder:holder?callerText(holder):'',holderMark:holder?callerMarkHtml(holder,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
 }
 /** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
-function troubleNow():Trouble|undefined{if(vanished)return {kind:'vanished',path:vanished.path,boards:vanished.entries};if(startupError)return {kind:'unread',detail:startupError};if(saveTrouble)return {kind:troubleKind(saveTrouble),detail:saveTrouble};return undefined;}
+function troubleNow():Trouble|undefined{if(vanished)return {kind:'vanished',path:vanished.path,boards:vanished.entries};if(startupError)return {kind:'unread',detail:boardWords(startupError)};if(saveTrouble)return {kind:troubleKind(saveTrouble),detail:boardWords(saveTrouble)};return undefined;}
 let troubleSeen='';
 /** The error the last failed save gave, kept until a save lands or the store is read again: the next edit's write, queued behind the one that failed, does not clear it. */
 let saveTrouble='';
@@ -1410,7 +1419,7 @@ function referenceModal() {
 function analysisModal() {
   if (!referenceAnalysis) return;
   const a = referenceAnalysis, copy = referenceDraft?.copy ?? suggestCopy(a.lines, project);
-  showModal(ui('Reference analysis','레퍼런스 분석'), ui('A reference is a clue. Review the copy and picture candidates, then compare.','레퍼런스는 단서입니다. 문구와 이미지 후보를 검토한 뒤 비교하세요.'), `<div class="analysis-grid"><div><div class="reference-evidence-image"><img src="${project.reference}" alt="${ui('Analyzed reference','분석한 레퍼런스')}">${a.cropBox ? `<span class="crop-overlay" style="left:${a.cropBox.x * 100}%;top:${a.cropBox.y * 100}%;width:${a.cropBox.width * 100}%;height:${a.cropBox.height * 100}%"><b>${ui('MEDIA CANDIDATE','미디어 후보')}</b></span>` : ''}</div><div class="analysis-metrics"><span>${esc(a.engine)}</span><span>${a.lines.length} ${ui('text lines','텍스트 줄')}</span><span>${(a.elapsedMs / 1000).toFixed(2)}s</span></div><div class="evidence-palette">${a.palette.map(c => `<span style="background:${c}" title="${c}"></span>`).join('')}<small>${ui('Observed colors · board tokens unchanged','관찰된 색상 · 보드 토큰은 그대로입니다')}</small></div><details class="ocr-details"><summary>${ui('Inspect OCR evidence','OCR 단서 확인')} (${a.lines.length})</summary>${a.lines.map(l => `<p>${esc(l.text)} <small>${Math.round(l.confidence * 100)}%</small></p>`).join('') || `<p>${ui('No OCR evidence available.','OCR 단서가 없습니다.')}</p>`}</details></div><div><div class="modal-note">${esc(a.warning)}</div><label class="form-label">${ui('Proposed heading','제안 제목')}<textarea id="reference-title" rows="2" maxlength="2000">${esc(copy.title)}</textarea></label><label class="form-label">${ui('Supporting copy','보조 문구')}<textarea id="reference-copy" rows="3" maxlength="4000">${esc(copy.text)}</textarea></label><label class="form-label">${ui('Action label','동작 라벨')}<input id="reference-label" maxlength="200" value="${esc(copy.label)}"></label>${a.crop ? `<label class="check-option"><input id="reference-use-crop" type="checkbox"><span><strong>${ui('Use this media candidate','이 미디어 후보 사용')}</strong><small>텍스처 기반 추정입니다. 영역에 문구가 섞였는지 확인하세요. 기본값은 빈 이미지입니다.</small></span><img class="crop-thumb" src="${a.crop}" alt="${ui('Proposed media crop','제안 미디어 영역')}"></label>` : '<p class="fine-print">명확한 이미지 영역을 찾지 못했습니다. 이미지 슬롯을 비워둡니다.</p>'}${button('compare-directions', 'columns-3', 'Compare 3 directions', 'primary-button full-width')}<p class="fine-print">같은 문구·토큰·컴포넌트로 배치만 비교합니다. 아래 섹션 문구는 편집용 플레이스홀더입니다.</p></div></div>`, true);
+  showModal(ui('Reference analysis','레퍼런스 분석'), ui('A reference is a clue. Review the copy and picture candidates, then compare.','레퍼런스는 단서입니다. 문구와 이미지 후보를 검토한 뒤 비교하세요.'), `<div class="analysis-grid"><div><div class="reference-evidence-image"><img src="${project.reference}" alt="${ui('Analyzed reference','분석한 레퍼런스')}">${a.cropBox ? `<span class="crop-overlay" style="left:${a.cropBox.x * 100}%;top:${a.cropBox.y * 100}%;width:${a.cropBox.width * 100}%;height:${a.cropBox.height * 100}%"><b>${ui('MEDIA CANDIDATE','미디어 후보')}</b></span>` : ''}</div><div class="analysis-metrics"><span>${esc(a.engine)}</span><span>${a.lines.length} ${ui('text lines','텍스트 줄')}</span><span>${(a.elapsedMs / 1000).toFixed(2)}s</span></div><div class="evidence-palette">${a.palette.map(c => `<span style="background:${c}" title="${c}"></span>`).join('')}<small>${ui('Observed colors · board tokens unchanged','관찰된 색상 · 보드 토큰은 그대로입니다')}</small></div><details class="ocr-details"><summary>${ui('Inspect OCR evidence','OCR 단서 확인')} (${a.lines.length})</summary>${a.lines.map(l => `<p>${esc(l.text)} <small>${Math.round(l.confidence * 100)}%</small></p>`).join('') || `<p>${ui('No OCR evidence available.','OCR 단서가 없습니다.')}</p>`}</details></div><div><div class="modal-note">${esc(boardWords(a.warning))}</div><label class="form-label">${ui('Proposed heading','제안 제목')}<textarea id="reference-title" rows="2" maxlength="2000">${esc(copy.title)}</textarea></label><label class="form-label">${ui('Supporting copy','보조 문구')}<textarea id="reference-copy" rows="3" maxlength="4000">${esc(copy.text)}</textarea></label><label class="form-label">${ui('Action label','동작 라벨')}<input id="reference-label" maxlength="200" value="${esc(copy.label)}"></label>${a.crop ? `<label class="check-option"><input id="reference-use-crop" type="checkbox"><span><strong>${ui('Use this media candidate','이 미디어 후보 사용')}</strong><small>텍스처 기반 추정입니다. 영역에 문구가 섞였는지 확인하세요. 기본값은 빈 이미지입니다.</small></span><img class="crop-thumb" src="${a.crop}" alt="${ui('Proposed media crop','제안 미디어 영역')}"></label>` : '<p class="fine-print">명확한 이미지 영역을 찾지 못했습니다. 이미지 슬롯을 비워둡니다.</p>'}${button('compare-directions', 'columns-3', 'Compare 3 directions', 'primary-button full-width')}<p class="fine-print">같은 문구·토큰·컴포넌트로 배치만 비교합니다. 아래 섹션 문구는 편집용 플레이스홀더입니다.</p></div></div>`, true);
 }
 let candidateOrder:ReturnType<typeof orderDirections<typeof directions[number]>> = directions.map(d=>({...d,familiar:false,against:false}));
 function compareModal() {
@@ -1493,9 +1502,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const putBack=async()=>{try{saveLibrary(back(library));await flushDisk();return true;}catch{return false;}};
       const moveOut=async()=>{for(const e of library.entries)if((e.workspaceId??DEFAULT_WORKSPACE_ID)===id)moved.add(e.project.id);saveLibrary(moveEntries(library,id,movedTo));await flushDisk();};
       try{await moveOut();if(here())await moveOut();}catch(error){library=back(library);throw error;}
-      if(here())throw new Error(ui('Boards kept arriving in this workspace while it was being deleted, so it stays. Try again.','지우는 동안 이 작업 공간에 보드가 계속 들어와 그대로 둡니다. 다시 해 주세요.'));
+      if(here())throw new Error(ui('Projects kept arriving in this workspace while it was being deleted, so it stays. Try again.','지우는 동안 이 작업 공간에 프로젝트가 계속 들어와 그대로 둡니다. 다시 해 주세요.'));
       const {book}=deleteWorkspace(workspaces,id);
-      try{saveWorkspaces(book);}catch(error){const back=await putBack();const where=workspaces.workspaces.find(w=>w.id===movedTo)?.name??'';throw new Error(back?String(error instanceof Error?error.message:error):ui(`${String(error instanceof Error?error.message:error)} Its boards could not be put back; they are in ${where}.`,`${String(error instanceof Error?error.message:error)} 보드를 되돌리지 못했습니다. ${where}에 있습니다.`));}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
+      try{saveWorkspaces(book);}catch(error){const back=await putBack();const where=workspaces.workspaces.find(w=>w.id===movedTo)?.name??'';throw new Error(back?String(error instanceof Error?error.message:error):ui(`${String(error instanceof Error?error.message:error)} Its projects could not be put back; they are in ${where}.`,`${String(error instanceof Error?error.message:error)} 프로젝트를 되돌리지 못했습니다. ${where}에 있습니다.`));}}catch(error){toast(error instanceof Error?error.message:String(error));break;}hubCardCache.clear();closeModal();render();toast(`‘${name}’ · ${ui('deleted','삭제했습니다')}`);break;}
     case 'hub-filter': hubFilter=el.dataset.filter as LibraryFilter;hubRefresh();break;
     case 'hub-view': hubCardCache.clear();hubView=el.dataset.view==='list'?'list':'grid';try{store.setItem('aphrodite-hub-view',hubView);}catch{}hubRefresh();break;
     case 'hub-open': {const id=el.dataset.id;await leave(()=>{
@@ -1581,7 +1590,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const before=fingerprint(project),id=el.dataset.source!;
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
-      if(!here())break;if(before!==fingerprint(project))throw new Error('Board changed. Select the reference again.');
+      if(!here())break;if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
       commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
     }
     case 'omd-issue': {
@@ -1599,7 +1608,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if(values){const next=modalRoot.querySelector<HTMLFormElement>('#vibe-form')!;for(const name of ['pack','language'])(next.elements.namedItem(name) as HTMLSelectElement).value=String(values.get(name));for(const name of ['copy','images','replace'])(next.elements.namedItem(name) as HTMLInputElement).checked=values.has(name);}
     });break;
     case 'apply-vibe': {
-      if(!vibePending||vibePending.board!==project.id||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 보드가 바뀌었습니다. 다시 Preview하세요.');
+      if(!vibePending||vibePending.board!==project.id||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
       const plan=vibePending.plan;
       commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
       recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false},d);
@@ -1786,7 +1795,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       break;
     }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Board saved as a file','보드를 파일로 저장했습니다')); break;
-    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('보드는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await bounded(flushDisk());openProject(loaded);});toast(ui('Board imported unapproved · 기존 보드는 보존됩니다.','보드를 승인되지 않은 상태로 가져왔습니다 · 기존 보드는 보존됩니다.')); }); break;
+    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await bounded(flushDisk());openProject(loaded);});toast(ui('Board imported unapproved · 기존 보드는 보존됩니다.','보드를 승인되지 않은 상태로 가져왔습니다 · 기존 보드는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('New board','새 보드'), ui('Your other boards stay in the library. You can open them again any time.','기존 보드는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.'), `<form id="new-project-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled board"></label><button class="primary-button full-width" type="submit">${ui('Create board','보드 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('New page','새 페이지'), ui('It takes the board\'s design system as it is.','보드의 디자인 시스템을 그대로 이어받습니다.'), `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Page','페이지'), ui('Rename the page, or duplicate it to start the next screen.','페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.'), `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
@@ -1979,7 +1988,7 @@ document.addEventListener('submit', async e => {
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
   else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=newBoard(name);saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
-      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'보드 저장 실패');} }
+      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
 let paletteKeyHandled=false;

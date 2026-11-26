@@ -117,7 +117,7 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[]},control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
-    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,modalRoot:{children:[]},askOpen:()=>false,openTrouble:()=>{opened++;},
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,openTrouble:()=>{opened++;},
     vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
   editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function troubleNow(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
