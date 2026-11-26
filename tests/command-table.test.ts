@@ -201,3 +201,9 @@ test('the ledger recipe exemption follows whether an edit has a control bound', 
   const recipes = [...script.matchAll(/^  '(edit\.[\w-]+)': \{source:/gm)].map(m => m[1]).sort();
   assert.deepEqual(ids, recipes);
 });
+
+test('the media drop and paste comment belongs to the media edit row',()=>{
+  const table=readFileSync(new URL('../src/agent/commands.mjs',import.meta.url),'utf8');
+  const row=table.match(/a picture or a video the person drops from the Finder[^]*?\bid: '([^']+)'/);
+  assert.equal(row?.[1],'edit.media');
+});

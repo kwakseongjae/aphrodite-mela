@@ -1202,8 +1202,6 @@ export const commands = [
     controls: [field('data-frame-preset'), gesture('frame-move'), action('tidy-frames')],
   },
   {
-    /* 0.3-P2: a picture or a video the person drops from the Finder or pastes; an agent's arrives with
-       media_add, inside edit.apply. */
     // The engine has no screen control until the file, folder and paste interactions are wired.
     id: 'edit.import-html',
     label: {en: 'Import HTML', ko: 'HTML 가져오기'},
@@ -1216,6 +1214,8 @@ export const commands = [
     controls: [],
   },
   {
+    /* 0.3-P2: a picture or a video the person drops from the Finder or pastes; an agent's arrives with
+       media_add, inside edit.apply. */
     id: 'edit.media',
     label: {en: 'Put a picture or a video on the board', ko: '보드에 그림·영상 놓기'},
     grade: 'edit',
