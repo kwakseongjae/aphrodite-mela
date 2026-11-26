@@ -8,6 +8,9 @@ use std::{
 };
 use tauri::Manager;
 
+// A prune must never observe another worker building an unpublished snapshot.
+static SNAPSHOTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const KEEP_SNAPSHOTS: usize = 5;
 
 fn segment(s: &str) -> Result<(), String> {
@@ -257,29 +260,34 @@ fn write_document(root: &Path, name: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-pub fn vault_sync(
+pub async fn vault_sync(
     app: tauri::AppHandle,
     project_id: String,
     expected: Value,
     design: String,
 ) -> Result<Value, String> {
-    let (root, project) = project_root(&app, &project_id)?;
-    if project != expected {
-        return Err("Project changed. Reopen the vault after saving.".into());
-    }
-    snapshot(&root, &project, &design)?;
-    listing(&root)
+    crate::disk::write(move || {
+        let _guard = SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, project) = project_root(&app, &project_id)?;
+        if project != expected {
+            return Err("Project changed. Reopen the vault after saving.".into());
+        }
+        snapshot(&root, &project, &design)?;
+        listing(&root)
+    }).await
 }
 #[tauri::command]
-pub fn vault_document(
+pub async fn vault_document(
     app: tauri::AppHandle,
     project_id: String,
     name: String,
     text: String,
 ) -> Result<Value, String> {
-    let (root, _) = project_root(&app, &project_id)?;
-    write_document(&root, &name, &text)?;
-    listing(&root)
+    crate::disk::write(move || {
+        let (root, _) = project_root(&app, &project_id)?;
+        write_document(&root, &name, &text)?;
+        listing(&root)
+    }).await
 }
 #[tauri::command]
 pub fn vault_read(

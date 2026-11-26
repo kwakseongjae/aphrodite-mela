@@ -81,15 +81,17 @@ pub fn workspace_read(app: tauri::AppHandle) -> Result<Value, String> {
     Ok(value)
 }
 #[tauri::command]
-pub fn workspace_write(app: tauri::AppHandle, data: String, expected: u64) -> Result<u64, String> {
-    save_at(
-        &app.path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("workspace-v1"),
-        data,
-        expected,
-    )
+pub async fn workspace_write(app: tauri::AppHandle, data: String, expected: u64) -> Result<u64, String> {
+    crate::disk::write(move || {
+        save_at(
+            &app.path()
+                .app_data_dir()
+                .map_err(|e| e.to_string())?
+                .join("workspace-v1"),
+            data,
+            expected,
+        )
+    }).await
 }
 #[tauri::command]
 pub fn workspace_recovery(app: tauri::AppHandle) -> Result<Value, String> {

@@ -248,26 +248,31 @@ fn scopes(app: &AppHandle, project: Option<&str>) -> Result<Vec<PathBuf>, String
 
 /// Writes bytes into the folder. Used by the file picker and by an agent that only has the channel.
 #[tauri::command]
-pub fn image_library_import(app: AppHandle, name: String, base64: String, project: Option<String>) -> Result<Value, String> {
-    let bytes = base64_decode(&base64).ok_or("not valid base64")?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err("image is larger than 12 MB".into());
-    }
-    let mime = sniff(&bytes).ok_or("only PNG, JPEG and WebP are accepted")?;
-    let id = content_id(&bytes);
-    let dir = scope_dir(&app, project.as_deref())?;
-    // The caller's name is a label, never a path: the file is named by its own hash.
-    let stem: String = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(40)
-        .collect();
-    let label = if stem.is_empty() { "image".to_string() } else { stem };
-    let path = dir.join(format!("{label}-{id}.{}", extension(mime)));
-    if !path.exists() {
-        fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    }
-    Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
+pub async fn image_library_import(app: AppHandle, name: String, base64: String, project: Option<String>) -> Result<Value, String> {
+    crate::disk::write(move || {
+        let bytes = base64_decode(&base64).ok_or("not valid base64")?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err("image is larger than 12 MB".into());
+        }
+        let mime = sniff(&bytes).ok_or("only PNG, JPEG and WebP are accepted")?;
+        let id = content_id(&bytes);
+        let dir = scope_dir(&app, project.as_deref())?;
+        // The caller's name is a label, never a path: the file is named by its own hash.
+        let stem: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(40)
+            .collect();
+        let label = if stem.is_empty() { "image".to_string() } else { stem };
+        let path = dir.join(format!("{label}-{id}.{}", extension(mime)));
+        if !path.exists() {
+            use std::io::Write;
+            let mut temp = tempfile::NamedTempFile::new_in(&dir).map_err(|e| e.to_string())?;
+            temp.write_all(&bytes).map_err(|e| e.to_string())?;
+            temp.persist(&path).map_err(|e| e.to_string())?;
+        }
+        Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
+    }).await
 }
 
 /// Removes one picture from the library. The file is deleted; projects that used it show a gap.

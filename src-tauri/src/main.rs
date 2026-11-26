@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
 mod board;
+mod disk;
 mod fonts;
 mod image_library;
 mod opened;
