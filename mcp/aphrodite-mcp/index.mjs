@@ -10,7 +10,9 @@
  *
  * No dependencies on purpose: `node mcp/aphrodite-mcp/index.mjs` and nothing to install.
  */
-import {createInterface} from 'node:readline';
+import {protocol} from './protocol.mjs';
+import {once} from 'node:events';
+import {frames, decode, parse, fitsTree, validateScalars, readEndpoint, responseBody} from './wire.mjs';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -30,16 +32,17 @@ const VERSION = (() => {
   }
 })();
 /** Protocol versions this server is happy to speak; the newest is offered when a client asks for one we do not know. */
-const KNOWN_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+
 /* The override exists so a harness can point this at a file it controls, and so a second app
    running under another HOME (a sandbox instance) can be reached without editing this line. */
 const ENDPOINT_FILE = process.env.APHRODITE_ENDPOINT_FILE
   || join(homedir(), 'Library', 'Application Support', 'studio.aphrodite.mela', 'agent-endpoint.json');
-const NOT_RUNNING = 'Aphrodite is not running. Ask the person to open the app, then try again.';
+function offline(name) {
+  return name === 'aphrodite_guide' ? {isError: false, text: protocol.offlineGuide} : {isError: true, text: protocol.notRunning};
+}
 
 /** Who this client is, as it said at `initialize`. Every call carries it so the person sees the real name. */
 let caller = FALLBACK_CALLER;
-const log = message => process.stderr.write(`[aphrodite-mcp] ${message}\n`);
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const reply = (id, result) => send({jsonrpc: '2.0', id, result});
 const fail = (id, code, message) => send({jsonrpc: '2.0', id, error: {code, message}});
@@ -70,8 +73,8 @@ function ownerAlive(pid) {
  */
 function endpoint() {
   try {
-    const parsed = JSON.parse(readFileSync(ENDPOINT_FILE, 'utf8'));
-    if (!parsed?.base || !parsed?.token) return undefined;
+    const parsed = readEndpoint(ENDPOINT_FILE);
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(parsed?.base) || typeof parsed.token !== 'string' || !parsed.token || Number(parsed.base.split(':').at(-1))>65535) return undefined;
     if (!ownerAlive(parsed.pid)) return undefined;
     return parsed;
   } catch {
@@ -80,11 +83,11 @@ function endpoint() {
 }
 
 /** One tool call, forwarded. Errors come back as text for the model to read, not as protocol errors. */
-async function callTool(name, args) {
-  const tool = toolByName[name];
+async function callTool(name, args, who) {
+  const tool = Object.hasOwn(toolByName,name) && toolByName[name];
   if (!tool) return {isError: true, text: `No such tool "${name}".`};
   const where = endpoint();
-  if (!where) return {isError: true, text: NOT_RUNNING};
+  if (!where) return offline(name);
 
   const query = tool.params ? Object.entries(tool.params(args ?? {})).filter(([, v]) => v !== undefined && v !== '') : [];
   const search = query.length ? `?${query.map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')}` : '';
@@ -94,7 +97,7 @@ async function callTool(name, args) {
     headers: {
       Authorization: `Bearer ${where.token}`,
       'Content-Type': 'application/json',
-      'X-Aphrodite-Agent': caller,
+      'X-Aphrodite-Agent': who,
     },
   };
   if (tool.route.method === 'POST') {
@@ -104,18 +107,28 @@ async function callTool(name, args) {
 
   // A call that never returns would leave the agent waiting for ever, so it is given a deadline: the
   // app's own bridge answers or gives up within fifteen seconds, and this allows for the round trip.
-  let response;
+  let response, bytes;
   try {
-    response = await fetch(url, {...init, signal: AbortSignal.timeout(25_000)});
+    response = await fetch(url, {...init, redirect: 'manual', signal: AbortSignal.timeout(25_000)});
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return offline(name);
+    }
+    bytes = await responseBody(response);
   } catch (error) {
-    return {isError: true, text: error?.name === 'TimeoutError'
-      ? 'Aphrodite did not answer in time. It may be busy or mid-dialog — ask the person to check the app.'
-      : NOT_RUNNING};
+    if(error instanceof RangeError) return {isError:true,text:protocol.tooLarge};
+    return error?.name === 'TimeoutError' ? {isError: true, text: protocol.timeout} : offline(name);
   }
-  const text = await response.text();
   let payload;
   try {
-    payload = JSON.parse(text);
+    const text = decode(bytes);
+    if (!fitsTree(text, protocol.limits.responseTree)) {
+      validateScalars(text);
+      payload = JSON.parse(text); // No recursive reviver on a deep response.
+      if (response.ok) return {isError: false, text};
+    } else {
+      payload = parse(text, true);
+    }
   } catch {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }
@@ -133,23 +146,19 @@ async function callTool(name, args) {
   return {isError: false, text: JSON.stringify(payload, null, 2)};
 }
 
-async function handle(message) {
+async function handle(message, who) {
   const {id, method, params} = message;
   const isRequest = id !== undefined && id !== null;
   switch (method) {
     case 'initialize': {
       caller = callerName(params?.clientInfo);
       const asked = params?.protocolVersion;
-      const version = KNOWN_VERSIONS.includes(asked) ? asked : KNOWN_VERSIONS[0];
+      const version = protocol.versions.includes(asked) ? asked : protocol.versions[0];
       return reply(id, {
         protocolVersion: version,
         capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}},
         serverInfo: {name: NAME, version: VERSION},
-        instructions: [
-          'Aphrodite is a local design workbench. Read the design contract before changing anything, and send a whole change as one aphrodite_apply_edits call so the person can undo it in one press.',
-          'Approving a direction is the person\'s decision and no tool here can do it.',
-          'Editing needs the person to have opened the door; if a call comes back saying so, tell them rather than retrying.',
-        ].join(' '),
+        instructions: protocol.instructions,
       });
     }
     case 'notifications/initialized':
@@ -162,12 +171,12 @@ async function handle(message) {
     case 'prompts/list':
       return reply(id, {prompts: promptManifest()});
     case 'prompts/get': {
-      const prompt = promptByName[params?.name];
+      const prompt = Object.hasOwn(promptByName,params?.name) && promptByName[params.name];
       if (!prompt) return fail(id, -32602, `Unknown prompt: ${params?.name}`);
       return reply(id, {description: prompt.description, messages: prompt.build(params?.arguments ?? {})});
     }
     case 'tools/call': {
-      const {isError, text, image} = await callTool(params?.name, params?.arguments);
+      const {isError, text, image} = await callTool(params?.name, params?.arguments, who);
       // A picture goes back as a picture: a model cannot read a page from base64 in a text block.
       const content = image
         ? [{type: 'image', data: image.data, mimeType: image.mimeType}, {type: 'text', text}]
@@ -179,20 +188,52 @@ async function handle(message) {
   }
 }
 
-const lines = createInterface({input: process.stdin});
-lines.on('line', line => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
+let inFlight = 0;
+const waiting = [];
+
+function dispatch(message, who) {
+  return handle(message, who).catch(() => {
+    if (message.id != null) fail(message.id, -32603, 'Internal error');
+  });
+}
+
+async function runCalls(message, who) {
+  inFlight++;
+  try {
+    await dispatch(message, who);
+    while (waiting.length) {
+      const next = waiting.shift();
+      await dispatch(next.message, next.who);
+    }
+  } finally {
+    inFlight--;
+  }
+}
+for await (const bytes of frames(process.stdin)) {
+  if (process.stdout.writableNeedDrain) await once(process.stdout,'drain');
   let message;
   try {
-    message = JSON.parse(trimmed);
+    if (!bytes) throw new RangeError();
+    const text=decode(bytes);
+    if (/^[ \t]*$/.test(text)) continue;
+    message=parse(text);
   } catch {
-    return fail(null, -32700, 'Parse error');
+    fail(null,-32700,'Parse error');
+    continue;
   }
-  handle(message).catch(error => {
-    log(`failed: ${error?.message ?? error}`);
-    if (message.id !== undefined && message.id !== null) fail(message.id, -32603, 'Internal error');
-  });
-});
-lines.on('close', () => process.exit(0));
-log(`ready · ${toolManifest().length} tools · ${promptManifest().length} prompts · app endpoint ${ENDPOINT_FILE}`);
+  if (!message || Array.isArray(message) || typeof message !== 'object') continue;
+  const call = message.method==='tools/call';
+  if (call && !Object.hasOwn(toolByName,message.params?.name)) {
+    reply(message.id,{content:[{type:'text',text:`No such tool "${message.params?.name}".`}],isError:true});
+    continue;
+  }
+  if (!call) {
+    void dispatch(message, caller);
+  } else if (inFlight < protocol.limits.inFlight) {
+    void runCalls(message, caller);
+  } else if (waiting.length < protocol.limits.queued) {
+    waiting.push({message, who:caller});
+  } else {
+    reply(message.id,{content:[{type:'text',text:protocol.busy}],isError:true});
+  }
+}

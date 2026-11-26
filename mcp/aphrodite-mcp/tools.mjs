@@ -33,10 +33,11 @@ export function callerName(clientInfo) {
  * since only words reach an agent through MCP.
  */
 export function refusalText(payload, status) {
-  const said = payload?.error ?? `Aphrodite refused that (HTTP ${status}).`;
+  const said = typeof payload?.error === 'string' ? payload.error : `Aphrodite refused that (HTTP ${status}).`;
   const open = payload?.open;
   if (!open || typeof open !== 'object' || typeof open.name !== 'string') return said;
-  return `${said} The board open now is "${open.name.slice(0, 200)}"${typeof open.project_id === 'string' ? ` (project_id ${open.project_id.slice(0, 200)})` : ''}.`;
+  const shorten = value => value.slice(0,200).replace(/[\uD800-\uDFFF]/gu,'\uFFFD');
+  return `${said} The board open now is "${shorten(open.name)}"${typeof open.project_id === 'string' ? ` (project_id ${shorten(open.project_id)})` : ''}.`;
 }
 
 export const tools = mcpTools();

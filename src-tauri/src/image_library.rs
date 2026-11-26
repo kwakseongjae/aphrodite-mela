@@ -248,26 +248,48 @@ fn scopes(app: &AppHandle, project: Option<&str>) -> Result<Vec<PathBuf>, String
 
 /// Writes bytes into the folder. Used by the file picker and by an agent that only has the channel.
 #[tauri::command]
-pub fn image_library_import(app: AppHandle, name: String, base64: String, project: Option<String>) -> Result<Value, String> {
-    let bytes = base64_decode(&base64).ok_or("not valid base64")?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err("image is larger than 12 MB".into());
+pub async fn image_library_import(app: AppHandle, name: String, base64: String, project: Option<String>) -> Result<Value, String> {
+    crate::disk::write(move || {
+        let bytes = base64_decode(&base64).ok_or("not valid base64")?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err("image is larger than 12 MB".into());
+        }
+        let mime = sniff(&bytes).ok_or("only PNG, JPEG and WebP are accepted")?;
+        let id = content_id(&bytes);
+        let dir = scope_dir(&app, project.as_deref())?;
+        // The caller's name is a label, never a path: the file is named by its own hash.
+        let stem: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(40)
+            .collect();
+        let label = if stem.is_empty() { "image".to_string() } else { stem };
+        let path = dir.join(format!("{label}-{id}.{}", extension(mime)));
+        publish_import(&path, &bytes).map_err(|e| e.to_string())?;
+        Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
+    }).await
+}
+
+// Readers can run during an import. Publish all bytes at once while retaining the library's
+// normal create mode (subject to umask) and first writer for this content-addressed name.
+fn stage_import(dir: &Path) -> std::io::Result<(tempfile::TempDir, tempfile::NamedTempFile)> {
+    use std::os::unix::fs::PermissionsExt;
+    let staging = tempfile::Builder::new().prefix(".import-").tempdir_in(dir)?;
+    let file = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o666))
+        .tempfile_in(staging.path())?;
+    Ok((staging, file))
+}
+fn publish_import(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::{ErrorKind, Write};
+    if path.exists() { return Ok(()); }
+    let (_staging, mut temp) = stage_import(path.parent().unwrap())?;
+    temp.write_all(bytes)?;
+    match temp.persist_noclobber(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.error),
     }
-    let mime = sniff(&bytes).ok_or("only PNG, JPEG and WebP are accepted")?;
-    let id = content_id(&bytes);
-    let dir = scope_dir(&app, project.as_deref())?;
-    // The caller's name is a label, never a path: the file is named by its own hash.
-    let stem: String = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(40)
-        .collect();
-    let label = if stem.is_empty() { "image".to_string() } else { stem };
-    let path = dir.join(format!("{label}-{id}.{}", extension(mime)));
-    if !path.exists() {
-        fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    }
-    Ok(json!({"id": id, "mime": mime, "scope": project.unwrap_or_else(|| "global".into()), "name": path.file_name().map(|n| n.to_string_lossy().to_string())}))
 }
 
 /// Removes one picture from the library. The file is deleted; projects that used it show a gap.
@@ -409,5 +431,31 @@ mod tests {
         assert_eq!(extension("image/png"), "png");
         assert_eq!(extension("image/jpeg"), "jpg");
         assert_eq!(extension("image/webp"), "webp");
+    }
+
+    #[test]
+    fn astra_13_a_staged_png_signature_is_invisible_to_library_readers() {
+        use std::io::Write;
+        let dir=tempfile::tempdir().unwrap();
+        let (staging,mut image)=stage_import(dir.path()).unwrap();
+        image.write_all(b"\x89PNG\r\n\x1a\npartial").unwrap();
+        assert!(read_entry(image.path()).is_some());
+        let mut images=Vec::new();
+        scan(dir.path(),"global",&mut Vec::new(),&mut images);
+        assert!(images.is_empty());
+        assert!(read_entry(staging.path()).is_none());
+    }
+    #[test]
+    fn an_import_publishes_a_complete_file_with_the_library_mode_and_keeps_an_existing_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let reference = dir.path().join("reference");
+        fs::write(&reference, b"mode").unwrap();
+        let target = dir.path().join("image.png");
+        publish_import(&target, b"first").unwrap();
+        publish_import(&target, b"second").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"first");
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode(),
+                   fs::metadata(reference).unwrap().permissions().mode());
     }
 }

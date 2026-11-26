@@ -56,7 +56,7 @@ import {mcpTools} from '../src/agent/commands.mjs';
 import {guideFor} from '../src/agent/guide.ts';
 test('the tool and the guide each say what the closing 423 and the held-back 403 mean', () => {
   const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
-  const guide = sourceOf('src/agent/guide.ts');
+  const guide = guideFor({mode:'design',holder:null,projectName:'',pageCount:0,approved:false,canWrite:false,askedRecently:false});
   for (const said of [apply, guide]) {
     assert.match(said, /423[^.]*clos(?:es|ing) or restart[^.]*try again/i);
     assert.match(said, /403[^.]*came without[^.]*person/i);

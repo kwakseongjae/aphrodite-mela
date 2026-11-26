@@ -4,9 +4,9 @@
   "version": "0.2.8",
   "identifier": "studio.aphrodite.mela",
   "build": {
-    "beforeDevCommand": "node scripts/build-vision.mjs && npm run dev",
+    "beforeDevCommand": "node scripts/build-vision.mjs && node scripts/build-mcp.mjs && npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "node scripts/build-vision.mjs && npm run build",
+    "beforeBuildCommand": "node scripts/build-vision.mjs && node scripts/build-mcp.mjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -90,7 +90,8 @@
       }
     ],
     "externalBin": [
-      "bin/aphrodite-vision"
+      "bin/aphrodite-vision",
+      "bin/aphrodite-mcp"
     ],
     "createUpdaterArtifacts": true
   },
