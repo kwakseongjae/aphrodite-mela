@@ -26,7 +26,7 @@ export type ImportTarget = {
   commit(change: () => void, dispatch: Dispatch, row: typeof IMPORT_HTML): void;
 };
 export type Issue = {name: string; code: string};
-export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; overflow: {skipped: number; documents: number}; skipped: Issue[]; documents: Issue[]};
+export type ImportResult = {finishIssue?: {code: string}; pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; overflow: {skipped: number; documents: number}; skipped: Issue[]; documents: Issue[]};
 type Document = {file: string; title?: string; html: string; width?: number; names: Set<string>; files: Map<string, number>};
 
 async function textOf(value: TextInput['text']) {
@@ -124,7 +124,10 @@ export async function importHtml(input: TextInput | GrantedFiles, dispatch: Disp
       result.files = {names: [...new Set(next.docs.flatMap(d => [...d.names]))].sort(), count: brought.size, bytes: [...brought.values()].reduce((a, b) => a + b, 0)};
     }, dispatch, IMPORT_HTML);
   } finally {
-    if (files.media.size) await disk?.finish?.(supplied, [...files.media.values()]);
+    if (files.media.size) {
+      try { await disk?.finish?.(supplied, [...files.media.values()]); }
+      catch (error) { result.finishIssue = {code: readCode(error)}; }
+    }
   }
   return result;
 }

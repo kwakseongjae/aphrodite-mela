@@ -510,3 +510,18 @@ test('undecodable siblings remain external and a BOM or CSS declaration override
   assert.match(html, /go\("été"\)/);
   assert.match(html, /p\{content:"café"\}/);
 });
+
+test('a native finish error returns the landed page and an issue after its single ledger change', async () => {
+  const {project, target, history} = setup();
+  const sha = 'c'.repeat(64), finishes: string[][] = [];
+  const input = {names: ['a.html'], read: async () => Buffer.from('<img src=a.png>'),
+    media: async () => ({sha, mime: 'image/png', bytes: 7}),
+    finish: async (kept: string[]) => { finishes.push(kept); throw 'io'; }};
+  const result = await importHtml(input, person, target);
+  assert.deepEqual(result.pages, [{id: project.pages[1].id, name: 'a.html'}]);
+  assert.deepEqual(finishes, [[sha]]);
+  assert.deepEqual(result.finishIssue, {code: 'io'});
+  assert.deepEqual(result.documents, []);
+  assert.equal(project.ledger!.changes.length, 1);
+  assert.equal(history.undo.length, 1);
+});
