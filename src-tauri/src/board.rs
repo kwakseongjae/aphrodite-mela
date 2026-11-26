@@ -70,6 +70,7 @@ pub(crate) fn sniff(head: &[u8]) -> Option<&'static str> {
 }
 
 fn page_asset(head: &[u8]) -> Option<&'static str> {
+    if let Some(mime) = sniff(head) { return Some(mime); }
     for (magic, mime) in [
         (&b"wOF2"[..], "font/woff2"), (b"wOFF", "font/woff"), (b"OTTO", "font/otf"),
         (b"\0\x01\0\0", "font/ttf"), (b"OggS", "audio/ogg"), (b"ID3", "audio/mpeg"),
@@ -78,7 +79,7 @@ fn page_asset(head: &[u8]) -> Option<&'static str> {
     }
     if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") { return Some("audio/wav"); }
     if matches!(head, [0xff, 0xfb | 0xfa | 0xf3 | 0xf2 | 0xe3 | 0xe2, ..]) { return Some("audio/mpeg"); }
-    sniff(head)
+    None
 }
 
 fn extension(mime: &str) -> &'static str {
@@ -505,6 +506,7 @@ mod tests {
         assert_eq!(one.mime, "font/woff2");
         assert_eq!(media_stat(dir.path(), &one.sha), Some(one));
         assert!(sniff(b"wOF2font").is_none());
+        assert_eq!(page_asset(b"\0\x01\0\0ftypisom"), Some("video/mp4"));
     }
 
     use super::*;

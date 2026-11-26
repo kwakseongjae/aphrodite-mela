@@ -273,6 +273,8 @@ export function sniffMedia(head: Uint8Array): string | undefined {
 
 /** Additional file kinds a page may name inside its HTML. Standalone board items still use sniffMedia. */
 export function sniffBoardFile(head: Uint8Array): string | undefined {
+  const media = sniffMedia(head);
+  if (media) return media;
   const tag = String.fromCharCode(...head.subarray(0, 12));
   for (const [magic, mime] of [['wOF2', 'font/woff2'], ['wOFF', 'font/woff'], ['OTTO', 'font/otf'], ['OggS', 'audio/ogg'], ['ID3', 'audio/mpeg']]) {
     if (tag.startsWith(magic)) return mime;
@@ -280,7 +282,7 @@ export function sniffBoardFile(head: Uint8Array): string | undefined {
   if (tag.startsWith('RIFF') && tag.slice(8) === 'WAVE') return 'audio/wav';
   if (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) return 'font/ttf';
   if (head[0] === 0xff && [0xfb, 0xfa, 0xf3, 0xf2, 0xe3, 0xe2].includes(head[1])) return 'audio/mpeg';
-  return sniffMedia(head);
+  return undefined;
 }
 
 /** Why a file cannot go on a board, as a sentence, decided from its size and first bytes before it is read in. */
@@ -416,6 +418,13 @@ export async function loadFreePage(frame: HTMLIFrameElement, page: {id: string; 
   return missing;
 }
 
+/** Bytes as base64, in pieces small enough for String.fromCharCode. */
+export function base64(bytes: Uint8Array): string {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
 /** How much of a file a srcdoc frame in the browser build is given inline: it cannot load the app's blob: URLs. */
 const INLINE_MEDIA = 8 * 1024 * 1024;
 const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
@@ -456,7 +465,7 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
     frameMedia: async sha => {
       const blob = await read(sha);
       if (!blob || blob.size > INLINE_MEDIA) return undefined;
-      return `data:${blob.type};base64,${btoa(Array.from(new Uint8Array(await blob.arrayBuffer()), b => String.fromCharCode(b)).join(''))}`;
+      return `data:${blob.type};base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;
     },
     pageWall: async () => options.pageWall ?? DEVELOPMENT_BUILD_FRAMES_PAGES,
     load: async (frame, _page, _key, doc) => { frame.srcdoc = doc; },
@@ -483,7 +492,7 @@ export function desktopFrameHost(native: Native, timing: {deadline: number} = {d
     if (cost) return `data:${info.mime};base64,`.length + Math.ceil(info.bytes / 3) * 4;
     const bytes = await host.read(sha);
     if (!bytes || bytes.length !== info.bytes) return undefined;
-    return `data:${info.mime};base64,${(await import('./page-export')).base64(bytes)}`;
+    return `data:${info.mime};base64,${base64(bytes)}`;
   }
   let settled: boolean | undefined, asking: Promise<boolean> | undefined, asks = 0;
   /** The copy each frame of this window shows, by file name: a write names them, so the desktop never clears one under a frame (0.3-R fix 2 #21). */

@@ -237,6 +237,7 @@ test('a page can carry fonts and sounds through the board store without making t
     assert.equal(mediaExtension(mime), ext);
     assert.equal(sniffMedia(bytes(head)), undefined);
   }
+  assert.equal(sniffBoardFile(bytes([0, 1, 0, 0], 'ftypisom')), 'video/mp4', 'an existing board file keeps its type');
   const sha = 'a'.repeat(64);
   const data = bytes('wOF2-demo');
   const font = desktopFrameHost({fileSrc: p => 'asset://localhost' + p, invoke: async (command: string) => (
