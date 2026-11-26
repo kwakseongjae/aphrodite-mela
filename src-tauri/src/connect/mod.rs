@@ -383,30 +383,80 @@ impl Engine {
         prior: Option<&Receipt>,
         foreign: bool,
     ) -> Result<(Vec<Change>, bool)> {
-        if let Some(r) = prior.filter(|r| Some(&r.entry) == entry_hash(&layout, source).as_ref()) {
-            if let (Some((prefix, suffix)), [entry]) = (&r.wrapper, layout.entry.as_slice()) {
+        let Some(receipt) = prior
+            .filter(|r| r.tool == tool && Some(&r.entry) == entry_hash(&layout, source).as_ref())
+        else {
+            return Ok((layout.remove, false));
+        };
+        let command = layout.command.as_deref().ok_or(Code::InvalidConfig)?;
+        if receipt.original.is_none() {
+            let created = edit::edited("", &edit::layout(tool, None, command)?.connect)?;
+            if source == created {
+                return Ok((
+                    vec![Change::at(source, 0..source.len(), String::new())],
+                    true,
+                ));
+            }
+        }
+
+        // The parser supplies the only removable property or container. For TOML an
+        // insertion can also supply one line ending or the space after an inline comma.
+        let mut candidates = Vec::new();
+        if let Some(container) = &layout.remove_container {
+            candidates.push((container.clone(), true));
+        }
+        if tool == Tool::Codex {
+            let entry = &layout.entry[0];
+            for (prefix, suffix) in [
+                ("\r\n", ""),
+                ("\n", ""),
+                ("", "\r\n"),
+                ("", "\n"),
+                ("", ", "),
+            ] {
                 if source[..entry.start].ends_with(prefix)
                     && source[entry.end..].starts_with(suffix)
                 {
-                    let change = Change::at(
-                        source,
-                        entry.start - prefix.len()..entry.end + suffix.len(),
-                        String::new(),
-                    );
-                    let result = edit::edited(source, std::slice::from_ref(&change))?;
-                    let original = r
-                        .original
-                        .as_ref()
-                        .map_or(result.is_empty(), |h| *h == hash(&result));
-                    let deletes = original && r.original.is_none();
-                    if (!foreign || original)
-                        && (deletes || edit::layout(tool, Some(&result), self.executable()).is_ok())
+                    candidates.push((
+                        vec![Change::at(
+                            source,
+                            entry.start - prefix.len()..entry.end + suffix.len(),
+                            String::new(),
+                        )],
+                        false,
+                    ));
+                }
+            }
+        }
+        candidates.push((layout.remove.clone(), false));
+        for (changes, removes_container) in candidates {
+            let result = edit::edited(source, &changes)?;
+            if receipt
+                .original
+                .as_ref()
+                .is_some_and(|digest| *digest == hash(&result))
+            {
+                // Verify the inverse with the forward writer. History supplies a digest,
+                // never a byte range, even after an editor has replaced the config inode.
+                if let Ok(before) = edit::layout(tool, Some(&result), command) {
+                    if before.entry.is_empty() && edit::edited(&result, &before.connect)? == source
                     {
-                        return Ok((vec![change], deletes));
+                        return Ok((changes, false));
                     }
                 }
-                if !foreign && prefix.ends_with("\"mcpServers\":{") {
-                    if let Some(changes) = layout.remove_container {
+            }
+            if !foreign {
+                // Nearby edits can change the digest and comma placement. The file
+                // receipt distinguishes a container we added from a pre-existing one.
+                if let Some((prefix, suffix)) = &receipt.wrapper {
+                    let entry = &layout.entry[0];
+                    let start = changes.first().unwrap().start;
+                    let last = changes.last().unwrap();
+                    let end = last.start + last.before.len();
+                    let exact = source.get(start..entry.start) == Some(prefix.as_str())
+                        && source.get(entry.end..end) == Some(suffix.as_str());
+                    let container = removes_container && prefix.ends_with(r#""mcpServers":{"#);
+                    if (exact || container) && edit::layout(tool, Some(&result), command).is_ok() {
                         return Ok((changes, false));
                     }
                 }
@@ -518,16 +568,14 @@ impl Engine {
             files::backup(&dir, name, source)?;
         }
         let result = unchanged().and_then(|()| {
-            if let Some(r) = &receipt {
-                files::set_history(&dir, name, Some(r))?;
+            files::set_history(&dir, name, receipt.as_ref())?;
+            if let Err(code) = temp.publish_checked(name, &file, preview.deletes_file, reachable) {
+                files::set_history(&dir, name, history.as_ref())?;
+                return Err(code);
             }
-
-            temp.publish_checked(name, &file, preview.deletes_file, reachable)
+            Ok(())
         });
         if let Err(code) = result {
-            if receipt.is_some() {
-                files::set_history(&dir, name, history.as_ref())?;
-            }
             if let Some(name) = backup {
                 let _ = dir.remove_file(name);
             }
@@ -546,7 +594,6 @@ impl Engine {
                         _ => (),
                     }
                 }
-                files::set_history(&dir, name, None)?;
             }
         }
         Ok(preview)

@@ -912,3 +912,64 @@ fn recheck_3_every_confirmed_takeover_keeps_the_replaced_bytes() {
     assert_eq!(fs::read(first).unwrap(), b"{}");
     assert_eq!(fs::read(file).unwrap(), br#"{"mcpServers":{},"x":1}"#);
 }
+
+#[test]
+fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_history() {
+    let h = Home::new();
+    let tool = Tool::Cursor;
+    let original = r#"{"other":{"command":"keep"},"theme":"blue"}"#;
+    let file = h.file(tool, original);
+    connect(&h.engine, tool, 1);
+    let root = files::root(&h.engine.home).unwrap();
+    let rel = file.strip_prefix(&h.engine.home).unwrap();
+    let dir = files::parent(&root, rel).unwrap();
+    let mut history = files::history(&root, rel).unwrap().unwrap();
+    history.wrapper = Some(("obsolete prefix".into(), "obsolete suffix".into()));
+    files::set_history(&dir, rel.file_name().unwrap(), Some(&history)).unwrap();
+    let editor = file.with_extension("new");
+    fs::write(&editor, fs::read(&file).unwrap()).unwrap();
+    fs::rename(editor, &file).unwrap();
+    assert!(matches!(
+        remove(&h.engine, tool, false),
+        Err(Code::ConfirmationRequired)
+    ));
+    assert!(!remove(&h.engine, tool, true).unwrap().deletes_file);
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+    assert!(files::history(&root, rel).unwrap().is_none());
+
+    connect(&h.engine, tool, 2);
+    let edited = fs::read_to_string(&file).unwrap().replace("blue", "green");
+    fs::write(&file, edited).unwrap();
+    remove(&h.engine, tool, false).unwrap();
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original.replace("blue", "green")
+    );
+    assert!(files::history(&root, rel).unwrap().is_none());
+    // A directory receipt from a newly created file describes the complete original
+    // insertion. Reuse that receipt after an editor adds a second server and settings.
+    fs::remove_file(&file).unwrap();
+    connect(&h.engine, tool, 3);
+    let creation = files::history(&root, rel).unwrap().unwrap();
+    let added = r#"{"mcpServers":{"next":{"command":"keep"}},"theme":"blue"}"#;
+    let with_entry = edit::edited(
+        added,
+        &edit::layout(tool, Some(added), h.engine.executable())
+            .unwrap()
+            .connect,
+    )
+    .unwrap();
+    let editor = file.with_extension("new");
+    fs::write(&editor, with_entry).unwrap();
+    fs::rename(editor, &file).unwrap();
+    files::set_history(&dir, rel.file_name().unwrap(), Some(&creation)).unwrap();
+    assert!(
+        !h.engine
+            .preview(tool, Action::Remove, 4)
+            .unwrap()
+            .deletes_file
+    );
+    remove(&h.engine, tool, true).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), added);
+    assert!(files::history(&root, rel).unwrap().is_none());
+}
