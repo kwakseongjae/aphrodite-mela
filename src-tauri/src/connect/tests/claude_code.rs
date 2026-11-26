@@ -25,7 +25,7 @@ impl Fixture {
             let file = file.unwrap();
             fs::copy(file.path(), fixtures.join(file.file_name())).unwrap();
         }
-        let program = home.engine.home.join("playback");
+        let program = dir.join("playback");
         fs::write(&program, SCRIPT).unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
         symlink(program, dir.join("claude")).unwrap();
@@ -98,7 +98,7 @@ fn command_preview_is_the_exact_pasteable_argv_and_only_get_runs_before_consent(
     let f = Fixture::new();
     let preview = f.proposal(Action::Connect);
     let argv = &preview["commands"][0]["argv"];
-    assert_eq!(argv[0], json!(f.e().cli_dirs[0].join("claude")));
+    assert_eq!(argv[0], json!(f.e().cli_dirs[0].join("playback")));
     assert_eq!(argv[8], "--");
     assert_eq!(argv[9], f.e().executable());
     assert_eq!(f.calls().len(), 1);
@@ -497,4 +497,39 @@ fn opus_4_astra_1_passive_discovery_never_asks_the_program() {
     assert_eq!(look["entryExists"], Value::Null);
     assert_eq!(f.status()["entryExists"], false);
     assert_eq!(f.calls().len(), 1);
+}
+
+#[test]
+fn astra_1_a_changed_program_is_refused_before_even_get_runs() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    let calls = f.calls().len();
+    let link = f.e().cli_dirs[0].join("claude");
+    let other = f.e().home.join("other");
+    fs::copy(&link, &other).unwrap();
+    fs::remove_file(&link).unwrap();
+    symlink(&other, &link).unwrap();
+    for (action, preview) in [(Action::Connect, connect), (Action::Remove, remove)] {
+        assert_eq!(f.apply(action, &preview, true)["code"], "changed");
+        assert_eq!(calls, f.calls().len());
+    }
+}
+
+#[test]
+fn opus_4_a_writable_program_or_ancestor_is_found_but_never_run() {
+    let f = Fixture::new();
+    let real = f.e().cli_dirs[0].join("claude").canonicalize().unwrap();
+    for path in [&real, &f.e().home] {
+        let original = fs::metadata(path).unwrap().permissions();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o775)).unwrap();
+        let look = json!(f.e().status(CLAUDE).unwrap());
+        assert_eq!(look["program"], json!(real));
+        assert_eq!(look["trusted"], false);
+        assert_eq!(f.status()["error"], "cli_untrusted");
+        assert_eq!(f.proposal(Action::Connect)["code"], "cli_untrusted");
+        assert!(f.calls().is_empty());
+        fs::set_permissions(path, original).unwrap();
+    }
 }

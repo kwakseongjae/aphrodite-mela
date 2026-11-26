@@ -37,6 +37,8 @@ fn runtime(app: tauri::AppHandle) -> Result<Engine> {
         home.join(".local/bin"),
         "/opt/homebrew/bin".into(),
         "/usr/local/bin".into(),
+    ]);
+    e.claude_dirs.extend([
         home.join(".claude/local"),
         home.join(".npm-global/bin"),
         home.join(".volta/bin"),

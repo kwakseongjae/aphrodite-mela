@@ -184,6 +184,12 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     out.installed = true;
     out.copy_only = false;
     out.program = Some(program.path.clone());
+    out.trusted = Some(program.trusted);
+    if !program.trusted {
+        out.copy_only = true;
+        out.error = Some(Code::CliUntrusted);
+        return Ok(());
+    }
     if !ask {
         return Ok(());
     }
@@ -254,6 +260,7 @@ impl Invocation {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandPreview {
+    program: Program,
     tool: Tool,
     action: Action,
     commands: Vec<Invocation>,
@@ -315,6 +322,7 @@ impl State {
         }
         let will_repoint = action == Action::Connect && owned && !here;
         Ok(CommandPreview {
+            program: self.program.clone(),
             tool: Tool::ClaudeCode,
             action,
             commands,
@@ -326,7 +334,7 @@ impl State {
             will_repoint,
             replacement_required: action == Action::Connect && foreign,
             confirmation_required: foreign,
-            fingerprint: self.fingerprint(e, action),
+            fingerprint: format!("{}.{}", self.program.binding(), self.fingerprint(e, action)),
         })
     }
 }
@@ -415,15 +423,16 @@ pub(super) fn execute(
     fingerprint: &str,
     confirm: bool,
 ) -> Result<CommandResult, CommandResult> {
-    if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let (binding, digest) = fingerprint.split_once('.').ok_or(Code::Changed)?;
+    let program = Program::find(e).ok_or(Code::Changed)?;
+    if !program.trusted || binding != program.binding() || digest.len() != 64 {
         return Err(Code::Changed.into());
     }
     let home = files::root(&e.home)?.into_std_file();
     // Serialize with other Aphrodite instances before the final get and through compensation.
     fs2::FileExt::lock_exclusive(&home).map_err(|_| Code::Io)?;
-    let program = Program::find(e).ok_or(Code::Changed)?;
     let state = State::inspect(e, program, &home)?;
-    if state.fingerprint(e, action) != fingerprint {
+    if state.fingerprint(e, action) != digest {
         return Err(Code::Changed.into());
     }
     let plan = state.plan(e, action)?;

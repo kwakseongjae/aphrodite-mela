@@ -43,6 +43,7 @@ pub enum Code {
     UnknownLocation,
     WorkerFailed,
     CliNotFound,
+    CliUntrusted,
     CliStartFailed,
     CliTimeout,
     CliOutputLimit,
@@ -117,6 +118,8 @@ pub struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     program: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    trusted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     exit_status: Option<i32>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
@@ -181,6 +184,7 @@ struct Engine {
     claude_config_dir: Option<PathBuf>,
     cli_timeout: std::time::Duration,
     cli_dirs: Vec<PathBuf>,
+    claude_dirs: Vec<PathBuf>,
     app_dirs: Vec<PathBuf>,
 }
 impl Engine {
@@ -193,6 +197,7 @@ impl Engine {
             exe,
             location: Location::Installed,
             cli_dirs: vec![],
+            claude_dirs: vec![],
             app_dirs: vec![],
         }
     }
@@ -261,6 +266,7 @@ impl Engine {
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,
             program: None,
+            trusted: None,
             exit_status: None,
             config_exists: None,
             entry_exists: None,
