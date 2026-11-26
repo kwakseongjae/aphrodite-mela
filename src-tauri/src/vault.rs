@@ -231,7 +231,7 @@ fn listing(root: &Path) -> Result<Value, String> {
     let docs = directory(root, "documents")?;
     for entry in fs::read_dir(docs).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
-        if entry.file_type().map_err(|e| e.to_string())?.is_file() {
+        if !entry.file_name().as_encoded_bytes().starts_with(b".") && entry.file_type().map_err(|e| e.to_string())?.is_file() {
             files.push(json!({"name":entry.file_name().to_string_lossy(),"kind":"document","bytes":entry.metadata().map_err(|e|e.to_string())?.len()}));
         }
     }
@@ -358,6 +358,16 @@ mod tests {
         )
         .is_err());
         assert_eq!(current(d.path()).unwrap(), prior);
+    }
+    #[test]
+    fn opus_9_a_siblings_temporary_document_is_hidden() {
+        let dir=tempfile::tempdir().unwrap();
+        snapshot(dir.path(),&json!({}),"").unwrap();
+        write_document(dir.path(),"real.md","kept").unwrap();
+        let pending=tempfile::NamedTempFile::new_in(dir.path().join("documents")).unwrap();
+        let files=listing(dir.path()).unwrap()["files"].as_array().unwrap().clone();
+        assert!(files.iter().any(|v| v["name"]=="real.md"));
+        assert!(!files.iter().any(|v| v["name"]==pending.path().file_name().unwrap().to_str().unwrap()));
     }
     #[test]
     fn documents_do_not_overwrite() {

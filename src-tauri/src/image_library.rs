@@ -272,12 +272,18 @@ pub async fn image_library_import(app: AppHandle, name: String, base64: String, 
 
 // Readers can run during an import. Publish all bytes at once while retaining the library's
 // normal create mode (subject to umask) and first writer for this content-addressed name.
-fn publish_import(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::{io::{ErrorKind, Write}, os::unix::fs::PermissionsExt};
-    if path.exists() { return Ok(()); }
-    let mut temp = tempfile::Builder::new()
+fn stage_import(dir: &Path) -> std::io::Result<(tempfile::TempDir, tempfile::NamedTempFile)> {
+    use std::os::unix::fs::PermissionsExt;
+    let staging = tempfile::Builder::new().prefix(".import-").tempdir_in(dir)?;
+    let file = tempfile::Builder::new()
         .permissions(fs::Permissions::from_mode(0o666))
-        .tempfile_in(path.parent().unwrap())?;
+        .tempfile_in(staging.path())?;
+    Ok((staging, file))
+}
+fn publish_import(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::{ErrorKind, Write};
+    if path.exists() { return Ok(()); }
+    let (_staging, mut temp) = stage_import(path.parent().unwrap())?;
     temp.write_all(bytes)?;
     match temp.persist_noclobber(path) {
         Ok(_) => Ok(()),
@@ -427,6 +433,18 @@ mod tests {
         assert_eq!(extension("image/webp"), "webp");
     }
 
+    #[test]
+    fn astra_13_a_staged_png_signature_is_invisible_to_library_readers() {
+        use std::io::Write;
+        let dir=tempfile::tempdir().unwrap();
+        let (staging,mut image)=stage_import(dir.path()).unwrap();
+        image.write_all(b"\x89PNG\r\n\x1a\npartial").unwrap();
+        assert!(read_entry(image.path()).is_some());
+        let mut images=Vec::new();
+        scan(dir.path(),"global",&mut Vec::new(),&mut images);
+        assert!(images.is_empty());
+        assert!(read_entry(staging.path()).is_none());
+    }
     #[test]
     fn an_import_publishes_a_complete_file_with_the_library_mode_and_keeps_an_existing_one() {
         use std::os::unix::fs::PermissionsExt;
