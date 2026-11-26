@@ -941,7 +941,7 @@ function render() {
       ${tabs.length?`<div class="library-tabs ui-tabs" role="tablist" aria-label="Library view">${tabs.map(t => `<button role="tab" aria-selected="${t === tab}" class="ui-tab ${t === tab ? 'active' : ''}" data-action="tab" data-tab="${t}">${control(t[0].toUpperCase() + t.slice(1))}</button>`).join('')}</div>
       <div class="library-content">${libraryHtml()}</div>`:'<div class="library-fill"></div>'}
       ${sections?`<button class="system-card" data-action="systems"><span class="system-mini" style="--swatch:${project.system.accent}">${icon('palette')}</span><div><small>${ui('DESIGN SYSTEM','디자인 시스템')}</small><strong>${esc(project.system.name)} ${icon('chevron-down')}</strong><span>${ui('Powered by your design contract','디자인 계약을 따릅니다')}</span></div></button>`:''}
-      <div class="library-bottom ui-side-foot">${icon('upload','ui-icon ui-icon-sm')}<span class="library-drop">${ui('Drop pictures or videos here and they land on this board','그림이나 영상을 끌어다 놓으면 이 보드에 올라갑니다')}</span><button type="button" class="ui-icon-btn" data-action="agent" aria-label="${control('Computer use guide')}" title="${control('Computer use guide')}">${icon('arrow-up-right','ui-icon ui-icon-sm')}</button></div>
+      <div class="library-bottom ui-side-foot">${icon('upload','ui-icon ui-icon-sm')}<span class="library-drop">${ui('Drop pictures or videos onto the board.','그림이나 영상을 보드에 끌어다 놓으세요.')}</span><button type="button" class="ui-icon-btn" data-action="agent" aria-label="${control('Computer use guide')}" title="${control('Computer use guide')}">${icon('arrow-up-right','ui-icon ui-icon-sm')}</button></div>
     </aside>
     <main class="workbench" data-keep="workbench">
 
