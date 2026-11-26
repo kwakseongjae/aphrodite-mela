@@ -2378,7 +2378,8 @@ function mountSpace(){
   if(spaceHeld)space.classList.add('pan-ready');
   applyCamera();
   // A board with nothing on it yet keeps the fit for the render that first shows a frame.
-  if(cameraFitPending&&fitAll())cameraFitPending=false;
+  if(!visiblePages(project).length)cameraFitPending=true;
+  else if(cameraFitPending&&fitAll())cameraFitPending=false;
   space.addEventListener('wheel',e=>{
     e.preventDefault();
     if(e.ctrlKey||e.metaKey){camera=zoomAt(camera,spaceLocal(e),camera.zoom*Math.exp(-e.deltaY*0.01));}
