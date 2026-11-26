@@ -16,7 +16,7 @@ function setup() {
   const project = newBoard('Test');
   ensureSpace(project);
   const history = newHistory(project);
-  const target: ImportTarget = {current: () => project, defaultName: n => 'Sheet ' + n,
+  const target: ImportTarget = {current: () => project, storage: () => ({library: {version: 1, entries: []}, limit: {unit: 'bytes', limit: 100_000_000}}), defaultName: n => 'Sheet ' + n,
     commit(change, dispatch, row) {
       const before = begin(project, history);
       change();
@@ -224,7 +224,7 @@ test('a document that exceeds the remaining design budget leaves its slot for a 
     media: async () => { throw 'missing'; }};
   const out = await importHtml(input, person, target);
   assert.deepEqual(out.pages.map(p => p.name), ['b.html']);
-  assert.deepEqual(out.documents, [{name: 'a.html', code: 'board_limit'}]);
+  assert.deepEqual(out.documents, [{name: 'a.html', code: 'design_limit'}]);
 });
 
 test('source maps do not participate in bringing in a stylesheet', async () => {
@@ -343,4 +343,28 @@ test('image-set strings, remote candidates and invalid srcset descriptors are ac
   assert.equal(r.report.remote, 1);
   assert.deepEqual(r.report.skipped.map(i => i.name), ['invalid.png', 'c.png']);
   assert.match(r.html!, /media:a{64}/);
+});
+
+test('a pending inspector rename flushed inside commit survives the final fit', async () => {
+  const {project, target} = setup();
+  const commit = target.commit;
+  target.commit = (...args) => { project.pages[0].name = 'Typed before the press'; commit(...args); };
+  const r = await importHtml({text: '<main>new</main>'}, person, target);
+  assert.equal(project.pages[0].name, 'Typed before the press');
+  assert.equal(r.pages[0].id, project.pages[1].id);
+});
+
+test('the batch and single-page fallback respect the live browser library including history reserve', async () => {
+  const {project, target} = setup();
+  for (let i = 0; i < 2; i++) project.pages.push({id: 'big' + i, name: 'Big', kind: 'html', blocks: [], html: 'x'.repeat(1_750_000)});
+  const {BROWSER_LIBRARY_ESTIMATE} = await import('../src/workspace/library');
+  const commit = target.commit;
+  target.commit = (...args) => {
+    target.storage = () => ({library: {version: 1, entries: []}, limit: {unit: 'chars', limit: BROWSER_LIBRARY_ESTIMATE}});
+    commit(...args);
+  };
+  const r = await importHtml({names: ['a.html', 'b.html'], read: async n => Buffer.from('<p>' + (n === 'a.html' ? 'x'.repeat(500_000) : 'ok')),
+    media: async () => { throw 'missing'; }}, person, target);
+  assert.deepEqual(r.pages.map(p => p.name), ['b.html']);
+  assert.deepEqual(r.documents, [{name: 'a.html', code: 'library_limit'}]);
 });
