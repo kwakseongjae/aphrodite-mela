@@ -121,6 +121,8 @@ pub struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     trusted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    unfinished_repoint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     exit_status: Option<i32>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
@@ -283,6 +285,7 @@ impl Engine {
             copy_only: tool == Tool::ClaudeCode,
             program: None,
             trusted: None,
+            unfinished_repoint: None,
             exit_status: None,
             config_exists: None,
             entry_exists: None,

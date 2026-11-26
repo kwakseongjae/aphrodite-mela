@@ -1,6 +1,6 @@
 //! User-scope registration through Claude Code's CLI. Raw CLI output stays here.
 use super::{
-    claude_record::{Record, Store},
+    claude_record::{Record, Repoint, Store},
     cli_process::Program,
     hash, Action, Code, Engine, Proposal, Status, Tool,
 };
@@ -21,6 +21,8 @@ pub struct CommandResult {
     restore_exit_status: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     restore_error: Option<Code>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    observed: Option<Observation>,
 }
 impl CommandResult {
     pub(super) fn new(code: Code, exit_status: Option<i32>) -> Self {
@@ -31,6 +33,7 @@ impl CommandResult {
             cause: None,
             restore_exit_status: None,
             restore_error: None,
+            observed: None,
         }
     }
 }
@@ -40,6 +43,15 @@ impl From<Code> for CommandResult {
     }
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Observation {
+    entry_exists: Option<bool>,
+    owned: Option<bool>,
+    points_here: Option<bool>,
+    error: Option<Code>,
+    exit_status: Option<i32>,
+}
 struct Entry {
     command: Option<String>,
     plain_stdio: bool,
@@ -137,6 +149,13 @@ fn named_values(lines: &[&str], separator: &str) -> bool {
 
 impl State {
     fn inspect(e: &Engine, program: Program, store: &Store) -> Result<Self, CommandResult> {
+        let mut state = Self::query(e, program, store.read()?)?;
+        if state.entry.is_none() && state.record.registered.take().is_some() {
+            store.save(&state.record)?;
+        }
+        Ok(state)
+    }
+    fn query(e: &Engine, program: Program, record: Record) -> Result<Self, CommandResult> {
         let output = program.run(e, &["mcp", "get", "aphrodite"])?;
         let entry = match output.status {
             Some(0) => Some(
@@ -145,10 +164,6 @@ impl State {
             Some(1) if missing(&output.stderr) || missing(&output.stdout) => None,
             _ => return Err(CommandResult::new(Code::CliGetFailed, output.status)),
         };
-        let mut record = store.read()?;
-        if entry.is_none() && record.registered.take().is_some() {
-            store.save(&record)?;
-        }
         Ok(Self {
             program,
             entry,
@@ -168,6 +183,10 @@ impl State {
 }
 
 pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<()> {
+    match Store::peek(e) {
+        Ok(record) => out.unfinished_repoint = Some(record.pending.is_some()),
+        Err(code) => out.error = Some(code),
+    }
     let Some(program) = Program::find(e) else {
         return Ok(());
     };
@@ -186,6 +205,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     let store = Store::lock(e)?;
     match State::inspect(e, program, &store) {
         Ok(state) => {
+            out.unfinished_repoint = Some(state.record.pending.is_some());
             out.entry_exists = Some(state.entry.is_some());
             out.points_here = Some(state.points_here(e));
             out.owned = Some(state.owned(e));
@@ -288,6 +308,7 @@ pub struct CommandPreview {
     on_add_failure: Option<Invocation>,
     will_repoint: bool,
     replacement_required: bool,
+    cannot_restore_replacement: bool,
     confirmation_required: bool,
     fingerprint: String,
 }
@@ -331,18 +352,21 @@ impl State {
         if action == Action::Connect && !noop {
             commands.push(lines.for_action(Action::Connect, e.executable()));
         }
-        let will_repoint = action == Action::Connect && owned && !here;
+        let previous = if action == Action::Connect && owned && !here {
+            self.record.registered.as_deref()
+        } else if action == Action::Connect && !exists {
+            self.record.pending.as_ref().map(|p| p.previous.as_str())
+        } else {
+            None
+        };
+        let will_repoint = previous.is_some();
         Ok(CommandPreview {
             program: self.program.clone(),
             tool: Tool::ClaudeCode,
             action,
             commands,
-            on_add_failure: self
-                .record
-                .registered
-                .as_ref()
-                .filter(|_| will_repoint)
-                .map(|path| lines.for_action(Action::Connect, path)),
+            on_add_failure: previous.map(|p| lines.for_action(Action::Connect, p)),
+            cannot_restore_replacement: action == Action::Connect && foreign,
             will_repoint,
             replacement_required: action == Action::Connect && foreign,
             confirmation_required: foreign,
@@ -362,7 +386,9 @@ pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
             snippet: Lines::new(e, None)?.for_action(action, e.executable()).line,
         });
     };
-    if !program.trusted { return Err(Code::CliUntrusted); }
+    if !program.trusted {
+        return Err(Code::CliUntrusted);
+    }
     let store = Store::lock(e)?;
     Ok(
         match State::inspect(e, program, &store).and_then(|s| s.plan(e, action)) {
@@ -416,6 +442,7 @@ fn save_record(
     if store
         .save(&Record {
             registered: registered.map(str::to_owned),
+            pending: None,
         })
         .is_err()
     {
@@ -441,7 +468,7 @@ pub(super) fn execute(
         return Err(Code::Changed.into());
     }
     let store = Store::lock(e)?;
-    let state = State::inspect(e, program, &store)?;
+    let mut state = State::inspect(e, program, &store)?;
     if state.fingerprint(e, action) != digest {
         return Err(Code::Changed.into());
     }
@@ -452,7 +479,9 @@ pub(super) fn execute(
     let Some(first) = plan.commands.first() else {
         let result = Code::AlreadyConnected.into();
         return Ok(
-            if state.record.registered.as_deref() == Some(e.executable()) {
+            if state.record.registered.as_deref() == Some(e.executable())
+                && state.record.pending.is_none()
+            {
                 result
             } else {
                 save_record(&store, Some(e.executable()), result)
@@ -461,33 +490,120 @@ pub(super) fn execute(
     };
 
     if state.entry.is_some() {
-        let removed = first.run(e, &state.program, Action::Remove)?;
+        if plan.on_add_failure.is_some() {
+            let previous = state.record.registered.clone().ok_or(Code::RecordFailed)?;
+            state.record.pending = Some(Repoint {
+                previous,
+                target: e.executable().to_owned(),
+            });
+            store.save(&state.record)?;
+        }
+        let removed = first
+            .run(e, &state.program, Action::Remove)
+            .map_err(|err| state.reconcile(e, &store, &plan, Action::Remove, err))?;
         if action == Action::Remove {
             return Ok(save_record(&store, None, removed));
         }
     }
     let add = plan.commands.last().unwrap();
-    match add.run(e, &state.program, Action::Connect) {
-        Ok(added) => Ok(save_record(&store, Some(e.executable()), added)),
-        Err(mut failure) => {
-            if let Some(restore) = plan.on_add_failure {
-                failure.cause = Some(failure.code);
-                match restore.run(e, &state.program, Action::Connect) {
-                    Ok(restored) => {
-                        failure.code = Code::RepointRestored;
-                        failure.restore_exit_status = restored.exit_status;
-                    }
-                    Err(err) => {
-                        failure.code = Code::RepointRestoreFailed;
-                        failure.restore_exit_status = err.exit_status;
-                        failure.restore_error = Some(err.code);
-                    }
-                }
-            } else if state.entry.is_some() {
+    add.run(e, &state.program, Action::Connect)
+        .map(|added| save_record(&store, Some(e.executable()), added))
+        .map_err(|err| state.reconcile(e, &store, &plan, Action::Connect, err))
+}
+
+impl State {
+    fn observe(&self, e: &Engine, result: &mut CommandResult) -> Option<State> {
+        match State::query(e, self.program.clone(), self.record.clone()) {
+            Ok(now) => {
+                result.observed = Some(Observation {
+                    entry_exists: Some(now.entry.is_some()),
+                    owned: Some(now.owned(e)),
+                    points_here: Some(now.points_here(e)),
+                    error: None,
+                    exit_status: now.get_exit,
+                });
+                Some(now)
+            }
+            Err(err) => {
+                result.observed = Some(Observation {
+                    entry_exists: None,
+                    owned: None,
+                    points_here: None,
+                    error: Some(err.code),
+                    exit_status: err.exit_status,
+                });
+                None
+            }
+        }
+    }
+
+    fn reconcile(
+        &self,
+        e: &Engine,
+        store: &Store,
+        plan: &CommandPreview,
+        failed_step: Action,
+        mut failure: CommandResult,
+    ) -> CommandResult {
+        let Some(now) = self.observe(e, &mut failure) else {
+            return failure;
+        };
+        if let Some(entry) = &now.entry {
+            if entry.plain_stdio && now.points_here(e) {
+                return save_record(store, Some(e.executable()), failure);
+            }
+            // A failed remove may have left the old definition intact. An intervening
+            // definition remains untouched and the next press requires a fresh preview.
+            if self.record.pending.is_some()
+                && self
+                    .entry
+                    .as_ref()
+                    .is_some_and(|old| old.digest == entry.digest)
+            {
+                return save_record(store, self.record.registered.as_deref(), failure);
+            }
+            return failure;
+        }
+        let Some(restore) = &plan.on_add_failure else {
+            if plan.replacement_required && failed_step == Action::Connect {
                 failure.cause = Some(failure.code);
                 failure.code = Code::ForeignRemovedAddFailed;
             }
-            Err(failure)
+            return save_record(store, None, failure);
+        };
+        // Only the confirmed recovery command may run, and only after observing absence.
+        failure.cause = Some(failure.code);
+        match restore.run(e, &self.program, Action::Connect) {
+            Ok(result) => failure.restore_exit_status = result.exit_status,
+            Err(err) => {
+                failure.restore_exit_status = err.exit_status;
+                failure.restore_error = Some(err.code);
+            }
+        }
+        let Some(after) = self.observe(e, &mut failure) else {
+            return failure;
+        };
+        let previous = self.record.pending.as_ref().map(|p| p.previous.as_str());
+        if after
+            .entry
+            .as_ref()
+            .is_some_and(|v| v.plain_stdio && v.command.as_deref() == previous)
+        {
+            failure.code = Code::RepointRestored;
+            if let Some(observed) = &mut failure.observed {
+                observed.owned = Some(true);
+            }
+            save_record(store, previous, failure)
+        } else {
+            failure.code = Code::RepointRestoreFailed;
+            if after.entry.is_none() {
+                let mut record = self.record.clone();
+                record.registered = None;
+                if store.save(&record).is_err() {
+                    failure.code = Code::RecordFailed;
+                }
+            }
+            failure
         }
     }
 }

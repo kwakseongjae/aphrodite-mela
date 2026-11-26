@@ -333,7 +333,7 @@ fn failed_add_remove_and_restore_preserve_exit_status_and_stop_the_sequence() {
     );
     let err = f.apply(Action::Connect, &p, false);
     assert_eq!(err["code"], "cli_remove_failed");
-    assert_eq!(f.calls().last().unwrap()["args"][1], "remove");
+    assert_eq!(f.calls().last().unwrap()["args"][1], "get");
     f.override_reply("add", json!({"exit":9,"err":"private-neighbor"}));
     let err = f.apply(Action::Connect, &p, false);
     assert_eq!(err["code"], "repoint_restore_failed");
@@ -699,4 +699,111 @@ fn astra_6_a_press_repairs_a_missing_record_and_observed_absence_forgets_the_old
     assert!(!path.exists());
     f.state(old.to_str().unwrap(), "");
     assert_eq!(f.status()["owned"], false);
+}
+
+#[test]
+fn opus_9_add_and_remove_limits_recheck_what_the_program_actually_changed() {
+    for (over, cause) in [
+        (json!({"hang":true}), "cli_timeout"),
+        (json!({"out":"x".repeat(70_000)}), "cli_output_limit"),
+        (json!({"signal":9}), "signal"),
+        (json!({"exit":23}), "nonzero"),
+    ] {
+        let mut f = Fixture::new();
+        f.0.engine.cli_timeout = Duration::from_secs(2);
+        for (action, verb) in [(Action::Connect, "add"), (Action::Remove, "remove")] {
+            let p = f.proposal(action);
+            let mut reply = json!({"exit":0,"afterWrite":true,"once":true});
+            reply
+                .as_object_mut()
+                .unwrap()
+                .extend(over.as_object().unwrap().clone());
+            f.override_reply(verb, reply);
+            let r = f.apply(action, &p, false);
+            assert_eq!(
+                r["observed"]["entryExists"],
+                action == Action::Connect,
+                "{cause} {verb}: {r}"
+            );
+            assert_eq!(r["observed"]["pointsHere"], action == Action::Connect);
+            assert_eq!(f.calls().last().unwrap()["args"][1], "get");
+            match cause {
+                "nonzero" => assert_eq!(r["exitStatus"], 23),
+                "signal" => assert_eq!(r["exitStatus"], Value::Null),
+                _ => assert_eq!(
+                    r["cause"].as_str().unwrap_or(r["code"].as_str().unwrap()),
+                    cause
+                ),
+            }
+        }
+    }
+}
+
+#[test]
+fn opus_7_an_add_that_wrote_before_timeout_never_restores_over_the_new_entry() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/new path/aphrodite-mcp".into();
+    f.0.engine.cli_timeout = Duration::from_secs(2);
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "add",
+        json!({"afterWrite":true, "hang":true, "once":true, "exit":0}),
+    );
+    let start = f.calls().len();
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["observed"]["pointsHere"], true);
+    assert_eq!(
+        f.calls()[start..]
+            .iter()
+            .filter(|c| c["args"][1] == "add")
+            .count(),
+        1
+    );
+    assert_eq!(f.status()["unfinishedRepoint"], false);
+    f.state("/someone/else", "");
+    assert_eq!(
+        f.proposal(Action::Connect)["cannotRestoreReplacement"],
+        true
+    );
+}
+
+#[test]
+fn astra_5_interrupted_repoint_survives_relaunch_and_requires_a_fresh_press() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"snapshot":true,"once":true,"exit":17}),
+    );
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["code"], "repoint_restored");
+    let mut fresh = Fixture::new();
+    fresh.0.engine.exe = f.e().exe.clone();
+    let path = record_path(&fresh);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::copy(f.e().home.join("repoint-snapshot"), &path).unwrap();
+    let look = json!(fresh.e().status(CLAUDE).unwrap());
+    assert_eq!(look["unfinishedRepoint"], true);
+    assert!(fresh.calls().is_empty());
+    let resume = fresh.proposal(Action::Connect);
+    assert_eq!(resume["onAddFailure"]["argv"][9], json!(old));
+    assert_eq!(fresh.calls().len(), 1);
+    fresh.state("/someone/else", "");
+    assert_eq!(
+        fresh.apply(Action::Connect, &resume, false)["code"],
+        "changed"
+    );
+    fs::remove_file(fresh.e().home.join("entry")).unwrap();
+    let resume = fresh.proposal(Action::Connect);
+    assert_eq!(
+        fresh.apply(Action::Connect, &resume, false)["code"],
+        "registered"
+    );
+    assert_eq!(fresh.status()["unfinishedRepoint"], false);
 }

@@ -14,11 +14,19 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub(super) struct Record {
     pub registered: Option<String>,
+    pub pending: Option<Repoint>,
+}
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Repoint {
+    pub previous: String,
+    pub target: String,
 }
 impl Record {
     fn valid(&self) -> bool {
         self.registered
             .iter()
+            .chain(self.pending.iter().flat_map(|p| [&p.previous, &p.target]))
             .all(|p| Path::new(p).is_absolute() && !p.contains(char::is_control))
     }
 }
@@ -111,6 +119,9 @@ impl Store {
             return Err(Code::RecordFailed);
         }
         Ok(value)
+    }
+    pub fn peek(e: &Engine) -> Result<Record> {
+        Self::read_path(&record_path(e))
     }
     pub fn read(&self) -> Result<Record> {
         Self::read_path(&self.path)
