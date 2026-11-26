@@ -12,7 +12,7 @@
  */
 import {protocol} from './protocol.mjs';
 import {once} from 'node:events';
-import {frames, decode, parse, readEndpoint, responseBody} from './wire.mjs';
+import {frames, decode, parse, fitsTree, readEndpoint, responseBody} from './wire.mjs';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -83,7 +83,7 @@ function endpoint() {
 }
 
 /** One tool call, forwarded. Errors come back as text for the model to read, not as protocol errors. */
-async function callTool(name, args) {
+async function callTool(name, args, who) {
   const tool = Object.hasOwn(toolByName,name) && toolByName[name];
   if (!tool) return {isError: true, text: `No such tool "${name}".`};
   const where = endpoint();
@@ -97,7 +97,7 @@ async function callTool(name, args) {
     headers: {
       Authorization: `Bearer ${where.token}`,
       'Content-Type': 'application/json',
-      'X-Aphrodite-Agent': caller,
+      'X-Aphrodite-Agent': who,
     },
   };
   if (tool.route.method === 'POST') {
@@ -121,7 +121,12 @@ async function callTool(name, args) {
   }
   let payload;
   try {
-    payload = parse(decode(bytes));
+    const text = decode(bytes);
+    if (!fitsTree(text, protocol.limits.responseTree)) {
+      JSON.parse(text);
+      return {isError: !response.ok, text};
+    }
+    payload = parse(text, true);
   } catch {
     return {isError: true, text: `Aphrodite answered something unexpected (HTTP ${response.status}).`};
   }
@@ -139,7 +144,7 @@ async function callTool(name, args) {
   return {isError: false, text: JSON.stringify(payload, null, 2)};
 }
 
-async function handle(message) {
+async function handle(message, who) {
   const {id, method, params} = message;
   const isRequest = id !== undefined && id !== null;
   switch (method) {
@@ -169,7 +174,7 @@ async function handle(message) {
       return reply(id, {description: prompt.description, messages: prompt.build(params?.arguments ?? {})});
     }
     case 'tools/call': {
-      const {isError, text, image} = await callTool(params?.name, params?.arguments);
+      const {isError, text, image} = await callTool(params?.name, params?.arguments, who);
       // A picture goes back as a picture: a model cannot read a page from base64 in a text block.
       const content = image
         ? [{type: 'image', data: image.data, mimeType: image.mimeType}, {type: 'text', text}]
@@ -181,7 +186,27 @@ async function handle(message) {
   }
 }
 
-let inFlight=0;
+let inFlight = 0;
+const waiting = [];
+
+function dispatch(message, who) {
+  return handle(message, who).catch(() => {
+    if (message.id != null) fail(message.id, -32603, 'Internal error');
+  });
+}
+
+async function runCalls(message, who) {
+  inFlight++;
+  try {
+    await dispatch(message, who);
+    while (waiting.length) {
+      const next = waiting.shift();
+      await dispatch(next.message, next.who);
+    }
+  } finally {
+    inFlight--;
+  }
+}
 for await (const bytes of frames(process.stdin)) {
   if (process.stdout.writableNeedDrain) await once(process.stdout,'drain');
   let message;
@@ -200,12 +225,13 @@ for await (const bytes of frames(process.stdin)) {
     reply(message.id,{content:[{type:'text',text:`No such tool "${message.params?.name}".`}],isError:true});
     continue;
   }
-  if (call && inFlight >= protocol.limits.inFlight) {
+  if (!call) {
+    void dispatch(message, caller);
+  } else if (inFlight < protocol.limits.inFlight) {
+    void runCalls(message, caller);
+  } else if (waiting.length < protocol.limits.queued) {
+    waiting.push({message, who:caller});
+  } else {
     reply(message.id,{content:[{type:'text',text:protocol.busy}],isError:true});
-    continue;
   }
-  if(call) inFlight++;
-  handle(message).catch(()=>{
-    if(message.id!=null) fail(message.id,-32603,'Internal error');
-  }).finally(()=>{if(call)inFlight--;});
 }

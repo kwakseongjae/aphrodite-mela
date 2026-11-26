@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 libc = "0.2"
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "raw_value"] }
 ureq = { version = "2.12", default-features = false }
 ryu-js = "1"
 

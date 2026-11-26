@@ -47,10 +47,9 @@ pub fn decode(bytes: &[u8]) -> Result<&str, ()> {
     let text = std::str::from_utf8(bytes).map_err(|_| ())?;
     Ok(text.strip_prefix('\u{feff}').unwrap_or(text))
 }
-pub fn parse(text: &str) -> Result<Value, ()> {
+pub fn fits_tree(text: &str, max_structure: usize) -> bool {
     let mut depth = 0usize;
     let mut structure = 0usize;
-    let max_structure = limit("structure");
     let mut quoted = false;
     let mut bytes = text.bytes();
     let limit = limit("depth");
@@ -64,7 +63,7 @@ pub fn parse(text: &str) -> Result<Value, ()> {
                 depth += 1;
                 structure += 1;
                 if depth > limit {
-                    return Err(());
+                    return false;
                 }
             }
             b'}' | b']' if !quoted => depth = depth.saturating_sub(1),
@@ -72,8 +71,15 @@ pub fn parse(text: &str) -> Result<Value, ()> {
             _ => (),
         }
         if structure > max_structure {
-            return Err(());
+            return false;
         }
+    }
+    true
+}
+
+pub fn parse(text: &str) -> Result<Value, ()> {
+    if !fits_tree(text, limit("structure")) {
+        return Err(());
     }
     serde_json::from_str(text).map_err(|_| ())
 }

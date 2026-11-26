@@ -29,9 +29,29 @@ export function decode(bytes) {
   return utf8.decode(bytes).replace(/^\uFEFF/,'');
 }
 
-export function parse(text) {
+// The tree budget limits allocations and recursive formatting. Large response trees
+// can still be validated and returned directly as JSON text within the byte budget.
+export function fitsTree(text, structureLimit=protocol.limits.structure) {
+  let level=0, structure=0, quoted=false;
+  for (let i=0; i<text.length; i++) {
+    const c=text[i];
+    if (quoted && c==='\\\\') { i++; continue; }
+    if (c==='"') { quoted=!quoted; continue; }
+    if (quoted) continue;
+    if (c==='{' || c==='[') {
+      if (++level>depth) return false;
+      structure++;
+    } else if (c==='}' || c===']') level--;
+    else if (c===',' || c===':') structure++;
+    if (structure>structureLimit) return false;
+  }
+  return true;
+}
+
+export function parse(text, checked=false) {
+  if (!checked && !fitsTree(text)) throw new SyntaxError();
   // Reject deeply nested values before allocating their trees or traversing them.
-  let level=0, structure=0, start=-1, escapedUnicode=false;
+  let start=-1, escapedUnicode=false;
   for (let i=0; i<text.length; i++) {
     const c=text[i];
     if (start>=0) {
@@ -46,19 +66,11 @@ export function parse(text) {
     if (c==='"') {
       start=i;
       escapedUnicode=false;
-    } else if (c==='{' || c==='[') {
-      structure++;
-      if (++level>depth) throw new SyntaxError();
-    } else if (c==='}' || c===']') {
-      level--;
-    } else if (c===',' || c===':') {
-      structure++;
     } else if (c==='-' || (c>='0' && c<='9')) {
       const from=i;
       while(i+1<text.length && /[0-9eE+.-]/.test(text[i+1])) i++;
       if (!Number.isFinite(Number(text.slice(from,i+1)))) throw new SyntaxError();
     }
-    if (structure>protocol.limits.structure) throw new SyntaxError();
   }
   return JSON.parse(text,(_key,value)=>{
     // A JSON field called toString is data. JS interpolation must have the same

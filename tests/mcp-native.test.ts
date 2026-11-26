@@ -151,7 +151,6 @@ test('both stdio servers return identical lines and send identical loopback call
     const deadline=Date.now()+5000;
     while(held.length<8 && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,5));
     assert.equal(held.length,8);
-    assert.match((await call('aphrodite_get_contract')).result.content[0].text,/four calls/);
     await rpc('ping');
     stall=false;
     for(const res of held.splice(0)) res.end('{}');
@@ -222,4 +221,59 @@ test('Recheck 1 — only spaces and tabs make a blank frame', () => {
   const input = ['t', '\\', ' t t ', ' \t ', '\t', ping, ''].join('\n');
   const replies = rawTranscript(input);
   assert.deepEqual(replies.map(reply => reply.error?.code ?? reply.id), [-32700, -32700, -32700, 1]);
+});
+
+test('Recheck 2 — six and forty slow calls finish, and only a full waiting queue refuses a call', {timeout:45000}, async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'aph-parallel-'));
+  const file = join(dir, 'endpoint.json');
+  let active = 0, peak = 0;
+  let body = '{}', delay = 1500;
+  const app = createServer((_req, res) => {
+    peak = Math.max(peak, ++active);
+    setTimeout(() => { active--; res.end(body); }, delay);
+  });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+  writeFileSync(file, JSON.stringify({base:'http://127.0.0.1:'+(app.address() as {port:number}).port, token:'test'}));
+  t.after(() => { app.closeAllConnections(); app.close(); unlinkSync(file); rmdirSync(dir); });
+  for (const [bin,args] of [[process.execPath,[nodeServer]], [native,[]]] as const) {
+    const child = spawn(bin, [...args], {env:{...process.env, APHRODITE_ENDPOINT_FILE:file}});
+    t.after(() => child.kill());
+    const out = frames(child.stdout);
+    const request = (id:number) => child.stdin.write(JSON.stringify({id, method:'tools/call', params:{name:'aphrodite_get_contract'}})+'\n');
+    const next = async () => JSON.parse((await out.next()).value!.toString());
+    body = '{}'; delay = 1500;
+    for (const count of [6, 40, 97]) {
+      peak = 0;
+      for (let id=1; id<=count; id++) request(id);
+      const replies = [];
+      if (count === 97) {
+        child.stdin.write('{"id":0,"method":"ping"}\n');
+        // Both the overflow refusal and the ping arrive while all worker slots are occupied.
+        const immediate = [await next(), await next()].sort((a,b) => a.id-b.id);
+        assert.deepEqual(immediate[0], {jsonrpc:'2.0', id:0, result:{}});
+        assert.equal(immediate[1].id, 97);
+        replies.push(immediate[1]);
+      }
+      while (replies.length<count) replies.push(await next());
+      assert.equal(peak, Math.min(32,count));
+      replies.sort((a,b) => a.id-b.id);
+      for (const [i,reply] of replies.entries()) {
+        assert.equal(reply.id, i+1);
+        assert.equal(reply.result.isError, i===96);
+        assert.equal(reply.result.content[0].text, i===96 ? 'The Aphrodite call queue is full. Try again when a call finishes.' : '{}');
+      }
+    }
+    delay = 0;
+    body = JSON.stringify(Array(300_000).fill(0));
+    request(101);
+    const dense = await next();
+    assert.equal(dense.result.isError, false);
+    assert.equal(dense.result.content[0].text, JSON.stringify(Array(300_000).fill(0), null, 2));
+    body = '['.repeat(1024)+'0'+']'.repeat(1024);
+    request(102);
+    const deep = await next();
+    assert.equal(deep.result.isError, false);
+    assert.equal(deep.result.content[0].text, body);
+    child.stdin.end();
+  }
 });

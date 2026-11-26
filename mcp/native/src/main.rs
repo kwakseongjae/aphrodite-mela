@@ -2,13 +2,11 @@
 mod wire;
 use serde_json::{json, Map, Value};
 use std::{
+    collections::VecDeque,
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
-    },
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
 
@@ -231,13 +229,26 @@ fn call(params: &Value, who: &str, path: &Path, client: &ureq::Agent) -> Value {
         }
         Err(_) => return offline(&name),
     };
-    let Ok(mut payload) = wire::decode(&bytes).and_then(wire::parse) else {
-        return answer(
+    let unexpected = || {
+        answer(
             json!(format!(
                 "Aphrodite answered something unexpected (HTTP {status})."
             )),
             true,
-        );
+        )
+    };
+    let Ok(text) = wire::decode(&bytes) else {
+        return unexpected();
+    };
+    if !wire::fits_tree(text, wire::limit("responseTree")) {
+        // RawValue validates iteratively, without constructing or dropping a recursive tree.
+        if serde_json::from_str::<&serde_json::value::RawValue>(text).is_err() {
+            return unexpected();
+        }
+        return answer(json!(text), !(200..300).contains(&status));
+    }
+    let Ok(mut payload) = serde_json::from_str::<Value>(text) else {
+        return unexpected();
     };
     if !(200..300).contains(&status) {
         return answer(refusal(&payload, status), true);
@@ -342,7 +353,12 @@ fn main() {
         .timeout(Duration::from_secs(25))
         .build();
     let mut who = text(&data["fallbackCaller"]).to_owned();
-    let active = AtomicUsize::new(0);
+    #[derive(Default)]
+    struct Calls {
+        active: usize,
+        waiting: VecDeque<(Value, String)>,
+    }
+    let calls = Mutex::new(Calls::default());
     std::thread::scope(|workers| {
         let mut stdin = io::stdin().lock();
         while let Ok(Some(frame)) = wire::frame(&mut stdin, wire::limit("frameBytes")) {
@@ -410,32 +426,43 @@ fn main() {
                         );
                         continue;
                     }
-                    let (path, who, client) = (path.clone(), who.clone(), client.clone());
-                    if active
-                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                            (n < wire::limit("inFlight")).then_some(n + 1)
-                        })
-                        .is_err()
-                    {
-                        send(&msg, "result", answer(data["busy"].clone(), true));
+                    let mut state = calls.lock().unwrap();
+                    if state.active == wire::limit("inFlight") {
+                        if state.waiting.len() == wire::limit("queued") {
+                            drop(state);
+                            send(&msg, "result", answer(data["busy"].clone(), true));
+                        } else {
+                            state.waiting.push_back((msg, who.clone()));
+                        }
                         continue;
                     }
                     let mut header = json!({});
                     if let Some(id) = msg.get("id") {
                         header["id"] = id.clone();
                     }
-                    let count = &active;
-                    let worker = std::thread::Builder::new().spawn_scoped(workers, move || {
-                        let result = call(&msg["params"], &who, &path, &client);
+                    let (calls, path, client) = (&calls, &path, &client);
+                    let mut job = (msg, who.clone());
+                    let worker = std::thread::Builder::new().spawn_scoped(workers, move || loop {
+                        let (msg, who) = job;
+                        let result = call(&msg["params"], &who, path, client);
                         if !result.is_null() {
                             send(&msg, "result", result);
                         } else if !msg["id"].is_null() {
                             error(&msg, -32603, "Internal error".into());
                         }
-                        count.fetch_sub(1, Ordering::Release);
+                        let mut state = calls.lock().unwrap();
+                        match state.waiting.pop_front() {
+                            Some(next) => job = next,
+                            None => {
+                                state.active -= 1;
+                                break;
+                            }
+                        }
                     });
-                    if worker.is_err() {
-                        active.fetch_sub(1, Ordering::Release);
+                    if worker.is_ok() {
+                        state.active += 1;
+                    } else {
+                        drop(state);
                         error(&header, -32603, "Internal error".into());
                     }
                     continue;
