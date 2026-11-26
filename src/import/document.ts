@@ -28,27 +28,32 @@ export function inDocument(e: Element): boolean {
   return node?.nodeName === '#document';
 }
 
-export function decode(bytes: Uint8Array, format: 'html' | 'css' | 'script' = 'script'): string {
+export function encodingLabel(label?: string): string | undefined {
+  if (!label) return;
+  try { return new TextDecoder(label).encoding; } catch { return; }
+}
+
+export function decode(bytes: Uint8Array, format: 'html' | 'css' | 'script', fallback = 'utf-8') {
   if (bytes.length > MAX_TEXT_BYTES) throw 'too_large';
-  let encoding = 'utf-8';
+  let encoding = fallback;
   if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
   else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = 'utf-8';
   else if (format === 'css') {
     const declaration = new TextDecoder().decode(bytes.subarray(0, 1024)).match(/^@charset "([\x21-\x7e]+)";/);
-    if (declaration && !/^utf-16/i.test(declaration[1])) encoding = declaration[1];
+    const label = encodingLabel(declaration?.[1]);
+    if (label) encoding = label.startsWith('utf-16') ? 'utf-8' : label;
   } else if (format === 'html') {
-    const provisional = new TextDecoder().decode(bytes);
-    if (!/<meta[\t\n\f\r />]/i.test(provisional) || !/charset/i.test(provisional)) return provisional;
-    const meta = elements(provisional).find(e => e.tagName === 'meta' && attr(e, 'charset') && inDocument(e));
-    encoding = meta && attr(meta, 'charset') || encoding;
-    // HTML maps both canonical UTF-16 encodings (including their labels) to UTF-8 here.
-    try { if (['utf-8', 'utf-16le', 'utf-16be'].includes(new TextDecoder(encoding).encoding)) return provisional; }
-    catch { return provisional; }
+    const text = new TextDecoder().decode(bytes);
+    if (/<meta[\t\n\f\r />]/i.test(text) && /charset/i.test(text)) {
+      const meta = elements(text).find(e => e.tagName === 'meta' && attr(e, 'charset') && inDocument(e));
+      encoding = encodingLabel(meta && attr(meta, 'charset')) ?? 'utf-8';
+    }
+    // Without a BOM an HTML declaration for either UTF-16 encoding means UTF-8.
+    if (encoding === 'utf-8' || encoding.startsWith('utf-16')) return {text, encoding: 'utf-8'};
   }
-  let decoder: TextDecoder;
-  try { decoder = new TextDecoder(encoding); } catch { decoder = new TextDecoder(); }
-  return decoder.decode(bytes);
+  const decoder = new TextDecoder(encoding, {fatal: format !== 'html'});
+  try { return {text: decoder.decode(bytes), encoding}; } catch { throw 'encoding'; }
 }
 
 export function metadata(nodes: Element[]) {

@@ -6,13 +6,15 @@ A paste or a desktop drop brings the HTML alone. Siblings come only through the 
 
 ## What comes along
 
-A folder contributes its top-level HTML and HTM documents in filename order. The title names each page, followed by its filename or the numbered default. A numeric viewport width uses the ordinary 240–3,200 pixel range. Other viewports use the 1,440 pixel desktop preset. A byte-order mark takes precedence over an HTML meta charset. A UTF-16 meta label without a BOM means UTF-8. Undecodable bytes become replacement characters.
+A folder contributes its top-level HTML and HTM documents in filename order. The title names each page, followed by its filename or the numbered default. A numeric viewport width uses the ordinary 240–3,200 pixel range. Other viewports use the 1,440 pixel desktop preset. A byte-order mark takes precedence over an HTML meta charset. A UTF-16 meta label without a BOM means UTF-8. Undecodable HTML bytes become replacement characters.
 
 The panel gives the shell a five-minute grant pinned to an open directory. A handed-over symlink is refused. References can reach visible files inside that directory and its subfolders. Hidden components, absolute paths, file URLs and escaping links are refused. Absolute symlinks need the same spelling of the granted root. Remote references stay in the source and are counted. Importing makes no network requests.
 
 - Images, posters, audio and video sources, valid srcset and image-set candidates, and CSS URLs can bring PNG, JPEG, GIF, WebP, MP4, WebM, Ogg, WAV, MP3, WOFF, WOFF2, TTF and OTF files. The board stores their bytes by SHA-256. Pages use its ordinary media references. Fonts reach frames through typed data URLs, up to 8 MiB. The desktop asset scope excludes fonts. MP3s retain their audio type and export extension. Their internal filename gives Tauri a binary fallback for supported headers it cannot identify.
 - Enabled, non-alternate CSS stylesheets can be inlined. Only leading, top-level imports are followed. The engine keeps cascade conditions, decodes a sheet before wrapping it and leaves scoped namespaces in their sheet. A parse failure, an unsafe rewritten closing tag or a change of base for a skipped relative reference can keep a sheet external.
 - Local JS, MJS and CJS files can be inlined as classic HTML scripts. Async, deferred, module, nomodule, integrity-protected and foreign-namespace scripts stay external. The inline element must reparse to the intended text and closing boundary. Scripts use the same frame wall as any free page.
+
+Sibling scripts and sheets use their BOM first. Sheets also honor a leading CSS charset declaration. Their fallback is the element’s charset, then the document encoding. A nested sheet inherits its parent sheet’s encoding. Invalid sibling bytes leave the reference external with `encoding`.
 
 A stylesheet link or script with an event-handler attribute stays external with `event_handler`, preserving its load and error behavior.
 

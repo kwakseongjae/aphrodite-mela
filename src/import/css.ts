@@ -86,9 +86,9 @@ function conditional(sheet: string, rest: string): string {
   return wrappers.reduceRight((inner, head) => head + '{' + inner + '}', sheet);
 }
 
-export async function rewriteCss(source: string, dir: string | null, refs: References, chain: string[] = [], destination = dir): Promise<string | undefined> {
+export async function rewriteCss(source: string, dir: string | null, refs: References, encoding: string, chain: string[] = [], destination = dir): Promise<string | undefined> {
   const undoFiles = refs.checkpoint(), before = refs.skippedCount;
-  const css = await sheetText(source, dir, refs, chain);
+  const css = await sheetText(source, dir, refs, encoding, chain);
   // A relative reference left behind in another folder would resolve against a new base.
   if (css === undefined || (dir !== destination && before !== refs.skippedCount)) {
     undoFiles();
@@ -97,7 +97,7 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
   return css;
 }
 
-async function sheetText(source: string, dir: string | null, refs: References, chain: string[]): Promise<string | undefined> {
+async function sheetText(source: string, dir: string | null, refs: References, encoding: string, chain: string[]): Promise<string | undefined> {
   const before = refs.skippedCount;
   let root;
   try { root = postcss.parse(source, {from: undefined, map: false}); }
@@ -133,9 +133,9 @@ async function sheetText(source: string, dir: string | null, refs: References, c
     if (chain.includes(to.name)) { refs.skip(url, 'css_cycle'); continue; }
     if (chain.length >= IMPORT_DEPTH + 1) { refs.skip(url, 'css_depth'); continue; }
     const undoFiles = refs.checkpoint();
-    const text = await refs.text(to.name, url, 'style');
-    if (text === undefined) continue;
-    const child = await rewriteCss(text, parent(to.name), refs, [...chain, to.name], dir);
+    const sheet = await refs.text(to.name, url, 'style', encoding);
+    if (!sheet) continue;
+    const child = await rewriteCss(sheet.text, parent(to.name), refs, sheet.encoding, [...chain, to.name], dir);
     if (child === undefined) { undoFiles(); continue; }
     const css = conditional(child, node.params.slice(first.sourceEndIndex));
     try { expanded.add(node); node.replaceWith(postcss.parse(css, {from: undefined, map: false}).nodes); }

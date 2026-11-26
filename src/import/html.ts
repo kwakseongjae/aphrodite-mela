@@ -29,21 +29,21 @@ export type Issue = {name: string; code: string};
 export type ImportResult = {pages: {id: string; name: string}[]; files: {count: number; bytes: number; names: string[]}; remote: number; overflow: {skipped: number; documents: number}; skipped: Issue[]; documents: Issue[]};
 type Document = {file: string; title?: string; html: string; width?: number; names: Set<string>; files: Map<string, number>};
 
-async function textOf(value: TextInput['text']): Promise<string> {
-  if (typeof value === 'string') return value;
+async function textOf(value: TextInput['text']) {
+  if (typeof value === 'string') return {text: value, encoding: 'utf-8'};
   if (value instanceof Blob && value.size > MAX_TEXT_BYTES) throw 'too_large';
   return decode(value instanceof Blob ? new Uint8Array(await value.arrayBuffer()) : value, 'html');
 }
 
 async function prepare(file: string, input: TextInput | GrantedFiles, refs: References): Promise<Document> {
   if (file && !/\.html?$/i.test(file)) throw 'not_html';
-  const source = await textOf('text' in input ? input.text : await refs.source.read(file, 'document'));
+  const {text: source, encoding} = await textOf('text' in input ? input.text : await refs.source.read(file, 'document'));
   if (source.length > MAX_PAGE_HTML) throw 'too_large';
   if (!source.trim()) throw 'empty';
   const nodes = elements(source);
   if (!/^\s*</.test(source) || (!nodes.length && !/^\s*<!doctype\s+html[\s>]/i.test(source))) throw 'not_html';
   const {name, width} = metadata(nodes);
-  const html = await resolvePage(source, nodes, refs);
+  const html = await resolvePage(source, nodes, refs, encoding);
   if (htmlProblem(html)) throw 'invalid_html';
   return {file, title: name, width, html, names: refs.names, files: refs.files};
 }

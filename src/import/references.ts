@@ -23,7 +23,7 @@ export function address(raw: string, directory: string): Address {
 }
 export const parent = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 
-const codes = new Set(['not_html', 'invalid_html', 'outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'hidden', 'changed', 'symlink', 'read_limit', 'copy_limit', 'window_destroyed', 'io']);
+const codes = new Set(['not_html', 'invalid_html', 'outside', 'missing', 'denied', 'not_file', 'too_large', 'empty', 'unsupported', 'expired_grant', 'invalid_grant', 'person_only', 'invalid_name', 'hidden', 'changed', 'symlink', 'read_limit', 'copy_limit', 'window_destroyed', 'encoding', 'io']);
 export const readCode = (error: unknown) => typeof error === 'string' && codes.has(error) ? error : 'io';
 
 export const MAX_DOCUMENTS = 128;
@@ -112,11 +112,14 @@ export class References {
     } catch (error) { this.skip(url, readCode(error)); return portable(url); }
   }
 
-  async text(name: string, url: string, tag: 'script' | 'style') {
+  async text(name: string, url: string, tag: 'script' | 'style', fallback: string) {
     if (!(tag === 'style' ? /\.css$/i : /\.(?:js|mjs|cjs)$/i).test(name)) { this.skip(url, 'unsupported'); return; }
-    let bytes: Uint8Array;
-    try { bytes = await this.source.read(name, tag); } catch (error) { this.skip(url, readCode(error)); return; }
-    const text = decode(bytes, tag === 'style' ? 'css' : 'script');
+    let bytes: Uint8Array, decoded;
+    try {
+      bytes = await this.source.read(name, tag);
+      decoded = decode(bytes, tag === 'style' ? 'css' : 'script', fallback);
+    } catch (error) { this.skip(url, readCode(error)); return; }
+    const {text} = decoded;
     if (text.length > MAX_PAGE_HTML) { this.skip(url, 'too_large'); return; }
     // HTML raw text cannot represent an author-supplied closing tag unchanged.
     if (new RegExp(`</${tag}(?=[\\t\\n\\f\\r />])`, 'i').test(text)) { this.skip(url, 'raw_end_tag'); return; }
@@ -126,7 +129,7 @@ export class References {
     const sha = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
     this.names.add(name);
     this.files.set(sha, bytes.length);
-    return text;
+    return decoded;
   }
 }
 

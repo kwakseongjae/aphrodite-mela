@@ -1,6 +1,6 @@
 import {esc} from '../html';
 import {MAX_PAGE_HTML} from '../free-page';
-import {attr, elements, inDocument, type Element} from './document';
+import {attr, elements, encodingLabel, inDocument, type Element} from './document';
 import {rewriteCss} from './css';
 import {address, parent, portable, type References} from './references';
 
@@ -76,7 +76,7 @@ function representable(opening: string, text: string, tag: string) {
     node.childNodes.map(n => 'value' in n ? n.value : '').join('') === text;
 }
 
-export async function resolvePage(source: string, nodes: Element[], refs: References): Promise<string> {
+export async function resolvePage(source: string, nodes: Element[], refs: References, encoding = 'utf-8'): Promise<string> {
   const edits: Edit[] = [];
   let size = source.length;
   const put = (span: Span | undefined, value: string) => {
@@ -102,15 +102,15 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
       else if (to) {
         const undoFiles = refs.checkpoint();
         const tagName = stylesheet ? 'style' : 'script';
-        const text = await refs.text(to.name, external, tagName);
-        if (text !== undefined) {
+        const resource = await refs.text(to.name, external, tagName, encodingLabel(attr(e, 'charset')) ?? encoding);
+        if (resource) {
           const srcAttr = loc.attrs?.src;
           const attrs = e.attrs.filter(a => ['media', 'title', 'id', 'class', 'nonce'].includes(a.name))
             .map(a => ' ' + a.name + '="' + esc(a.value) + '"').join('');
           const opening = srcAttr && !stylesheet
             ? source.slice(start.startOffset, srcAttr.startOffset) + source.slice(srcAttr.endOffset, start.endOffset)
             : '<style' + attrs + '>';
-          const raw = stylesheet ? await rewriteCss(text, parent(to.name), refs, [to.name], dir) : text;
+          const raw = stylesheet ? await rewriteCss(resource.text, parent(to.name), refs, resource.encoding, [to.name], dir) : resource.text;
           if (raw !== undefined) {
             if (representable(opening, raw, tagName) && (stylesheet || loc.endTag)) {
               put(stylesheet ? start : loc, opening + raw + '</' + tagName + '>');
@@ -125,7 +125,7 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
     if (tag === 'style') {
       const body = {startOffset: start.endOffset, endOffset: loc.endTag?.startOffset ?? loc.endOffset};
       const undoFiles = refs.checkpoint();
-      const text = source.slice(body.startOffset, body.endOffset), css = await rewriteCss(text, dir, refs);
+      const text = source.slice(body.startOffset, body.endOffset), css = await rewriteCss(text, dir, refs, encoding);
       if (css !== undefined && css !== text) {
         if (representable('<style>', css, 'style')) put(body, css);
         else { undoFiles(); refs.skip('', 'raw_end_tag'); }
@@ -134,7 +134,7 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
     for (const a of e.attrs) {
       const key = a.prefix ? a.prefix + ':' + a.name : a.name;
       let value = a.value;
-      if (key === 'style') value = await rewriteCss(value, dir, refs) ?? value;
+      if (key === 'style') value = await rewriteCss(value, dir, refs, encoding) ?? value;
       else if (key === 'srcset' || key === 'imagesrcset') value = await srcset(value, dir, refs);
       else if ((key === 'src' && ['img', 'video', 'audio', 'source', 'input'].includes(tag)) ||
           (key === 'poster' && tag === 'video') || (a.name === 'href' && tag === 'image') ||

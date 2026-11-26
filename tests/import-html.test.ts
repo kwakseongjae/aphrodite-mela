@@ -468,3 +468,45 @@ test('stylesheet links and scripts with any event handler stay external without 
   assert.deepEqual(r.reads, ['a.html']);
   assert.deepEqual(r.report.files.names, []);
 });
+
+test('scripts and sheets decode with their charset or the document encoding, including nested sheets', async () => {
+  const {project, target} = setup();
+  const files: Record<string, Buffer> = {
+    'a.html': Buffer.from('<meta charset=windows-1252><script src=a.js></script><link rel=stylesheet href=a.css>'),
+    'b.htm': Buffer.from('<script charset=windows-1252 src=a.js></script><link charset=windows-1252 rel=stylesheet href=a.css>'),
+    'c.htm': Buffer.from('<meta charset=windows-1252><script charset=utf-8 src=b.js></script><link charset=utf-8 rel=stylesheet href=b.css>'),
+    'a.js': Buffer.from('go("café")', 'latin1'),
+    'a.css': Buffer.from('@import "nested.css"; p{content:"café"}', 'latin1'),
+    'nested.css': Buffer.from('i{content:"thé"}', 'latin1'),
+    'b.js': Buffer.from('go("春")'),
+    'b.css': Buffer.from('p{content:"春"}'),
+  };
+  const result = await importHtml({names: ['a.html', 'b.htm', 'c.htm'], read: async n => files[n], media: async () => { throw 'missing'; }}, person, target);
+  for (const page of project.pages.slice(1, 3)) {
+    assert.match(page.html!, /go\("café"\)/);
+    assert.match(page.html!, /p\{content:"café"\}/);
+    assert.match(page.html!, /i\{content:"thé"\}/);
+  }
+  assert.match(project.pages[3].html!, /go\("春"\)/);
+  assert.match(project.pages[3].html!, /p\{content:"春"\}/);
+  assert.deepEqual(result.skipped, []);
+});
+
+test('undecodable siblings remain external and a BOM or CSS declaration overrides the fallback', async () => {
+  const {project, target} = setup();
+  const linked = '<script src=a.js></script><link rel=stylesheet href=a.css>';
+  const files: Record<string, Buffer> = {
+    'a.html': Buffer.from(linked + '<script src=b.js></script><link rel=stylesheet href=b.css>'),
+    'a.js': Buffer.from('go("café")', 'latin1'),
+    'a.css': Buffer.from('p{content:"café"}', 'latin1'),
+    'b.js': Buffer.from('\ufeffgo("été")', 'utf16le'),
+    'b.css': Buffer.from('@charset "windows-1252"; p{content:"café"}', 'latin1'),
+  };
+  const result = await importHtml({names: ['a.html'], read: async n => files[n], media: async () => { throw 'missing'; }}, person, target);
+  assert.deepEqual(result.skipped, ['a.js', 'a.css'].map(name => ({name, code: 'encoding'})));
+  assert.deepEqual(result.files.names, ['b.css', 'b.js']);
+  const html = project.pages[1].html!;
+  assert.ok(html.startsWith(linked));
+  assert.match(html, /go\("été"\)/);
+  assert.match(html, /p\{content:"café"\}/);
+});
