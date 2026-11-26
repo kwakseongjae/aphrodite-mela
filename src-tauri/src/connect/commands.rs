@@ -49,16 +49,55 @@ async fn run<T: Send + 'static>(
 pub async fn connect_status(app: tauri::AppHandle) -> Result<Vec<Status>> {
     run(app, |e| TOOLS.iter().map(|&t| e.status(t)).collect()).await
 }
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Proposal {
+    Edit(Preview),
+    Copy {
+        tool: Tool,
+        path: PathBuf,
+        code: Code,
+        snippet: String,
+    },
+}
+impl Engine {
+    fn proposal(&self, tool: Tool, plan: Result<Preview>) -> Result<Proposal> {
+        match plan {
+            Ok(p) => Ok(Proposal::Edit(p)),
+            Err(
+                code @ (Code::UnsupportedLayout
+                | Code::InvalidConfig
+                | Code::Ambiguous
+                | Code::CopyOnly
+                | Code::DirectoryMissing
+                | Code::NoExtendedAttributes),
+            ) => Ok(Proposal::Copy {
+                tool,
+                path: self.path(tool),
+                code,
+                snippet: self.snippet(tool),
+            }),
+            Err(code) => Err(code),
+        }
+    }
+}
 #[tauri::command]
-pub async fn connect_preview(app: tauri::AppHandle, tool: Tool, action: Action) -> Result<Preview> {
+pub async fn connect_preview(
+    app: tauri::AppHandle,
+    tool: Tool,
+    action: Action,
+) -> Result<Proposal> {
     run(app, move |e| {
-        e.preview(
+        e.proposal(
             tool,
-            action,
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| Code::Io)?
-                .as_nanos(),
+            e.preview(
+                tool,
+                action,
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| Code::Io)?
+                    .as_nanos(),
+            ),
         )
     })
     .await
@@ -69,13 +108,16 @@ pub async fn connect_apply(
     tool: Tool,
     fingerprint: String,
     confirm_replacement: Option<bool>,
-) -> Result<Preview> {
+) -> Result<Proposal> {
     run(app, move |e| {
-        e.commit(
+        e.proposal(
             tool,
-            Action::Connect,
-            &fingerprint,
-            confirm_replacement.unwrap_or(false),
+            e.commit(
+                tool,
+                Action::Connect,
+                &fingerprint,
+                confirm_replacement.unwrap_or(false),
+            ),
         )
     })
     .await
@@ -85,9 +127,18 @@ pub async fn connect_remove(
     app: tauri::AppHandle,
     tool: Tool,
     fingerprint: String,
-) -> Result<Preview> {
+    confirm_removal: Option<bool>,
+) -> Result<Proposal> {
     run(app, move |e| {
-        e.commit(tool, Action::Remove, &fingerprint, false)
+        e.proposal(
+            tool,
+            e.commit(
+                tool,
+                Action::Remove,
+                &fingerprint,
+                confirm_removal.unwrap_or(false),
+            ),
+        )
     })
     .await
 }

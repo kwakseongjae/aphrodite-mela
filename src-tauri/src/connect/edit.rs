@@ -82,41 +82,6 @@ fn object_property<'a, 'b>(
     Ok(first)
 }
 
-// A backup contains all original bytes. Leave a config with an inline provider credential
-// untouched. Variable references are configuration text and are never expanded.
-fn provider_literal(key: &str, value: Option<&str>) -> bool {
-    matches!(
-        key,
-        "OPENAI_API_KEY"
-            | "CODEX_API_KEY"
-            | "ANTHROPIC_API_KEY"
-            | "ANTHROPIC_AUTH_TOKEN"
-            | "CLAUDE_CODE_OAUTH_TOKEN"
-    ) && value.is_some_and(|s| !s.is_empty() && !(s.starts_with("${") && s.ends_with('}')))
-}
-fn json_credential(v: &jsonc_parser::ast::Value) -> bool {
-    match v {
-        jsonc_parser::ast::Value::Object(o) => o.properties.iter().any(|p| {
-            provider_literal(
-                p.name.as_str(),
-                p.value.as_string_lit().map(|v| v.value.as_ref()),
-            ) || json_credential(&p.value)
-        }),
-        jsonc_parser::ast::Value::Array(a) => a.elements.iter().any(json_credential),
-        _ => false,
-    }
-}
-#[derive(Default)]
-struct TomlCredential(bool);
-impl<'a> toml_edit::visit::Visit<'a> for TomlCredential {
-    fn visit_table_like_kv(&mut self, key: &'a str, item: &'a Item) {
-        self.0 |= provider_literal(key, item.as_str());
-        if !self.0 {
-            toml_edit::visit::visit_table_like_kv(self, key, item);
-        }
-    }
-}
-
 fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
     let value = json_entry(tool, exe);
     let property = format!(r#""aphrodite":{value}"#);
@@ -141,14 +106,32 @@ fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
         source,
         &CollectOptions {
             tokens: true,
-            ..Default::default()
+            comments: jsonc_parser::CommentCollectionStrategy::AsTokens,
         },
         &opts,
     )
     .map_err(|_| Code::InvalidConfig)?;
-    if parsed.value.as_ref().is_some_and(json_credential) {
-        return Err(Code::ProviderCredential);
+    // Validate original bytes, masking only Cursor's two documented-by-the-parser extensions.
+    let mut strict = source.as_bytes().to_vec();
+    let mut tokens = parsed.tokens.unwrap();
+    tokens.retain(|t| {
+        if comments && matches!(t.token, Token::CommentLine(_) | Token::CommentBlock(_)) {
+            strict[t.start()..t.end()].fill(b' ');
+            false
+        } else {
+            true
+        }
+    });
+    if comments {
+        for pair in tokens.windows(2) {
+            if matches!(pair[0].token, Token::Comma)
+                && matches!(pair[1].token, Token::CloseBrace | Token::CloseBracket)
+            {
+                strict[pair[0].start()] = b' ';
+            }
+        }
     }
+    serde_json::from_slice::<serde_json::Value>(&strict).map_err(|_| Code::InvalidConfig)?;
     let root = parsed
         .value
         .as_ref()
@@ -157,14 +140,14 @@ fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
     let (parent, addition) = if let Some(servers) = object_property(root, "mcpServers")? {
         let obj = servers.value.as_object().ok_or(Code::InvalidConfig)?;
         if let Some(prop) = object_property(obj, "aphrodite")? {
-            let range = prop.value.start()..prop.value.end();
+            let range = prop.start()..prop.end();
             let command = prop
                 .value
                 .as_object()
                 .and_then(|v| v.get_string("command"))
                 .map(|v| v.value.to_string());
             let mut remove = vec![Change::at(source, prop.start()..prop.end(), String::new())];
-            let tokens = parsed.tokens.as_ref().unwrap();
+
             let after = tokens.iter().find(|t| t.start() >= prop.end());
             let before = tokens.iter().rev().find(|t| t.end() <= prop.start());
             if let Some(comma) = after
@@ -181,7 +164,7 @@ fn json(tool: Tool, original: Option<&str>, exe: &str) -> Result<Layout> {
             return Ok(Layout {
                 command,
                 entry: vec![range.clone()],
-                connect: vec![Change::at(source, range, value)],
+                connect: vec![Change::at(source, range, property)],
                 remove,
             });
         }
@@ -245,11 +228,6 @@ fn table_blocks(
 
 fn toml(source: &str, exe: &str) -> Result<Layout> {
     let doc = ImDocument::parse(source).map_err(|_| Code::InvalidConfig)?;
-    let mut credential = TomlCredential::default();
-    toml_edit::visit::Visit::visit_item(&mut credential, doc.as_item());
-    if credential.0 {
-        return Err(Code::ProviderCredential);
-    }
     let nl = if source.contains("\r\n") {
         "\r\n"
     } else {
@@ -287,6 +265,9 @@ fn toml(source: &str, exe: &str) -> Result<Layout> {
         .get("command")
         .and_then(Item::as_str)
         .map(str::to_owned);
+    if item.as_inline_table().is_some_and(|t| t.is_dotted()) {
+        return Err(Code::UnsupportedLayout);
+    }
     if item.is_value() {
         let span = item.span().ok_or(Code::InvalidConfig)?;
         let key = servers
@@ -307,7 +288,7 @@ fn toml(source: &str, exe: &str) -> Result<Layout> {
         }
         return Ok(Layout {
             command,
-            entry: vec![span.clone()],
+            entry: vec![key.start..span.end],
             connect: vec![Change::at(source, span, inline)],
             remove: vec![Change::at(source, property, String::new())],
         });
@@ -344,9 +325,24 @@ fn toml(source: &str, exe: &str) -> Result<Layout> {
 }
 
 pub fn layout(tool: Tool, source: Option<&str>, exe: &str) -> Result<Layout> {
-    if tool == Tool::Codex {
-        toml(source.unwrap_or(""), exe)
-    } else {
-        json(tool, source, exe)
+    let prefix = source.is_some_and(|s| s.starts_with('\u{feff}'));
+    if prefix && tool == Tool::ClaudeDesktop {
+        return Err(Code::UnsupportedLayout);
     }
+    let body = source.map(|s| s.strip_prefix('\u{feff}').unwrap_or(s));
+    let mut layout = if tool == Tool::Codex {
+        toml(body.unwrap_or(""), exe)?
+    } else {
+        json(tool, body, exe)?
+    };
+    if prefix {
+        for range in &mut layout.entry {
+            range.start += 3;
+            range.end += 3;
+        }
+        for change in layout.connect.iter_mut().chain(&mut layout.remove) {
+            change.start += 3;
+        }
+    }
+    Ok(layout)
 }

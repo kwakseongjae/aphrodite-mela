@@ -136,35 +136,20 @@ impl FileState {
         if self.mode & 0o222 == 0 {
             return Err(Code::NotWritable);
         }
-        let mut parent = target.parent().ok_or(Code::InvalidPath)?;
-        loop {
-            let dir = if parent.as_os_str().is_empty() {
-                root.try_clone()
-            } else {
-                root.open_dir(parent)
-            };
-            match dir {
-                Ok(dir) => {
-                    let dir = dir.into_std_file();
-                    if dir.metadata().map_err(io_code)?.permissions().mode() & 0o222 == 0 {
-                        return Err(Code::NotWritable);
-                    }
-                    // Honor ACLs as well as mode bits without creating a probe file during preview.
-                    use std::os::fd::AsRawFd;
-                    if unsafe {
-                        libc::faccessat(dir.as_raw_fd(), c".".as_ptr(), libc::W_OK | libc::X_OK, 0)
-                    } != 0
-                    {
-                        return Err(Code::NotWritable);
-                    }
-                    return Ok(());
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    parent = parent.parent().ok_or(Code::InvalidPath)?
-                }
-                Err(e) => return Err(io_code(e)),
-            }
+        use std::os::fd::AsRawFd;
+        let dir = parent(root, target)?;
+        if unsafe {
+            libc::faccessat(
+                dir.as_raw_fd(),
+                c".".as_ptr(),
+                libc::W_OK | libc::X_OK,
+                libc::AT_EACCESS,
+            )
+        } != 0
+        {
+            return Err(Code::NotWritable);
         }
+        Ok(())
     }
     pub fn temp<'d>(
         &self,
@@ -252,6 +237,11 @@ pub fn parent(root: &Dir, target: &Path) -> Result<Dir> {
     if parent.as_os_str().is_empty() {
         return root.try_clone().map_err(io_code);
     }
-    root.create_dir_all(parent).map_err(io_code)?;
-    root.open_dir(parent).map_err(io_code)
+    root.open_dir(parent).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            Code::DirectoryMissing
+        } else {
+            io_code(e)
+        }
+    })
 }

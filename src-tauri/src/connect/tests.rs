@@ -88,7 +88,10 @@ fn every_tool_checks_malformed_readonly_and_symlinked_files_without_writing() {
         let e = &h.engine;
         let valid = if tool == Tool::Codex { "# toml" } else { "{}" };
         let file = h.file(tool, "{broken");
-        assert!(e.status(tool).unwrap().error.is_some());
+        assert_eq!(
+            e.status(tool).unwrap().error.is_some(),
+            tool != Tool::ClaudeCode
+        );
         assert!(e.preview(tool, Action::Connect, 1).is_err());
         fs::write(&file, valid).unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
@@ -166,6 +169,7 @@ fn only_documented_files_are_created_and_translocation_blocks_writes() {
             assert!(!file.exists());
             continue;
         }
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
         let p = e.preview(tool, Action::Connect, 1).unwrap();
         assert!(!file.exists());
         assert!(p.backup.is_none());
@@ -193,6 +197,7 @@ fn removal_keeps_a_neighbor_added_after_the_previewed_installation() {
         let h = Home::new();
         let e = &h.engine;
         let tool = Tool::Cursor;
+        fs::create_dir_all(e.path(tool).parent().unwrap()).unwrap();
         if let Some(s) = original {
             h.file(tool, s);
         }
@@ -231,10 +236,12 @@ fn an_unowned_matching_command_is_reported_but_never_silently_claimed() {
         };
         let path = h.file(tool, &text);
         let s = e.status(tool).unwrap();
-        assert_eq!(
-            (s.entry_exists, s.points_here, s.owned),
-            (Some(true), Some(true), Some(false))
-        );
+        if tool != Tool::ClaudeCode {
+            assert_eq!(
+                (s.entry_exists, s.points_here, s.owned),
+                (Some(true), Some(true), Some(false))
+            );
+        }
         if tool != Tool::ClaudeCode {
             let p = e.preview(tool, Action::Connect, 1).unwrap();
             assert!(p.replacement_required);
@@ -271,7 +278,11 @@ fn malformed_or_ambiguous_config_and_nonwritable_directories_leave_no_backup() {
         }
         for text in invalid {
             let file = h.file(tool, text);
-            assert!(e.status(tool).unwrap().error.is_some(), "{tool:?} {text:?}");
+            assert_eq!(
+                e.status(tool).unwrap().error.is_some(),
+                tool != Tool::ClaudeCode,
+                "{tool:?} {text:?}"
+            );
             assert!(e.preview(tool, Action::Connect, 3).is_err());
             assert_eq!(fs::read_to_string(file).unwrap(), text);
         }
@@ -402,12 +413,15 @@ fn a_config_symlink_cannot_turn_a_client_credential_store_into_a_config_file() {
         )
         .unwrap();
         symlink(&credentials, &f).unwrap();
-        assert_eq!(e.status(tool).unwrap().error, Some(Code::InvalidPath));
+        assert_eq!(
+            e.status(tool).unwrap().error,
+            (tool != Tool::ClaudeCode).then_some(Code::InvalidPath)
+        );
     }
 }
 
 #[test]
-fn a_literal_provider_credential_is_never_returned_in_a_preview_or_copied_to_a_backup() {
+fn opus_7_literal_provider_fields_stay_in_rust_and_allow_preview() {
     for (tool, source) in [
         (
             Tool::Cursor,
@@ -421,7 +435,85 @@ fn a_literal_provider_credential_is_never_returned_in_a_preview_or_copied_to_a_b
         let h = Home::new();
         let e = &h.engine;
         let path = h.file(tool, source);
-        assert!(e.preview(tool, Action::Connect, 1).is_err());
+        let p = e.preview(tool, Action::Connect, 1).unwrap();
+        assert!(!serde_json::to_string(&p).unwrap().contains("synthetic"));
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn astra_5_the_serialized_preview_contains_only_our_inserted_text() {
+    let h = Home::new();
+    for (tool, source) in [
+        (
+            Tool::Cursor,
+            r#"{"mcpServers":{"aphrodite":{"headers":{"Authorization":"fixture-only"}}}}"#,
+        ),
+        (
+            Tool::Codex,
+            "[model_providers.local]\nexperimental_bearer_token='fixture-only'",
+        ),
+    ] {
+        h.file(tool, source);
+        let preview = h.engine.preview(tool, Action::Connect, 11).unwrap();
+        let public = serde_json::to_value(&preview).unwrap();
+        assert!(!public.to_string().contains("fixture-only"));
+        assert!(public["line"].is_number() && public["text"].is_string());
+        h.engine
+            .commit(tool, Action::Connect, &preview.fingerprint, true)
+            .unwrap();
+        let backup = preview.backup.unwrap();
+        assert_eq!(fs::read_to_string(&backup).unwrap(), source);
+        assert_eq!(
+            fs::metadata(backup).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
+
+#[test]
+fn astra_6_control_characters_are_invalid_in_desktop_json_and_cursor_jsonc() {
+    for tool in [Tool::ClaudeDesktop, Tool::Cursor] {
+        for input in ["{\"note\":\"left\nright\"}", "{\x0b\"note\":0}"] {
+            assert!(edit::layout(tool, Some(input), "/app").is_err());
+        }
+    }
+}
+
+#[test]
+fn astra_7_bom_is_outside_the_edit_and_inline_dotted_toml_offers_a_snippet() {
+    let h = Home::new();
+    for (tool, input) in [
+        (Tool::Codex, "\u{feff}mcp_servers.aphrodite.command='old'"),
+        (Tool::Cursor, "\u{feff}{}"),
+    ] {
+        h.file(tool, input);
+        let p = h.engine.preview(tool, Action::Connect, 7).unwrap();
+        assert!(p.edited(input).unwrap().starts_with('\u{feff}'));
+    }
+    let input = "mcp_servers = { aphrodite.command = 'old', other.command = 'keep' }";
+    h.file(Tool::Codex, input);
+    let code = h
+        .engine
+        .preview(Tool::Codex, Action::Connect, 8)
+        .err()
+        .unwrap();
+    assert_eq!(serde_json::to_value(code).unwrap(), "unsupported_layout");
+}
+
+#[test]
+fn opus_7_copy_only_status_and_missing_config_directories_need_no_file_access() {
+    let h = Home::new();
+    h.file(Tool::ClaudeCode, "unparseable private client state");
+    let status = h.engine.status(Tool::ClaudeCode).unwrap();
+    assert_eq!(
+        (status.error, status.entry_exists, status.config_exists),
+        (None, None, None)
+    );
+    for tool in [Tool::Cursor, Tool::ClaudeDesktop, Tool::Codex] {
+        let p = h.engine.path(tool);
+        assert!(!h.engine.status(tool).unwrap().installed);
+        assert!(h.engine.preview(tool, Action::Connect, 1).is_err());
+        assert!(!p.parent().unwrap().exists());
     }
 }

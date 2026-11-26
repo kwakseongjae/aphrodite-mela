@@ -22,7 +22,9 @@ type Result<T> = std::result::Result<T, Code>;
 #[serde(rename_all = "snake_case")]
 pub enum Code {
     InvalidConfig,
-    ProviderCredential,
+    UnsupportedLayout,
+    DirectoryMissing,
+    NoExtendedAttributes,
     Ambiguous,
     OutsideHome,
     InvalidPath,
@@ -91,7 +93,11 @@ pub struct Preview {
     action: Action,
     path: PathBuf,
     target: PathBuf,
+    #[serde(skip)]
     changes: Vec<Change>,
+    text: String,
+    line: usize,
+    creates_file: bool,
     backup: Option<PathBuf>,
     deletes_file: bool,
     replacement_required: bool,
@@ -227,9 +233,13 @@ impl Engine {
             owned: None,
             error: None,
         };
+        if tool == Tool::ClaudeCode {
+            return Ok(out);
+        }
         let inspect = || -> Result<(bool, bool, bool, bool)> {
             let root = files::root(&self.home)?;
             let relative = files::resolve(&root, &self.home, &path)?;
+            files::parent(&root, &relative)?;
             let f = FileState::read(&root, &relative)?;
             let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
             Ok((
@@ -245,6 +255,13 @@ impl Engine {
                 out.entry_exists = Some(exists);
                 out.points_here = Some(points);
                 out.owned = Some(owned);
+            }
+            Err(Code::DirectoryMissing) => {
+                out.installed = false;
+                out.config_exists = Some(false);
+                out.entry_exists = Some(false);
+                out.points_here = Some(false);
+                out.owned = Some(false);
             }
             Err(code) => out.error = Some(code),
         }
@@ -325,6 +342,16 @@ impl Engine {
             action,
             path: self.path(tool),
             target,
+            text: changes.iter().map(|c| c.after.as_str()).collect(),
+            line: 1 + source[..changes
+                .iter()
+                .find(|c| !c.after.is_empty())
+                .or(changes.first())
+                .map_or(0, |c| c.start)]
+                .bytes()
+                .filter(|&b| b == b'\n')
+                .count(),
+            creates_file: f.text.is_none(),
             changes,
             deletes_file,
             replacement_required: foreign,
