@@ -358,6 +358,8 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
 .space-frame.dragging{opacity:.85;outline-color:var(--ui-select)}
 .space-frame .design-page{width:100%;min-height:240px;margin:0;max-width:none}
 .design-page-inert{pointer-events:none}
+/* The person's design keeps its own colours in either theme of the app (0.3-L5): the page and every frame take no colour scheme from the app around them, as if opened on their own. */
+.design-page,iframe{color-scheme:normal}
 .board-item{position:relative;width:100%;overflow:hidden;background:var(--ui-bg-page)}
 .board-frame{display:block;width:100%;height:100%;border:0}
 .board-shield{position:absolute;inset:0;cursor:default}
@@ -372,7 +374,7 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
 .board-media [data-mounted="missing"]{visibility:hidden}#page-view-root:empty{display:none}
 .page-view{position:fixed;top:var(--page-view-top,0);right:0;bottom:0;left:0;z-index:40;display:flex;flex-direction:column;background:var(--ui-bg-app);font-family:var(--ui-font-sans);color:var(--ui-text-1)}
 .page-view-body{position:relative;flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;overflow:auto;background:var(--ui-bg-sunken)}
-.page-view-frame{display:block;flex:1;width:100%;height:100%;border:0;background:var(--ui-bg-raised)}
+.page-view-frame{display:block;flex:1;width:100%;height:100%;border:0;background:var(--ui-bg-page)}
 .page-view-media{align-self:center;max-width:100%;max-height:100%;object-fit:contain}
 .frame-open{display:inline-flex;align-items:center;padding:var(--ui-space-1);border-radius:var(--ui-radius-1);color:var(--ui-text-2)}
 .frame-open:hover{background:var(--ui-bg-hover);color:var(--ui-text-1)}
