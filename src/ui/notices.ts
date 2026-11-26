@@ -20,7 +20,7 @@ export type NoticePlace = (typeof NOTICE_PLACES)[number];
 /** What stopped the boards from being saved. A vanished folder, or a store that could not be read, is found when the
  *  app opens; the others when a save fails. */
 export type Trouble =
-  | {kind: 'vanished'; path: string; boards: number}
+  | {kind: 'vanished'; path: string; boards: number; replaced?: boolean}
   | {kind: 'full' | 'conflict' | 'failed' | 'unread'; detail: string};
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -69,7 +69,9 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
       body: safe(
         T('Last time, ' + n + ' board' + (n === 1 ? ' was' : 's were') + ' kept in this folder.', '마지막으로 열었을 때 이 폴더에 보드 ' + n + '개가 있었어요.'),
         [T('Where we looked', '찾던 곳') + ' <code class="ui-mono">' + esc(t.path) + '</code>',
-         T('A change saved now starts a new folder in the same place, so it is safer to look for the old one first.', '지금 무언가를 저장하면 같은 자리에 새 폴더가 생겨요. 예전 폴더를 먼저 찾는 편이 안전해요.')],
+         t.replaced
+           ? T('This window has since saved into a new folder in the same place. The old folder has not been found.', '그 뒤로 이 창은 같은 자리에 새 폴더를 만들어 저장하고 있어요. 예전 폴더는 아직 찾지 못했어요.')
+           : T('A change saved now starts a new folder in the same place, so it is safer to look for the old one first.', '지금 무언가를 저장하면 같은 자리에 새 폴더가 생겨요. 예전 폴더를 먼저 찾는 편이 안전해요.')],
       )
         + '<div class="ui-notice-choices">'
         + choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was, or the drive it was on is plugged in.', '폴더를 제자리에 돌려놓았거나, 폴더가 있던 디스크를 다시 꽂았다면 눌러 주세요.')})
@@ -112,6 +114,17 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
       + '<div class="ui-notice-choices">' + keep + all + (where === 'home' ? recovery : '') + reload + '</div>'
       + details(T('Details for a report', '알릴 때 붙일 자세한 내용'), t.detail)
       + foot(reopen, later, false),
+  };
+}
+
+/** Asked before a reload throws away what this window could not save. It starts on keeping it. */
+export function reloadConfirm(ko: boolean): {title: string; subtitle: string; body: string} {
+  const T = (en: string, k: string) => (ko ? k : en);
+  return {
+    title: T('Throw away the changes that were not saved, and reload?', '저장하지 못한 변경을 버리고 다시 불러올까요?'),
+    subtitle: T('Reloading opens what is saved on disk, and the changes this window could not save are gone. Saving a backup file first keeps them.', '다시 불러오면 디스크에 저장된 것이 열리고, 이 창이 저장하지 못한 변경은 사라져요. 먼저 백업 파일로 받아 두면 남길 수 있어요.'),
+    body: '<div class="ui-modal-foot ui-modal-foot-plain" data-reload-confirm><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="close-modal" data-first-focus>' + T('Keep them', '그대로 두기') + '</button>'
+      + '<button type="button" class="ui-btn ui-btn-danger ui-btn-md" data-action="disk-reload">' + T('Throw away and reload', '버리고 다시 불러오기') + '</button></div>',
   };
 }
 

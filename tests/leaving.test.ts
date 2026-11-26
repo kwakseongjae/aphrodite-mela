@@ -14,5 +14,6 @@ test('a dialog closed during a leaving gives the keys back once the leaving is o
 
 test('the welcome sample and reloading from disk take their turn in the line of leavings', () => {
   assert.match(main, /case 'welcome-sample': \{markWelcomed\(\);const sample=sampleProject\(uiLanguage\);await leave\(/);
-  assert.match(main, /async function reloadFromDisk\(\)\{\n  if\(!nativeDesktop\)return;\n[^\n]*\n  return turn\(\(\)=>reloadFromDiskNow\(\)\);/);
+  // 0.3-G2b fix 1: the question before a reload that would throw away unsaved work comes first, then the turn.
+  assert.match(main, /async function reloadFromDisk\(\)\{\n  if\(!nativeDesktop\)return;\n(?:[^\n]*\n){1,3}  return turn\(\(\)=>reloadFromDiskNow\(\)\);/);
 });

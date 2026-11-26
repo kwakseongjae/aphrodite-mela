@@ -39,6 +39,7 @@ test('the missing folder offers looking again before starting fresh, and the fir
   }
   assert.match(troubleDialog(vanished,'home',false).body,/old folder untouched/);
   assert.match(troubleDialog(vanished,'home',false).body,/6 boards/);
+  assert.match(troubleDialog({...vanished,replaced:true} as Trouble,'home',true).body,/새 폴더를 만들어 저장하고 있어요/,'once this window has saved there, it says so rather than warning it might');
 });
 
 test('a save that stopped says the work is only in this window, and offers keeping it before reloading',()=>{
@@ -179,6 +180,46 @@ test('a toast offers Undo only for the change it reports, and checks it again af
   assert.equal((main.match(/undoable\(/g)??[]).length-1,(main.match(/undoable\([^;]*,(done|moved)\)/g)??[]).length,'every Undo toast names the change it reports');
   assert.match(main,/function persist\(\) \{ if\(screen!=='editor'\)return;\n[^\n]*\n  if\(toasts\.some\(t=>t\.undo\)\)paintToasts\(\);/,'another change or a step takes a stale Undo off its toast');
   assert.match(main,/if\(control\?\.dataset\.undoFor\)\{saveTyping\(\);if\(control\.dataset\.undoFor!==undoToken\(\)\)/,'typing is saved before the check, not after it');
+});
+
+/* Astra high 4 and 5: reloading counts as saved only when something was read, the folder that went missing and the last
+   write are kept apart, and a reload that would throw away unsaved work asks first. */
+const reloadScreen=(o:Record<string,unknown>)=>{
+  const said:string[]=[];
+  const screen:Record<string,unknown>={modalRoot:{querySelector:()=>null,children:[]},closeModal:()=>{},bounded:(p:unknown)=>p,storagePath:'',
+    readBreadcrumb:()=>({path:'/old',revision:9,entries:6,at:''}),store:{},storeVanished:(s:{data:unknown})=>s.data===null?{path:'/old',revision:9,entries:6,at:''}:undefined,
+    readLibrary:()=>({version:1,entries:[{project:{id:'disk'}}]}),attachDiskQueue:()=>'fresh queue',readTidied:()=>false,queueLibrary:()=>true,LIBRARY_KEY:'k',
+    project:{id:'b'},screen:'home',openProject:()=>{},newHistory:()=>({}),render:()=>{},paintMarks:()=>{},toast:(m:string)=>{said.push(m);},ui:(en:string)=>en,
+    library:{version:1,entries:[{project:{id:'window'}}]},diskQueue:'failed queue',storageIssue:'x',saveTrouble:'No space left on device (os error 28)',startupError:'',lastSaved:false,troubleSeen:'k',
+    vanished:undefined,replacedStore:false,...o};
+  editorCalls(['async function reloadFromDiskNow('],screen);
+  return {screen,said,run:screen.reloadFromDiskNow as ()=>Promise<void>};
+};
+import {editorCalls} from './support/editor-calls';
+test('a reload that read nothing leaves the window as it was: still unsaved, still in trouble',async()=>{
+  const {screen,said,run}=reloadScreen({invoke:async()=>({revision:0,data:null,path:'/old'})});
+  await run();
+  assert.equal(screen.lastSaved,false,'nothing read, so nothing in the window is counted as saved');
+  assert.equal(screen.saveTrouble,'No space left on device (os error 28)');
+  assert.equal(screen.diskQueue,'failed queue','no fresh queue: that would be starting fresh without its question');
+  assert.deepEqual((screen.library as {entries:{project:{id:string}}[]}).entries.map(e=>e.project.id),['window']);
+  assert.match(said.join(' '),/not there|nothing saved/i);
+});
+test('a folder this window saved into after the old one went missing is not called the old one come back',async()=>{
+  const {screen,said,run}=reloadScreen({invoke:async()=>({revision:3,data:'{}',path:'/old'}),vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:true,saveTrouble:'',lastSaved:true});
+  await run();
+  assert.ok(screen.vanished,'the old folder is still missing');
+  assert.doesNotMatch(said.join(' '),/are back|Found it/);
+  const back=reloadScreen({invoke:async()=>({revision:9,data:'{}',path:'/old'}),vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,saveTrouble:'',lastSaved:true});
+  await back.run();
+  assert.equal(back.screen.vanished,undefined,'read without this window having written there: the folder is back');
+});
+test('a failed save comes before the missing folder, so the backup choices are always reached; a reload that would lose work asks',()=>{
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/function troubleNow\(\):Trouble\|undefined\{if\(saveTrouble\)/,'unsaved work first');
+  assert.match(main,/if\(saved&&!error&&vanished\)replacedStore=true;/,'a write that lands while the folder is missing made a new one');
+  const reload=main.slice(main.indexOf('async function reloadFromDisk(){'),main.indexOf('async function reloadFromDiskNow(){'));
+  assert.match(reload,/if\(\(!lastSaved\|\|saveTrouble\)&&!modalRoot\.querySelector\('\[data-reload-confirm\]'\)\)\{const c=reloadConfirm\(uiLanguage==='ko'\);showModal\(/);
 });
 
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
