@@ -1941,14 +1941,19 @@ function tourActive(){return tourIndex>=0;}
 function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();positionTour();recordRun('tour:started');}
 function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(localStorage,onboarding);syncStateAttributes();}
 function positionTour(){
-  if(!tourActive())return;const steps=tourSteps(uiLanguage);const step=steps[tourIndex];if(!step){endTour();return;}
+  if(!tourActive())return;
+  const steps=tourSteps(uiLanguage,hasSectionPage(project)).flatMap(step=>{
+    const target=document.querySelector<HTMLElement>(step.target);if(!target||target.checkVisibility?.({opacityProperty:true,visibilityProperty:true})===false)return [];
+    const r=target.getBoundingClientRect(),clip=target.closest('.library,#canvas-scroll,.inspector')?.getBoundingClientRect();
+    const visible=Math.max(0,r.left,clip?.left??0)<Math.min(innerWidth,r.right,clip?.right??innerWidth)&&Math.max(0,r.top,clip?.top??0)<Math.min(innerHeight,r.bottom,clip?.bottom??innerHeight);
+    return visible?[{step,target,r}]:[];
+  });
+  const entry=steps[tourIndex];if(!entry){endTour();return;}const {step,target,r}=entry;
   document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));
-  const target=document.querySelector<HTMLElement>(step.target);
   tourRoot.innerHTML=tourCardHtml(step,tourIndex,steps.length,uiLanguage);hydrateIcons();app.dataset.tour=step.id;
   const card=tourRoot.querySelector<HTMLElement>('.tour-card')!;
-  if(!target){Object.assign(card.style,{left:`${innerWidth/2-160}px`,top:`${innerHeight/2-90}px`});return;}
   target.classList.add('tour-target');
-  const r=target.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,gap=14;
+  const w=card.offsetWidth,h=card.offsetHeight,gap=14;
   let left=r.left+r.width/2-w/2,top=r.top-h-gap;
   if(step.placement==='bottom')top=r.bottom+gap;
   else if(step.placement==='left'){left=r.left-w-gap;top=r.top+24;}
