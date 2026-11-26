@@ -31,25 +31,29 @@ if override.exists():
     print(reply.get("err", ""), file=sys.stderr)
     sys.exit(reply["exit"])
 
+def fixture(name, **values):
+    template = (home / "fixtures" / (name + ".txt")).read_text().split("\n", 1)[1]
+    return template.format(**values)
+
 state = home / "entry"
+config = home / ".claude.json"  # display only
 if verb == "get":
     assert args == ["mcp", "get", "aphrodite"]
     if not state.exists():
-        sys.exit('No MCP server named "aphrodite". Configured servers: private-neighbor')
-    print(state.read_text())
+        sys.exit(fixture("get-missing").rstrip("\n"))
+    sys.stdout.buffer.write(state.read_bytes())
 elif verb == "add":
     assert args[:-1] == ["mcp", "add", "--transport", "stdio", "--scope", "user", "aphrodite", "--"]
     if state.exists():
-        sys.exit("MCP server aphrodite already exists in user config")
-    state.write_text(f"aphrodite:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: stdio\n  Command: {args[-1]}\n  Args: \n")
-    print(f"Added stdio MCP server aphrodite with command: {args[-1]} to user config")
+        sys.exit(fixture("add-exists").rstrip("\n"))
+    state.write_text(fixture("get-stdio", command=args[-1], args=""))
+    sys.stdout.write(fixture("add", command=args[-1], config=config))
 elif verb == "remove":
     assert args == ["mcp", "remove", "--scope", "user", "aphrodite"]
     if not state.exists():
-        sys.exit('No MCP server named "aphrodite" in user scope')
+        sys.exit(fixture("remove-missing").rstrip("\n"))
     state.unlink()
-    print("Removed MCP server aphrodite from user config")
+    sys.stdout.write(fixture("remove", config=config))
 else:
     sys.exit(2)
-print("File modified: private-neighbor", file=sys.stderr)
 PYTHON

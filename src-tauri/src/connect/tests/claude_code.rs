@@ -14,6 +14,17 @@ impl Fixture {
         let mut home = Home::new();
         let dir = home.engine.home.join("tools 'and spaces'");
         fs::create_dir(&dir).unwrap();
+        let fixtures = home.engine.home.join("fixtures");
+        fs::create_dir(&fixtures).unwrap();
+        for file in fs::read_dir(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/claude-code"
+        ))
+        .unwrap()
+        {
+            let file = file.unwrap();
+            fs::copy(file.path(), fixtures.join(file.file_name())).unwrap();
+        }
         let program = home.engine.home.join("playback");
         fs::write(&program, SCRIPT).unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
@@ -27,7 +38,22 @@ impl Fixture {
         &self.0.engine
     }
     fn state(&self, path: &str, args: &str) {
-        fs::write(self.e().home.join("entry"), format!("aphrodite:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: stdio\n  Command: {path}\n  Args: {args}\n")).unwrap();
+        let template = include_str!("../../../../tests/fixtures/claude-code/get-stdio.txt");
+        let args = if args.is_empty() {
+            String::new()
+        } else {
+            format!(" {args}")
+        };
+        fs::write(
+            self.e().home.join("entry"),
+            template
+                .split_once('\n')
+                .unwrap()
+                .1
+                .replace("{args}", &args)
+                .replace("{command}", path),
+        )
+        .unwrap();
     }
     fn override_reply(&self, verb: &str, reply: Value) {
         fs::write(
@@ -256,7 +282,7 @@ fn only_the_named_user_stanza_can_establish_ownership_and_health_is_not_configur
             "User config (available in all your projects)",
             "Project config (shared via .mcp.json)",
         ),
-        entry.replace("  Args: ", "  Args: \nambiguous continuation\n  Args: "),
+        entry.replace("  Args:", "  Args: \nambiguous continuation\n  Args:"),
     ] {
         fs::write(&path, text).unwrap();
         let s = f.status();
@@ -264,7 +290,14 @@ fn only_the_named_user_stanza_can_establish_ownership_and_health_is_not_configur
         assert!(!s.to_string().contains("private-neighbor"));
         assert_ne!(f.apply(Action::Remove, &p, true)["code"], "removed");
     }
-    fs::write(&path, "aphrodite:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: http\n  URL: https://private-neighbor\n  Headers:\n    example: private-neighbor\n").unwrap();
+    fs::write(
+        &path,
+        include_str!("../../../../tests/fixtures/claude-code/get-http.txt")
+            .split_once('\n')
+            .unwrap()
+            .1,
+    )
+    .unwrap();
     assert_eq!(f.status()["owned"], false);
     assert_eq!(f.proposal(Action::Connect)["confirmationRequired"], true);
     assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
@@ -362,7 +395,7 @@ fn a_success_line_with_extra_text_is_not_a_safe_tail() {
     let f = Fixture::new();
     let p = f.proposal(Action::Connect);
     let line = format!(
-        "Added stdio MCP server aphrodite with command: {} to user config",
+        "Added stdio MCP server aphrodite with command: {}  to user config",
         f.e().executable()
     );
     f.override_reply(
@@ -387,4 +420,70 @@ fn the_copy_fallback_for_an_absent_program_matches_the_requested_action() {
         "claude mcp remove --scope user aphrodite"
     );
     assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_1_a_fresh_real_format_registration_reads_back_as_ours() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn opus_2_only_the_real_two_space_add_acknowledgment_is_returned() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["tail"],
+        format!(
+            "Added stdio MCP server aphrodite with command: {}  to user config",
+            f.e().executable()
+        )
+    );
+}
+
+#[test]
+fn astra_4_ambiguous_fields_and_controls_never_establish_the_command() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let base = fs::read_to_string(&path).unwrap();
+    for suffix in [
+        "\r",
+        "\t",
+        "\u{85}",
+        "\n  Args: extra",
+        "\n  Command: second",
+        "\ncontinuation",
+    ] {
+        fs::write(
+            &path,
+            base.replace(
+                f.e().executable(),
+                &format!("{}{suffix}", f.e().executable()),
+            ),
+        )
+        .unwrap();
+        let status = f.status();
+        assert_eq!(status["pointsHere"], Value::Null);
+        assert_eq!(status["owned"], Value::Null);
+        assert_eq!(f.proposal(Action::Remove)["code"], "cli_unrecognized");
+    }
+    for extra in [
+        "  Other: value",
+        "  Environment:",
+        "  Status: ✓ Connected",
+        "  Args:",
+    ] {
+        fs::write(
+            &path,
+            base.replace("  Environment:", &format!("  Environment:\n{extra}")),
+        )
+        .unwrap();
+        assert_eq!(f.status()["pointsHere"], Value::Null);
+    }
 }

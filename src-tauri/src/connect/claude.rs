@@ -76,65 +76,77 @@ fn missing(bytes: &[u8]) -> bool {
 
 fn entry(stdout: &[u8]) -> Result<Entry, Code> {
     let text = std::str::from_utf8(stdout).map_err(|_| Code::CliUnrecognized)?;
-    let mut lines = text.lines().skip_while(|line| *line != "aphrodite:");
-    lines.next().ok_or(Code::CliUnrecognized)?;
-    let scope = lines
-        .next()
-        .and_then(|s| s.strip_prefix("  Scope: "))
-        .ok_or(Code::CliUnrecognized)?;
-    if scope != "User config (available in all your projects)" {
+    if text.chars().any(|c| c != '\n' && c.is_control()) {
+        return Err(Code::CliUnrecognized);
+    }
+    let lines: Vec<_> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .collect();
+    let ["aphrodite:", scope, status, body @ .., "", "To remove this server, run: claude mcp remove aphrodite -s user"] =
+        lines.as_slice()
+    else {
+        return Err(Code::CliUnrecognized);
+    };
+    if *scope != "  Scope: User config (available in all your projects)" {
         return Err(Code::CliScopeUnknown);
     }
-    // Status and Issue vary with server health. Only the definition belongs in the fingerprint.
-    // Accept only a complete stanza. A line break embedded in a configured
-    // command or argument must not turn its prefix into an apparently plain entry.
-    let mut lines = lines.peekable();
-    let mut definition = Vec::new();
-    while let Some(&line) = lines.peek() {
-        if !line.starts_with("  ") {
-            break;
-        }
-        definition.push(line);
-        lines.next();
-    }
-    let mut footer = lines.filter(|line| !line.is_empty());
-    if let Some(line) = footer.next() {
-        if !line.starts_with("To remove this server, ") || footer.next().is_some() {
-            return Err(Code::CliUnrecognized);
-        }
-    }
-    let mut block = definition
-        .into_iter()
-        .skip_while(|line| line.starts_with("  Status: ") || line.starts_with("  Issue: "));
-    let kind = block
-        .next()
-        .and_then(|s| s.strip_prefix("  Type: "))
-        .ok_or(Code::CliUnrecognized)?;
-    let fields: Vec<_> = block.collect();
-    let mut command = None;
-    let mut plain_stdio = false;
-    if kind == "stdio" {
-        let path = fields
-            .first()
-            .and_then(|s| s.strip_prefix("  Command: "))
-            .ok_or(Code::CliUnrecognized)?;
-        if !fields
-            .get(1)
-            .is_some_and(|s| *s == "  Args:" || s.starts_with("  Args: "))
-        {
-            return Err(Code::CliUnrecognized);
-        }
-        command = Some(path.to_owned());
-        plain_stdio = fields.len() == 2 && matches!(fields[1], "  Args:" | "  Args: ");
-    } else if !matches!(kind, "http" | "sse" | "ws")
-        || !fields.first().is_some_and(|s| s.starts_with("  URL: "))
+    if !status
+        .strip_prefix("  Status: ")
+        .is_some_and(|s| !s.is_empty())
     {
         return Err(Code::CliUnrecognized);
     }
+    // The health check can add one Issue line. Neither it nor Status is configuration.
+    let fields = match body {
+        [issue, rest @ ..] if issue.starts_with("  Issue: ") => rest,
+        fields => fields,
+    };
+    let (command, plain_stdio) = match fields {
+        ["  Type: stdio", command, args, options @ ..] => {
+            let path = command
+                .strip_prefix("  Command: ")
+                .filter(|p| !p.is_empty())
+                .ok_or(Code::CliUnrecognized)?;
+            let args = args
+                .strip_prefix("  Args:")
+                .filter(|s| s.is_empty() || s.starts_with(' '))
+                .ok_or(Code::CliUnrecognized)?;
+            let env = match options {
+                [] => &[][..],
+                ["  Environment:", pairs @ ..] if named_values(pairs, "=") => pairs,
+                _ => return Err(Code::CliUnrecognized),
+            };
+            (
+                Some(path.to_owned()),
+                matches!(args, "" | " ") && env.is_empty(),
+            )
+        }
+        ["  Type: http" | "  Type: sse" | "  Type: ws", url, options @ ..]
+            if url.strip_prefix("  URL: ").is_some_and(|v| !v.is_empty())
+                && (options.is_empty()
+                    || matches!(options, ["  Headers:", pairs @ ..] if named_values(pairs, ": "))) =>
+        {
+            (None, false)
+        }
+        _ => return Err(Code::CliUnrecognized),
+    };
     Ok(Entry {
         command,
         plain_stdio,
-        digest: hash(serde_json::to_vec(&(kind, fields)).unwrap()),
+        digest: hash(fields.join("\n")),
+    })
+}
+
+fn named_values(lines: &[&str], separator: &str) -> bool {
+    let mut names = std::collections::HashSet::new();
+    lines.iter().all(|line| {
+        line.strip_prefix("    ")
+            .and_then(|value| value.split_once(separator))
+            .is_some_and(|(name, _)| {
+                !name.is_empty() && !name.contains(char::is_whitespace) && names.insert(name)
+            })
     })
 }
 
@@ -356,7 +368,7 @@ impl Invocation {
         }
         let expected = match action {
             Action::Connect => format!(
-                "Added stdio MCP server aphrodite with command: {} to user config",
+                "Added stdio MCP server aphrodite with command: {}  to user config",
                 args.last().unwrap()
             ),
             Action::Remove => "Removed MCP server aphrodite from user config".to_owned(),
