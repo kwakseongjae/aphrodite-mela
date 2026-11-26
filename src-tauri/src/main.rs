@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
 mod board;
+mod connect;
+mod disk;
 mod fonts;
 mod image_library;
 mod look;
@@ -42,7 +44,14 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             look::window_look,
+            connect::connect_status,
+            connect::connect_preview,
+            connect::connect_apply,
+            connect::connect_remove,
+            connect::connect_snippet,
             reference::recognize_reference,
+            disk::disk_begin_close,
+            disk::disk_end_close,
             workspace::workspace_read,
             workspace::workspace_write,
             workspace::workspace_recovery,
@@ -91,6 +100,11 @@ fn main() {
             opened::opened_take,
             opened::opened_file_read
         ])
+        .on_window_event(|window,event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                disk::release_close(window.label(), disk::Release::WindowDestroyed);
+            }
+        })
         .build(tauri::generate_context!())
         .expect("Aphrodite could not start")
         .run(|app, event| {
