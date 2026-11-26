@@ -42,7 +42,7 @@ fn directory(root: &Path, name: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&p).map_err(|e| e.to_string())?;
     Ok(p)
 }
-fn project_root(app: &tauri::AppHandle, id: &str) -> Result<(PathBuf, Value), String> {
+fn project_root<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: &str) -> Result<(PathBuf, Value), String> {
     segment(id)?;
     let workspace = crate::workspace::workspace_read(app.clone())?;
     let data = workspace["data"].as_str().ok_or("Save a project first")?;
@@ -254,6 +254,8 @@ fn write_document(root: &Path, name: &str, text: &str) -> Result<(), String> {
     let path = safe_child(&dir, name)?;
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(|e| e.to_string())?;
     tmp.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    #[cfg(test)]
+    dispatch::before_sync(&path);
     tmp.as_file().sync_all().map_err(|e| e.to_string())?;
     tmp.persist_noclobber(path)
         .map_err(|_| "That filename already exists. Choose a new name.".to_string())?;
@@ -277,8 +279,8 @@ pub async fn vault_sync(
     }).await
 }
 #[tauri::command]
-pub async fn vault_document(
-    app: tauri::AppHandle,
+pub async fn vault_document<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     project_id: String,
     name: String,
     text: String,
@@ -451,5 +453,115 @@ mod tests {
         );
         assert!(snapshot_dir_names(d.path()).len() <= KEEP_SNAPSHOTS);
         assert!(snapshot_dir_names(d.path()).contains(&keep));
+    }
+}
+
+#[cfg(test)]
+mod dispatch {
+    use super::*;
+    use std::{
+        sync::{mpsc, Mutex},
+        time::Duration,
+    };
+    use tauri::{
+        ipc::{CallbackFn, InvokeBody},
+        test::{get_ipc_response, mock_builder, mock_context, noop_assets},
+        webview::InvokeRequest,
+    };
+
+    struct Stall {
+        path: PathBuf,
+        started: mpsc::Sender<()>,
+        finish: mpsc::Receiver<()>,
+    }
+    static STALL: Mutex<Option<Stall>> = Mutex::new(None);
+    pub(super) fn before_sync(path: &Path) {
+        let mut current = STALL.lock().unwrap();
+        if current.as_ref().is_some_and(|s| s.path == path) {
+            let stall = current.take().unwrap();
+            drop(current);
+            stall.started.send(()).unwrap();
+            stall.finish.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }
+    #[test]
+    fn astra_12_opus_9_a_dispatched_document_stalled_at_sync_holds_the_close_command() {
+        let _serial = crate::disk::TEST_SERIAL.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut context = mock_context(noop_assets());
+        context.config_mut().identifier = dir.path().to_str().unwrap().into();
+        let app = mock_builder()
+            .invoke_handler(tauri::generate_handler![
+                vault_document,
+                crate::disk::disk_begin_close,
+                crate::disk::disk_end_close
+            ])
+            .build(context)
+            .unwrap();
+        assert_eq!(app.path().app_data_dir().unwrap(), dir.path());
+        let web = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let ws = dir.path().join("workspace-v1");
+        fs::create_dir(&ws).unwrap();
+        let project = json!({"id":"fixture"});
+        let library = json!({"entries":[{"project":project}]});
+        fs::write(
+            ws.join("library.json"),
+            json!({"revision":1,"data":library.to_string()}).to_string(),
+        )
+        .unwrap();
+        let (root, _) = project_root(app.handle(), "fixture").unwrap();
+        snapshot(&root, &project, "design").unwrap();
+        let target = root.join("documents/doc.md");
+        let (started, writing) = mpsc::channel();
+        let (release, finish) = mpsc::channel();
+        *STALL.lock().unwrap() = Some(Stall {
+            path: target.clone(),
+            started,
+            finish,
+        });
+        let invoke = |cmd: &str, args: Value| {
+            get_ipc_response(
+                &web,
+                InvokeRequest {
+                    cmd: cmd.into(),
+                    body: InvokeBody::Json(args),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap()
+        };
+        std::thread::scope(|workers| {
+            let doc = workers.spawn(|| {
+                invoke(
+                    "vault_document",
+                    json!({"projectId":"fixture","name":"doc.md","text":"kept"}),
+                )
+            });
+            writing.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert_eq!(
+                invoke("disk_begin_close", json!({"ticket":"test","timeoutMs":10})),
+                false
+            );
+            assert!(!target.exists());
+            release.send(()).unwrap();
+            doc.join().unwrap();
+            assert_eq!(
+                invoke(
+                    "disk_begin_close",
+                    json!({"ticket":"test","timeoutMs":1000})
+                ),
+                true
+            );
+            assert_eq!(fs::read(target).unwrap(), b"kept");
+            invoke("disk_end_close", json!({"ticket":"test"}));
+        });
     }
 }

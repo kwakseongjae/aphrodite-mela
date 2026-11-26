@@ -45,6 +45,8 @@ fn main() {
             connect::connect_remove,
             connect::connect_snippet,
             reference::recognize_reference,
+            disk::disk_begin_close,
+            disk::disk_end_close,
             workspace::workspace_read,
             workspace::workspace_write,
             workspace::workspace_recovery,
@@ -93,6 +95,9 @@ fn main() {
             opened::opened_take,
             opened::opened_file_read
         ])
+        .on_window_event(|window,event| {
+            if matches!(event,tauri::WindowEvent::Destroyed) {disk::release_close(window.label(),None);}
+        })
         .build(tauri::generate_context!())
         .expect("Aphrodite could not start")
         .run(|app, event| {

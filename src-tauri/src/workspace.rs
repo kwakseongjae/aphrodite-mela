@@ -70,7 +70,7 @@ fn save_at(root: &Path, data: String, expected: u64) -> Result<u64, String> {
     Ok(revision)
 }
 #[tauri::command]
-pub fn workspace_read(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn workspace_read<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<Value, String> {
     let root = app
         .path()
         .app_data_dir()
