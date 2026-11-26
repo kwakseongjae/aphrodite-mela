@@ -1773,7 +1773,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
         `Start fresh? A new empty workspace will be saved. Your old folder is not deleted — it stays at ${old}.`,
         `새로 시작할까요? 빈 작업 공간을 새로 저장합니다. 예전 폴더는 지우지 않습니다 — ${old} 에 그대로 있습니다.`,
       )))break;
-      vanished=undefined;
+      vanished=undefined;if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
       if(diskQueue&&queueLibrary(library))await flushDisk();
       render();
       toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
