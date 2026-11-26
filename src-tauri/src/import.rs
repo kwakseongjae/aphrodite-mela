@@ -193,7 +193,7 @@ impl Grants {
 
 pub struct ImportState { grants: Mutex<Grants>, shell: String }
 impl ImportState {
-    fn shell(&self, window: &WebviewWindow, shell: &str) -> Result<(), Code> {
+    fn shell<R: tauri::Runtime>(&self, window: &WebviewWindow<R>, shell: &str) -> Result<(), Code> {
         if window.label() == "main" && shell == self.shell { Ok(()) } else { Err("person_only") }
     }
 }
@@ -261,14 +261,14 @@ pub async fn html_import_read(window: WebviewWindow, state: tauri::State<'_, Imp
 }
 
 #[tauri::command]
-pub async fn html_import_media(window: WebviewWindow, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, limit: u64) -> Result<crate::board::ImportAsset, Code> {
+pub async fn html_import_media<R: tauri::Runtime>(window: WebviewWindow<R>, state: tauri::State<'_, ImportState>, shell: String, grant: String, name: String, limit: u64) -> Result<crate::board::ImportAsset, String> {
     state.shell(&window, &shell)?;
     let dir = state.grants.lock().unwrap().get(&grant, Instant::now())?;
     let base = window.path().app_data_dir().map_err(|_| "io")?;
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::disk::write(move || {
         let (file, size) = dir.reader(&name, Kind::Media, limit)?;
-        crate::board::stage_page_asset(&base, file, size)
-    }).await.map_err(|_| "io")?
+        crate::board::stage_page_asset(&base, file, size).map_err(String::from)
+    }).await
 }
 
 /// Settle after the final fit, including when reading failed or the person switched boards.
@@ -286,6 +286,34 @@ pub async fn html_import_finish(window: WebviewWindow, state: tauri::State<'_, I
 mod tests {
     use super::*;
     use std::{cell::Cell, fs, os::unix::fs::symlink};
+
+    #[test]
+    fn close_waits_for_an_accepted_html_sibling_copy() {
+        use std::{future::Future, task::{Context, Waker}};
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let _serial = crate::disk::TEST_SERIAL.lock().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let app_data = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("photo.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let mut grants = Grants::default();
+        let chosen = grants.give(root.path(), Instant::now(), false).unwrap();
+        let grant = grants.get(&chosen.grant, Instant::now()).unwrap();
+        let mut context = mock_context(noop_assets());
+        context.config_mut().identifier = app_data.path().to_str().unwrap().into();
+        let app = mock_builder().manage(ImportState {grants: Mutex::new(grants), shell: "test".into()}).build(context).unwrap();
+        let web = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        tauri::async_runtime::block_on(async {
+            let lock = grant.budget.lock().unwrap();
+            let mut copy = Box::pin(html_import_media(web.clone(), app.state(), "test".into(), chosen.grant, "photo.png".into(), 64));
+            assert!(copy.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending());
+            let closed = crate::disk::disk_begin_close(web.as_ref().window(), "test".into(), 50).await.unwrap();
+            drop(lock);
+            if closed { crate::disk::disk_end_close(web.as_ref().window(), "test".into()); }
+            let copied = copy.await.unwrap();
+            assert_eq!(copied.stored.bytes, 8);
+            assert!(!closed, "an accepted import write still holds the window");
+        });
+    }
 
     #[test]
     fn bounded_enumeration_keeps_the_first_128_documents_and_counts_the_rest() {
