@@ -158,6 +158,29 @@ test('the render-failed sheet\'s buttons are the person\'s alone, and each asks 
     assert.match(main,new RegExp("case '"+name+"': (\\{)?if\\(!trusted\\|\\|refusal\\(d,'"+row.replace('.','\\.')+"'\\)\\)break;"),name);
 });
 
+/* Astra high 3: Undo on a toast takes back the change that toast is about and nothing else. commit() hands back what
+   it recorded; a change that recorded nothing gets no button; and a press saves what is being typed first, then looks
+   again at whether that change is still the last one. */
+test('a toast offers Undo only for the change it reports, and checks it again after typing is saved',async()=>{
+  const {editorCalls}=await import('./support/editor-calls');
+  const pushed:{undo?:string}[]=[];
+  const screen:Record<string,unknown>={askOpen:()=>false,toasts:[],expireToasts:(l:unknown[])=>l,pushToast:(l:unknown[],m:string,at:number,id:number,o:{undo?:string})=>{pushed.push(o);return l;},
+    boardWords:(s:string)=>s,toastId:0,paintToasts:()=>{},screen:'editor',editSession:3,project:{id:'b'},edits:{undo:[{seq:7}]}};
+  editorCalls(['function undoToken(','function undoable('],screen);
+  const undoable=screen.undoable as (m:string,c:{seq:number}|null)=>void,token=screen.undoToken as ()=>string;
+  undoable('Moved.',{seq:7});
+  assert.equal(pushed[0].undo,token(),'the change it reports is the last one, so Undo is offered');
+  undoable('Moved.',null);
+  assert.equal(pushed[1].undo,undefined,'nothing recorded, no Undo: it would take back an earlier change');
+  undoable('Moved.',{seq:6});
+  assert.notEqual(pushed[2].undo,token(),'an earlier change is never offered as the last one');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/function commit\([^]*?\n  return recorded;\n\}/,'commit hands back what it recorded');
+  assert.equal((main.match(/undoable\(/g)??[]).length-1,(main.match(/undoable\([^;]*,(done|moved)\)/g)??[]).length,'every Undo toast names the change it reports');
+  assert.match(main,/function persist\(\) \{ if\(screen!=='editor'\)return;\n[^\n]*\n  if\(toasts\.some\(t=>t\.undo\)\)paintToasts\(\);/,'another change or a step takes a stale Undo off its toast');
+  assert.match(main,/if\(control\?\.dataset\.undoFor\)\{saveTyping\(\);if\(control\.dataset\.undoFor!==undoToken\(\)\)/,'typing is saved before the check, not after it');
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};
