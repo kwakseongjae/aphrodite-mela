@@ -214,10 +214,13 @@ fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, Str
 }
 
 /// Stores a sibling from its already granted handle. The path is never reopened during the copy.
-pub(crate) fn store_page_asset(base: &Path, from: impl Read) -> Result<Stored, String> {
-    let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS)?).map_err(|e| e.to_string())?.into_temp_path();
-    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset)?;
-    settle(base, &incoming, sha, mime, bytes, None)
+pub(crate) fn store_page_asset(base: &Path, from: impl Read) -> Result<Stored, &'static str> {
+    let incoming = tempfile::NamedTempFile::new_in(folder(base, UPLOADS).map_err(|_| "io")?).map_err(|_| "io")?.into_temp_path();
+    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset).map_err(|e| {
+        if e == UNKNOWN { "unsupported" } else if e == "the file is empty." { "empty" }
+        else if e.starts_with("the file is ") { "too_large" } else { "io" }
+    })?;
+    settle(base, &incoming, sha, mime, bytes, None).map_err(|_| "io")
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {

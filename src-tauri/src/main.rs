@@ -3,6 +3,7 @@ mod agent;
 mod board;
 mod fonts;
 mod image_library;
+mod import;
 mod opened;
 mod page_wall;
 mod reference;
@@ -33,6 +34,15 @@ fn main() {
         .manage(agent::AgentBridge::default())
         .manage(opened::OpenedState(Default::default()))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(import::plugin())
+        .on_webview_event(|view, event| {
+            use tauri::Manager;
+            if view.label() == "main" {
+                if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                    for path in paths.iter().filter(|p| import::handed_html(p)) { import::hand_over(view.app_handle(), path); }
+                }
+            }
+        })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -83,6 +93,10 @@ fn main() {
             board::board_media_release,
             board::board_media_path,
             board::free_page_write,
+            import::html_import_pick,
+            import::html_import_take,
+            import::html_import_read,
+            import::html_import_media,
             opened::opened_take,
             opened::opened_file_read
         ])
@@ -92,7 +106,13 @@ fn main() {
             // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                opened::opened(app, urls);
+                let others = urls.into_iter().filter(|url| {
+                    if let Ok(path) = url.to_file_path() {
+                        if import::handed_html(&path) { import::hand_over(app, &path); return false; }
+                    }
+                    true
+                }).collect();
+                opened::opened(app, others);
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
