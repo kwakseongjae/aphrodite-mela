@@ -445,7 +445,7 @@ export function browserFrameHost(options: {pageWall?: boolean} = {}): FrameHost 
     put: async file => {
       if (file.size > MAX_BROWSER_MEDIA_BYTES) throw new Error(`the file is ${mb(file.size)} MB; a file on a board holds at most ${mb(MAX_BROWSER_MEDIA_BYTES)} MB in the browser.`);
       const mime = sniffBoardFile(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
-      if (!mime) throw new Error('the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.');
+      if (!mime) throw new Error('the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.');
       const sha = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
       const db = await open();
       // Whether it is here and putting it if not, in one transaction: no other write in this tab comes between. What

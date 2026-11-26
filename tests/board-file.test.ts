@@ -170,7 +170,7 @@ test('a file whose bytes are not its name, or not a picture or a video, is left 
   assert.deepEqual(got.left, [{file: PIC, why: 'its bytes are not the ones its name was made from'}]);
   assert.equal(s.kept.size, 0);
   const text = await readBoardFile(zipSync({'board.json': json, 'pages/0002.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: strToU8('hello')}), store().host);
-  assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture or video its name says'}]);
+  assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture, video, font or sound its name says'}]);
 });
 
 /* ---- 0.3-P3-fix1 #5 ---- */

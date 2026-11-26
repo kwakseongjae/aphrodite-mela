@@ -247,3 +247,9 @@ test('a page can carry fonts and sounds through the board store without making t
   assert.equal(await font.frameCost(sha), url.length);
   assert.equal(await font.frameMedia(sha), url);
 });
+
+test('the browser upload refusal names pictures, videos, fonts and sounds', async () => {
+  await assert.rejects(browserFrameHost().put(new Blob(['unknown'])), {
+    message: 'the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.',
+  });
+});

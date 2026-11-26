@@ -329,7 +329,7 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
     const name = carried.get(sha);
     if (!name) { left.push({file: sha, why: 'the file does not carry it'}); continue; }
     const data = take(name), mime = sniffBoardFile(data.subarray(0, 16));
-    if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture or video its name says'}); continue; }
+    if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture, video, font or sound its name says'}); continue; }
     if (await digest(data) !== sha) { left.push({file: sha, why: 'its bytes are not the ones its name was made from'}); continue; }
     verified.push([sha, name, mime]);
   }

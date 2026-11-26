@@ -99,11 +99,12 @@ fn too_big(bytes: u64) -> String {
     format!("the file is {} MB; a file on a board holds at most {} MB.", bytes.div_ceil(1024 * 1024), MAX_MEDIA_BYTES / 1024 / 1024)
 }
 
-const UNKNOWN: &str = "the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.";
+const UNKNOWN_VISUAL: &str = "the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.";
+const UNKNOWN: &str = "the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.";
 
 /// Hashes `from` into `to`, at most MAX_MEDIA_BYTES, and says what it is. A file that is something
 /// else, or grows past the cap while it is read, leaves nothing behind.
-fn copy_hashed(mut from: impl Read, to: &Path, identify: fn(&[u8]) -> Option<&'static str>) -> Result<(String, &'static str, u64), String> {
+fn copy_hashed(mut from: impl Read, to: &Path, identify: fn(&[u8]) -> Option<&'static str>, unknown: &str) -> Result<(String, &'static str, u64), String> {
     let result = (|| {
         let mut out = fs::File::create(to).map_err(|e| e.to_string())?;
         let mut hasher = Sha256::new();
@@ -115,7 +116,7 @@ fn copy_hashed(mut from: impl Read, to: &Path, identify: fn(&[u8]) -> Option<&'s
                 break;
             }
             if total == 0 {
-                mime = Some(identify(&buffer[..n]).ok_or(UNKNOWN)?);
+                mime = Some(identify(&buffer[..n]).ok_or(unknown)?);
             }
             total += n as u64;
             if total > MAX_MEDIA_BYTES {
@@ -215,7 +216,7 @@ fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, Str
     }
     let incoming = folder(base, UPLOADS)?.join(format!("{}.part", crate::agent::random_token()));
     let file = fs::File::open(from).map_err(|e| e.to_string())?;
-    let (sha, mime, bytes) = copy_hashed(file, &incoming, sniff)?;
+    let (sha, mime, bytes) = copy_hashed(file, &incoming, sniff, UNKNOWN_VISUAL)?;
     settle(base, &incoming, sha, mime, bytes, stage)
 }
 
@@ -257,7 +258,7 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
 pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> Result<ImportAsset, &'static str> {
     let pending = folder(&base.join(UPLOADS), "importing").map_err(|_| "io")?;
     let incoming = tempfile::NamedTempFile::new_in(pending).map_err(|_| "io")?.into_temp_path();
-    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset).map_err(|e| {
+    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset, UNKNOWN).map_err(|e| {
         if e == UNKNOWN { "unsupported" } else if e == "the file is empty." { "empty" }
         else if e.starts_with("the file is ") { "too_large" } else { "io" }
     })?;
@@ -338,7 +339,7 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
     let path = upload_path(base, id)?;
     let file = fs::File::open(&path).map_err(|_| "no such upload".to_string())?;
     let hashed = folder(base, UPLOADS)?.join(format!("{id}.hashed"));
-    let result = copy_hashed(file, &hashed, page_asset);
+    let result = copy_hashed(file, &hashed, page_asset, UNKNOWN);
     let _ = fs::remove_file(&path);
     let (sha, mime, bytes) = result?;
     settle(base, &hashed, sha, mime, bytes, None)
@@ -826,6 +827,14 @@ mod tests {
         let dangling = dir.path().join("gone.png");
         std::os::unix::fs::symlink(dir.path().join("nothing"), &dangling).unwrap();
         assert!(store(dir.path(), &dangling).unwrap_err().contains("no file"));
+    }
+
+    #[test]
+    fn board_upload_refusals_name_fonts_and_sounds_as_well_as_pictures_and_videos() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = begin(dir.path()).unwrap();
+        append(dir.path(), &id, b"unknown").unwrap();
+        assert_eq!(finish(dir.path(), &id).unwrap_err(), "the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.");
     }
 
     #[test]
