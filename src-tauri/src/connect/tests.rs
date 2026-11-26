@@ -973,3 +973,50 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
     assert_eq!(fs::read_to_string(&file).unwrap(), added);
     assert!(files::history(&root, rel).unwrap().is_none());
 }
+
+#[test]
+fn recheck_5_an_edited_file_gets_a_fresh_mtime_and_os_origin_tags_do_not_conflict() {
+    use std::os::fd::AsRawFd;
+    use std::{
+        os::macos::fs::MetadataExt,
+        time::{Duration, UNIX_EPOCH},
+    };
+    let h = Home::new();
+    let tool = Tool::Cursor;
+    let path = h.file(tool, "{}");
+    let fd = fs::File::open(&path).unwrap();
+    let old = UNIX_EPOCH + Duration::from_secs(978_307_200);
+    fd.set_modified(old).unwrap();
+    let flags = fd.metadata().unwrap().st_flags() | libc::UF_NODUMP;
+    assert_eq!(unsafe { libc::fchflags(fd.as_raw_fd(), flags) }, 0);
+    xattr::set(&path, "studio.aphrodite.fixture", b"keep").unwrap();
+    let p = h.engine.preview(tool, Action::Connect, 1).unwrap();
+    let tag = "com.apple.quarantine";
+    xattr::set(&path, tag, b"0081;00000000;fixture;").unwrap();
+    assert_eq!(
+        h.engine
+            .preview(tool, Action::Connect, 1)
+            .unwrap()
+            .fingerprint,
+        p.fingerprint
+    );
+    h.engine
+        .commit(tool, Action::Connect, &p.fingerprint, false)
+        .unwrap();
+    let meta = fs::metadata(&path).unwrap();
+    assert!(meta.modified().unwrap() > old);
+    assert_eq!(meta.st_flags(), flags);
+    assert_eq!(
+        xattr::get(&path, "studio.aphrodite.fixture")
+            .unwrap()
+            .unwrap(),
+        b"keep"
+    );
+    assert_ne!(
+        xattr::get(&path, tag).unwrap().as_deref(),
+        Some(&b"0081;00000000;fixture;"[..])
+    );
+    fs::File::open(&path).unwrap().set_modified(old).unwrap();
+    remove(&h.engine, tool, false).unwrap();
+    assert!(fs::metadata(path).unwrap().modified().unwrap() > old);
+}

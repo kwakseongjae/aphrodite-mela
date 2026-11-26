@@ -133,6 +133,58 @@ fn make_private(file: &File) -> Result<()> {
         .map_err(io_code)
 }
 
+// Origin tags belong to the inode macOS tagged. The receipt is managed separately.
+fn carried_attributes(file: &File) -> Result<Vec<OsString>> {
+    let mut keys: Vec<_> = file
+        .list_xattr()
+        .map_err(io_code)?
+        .filter(|key| {
+            !matches!(
+                key.to_str(),
+                Some(RECEIPT | "com.apple.provenance" | "com.apple.quarantine")
+            )
+        })
+        .collect();
+    keys.sort();
+    Ok(keys)
+}
+
+fn copy_protections(original: &File, staged: &File) -> Result<()> {
+    let from = original.metadata().map_err(io_code)?;
+    let to = staged.metadata().map_err(io_code)?;
+    let fd = staged.as_raw_fd();
+    if (from.uid(), from.gid()) != (to.uid(), to.gid())
+        && unsafe { libc::fchown(fd, from.uid(), from.gid()) } != 0
+    {
+        return Err(io_code(io::Error::last_os_error()));
+    }
+    for key in carried_attributes(original)? {
+        let value = original
+            .get_xattr(&key)
+            .map_err(io_code)?
+            .ok_or(Code::Changed)?;
+        staged.set_xattr(key, &value).map_err(io_code)?;
+    }
+    staged
+        .set_permissions(from.permissions())
+        .map_err(io_code)?;
+    if unsafe {
+        libc::fcopyfile(
+            original.as_raw_fd(),
+            fd,
+            std::ptr::null_mut(),
+            libc::COPYFILE_ACL,
+        )
+    } != 0
+    {
+        return Err(io_code(io::Error::last_os_error()));
+    }
+    if from.st_flags() != to.st_flags() && unsafe { libc::fchflags(fd, from.st_flags()) } != 0 {
+        return Err(io_code(io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
 // Darwin exposes ACLs separately from extended attributes. Compare their external
 // representation as well as the mode and attributes after an exchange.
 fn protections(file: &File) -> Result<String> {
@@ -157,12 +209,7 @@ fn protections(file: &File) -> Result<String> {
             return Err(Code::Io);
         }
     }
-    let mut keys: Vec<_> = file.list_xattr().map_err(io_code)?.collect();
-    keys.sort();
-    for key in keys {
-        if key == RECEIPT {
-            continue;
-        }
+    for key in carried_attributes(file)? {
         parts.push(key.as_encoded_bytes().to_vec());
         parts.push(file.get_xattr(key).map_err(io_code)?.ok_or(Code::Changed)?);
     }
@@ -267,20 +314,7 @@ impl FileState {
         make_private(&file)?;
         file.write_all(data.as_bytes()).map_err(io_code)?;
         if let Some(original) = &self.file {
-            if unsafe {
-                libc::fcopyfile(
-                    original.as_raw_fd(),
-                    file.as_raw_fd(),
-                    std::ptr::null_mut(),
-                    libc::COPYFILE_METADATA,
-                )
-            } != 0
-            {
-                return Err(io_code(io::Error::last_os_error()));
-            }
-            if file.get_xattr(RECEIPT).map_err(io_code)?.is_some() {
-                file.remove_xattr(RECEIPT).map_err(io_code)?;
-            }
+            copy_protections(original, &file)?;
             if protections(&file)? != self.protection {
                 return Err(Code::Changed);
             }
