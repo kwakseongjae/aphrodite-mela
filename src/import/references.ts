@@ -116,7 +116,7 @@ export class References {
     if (!(tag === 'style' ? /\.css$/i : /\.(?:js|mjs|cjs)$/i).test(name)) { this.skip(url, 'unsupported'); return; }
     let bytes: Uint8Array;
     try { bytes = await this.source.read(name, tag); } catch (error) { this.skip(url, readCode(error)); return; }
-    const text = decode(bytes);
+    const text = decode(bytes, tag === 'style' ? 'css' : 'script');
     if (text.length > MAX_PAGE_HTML) { this.skip(url, 'too_large'); return; }
     // HTML raw text cannot represent an author-supplied closing tag unchanged.
     if (new RegExp(`</${tag}(?=[\\t\\n\\f\\r />])`, 'i').test(text)) { this.skip(url, 'raw_end_tag'); return; }

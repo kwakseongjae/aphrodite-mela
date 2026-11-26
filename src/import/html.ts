@@ -32,7 +32,7 @@ type Document = {file: string; title?: string; html: string; width?: number; nam
 async function textOf(value: TextInput['text']): Promise<string> {
   if (typeof value === 'string') return value;
   if (value instanceof Blob && value.size > MAX_TEXT_BYTES) throw 'too_large';
-  return decode(value instanceof Blob ? new Uint8Array(await value.arrayBuffer()) : value, true);
+  return decode(value instanceof Blob ? new Uint8Array(await value.arrayBuffer()) : value, 'html');
 }
 
 async function prepare(file: string, input: TextInput | GrantedFiles, refs: References): Promise<Document> {

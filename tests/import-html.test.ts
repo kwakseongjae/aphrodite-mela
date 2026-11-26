@@ -448,3 +448,14 @@ test('malformed image-set URL arguments and hidden components before dot-dot cau
   assert.deepEqual(r.reads, ['a.html']);
   assert.deepEqual(r.report.skipped.map(i => i.code), ['invalid_candidate', 'hidden']);
 });
+
+test('a nested sheet is decoded using its leading charset before its rules enter a media condition', async () => {
+  const {project, target} = setup();
+  const source = {names: ['a.html'], read: async (name: string) => name === 'b.css'
+    ? Buffer.from('@charset "windows-1252"; p::after{content:"Café"}', 'latin1')
+    : Buffer.from(name === 'a.css' ? '@import "b.css" screen;' : '<link rel=stylesheet href="a.css">'),
+    media: async () => { throw 'missing'; }};
+  await importHtml(source, person, target);
+  assert.match(project.pages[1].html!, /@media screen\s*\{\s*p::after\{content:"Café"/);
+  assert.doesNotMatch(project.pages[1].html!, /@charset/);
+});

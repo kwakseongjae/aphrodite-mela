@@ -28,12 +28,16 @@ export function inDocument(e: Element): boolean {
   return node?.nodeName === '#document';
 }
 
-export function decode(bytes: Uint8Array, html = false): string {
+export function decode(bytes: Uint8Array, format: 'html' | 'css' | 'script' = 'script'): string {
   if (bytes.length > MAX_TEXT_BYTES) throw 'too_large';
   let encoding = 'utf-8';
   if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
-  else if (html && !(bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)) {
+  else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = 'utf-8';
+  else if (format === 'css') {
+    const declaration = new TextDecoder().decode(bytes.subarray(0, 1024)).match(/^@charset "([\x21-\x7e]+)";/);
+    if (declaration && !/^utf-16/i.test(declaration[1])) encoding = declaration[1];
+  } else if (format === 'html') {
     const provisional = new TextDecoder().decode(bytes);
     if (!/<meta[\t\n\f\r />]/i.test(provisional) || !/charset/i.test(provisional)) return provisional;
     const meta = elements(provisional).find(e => e.tagName === 'meta' && attr(e, 'charset') && inDocument(e));
