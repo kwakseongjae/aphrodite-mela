@@ -21,8 +21,6 @@ const said:readonly [string,string][]=[
   ['Invalid project assembly shelf','Invalid board assembly shelf'],
   ['Project changed since preview. Create a new preview.','Board changed since preview. Create a new preview.'],
   ['Workspace exceeds 40MB; export large projects','Workspace exceeds 40MB; export large boards'],
-  ['Save a project first','Save a board first'],
-  ['Unknown project','Unknown board'],
   ['Project changed. Reopen the vault after saving.','Board changed. Reopen the vault after saving.'],
   ['Official React adapters + project tokens','Official React adapters + board tokens'],
   ['adapted with project-owned tokens','adapted with board-owned tokens'],
@@ -42,8 +40,11 @@ const said:readonly [string,string][]=[
   ['문구는 프로젝트 설명에서 가져옵니다.','문구는 보드 설명에서 가져옵니다.'],
   ['프로젝트 설명을 사용합니다.','보드 설명을 사용합니다.'],
 ];
+/** The desktop's short errors, said as board only when one is the whole message: a name a person typed can hold the same words (0.3-L5 fix 2). */
+const whole:ReadonlyMap<string,string>=new Map([['Save a project first','Save a board first'],['Unknown project','Unknown board']]);
 /** A shared sentence as a person reads it. */
 export function boardWords(text:string):string{
+  if(whole.has(text))return whole.get(text)!;
   for(const [shared,person] of said)text=text.split(shared).join(person);
   return text;
 }
