@@ -78,6 +78,7 @@
 /* Marks (src/ui/notices.ts): how things stand now, beside Preview and Export, and in home's side list. */
 .ui-notice-marks { display: flex; align-items: center; gap: var(--ui-space-2); min-width: 0; margin-right: auto; }
 .ui-notice-marks:empty, .ui-home-marks:empty { display: none; }
+.ui-pagebar > .ui-notice-marks { margin-right: 0; }
 .ui-btn.notice-mark-trouble { gap: var(--ui-space-2); border-color: transparent; border-radius: var(--ui-radius-pill); background: var(--ui-warn-soft); color: var(--ui-warn-text); font-weight: var(--ui-w-semibold); }
 .ui-btn.notice-mark-trouble:hover:not(:disabled) { border-color: var(--ui-warn-text); background: var(--ui-warn-soft); color: var(--ui-warn-text); }
 .ui-notice-mark.notice-mark-connect { position: relative; }
