@@ -370,15 +370,21 @@ fn a_config_file_and_an_installed_tool_are_independent_signals() {
 #[test]
 fn disk_image_mounts_are_identified_by_component_and_regular_external_disks_are_distinct() {
     let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Volumes/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
-    assert!(mounted_image(Path::new("/Volumes/Aphrodite"), &info));
+    assert!(mounted_image(
+        Path::new("/Volumes/Aphrodite"),
+        OsStr::new("fixture"),
+        &info
+    ));
     assert!(!mounted_image(
         Path::new("/Volumes/Aphrodite External/Other.app"),
+        OsStr::new("fixture"),
         &info
     ));
     assert_eq!(
         mount_location(
             Path::new("/A.app/Contents/MacOS/app"),
             Path::new("/private/tmp/AppTranslocation/abc/d"),
+            OsStr::new("fixture"),
             true,
             None
         ),
@@ -746,11 +752,17 @@ fn astra_9_mount_identity_covers_home_mounted_images_and_read_only_volumes() {
     let exe = mount.join("Aphrodite.app/Contents/MacOS/Aphrodite");
     let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>mount-point</key><string>/Users/x/mnt/Aphrodite</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
     assert_eq!(
-        mount_location(&exe, mount, false, Some(&info)),
+        mount_location(&exe, mount, OsStr::new("fixture"), false, Some(&info)),
         Location::DiskImage
     );
     assert_eq!(
-        mount_location(&exe, Path::new("/ReadOnly"), true, None),
+        mount_location(
+            &exe,
+            Path::new("/ReadOnly"),
+            OsStr::new("fixture"),
+            true,
+            None
+        ),
         Location::ReadOnly
     );
 }
@@ -861,4 +873,14 @@ fn astra_5_the_private_backup_drops_directory_inheritance_before_copying_content
         .unwrap();
     assert_eq!(String::from_utf8(result.stdout).unwrap().lines().count(), 1);
     assert_eq!(fs::read_to_string(backup).unwrap(), "{}");
+}
+
+#[test]
+fn astra_9_the_image_device_identifies_a_mount_reached_through_an_alias() {
+    let info=plist::Value::from_reader_xml(br#"<plist version="1.0"><dict><key>images</key><array><dict><key>system-entities</key><array><dict><key>dev-entry</key><string>/dev/disk91s2</string><key>mount-point</key><string>/Users/x/mnt/image</string></dict></array></dict></array></dict></plist>"#.as_slice()).unwrap();
+    assert!(mounted_image(
+        Path::new("/System/Volumes/Data/Users/x/mnt/image"),
+        OsStr::new("/dev/disk91s2"),
+        &info
+    ));
 }

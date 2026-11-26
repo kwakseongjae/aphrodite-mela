@@ -555,7 +555,7 @@ impl Engine {
     }
 }
 
-fn mounted_image(volume: &Path, info: &plist::Value) -> bool {
+fn mounted_image(volume: &Path, device: &OsStr, info: &plist::Value) -> bool {
     info.as_dictionary()
         .and_then(|d| d.get("images"))
         .and_then(|v| v.as_array())
@@ -563,12 +563,22 @@ fn mounted_image(volume: &Path, info: &plist::Value) -> bool {
         .flatten()
         .filter_map(|i| i.as_dictionary()?.get("system-entities")?.as_array())
         .flatten()
-        .filter_map(|e| e.as_dictionary()?.get("mount-point")?.as_string())
-        .any(|mount| volume == Path::new(mount))
+        .filter_map(|e| e.as_dictionary())
+        .any(|entity| {
+            entity
+                .get("mount-point")
+                .and_then(|v| v.as_string())
+                .is_some_and(|p| volume == Path::new(p))
+                || entity
+                    .get("dev-entry")
+                    .and_then(|v| v.as_string())
+                    .is_some_and(|d| device == OsStr::new(d))
+        })
 }
 fn mount_location(
     exe: &Path,
     mount: &Path,
+    device: &OsStr,
     read_only: bool,
     info: Option<&plist::Value>,
 ) -> Location {
@@ -584,7 +594,7 @@ fn mount_location(
     let Some(info) = info else {
         return Location::Unknown;
     };
-    if mounted_image(mount, info) {
+    if mounted_image(mount, device, info) {
         return Location::DiskImage;
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
@@ -619,6 +629,7 @@ fn location(exe: &Path) -> Location {
     mount_location(
         exe,
         mount,
+        OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
         stat.f_flags & libc::MNT_RDONLY as u32 != 0,
         info.as_ref(),
     )
