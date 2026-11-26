@@ -40,8 +40,11 @@ export function firstShown(project: Pick<Project, 'pages' | 'starter'>): Page {
 }
 /** The board as placing the next item reads it: every frame but the starter's, which is not there to the eye. */
 export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'space'>): Space {
-  const frames = {...(project.space?.frames ?? {})};
-  for (const page of project.pages) if (isStarterPage(project, page)) delete frames[page.id];
+  const frames: Space['frames'] = {};
+  for (const page of visiblePages(project)) {
+    const frame = project.space?.frames[page.id];
+    if (frame) frames[page.id] = frame;
+  }
   return {frames};
 }
 /** The person going to the hidden page (Edit in the app, a link to it on the board): it shows from then on. True when it was hidden. */
@@ -62,7 +65,7 @@ export function placeFrame(project: Pick<Project, 'pages' | 'starter' | 'space'>
 }
 /** A frame for each page that has none yet (a page added, copied, drafted, a sample), placed as every new frame is. A frame a board already has stays where it is. */
 export function placeNewFrames(project: Pick<Project, 'pages' | 'starter' | 'space'>): void {
-  if (!project.space) return;
+  project.space ??= {frames: {}};
   for (const page of project.pages) if (!project.space.frames[page.id]) project.space.frames[page.id] = placeFrame(project, 'desktop');
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);

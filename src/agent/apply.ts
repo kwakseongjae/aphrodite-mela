@@ -27,7 +27,7 @@ import {commandById, type Surface} from './commands.mjs';
  * `designChars` is how long the resulting design serializes to, for measuring what saving takes.
  */
 export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
-type Focus = {selected: string; created: string[]};
+type Focus = {selected: string; created: string[]; place: typeof placeFrame};
 
 /** A free page's html, written by an op: held to what a page may store, or an error sentence. */
 function setHtml(target: Page, html: string): string | undefined {
@@ -50,7 +50,7 @@ function runHtmlOp(project: Project, op: Extract<Op, {op: 'html_page' | 'html_se
     if (refused) return refused;
     ensureSpace(project);
     project.pages.push(created);
-    const frame = placeFrame(project, op.width === undefined ? 'desktop' : 'custom', op.width);
+    const frame = focus.place(project, op.width === undefined ? 'desktop' : 'custom', op.width);
     project.space!.frames[created.id] = op.height === undefined ? frame : {...frame, height: op.height};
     focus.created.push(created.id);
     return undefined;
@@ -86,7 +86,7 @@ function runMediaAdd(project: Project, op: Extract<Op, {op: 'media_add'}>, media
   const name = op.name ?? (op.path ? op.path.split('/').pop() || 'Media' : 'Picture');
   const created: Page = {id: uid(), name: clip(name, MAX_PAGE_NAME), blocks: [], kind: 'media', media};
   project.pages.push(created);
-  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? placeFrame(project, 'desktop'));
+  project.space!.frames[created.id] = mediaFrame(media.width, media.height, at ?? focus.place(project, 'desktop'));
   focus.created.push(created.id);
   return undefined;
 }
@@ -167,7 +167,7 @@ function runOp(project: Project, page: Page, op: Exclude<Op, {op: 'media_add'}>,
     const created: Page = {id: uid(), name: op.name, blocks: []};
     project.pages.push(created);
     focus.created.push(created.id);
-    project.space!.frames[created.id] = placeFrame(project, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
+    project.space!.frames[created.id] = focus.place(project, op.preset ?? 'desktop', framePresets.find(p => p.id === (op.preset ?? 'desktop'))?.width ?? 1200);
     project.activePageId = created.id;
     return undefined;
   }
@@ -210,7 +210,15 @@ export function runBatch(project: Project, batch: {ops: Op[]; patch?: PatchOp[];
 
 function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?: string}, selected: string, media: Record<number, PageMedia>, places: Record<number, {x: number; y: number}>): BatchResult {
   let next = JSON.parse(JSON.stringify(designOf(project))) as Project, json: string | undefined;
-  const focus: Focus = {selected, created: []};
+  // Ops run before the patch. An automatically placed frame already counts only the pages the patch will keep.
+  const removed = new Set<string>();
+  for (const op of batch.patch ?? []) {
+    if (op.op === 'remove_page') removed.add(op.page_id);
+    if (op.op === 'insert_page') removed.delete(op.page.id);
+  }
+  const focus: Focus = {selected, created: [], place: removed.size
+    ? (p, preset, width) => placeFrame({...p, pages: p.pages.filter(page => !removed.has(page.id))}, preset, width)
+    : placeFrame};
   if (batch.ops.length) {
     let target = batch.pageId ? next.pages.find(p => p.id === batch.pageId) : currentPage(next);
     if (!target) return {ok: false, index: -1, part: 'ops', error: `no page "${batch.pageId}". This project has: ${next.pages.map(p => p.id).join(', ')}`};
