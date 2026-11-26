@@ -34,7 +34,7 @@
           "$APPDATA/board-media/*.webm",
           "$APPDATA/board-media/*.wav",
           "$APPDATA/board-media/*.ogg",
-          "$APPDATA/board-media/*.mp3",
+          "$APPDATA/board-media/*.mp3.bin",
           "$APPDATA/free-pages/**"
         ]
       },

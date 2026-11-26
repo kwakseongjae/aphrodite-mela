@@ -281,7 +281,7 @@ export function sniffBoardFile(head: Uint8Array): string | undefined {
   }
   if (tag.startsWith('RIFF') && tag.slice(8) === 'WAVE') return 'audio/wav';
   if (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) return 'font/ttf';
-  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xfb) return 'audio/mpeg';
+  if (head.length >= 3 && head[0] === 0xff && [0xfb, 0xf3, 0xf2].includes(head[1])) return 'audio/mpeg';
   return undefined;
 }
 

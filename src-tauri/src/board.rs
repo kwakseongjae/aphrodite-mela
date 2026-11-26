@@ -27,7 +27,7 @@ const UPLOADS: &str = "board-uploads";
 const BOARD_FILES: &[(&str, &str)] = &[
     ("png", "image/png"), ("jpg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp"),
     ("mp4", "video/mp4"), ("webm", "video/webm"), ("woff2", "font/woff2"), ("woff", "font/woff"),
-    ("ttf", "font/ttf"), ("otf", "font/otf"), ("wav", "audio/wav"), ("ogg", "audio/ogg"), ("mp3", "audio/mpeg"),
+    ("ttf", "font/ttf"), ("otf", "font/otf"), ("wav", "audio/wav"), ("ogg", "audio/ogg"), ("mp3.bin", "audio/mpeg"),
 ];
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -79,12 +79,12 @@ fn page_asset(head: &[u8]) -> Option<&'static str> {
         if head.starts_with(magic) { return Some(mime); }
     }
     if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") { return Some("audio/wav"); }
-    if matches!(head, [0xff, 0xfb, _, ..]) { return Some("audio/mpeg"); }
+    if matches!(head, [0xff, 0xfb | 0xf3 | 0xf2, _, ..]) { return Some("audio/mpeg"); }
     None
 }
 
 pub(crate) fn media_extension(ext: &str) -> bool {
-    ext == "jpeg" || BOARD_FILES.iter().any(|(e, _)| *e == ext)
+    matches!(ext, "jpeg" | "mp3") || BOARD_FILES.iter().any(|(e, _)| *e == ext)
 }
 
 fn extension(mime: &str) -> &'static str {
@@ -265,9 +265,9 @@ pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> R
 
 /// Under the settlement lock, publish by rename or release only private uploads.
 pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<(), String> {
-    let mut parts = receipt.split('.');
-    let (sha, ext, token) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    if !is_sha(sha) || !BOARD_FILES.iter().any(|(e, _)| *e == ext) || parts.next().is_some()
+    let (filename, token) = receipt.rsplit_once('.').ok_or("invalid_name")?;
+    let (sha, ext) = filename.split_once('.').ok_or("invalid_name")?;
+    if !is_sha(sha) || !BOARD_FILES.iter().any(|(e, _)| *e == ext)
         || token.len() != 48 || !token.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid_name".into()); }
     let dest = base.join(MEDIA).join(format!("{sha}.{ext}"));
     let marker = import_marker(base, &dest);
@@ -333,9 +333,20 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     if let Some(path) = published_file(base, sha) { return Some(path); }
     if !is_sha(sha) { return None; }
     let pending = base.join(UPLOADS).join("importing");
-    if !pending.is_dir() { return None; }
+    let previous = base.join(MEDIA).join(format!("{sha}.mp3"));
+    if !pending.is_dir() && !previous.is_file() { return None; }
     let _held = settling(base).ok()?;
     if let Some(path) = published_file(base, sha) { return Some(path); }
+    // Earlier HTML-engine builds used .mp3. That suffix is outside the scope now.
+    // Only a supported sound moves to the new name, whose MIME fallback is octet-stream.
+    if previous.is_file() {
+        let mut head = [0; 3];
+        if fs::File::open(&previous).and_then(|mut f| f.read_exact(&mut head)).is_ok() && page_asset(&head) == Some("audio/mpeg") {
+            let dest = base.join(MEDIA).join(format!("{sha}.mp3.bin"));
+            fs::rename(previous, &dest).ok()?;
+            return Some(dest);
+        }
+    }
     for (ext, _) in BOARD_FILES {
         let name = format!("{sha}.{ext}");
         let source = pending.join(&name);
@@ -351,7 +362,7 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
 /// What a board's file is, by its name here: its kind and its size, without reading it.
 pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     let path = media_file(base, sha)?;
-    let ext = path.extension()?.to_str()?;
+    let (_, ext) = path.file_name()?.to_str()?.split_once('.')?;
     let mime = BOARD_FILES.iter().find(|(e, _)| *e == ext)?.1;
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
@@ -612,6 +623,20 @@ mod tests {
     }
 
     #[test]
+    fn all_four_mp3_heads_have_a_safe_actual_asset_response_and_keep_their_board_type() {
+        use tauri::utils::mime_type::MimeType;
+        let dir = tempfile::tempdir().unwrap();
+        for head in [&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"] {
+            let bytes = [head, b"<p>sample</p>"].concat();
+            let held = stage_page_asset(dir.path(), bytes.as_slice(), bytes.len() as u64).unwrap();
+            finish_import(dir.path(), &held.receipt.unwrap(), true).unwrap();
+            let path = media_file(dir.path(), &held.stored.sha).unwrap();
+            assert_ne!(MimeType::parse(&fs::read(&path).unwrap(), path.to_str().unwrap()), "text/html");
+            assert_eq!(media_stat(dir.path(), &held.stored.sha).unwrap().mime, "audio/mpeg");
+        }
+    }
+
+    #[test]
     fn stored_font_and_sound_signatures_cannot_be_served_as_html() {
         use tauri::utils::mime_type::MimeType;
         let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
@@ -622,7 +647,7 @@ mod tests {
             ("gif", vec![&b"GIF87a"[..], b"GIF89a"]), ("webp", vec![&b"RIFF0000WEBP"[..]]),
             ("mp4", vec![&b"\0\0\0\x20ftyp"[..]]), ("webm", vec![&b"\x1a\x45\xdf\xa3"[..]]),
             ("ogg", vec![&b"OggS"[..]]), ("wav", vec![&b"RIFF0000WAVE"[..]]),
-            ("mp3", vec![&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa", b"\xff\xe3", b"\xff\xe2"]),
+            ("mp3.bin", vec![&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa", b"\xff\xe3", b"\xff\xe2"]),
             ("woff", vec![&b"wOFFXXXX"[..], b"wOFFOTTO"]), ("woff2", vec![&b"wOF2font"[..]]),
             ("ttf", vec![&b"\0\x01\0\0"[..]]), ("otf", vec![&b"OTTO"[..]]),
         ] {
@@ -637,7 +662,7 @@ mod tests {
                 } else {
                     assert!(served, "{ext} missing from scope");
                     let detected = MimeType::parse(&bytes, &format!("x.{ext}"));
-                    if ext == "mp3" && detected == "text/html" { assert!(accepted.is_none(), "{head:?}"); }
+                    if [b"\xff\xfa".as_slice(), b"\xff\xe3", b"\xff\xe2"].contains(&head) { assert!(accepted.is_none(), "{head:?}"); }
                     else { assert!(accepted.is_some()); assert_ne!(detected, "text/html", "{ext}"); }
                 }
             }
