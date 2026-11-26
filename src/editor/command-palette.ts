@@ -87,6 +87,7 @@ export function scoreCommand(c:Command,query:string,language:Language){
   const q=normalizeQuery(query);if(!q)return 0;
   const label=normalizeQuery(language==='ko'?c.ko:c.en);
   const keywords=normalizeQuery((c.keywords??[]).join(' '));
+  if((c.keywords??[]).some(k=>normalizeQuery(k)===q))return 5;
   if(label.startsWith(q))return 4;
   if(label.includes(q)||keywords.includes(q))return 3;
   const tokens=query.trim().split(/\s+/).map(normalizeQuery).filter(Boolean);
@@ -113,7 +114,7 @@ export function commandPaletteHtml(commands:Command[],query:string,language:Lang
   const list=filterCommands(commands,query,language);
   const matched=list.filter(c=>!c.related),related=list.filter(c=>c.related);
   const order:Command['group'][]=['navigate','design','review','edit','file','add'];
-  const groups=order.filter(g=>matched.some(c=>c.group===g));
+  const groups=query.trim()?[...new Set(matched.map(c=>c.group))]:order.filter(g=>matched.some(c=>c.group===g));
   const button=(c:Command)=>`<button type="button" class="ui-menu-item" role="option" data-palette data-action="${esc(c.action)}"${Object.entries(c.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')}><span class="ui-palette-name">${esc(ko?c.ko:c.en)}</span>${c.hint?`<small class="ui-palette-hint">${esc(ko?c.hint.ko:c.hint.en)}</small>`:''}${c.keys?`<span class="ui-menu-key">${esc(c.keys)}</span>`:''}</button>`;
   const items=groups.map(g=>`<li class="palette-group" role="presentation"><span class="ui-menu-label">${esc(groupLabel[g][language])}</span><ul role="group">${matched.filter(c=>c.group===g).map(c=>`<li>${button(c)}</li>`).join('')}</ul></li>`).join('')+(related.length?`<li class="palette-group palette-related"><span class="ui-menu-label">${ko?'관련 항목':'Related'}</span></li>${related.map(c=>`<li data-related="true">${button(c)}</li>`).join('')}`:'');
   return `<div class="palette ui-palette"><label class="ui-input ui-input-sunken ui-palette-search">${icon('search','ui-icon ui-icon-sm')}<input id="command-search" type="search" autocomplete="off" aria-label="${ko?'명령·컴포넌트·프레임 검색':'Search commands, components, frames'}" placeholder="${ko?'예: 히어로 추가, 디자인 시스템, 내보내기':'e.g. add hero, design system, export'}" value="${esc(query)}"></label><ul class="palette-list ui-palette-list" role="listbox" aria-label="${ko?'명령':'Commands'}" id="command-list">${items||`<li class="ui-empty-text ui-palette-empty" role="status">${ko?'일치하는 명령이 없습니다.':'No matching commands.'}</li>`}</ul><p class="ui-help ui-palette-foot">${ko?'⌘K 또는 ? 로 열기 · ↑↓ 이동 · Enter 실행 · Esc 닫기 · “방향 승인”은 항상 화면에서 직접 클릭합니다.':'Open with ⌘K or ? · ↑↓ move · Enter run · Esc close · “Approve direction” is always a direct click on screen.'}</p></div>`;
