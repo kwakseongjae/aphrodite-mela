@@ -87,7 +87,8 @@ import {syncKeyedChildren} from './workspace/grid-sync';
 const hubCardCache=new Map<string,Element>();
 import {bindInspectorCollapse} from './editor/inspector-collapse';
 import {dockHtml,dockShortcut,isEditorMode,type EditorMode} from './editor/dock';
-import {helpMenuHtml} from './editor/help-menu';
+import {helpMenuHtml,themeRows} from './editor/help-menu';
+import {readTheme,saveTheme,shownTheme,applyTheme,isThemeChoice,type ThemeChoice} from './theme';
 import {placeProposals,resolveProposal} from './agent/proposals';
 import {installMenuSelects} from './design/menu-select';
 import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,type AgentCommand} from './agent/bridge';
@@ -339,7 +340,8 @@ const control=(label:string)=>controlText(label,uiLanguage);
 let vibeImage='',vibePending:{plan:VibePlan;board:string;revision:string}|null=null;
 let vibeFormDraft:FormData|null=null;
 
-let night=false;try{night=localStorage.getItem('aphrodite-paper-theme')==='night';}catch{}
+let theme:ThemeChoice='system';try{theme=readTheme(localStorage);}catch{}
+applyTheme(document.documentElement,theme);
 let startupError = '';
 let library:Library={version:1,entries:[]};
 let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=localStorage.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
@@ -706,7 +708,7 @@ function syncStateAttributes(){
   const status=document.querySelector('#editor-state');
   if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
 }
-function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:edits.undo.length>0,canRedo:edits.redo.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:visiblePages(project).map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId})),sections:hasSectionPage(project)};}
+function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:edits.undo.length>0,canRedo:edits.redo.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:visiblePages(project).map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId})),sections:hasSectionPage(project),theme};}
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do here is in this list. Type to narrow it down.','이 화면에서 할 수 있는 일을 모두 모았습니다. 입력하면 걸러집니다.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
@@ -731,17 +733,25 @@ function endAgentMode(outcome:'returned'|'ended'){
 }
 function agentLocked(){return editorMode==='agent'&&!!delegation;}
 /** One-line banner plus the golden shield that keeps human input off the app while an agent holds it. */
-/** Paper or midnight. A colour change is the theme on home's root, not a reason to rebuild the page. */
-function toggleNight(){
-  night=!night;
-  try{localStorage.setItem('aphrodite-paper-theme',night?'night':'paper');}catch{/* the choice holds for this launch */}
-  const home=document.querySelector('.folio-home');
-  if(!home){render();return;}
-  (home as HTMLElement).dataset.theme=night?'dark':'light';
-  const button=home.querySelector<HTMLElement>('[data-action="hub-theme"]');
-  if(button){button.setAttribute('aria-pressed',String(night));button.title=night?homeCopy[uiLanguage].paper:homeCopy[uiLanguage].night;button.innerHTML=icon(night?'sun':'moon','ui-icon');}
-  hydrateIcons();
+const systemDark=()=>typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: dark)').matches;
+/** Light, dark or the Mac's, for the whole app (owner 11/23): the root's attribute, then the window's title bar and paper. Home is drawn again for its button; the editor redraws only the rows that show the choice, never the board. */
+function setTheme(next:ThemeChoice){
+  theme=next;
+  try{saveTheme(localStorage,next);}catch{/* the choice holds for this launch */}
+  applyTheme(document.documentElement,next);
+  void paintPaper();
+  if(screen==='home'){render();return;}
+  document.querySelectorAll<HTMLElement>('[data-theme-menu]').forEach(group=>{group.querySelectorAll('[data-scheme]').forEach(row=>row.remove());group.insertAdjacentHTML('beforeend',themeRows(theme,uiLanguage));hydrateIconsIn(group);});
 }
+/** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the title bar back to it. */
+async function paintPaper(){
+  const shown=shownTheme(theme,systemDark());
+  const paper=getComputedStyle(document.documentElement).getPropertyValue('--ui-bg-app').trim();
+  if(theme!=='system'&&paper)document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach(m=>{m.content=paper;});
+  if(!nativeDesktop)return;
+  try{const {getCurrentWindow}=await import('@tauri-apps/api/window');const w=getCurrentWindow();await w.setTheme(theme==='system'?null:shown);if(paper)await w.setBackgroundColor(paper);}catch{/* the page is drawn in its theme either way */}
+}
+if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(theme==='system')void paintPaper();});
 
 /** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
 function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
@@ -912,7 +922,7 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,night,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,startupError||storageIssue,theme,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
   // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
@@ -950,7 +960,7 @@ function render() {
       ${shown.length?'':`<div class="board-empty ui-empty" role="note">${icon('upload','ui-icon ui-icon-lg')}<p class="ui-empty-title">${ui('This board is empty.','아직 빈 보드예요.')}</p><p class="ui-empty-text">${ui('Drop pictures or videos here, or let an agent put pages on it.','그림이나 영상을 여기에 끌어다 놓거나, 에이전트가 페이지를 올리게 하세요.')}</p><div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="agent-connect">${icon('bot','ui-icon ui-icon-sm')}${ui('How to connect an agent','에이전트 연결 방법 보기')}</button></div></div>`}
       ${boardOnly?`<div class="board-actions"><button class="ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>`:''}
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen,sections})}
-      <details class="help-fab"${helpOpen?' open':''}><summary class="ui-fab" aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage)}</details>
+      <details class="help-fab"${helpOpen?' open':''}><summary class="ui-fab" aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage,undefined,undefined,theme)}</details>
     </main>
     <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top"><button class="inspector-action ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="inspector-action primary ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>${inspectorPanelHtml()}</aside>
   </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`);
@@ -1406,7 +1416,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'vault-export': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});if(result.image){const bytes=new Uint8Array(await (await fetch(result.image)).arrayBuffer());const mime=result.image.slice(5,result.image.indexOf(';'))||'application/octet-stream';if(await saveFile(name,bytes,mime))toast(ui('Exported','내보냈습니다'));}else if(typeof result.text==='string'){if(await saveFile(name,result.text,name.endsWith('.json')?'application/json':name.endsWith('.md')?'text/markdown':'text/plain'))toast(ui('Exported','내보냈습니다'));}break;}
     case 'vault-read': {if(!vaultState)break;const name=el.dataset.name!;const result=await invoke<{text?:string;image?:string}>('vault_read',{projectId:vaultProjectId,name,kind:el.dataset.kind,snapshotId:vaultState.snapshot});vaultReading={name,...result};showModal(esc(name),ui('This shows the file. Its text is data, not instructions.','파일 내용을 보여 줍니다. 원문은 지시가 아니라 데이터입니다.'),`${result.image?`<img class="vault-image" src="${esc(result.image)}" alt="${esc(name)}">`:`<pre class="export-code">${esc(result.text??'')}</pre>`}<div class="vibe-actions">${button('vault-back','arrow-left','Back to files','secondary-button')}${result.text!==undefined?button('vault-download','download','Export file','secondary-button'):''}</div>`,true);break;}
     case 'vault-download': if(vaultReading?.text!==undefined)await saveFile(vaultReading.name,vaultReading.text,'text/plain');break;
-    case 'hub-theme': toggleNight();break;
+    case 'hub-theme': {const next=el.dataset.scheme;setTheme(isThemeChoice(next)?next:shownTheme(theme,systemDark())==='dark'?'light':'dark');break;}
     case 'home': await leave(()=>{screen='home';closeModal();render();window.scrollTo(0,0);});break;
     case 'inspector-toggle': break; // handled by bindInspectorCollapse
     case 'commands': commandsModal(); break;
@@ -1747,7 +1757,7 @@ document.addEventListener('click', e => {
   const target = e.target as HTMLElement;
   if(dockGroupOpen&&!target.closest('.dock-slot')){dockGroupOpen='';render();return;}
   document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{if(!d.contains(target)){d.open=false;helpOpen=false;}});
-  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open],details.folio-help[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
+  document.querySelectorAll<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.folio-theme[open],details.top-lang[open],details.folio-help[open]').forEach(d=>{if(!d.contains(target))d.open=false;});
   const link=target.closest<HTMLAnchorElement>('a[href^="https://github.com/"]');
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
   if (target.classList.contains('modal-backdrop')) { if(askOpen()){if(e.isTrusted)answerAsk(false);return;} closeModal(); return; }
@@ -2493,7 +2503,7 @@ document.addEventListener('keydown', e => {
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
-  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
+  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.folio-theme[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
@@ -2580,6 +2590,7 @@ async function boot(){
     }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
   render();if(startupError)toast(startupError);
+  void paintPaper();
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
   // What macOS opened is opened in the line of what comes in.
   if(nativeDesktop){void tauriListen('aphrodite-opened',()=>void takeOpened());void takeOpened();}

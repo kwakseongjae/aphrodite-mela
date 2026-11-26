@@ -1,4 +1,4 @@
-:root{font-family:var(--ui-font-sans);color:var(--ui-text-1);background:var(--ui-bg-app);font-synthesis:none;font-size:12px;font-weight:400;-webkit-font-smoothing:antialiased}
+:root{color-scheme:var(--ui-color-scheme);font-family:var(--ui-font-sans);color:var(--ui-text-1);background:var(--ui-bg-app);font-synthesis:none;font-size:12px;font-weight:400;-webkit-font-smoothing:antialiased}
 *{box-sizing:border-box}
 /* An element the app hides with the hidden attribute stays hidden, whatever display a class gives it: a class that set display once showed "this file is not on this Mac" over every picture. */
 [hidden]{display:none!important}

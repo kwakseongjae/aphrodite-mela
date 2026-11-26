@@ -1852,16 +1852,22 @@ check('without the page wall no free page is in any frame, on the board or in Pr
   assert.deepEqual(drawn.unframed.sort(), drawn.items.sort(), `a placeholder for every free page on the board: ${JSON.stringify(drawn)}`);
   assert.ok(listed.every(p => drawn.items.includes(p.page_id)), 'every free page the contract lists is on the board');
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.board-unframed')].filter(u => u.querySelector('strong').textContent !== u.closest('.space-frame').querySelector('.frame-name span').textContent).length`), 0, 'each placeholder names its page');
-  // 0.3-P3-fix1 #9: on a Mac in dark mode the placeholder is the light one, like the rest of the app (until F3's setting).
-  assert.equal(await evaluate('document.documentElement.dataset.theme'), 'light', 'the app document is the light theme');
+  // 0.3-P3-fix1 #9, then 0.3-L5: the placeholder is the app's, so it follows the app's theme: the Mac's, or the one the person picked.
+  assert.equal(await evaluate('document.documentElement.dataset.theme ?? null'), null, 'the app follows the Mac until the person picks');
   const sunken = 'getComputedStyle(document.querySelector(".board-unframed")).backgroundColor';
-  const lightToken = `(() => { const d = document.createElement('div'); d.dataset.theme = 'light'; d.style.background = 'var(--ui-bg-sunken)'; document.body.append(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`;
+  const token = theme => `(() => { const d = document.createElement('div'); d.dataset.theme = '${theme}'; d.style.background = 'var(--ui-bg-sunken)'; document.body.append(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`;
+  const light = await evaluate(token('light')), dark = await evaluate(token('dark'));
   await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-color-scheme', value: 'dark'}]});
   await sleep(200);
-  const inDark = await evaluate(sunken), light = await evaluate(lightToken);
-  await send('Emulation.setEmulatedMedia', {features: []});
-  result.theme = {inDark, light};
-  assert.equal(inDark, light, 'with the Mac in dark mode the placeholder is the light theme');
+  const inDark = await evaluate(sunken);
+  await personClicks('hub-theme'); await sleep(200);
+  const picked = await evaluate(sunken), pickedTheme = await evaluate('document.documentElement.dataset.theme ?? null');
+  await evaluate(`(() => { const b = document.createElement('button'); b.dataset.action = 'hub-theme'; b.dataset.scheme = 'system'; document.querySelector('#app').append(b); b.click(); b.remove(); return true; })()`);
+  await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-color-scheme', value: 'light'}]});
+  result.theme = {inDark, picked, light, dark};
+  assert.equal(inDark, dark, 'with the Mac in dark mode the placeholder is the dark one');
+  assert.equal(pickedTheme, 'light', 'the switch on a dark Mac picks light');
+  assert.equal(picked, light, 'and the placeholder goes light with it');
   const free = listed;
   assert.equal(await evaluate(`document.querySelectorAll('iframe[data-frame-page]').length`), 0, 'no free page has a frame');
   const read = await Promise.all(free.map(p => agent('text', {page_id: p.page_id})));

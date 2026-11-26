@@ -2,11 +2,13 @@ import {catalog,type BlockKind} from '../model';
 import {icon} from '../design/icon';
 import {esc} from '../html';
 import type {Language} from '../i18n';
+import {themeChoices,type ThemeChoice} from '../theme';
+import {themeLabel} from './help-menu';
 
 /** One entry of the in-app command palette. `action`/`data` map 1:1 to the existing data-action dispatcher. */
 export type Command={id:string;action:string;data?:Record<string,string>;en:string;ko:string;group:'navigate'|'add'|'edit'|'design'|'review'|'file';keys?:string;hint?:{en:string;ko:string};keywords?:string[];related?:boolean};
 
-export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean};
+export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean;theme?:ThemeChoice};
 
 /** The rows that work on sections (0.3-L4b): left out while the board has no section page, like their dock buttons. */
 const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference','moa']);
@@ -64,6 +66,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'export',action:'export',en:'Export handoff (ZIP, prompt, DESIGN.md, SCENE.json)',ko:'핸드오프 내보내기 (ZIP, 프롬프트, DESIGN.md, SCENE.json)',group:'file'},
     {id:'save',action:'save-project',en:'Save project file (.aphrodite.json)',ko:'프로젝트 파일 저장 (.aphrodite.json)',group:'file'},
     {id:'language',action:'language-settings',en:'Language / 언어',ko:'Language / 언어',group:'file'},
+    ...themeChoices.map(c=>({id:`look-${c}`,action:'hub-theme',data:{scheme:c},en:`Theme · ${themeLabel[c].en}`,ko:`테마 · ${themeLabel[c].ko}`,group:'file' as const,keywords:['theme','dark','light','테마','다크','라이트','어두운','밝은'],hint:ctx.theme===c?{en:'current',ko:'현재'}:undefined})),
   ];
   if(ctx.hasSelection)base.push(
     {id:'duplicate',action:'duplicate',en:'Duplicate selected component',ko:'선택한 컴포넌트 복제',group:'edit'},

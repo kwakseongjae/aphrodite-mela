@@ -25,7 +25,7 @@ test('content preference can change with no fill operation; content preserved an
 test('home and project cards translate controls but preserve user names and previews',()=>{
  const p=initialProject();p.name='Preview <script>';p.pages[0].blocks=[];
  const library=upsertProject({version:1,entries:[]} as Library,p),before=JSON.stringify(library);
- const ko=workspaceHome(library,'recent','','',false,'ko');
+ const ko=workspaceHome(library,'recent','','','system','ko');
  assert.match(ko,/>전체</);assert.match(ko,/프로젝트 가져오기/);assert.match(ko,/Preview &lt;script&gt;/);
  assert.doesNotMatch(ko,/>Import project/);assert.match(projectCards(library,'recent','', 'ko'),/>이름 변경</);
  assert.match(projectCards(library,'recent','Preview','en'),/>Rename</);

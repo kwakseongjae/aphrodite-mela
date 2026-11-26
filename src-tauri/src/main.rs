@@ -25,6 +25,11 @@ fn main() {
                 // The page wall goes in first, before any free page's frame can be made (src-tauri/src/page_wall.rs).
                 // The app's own page may already be loading; it uses no WebRTC, and every frame made after this has none.
                 let _ = page_wall::put_into(&window);
+                // The window follows the Mac's theme (tauri.conf.json sets none) and starts on that theme's paper,
+                // --ui-bg-app in src/ui/tokens.ts, so a dark Mac sees no light window before the first paint.
+                if let Ok(tauri::Theme::Dark) = window.theme() {
+                    let _ = window.set_background_color(Some(tauri::window::Color(27, 26, 22, 255)));
+                }
                 let _ = window.show();
                 let _ = window.set_focus();
             }

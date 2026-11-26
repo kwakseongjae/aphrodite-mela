@@ -1,6 +1,7 @@
 import {esc} from '../html';
 import {icon} from '../design/icon';
 import type {Language} from '../i18n';
+import {themeChoices,type ThemeChoice} from '../theme';
 
 export type HelpItem={id:string;action?:string;href?:string;en:string;ko:string;keys?:string};
 
@@ -36,12 +37,20 @@ function helpRow(item:HelpItem,ko:boolean):string{
   return `<button type="button" role="menuitem" class="ui-menu-item"${item.action?` data-action="${esc(item.action)}"`:''}><span>${label}</span>${kbd}</button>`;
 }
 
+/** The three looks, named the same wherever they are offered: home's theme menu, this menu and the command palette. */
+export const themeLabel:Record<ThemeChoice,{en:string;ko:string}>={system:{en:'Match the system',ko:'시스템 설정 따르기'},light:{en:'Light',ko:'밝게'},dark:{en:'Dark',ko:'어둡게'}};
+/** One press sets the whole app's look (main.ts setTheme); the rows sit in a group main.ts redraws in place when the choice changes. */
+export function themeRows(choice:ThemeChoice,language:Language):string{
+  return themeChoices.map(c=>`<button type="button" class="ui-menu-item" role="menuitemradio" aria-checked="${choice===c}" data-action="hub-theme" data-scheme="${c}"><span>${esc(themeLabel[c][language])}</span>${choice===c?icon('check','ui-icon ui-icon-sm'):''}</button>`).join('');
+}
+
 /**
  * `className` lets the home screen render the same list inside its own dropdown chrome. The editor's
  * menu hangs upward from a corner button; home's hangs down from the top row, and reusing the
  * chrome that already works there is safer than a second set of positioning rules.
  */
-export function helpMenuHtml(language:Language,items:readonly (HelpItem|'separator')[]=helpItems,className='help-menu'):string{
+export function helpMenuHtml(language:Language,items:readonly (HelpItem|'separator')[]=helpItems,className='help-menu',theme?:ThemeChoice):string{
   const ko=language==='ko';
-  return `<div class="${className} ui-menu" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep ui-menu-sep"></div>':helpRow(item,ko)).join('')}</div>`;
+  const looks=theme?`<div class="help-sep ui-menu-sep"></div><div role="group" aria-labelledby="help-theme-label" data-theme-menu><p class="ui-menu-label" id="help-theme-label">${ko?'테마':'Theme'}</p>${themeRows(theme,language)}</div>`:'';
+  return `<div class="${className} ui-menu" role="menu">${items.map(item=>item==='separator'?'<div class="help-sep ui-menu-sep"></div>':helpRow(item,ko)).join('')}${looks}</div>`;
 }

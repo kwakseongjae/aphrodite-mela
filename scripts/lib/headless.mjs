@@ -166,6 +166,9 @@ export async function openApp({port = 4183, cdp = 9334, profile = '/tmp/aphrodit
       return message.result?.result?.value;
     };
 
+    // The app follows the Mac's light or dark (0.3-L5): a gate sees the light one whatever the machine it runs on is set to,
+    // and a check of the dark one asks for it.
+    await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-color-scheme', value: 'light'}]});
     await waitFor(() => evaluate('!!window.aphroditeAgent && !!document.querySelector("#app")'), 'the app to boot');
 
     const agent = (kind, payload = {}, caller = 'claude-code') =>

@@ -12,7 +12,7 @@ function library(){
 }
 
 test('sidebar shows a count for every filter, not only recent',()=>{
-  const html=workspaceHome(library(),'recent','','',false,'en','grid');
+  const html=workspaceHome(library(),'recent','','','system','en','grid');
   const count=(f:string)=>html.match(new RegExp(`data-filter="${f}"[^>]*>[\\s\\S]*?<small[^>]*>(\\d+)</small>`))?.[1];
   assert.equal(count('recent'),'2');assert.equal(count('pinned'),'1');assert.equal(count('archived'),'1');
 });
@@ -34,7 +34,7 @@ test('list view renders rows with the same actions and the toggle reflects the a
   assert.equal((list.match(/class="folio-row ui-home-row"/g)||[]).length,2);
   assert.doesNotMatch(list,/folio-preview-label/);
   assert.match(list,/ui-row-thumb/);assert.match(list,/data-action="hub-open"/);assert.match(list,/data-action="hub-archive"[^>]*>.*?<span>보관<\/span>/);
-  const home=workspaceHome(lib,'recent','','',false,'ko','list');
+  const home=workspaceHome(lib,'recent','','','system','ko','list');
   assert.match(home,/data-view="list" aria-pressed="true"/);assert.match(home,/data-view="grid" aria-pressed="false"/);
   assert.match(home,/class="folio-grid ui-home-grid folio-grid-list" id="project-grid" role="list"/);
   const archived=projectCards(lib,'archived','','ko','list');

@@ -1,0 +1,2 @@
+/* Before the first paint: the theme the person chose, read as src/theme.ts readTheme reads it (tests/app-theme.test.ts runs both). With none, the root keeps no attribute and the tokens follow the Mac. */
+(function(){try{var v=localStorage.getItem('aphrodite-theme');if(v!=='system'&&v!=='light'&&v!=='dark'){var o=localStorage.getItem('aphrodite-paper-theme');v=o==='night'?'dark':o==='paper'?'light':'system';}if(v!=='system')document.documentElement.setAttribute('data-theme',v);}catch(e){}})();

@@ -15,18 +15,18 @@ test('home is a system screen: its sheet lives under src/ui and the old one is g
   assert.match(readFileSync(new URL('../src/main.ts',import.meta.url),'utf8'),/import '\.\/ui\/screens\/home\.css';/);
 });
 
-test('home is built from the parts, with the theme on its root',()=>{
-  const html=workspaceHome(library(),'recent','','',false,'ko');
-  assert.match(html,/^<div class="folio-home ui-root ui-home" data-theme="light"/);
-  assert.match(workspaceHome(library(),'recent','','',true,'ko'),/^<div class="folio-home ui-root ui-home" data-theme="dark"/);
-  assert.doesNotMatch(workspaceHome(library(),'recent','','',true,'ko'),/folio-night/,'night is the dark theme, not a class of its own');
+test('home is built from the parts, and leaves the theme to the document root',()=>{
+  const html=workspaceHome(library(),'recent','','','system','ko');
+  assert.match(html,/^<div class="folio-home ui-root ui-home" data-sidebar=/);
+  for(const theme of ['system','light','dark'] as const)assert.doesNotMatch(workspaceHome(library(),'recent','','',theme,'ko'),/data-theme=/,'0.3-L5: one theme for the app, on the document root');
+  assert.doesNotMatch(workspaceHome(library(),'recent','','','dark','ko'),/folio-night/,'night is the dark theme, not a class of its own');
   for(const part of ['ui-side','ui-side-foot','ui-row','ui-heading','ui-heading-title','ui-input','ui-seg','ui-btn-primary','ui-btn-secondary','ui-switch','ui-board-card','ui-board-card-thumb','ui-menu'])
     assert.match(html,new RegExp('class="[^"]*\\b'+part+'\\b'),part);
   assert.match(projectCards({version:1,entries:[]},'recent','','ko'),/class="[^"]*\bui-empty\b/);
 });
 
 test('the hero is gone, and its words with it',()=>{
-  const html=workspaceHome(library(),'recent','','',false,'en');
+  const html=workspaceHome(library(),'recent','','','system','en');
   assert.doesNotMatch(html,/folio-hero|folio-art|folio-handwritten/);
   for(const key of ['eyebrow','headline','headlineEm','intro','handwritten','artAlt','artCaption','space','credit','footer','collection'])
     for(const language of ['en','ko'] as const)assert.ok(!(key in homeCopy[language]),language+'.'+key+' is gone');

@@ -6,7 +6,7 @@ import {workspaceHome,projectCards} from '../src/workspace/home';
 import {readFileSync} from 'node:fs';
 test('preview tokens remain project-owned in both home themes',()=>{
  const p=initialProject();p.system.background='#fffaf0';p.system.foreground='#203040';p.system.accent='#cc8800';p.pages[0].blocks=[];const library={version:1 as const,entries:[entryFor(p)]};const before=JSON.stringify(library);
- for(const night of [false,true]){const html=workspaceHome(library,'recent','','',night);assert.ok(html.includes('--preview-paper:#fffaf0;--preview-ink:#203040;--preview-accent:#cc8800'));assert.match(html,night?/^<div [^>]*data-theme="dark"/:/^<div [^>]*data-theme="light"/);}
+ for(const theme of ['system','light','dark'] as const){const html=workspaceHome(library,'recent','','',theme);assert.ok(html.includes('--preview-paper:#fffaf0;--preview-ink:#203040;--preview-accent:#cc8800'));assert.doesNotMatch(html,/data-theme=/);}
  assert.equal(JSON.stringify(library),before);const cards=projectCards(library,'recent','');assert.match(cards,/1 page · /);assert.match(cards,/<a href="#" class="folio-open ui-board-card-thumb"/);assert.doesNotMatch(cards,/<button class="folio-open/);
 });
 /* The midnight home is the dark theme; a board's preview keeps the board's own ink in either, and nothing in the screen sheet paints over it. */
