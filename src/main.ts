@@ -1129,6 +1129,14 @@ function inspectorHtml(page:Page) {
   <section class="inspector-section component-inspector"><div class="section-heading"><h2>${b ? ui('Selected component','선택한 컴포넌트') : ui('Component properties','컴포넌트 속성')}</h2>${icon('box')}</div>${b ? `<div class="selected-component-label">${icon(catalog.find(c => c.kind === b.kind)!.icon)}<strong>${catalog.find(c => c.kind === b.kind)!.name}</strong><span>${control(b.filled ? 'Filled' : 'Draft')}</span></div><label class="edit-field">${b.kind === 'navigation' || b.kind === 'footer' ? ui('Brand name','브랜드명') : ui('Heading','제목')}<textarea data-field="title" rows="2" aria-label="Component heading">${esc(b.title)}</textarea></label><label class="edit-field">${ui('Content','본문')}<textarea data-field="text" rows="3" aria-label="Component content">${esc(b.text)}</textarea></label><label class="edit-field">${ui('Label / action','라벨 / 동작')}<input data-field="label" aria-label="Component action label" value="${esc(b.label)}"></label>${b.kind === 'hero' || b.kind === 'products' ? `<button class="upload-inline" data-action="block-image">${icon('image-plus')}${ui('Replace image','이미지 교체')}</button>` : ''}<div class="block-tools">${iconButton('move-up', 'arrow-up', 'Move component up', page.blocks[0]?.id === b.id ? 'disabled' : '')}${iconButton('move-down', 'arrow-down', 'Move component down', page.blocks.at(-1)?.id === b.id ? 'disabled' : '')}${iconButton('duplicate-block', 'copy', 'Duplicate component')}<span></span>${iconButton('delete-block', 'trash-2', 'Delete component')}</div>` : '<p class="panel-description">캔버스의 컴포넌트를 선택하면 문구와 이미지를 편집할 수 있습니다.</p>'}</section>
   <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-shown="${esc(shownState())}"`)}</div>`;
 }
+function focusModal(){
+  const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
+  if(!modal||!body)return;
+  const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
+  const first=controls.some(el=>el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
+    controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
+  (first??modal).focus();
+}
 /** A dialog in the system's frame: confirm (420) for a yes-or-no, the usual 560, and wide (960) for two columns side by side. `lead` sits above the title. */
 function showModal(title: string, subtitle: string, body: string, wide: boolean|'confirm' = false, lead = '') {
   comparisonObserver?.disconnect(); comparisonObserver = null;
@@ -1137,9 +1145,9 @@ function showModal(title: string, subtitle: string, body: string, wide: boolean|
      continuation after an await, a script's click — which goes under it and shows once it is answered.
      The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
   const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
-  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
   if(ask)modalRoot.append(ask);
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();}, 0);
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
@@ -1149,7 +1157,7 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();modalRoot.querySelector<HTMLElement>('input,textarea,button')?.focus();syncStateAttributes();}}
+function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();focusModal();syncStateAttributes();}}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -2499,7 +2507,7 @@ document.addEventListener('keydown', e => {
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
   if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && (document.activeElement === first || document.activeElement === scope.querySelector('.modal'))) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
   }
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
