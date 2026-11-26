@@ -807,3 +807,51 @@ fn astra_5_interrupted_repoint_survives_relaunch_and_requires_a_fresh_press() {
     );
     assert_eq!(fresh.status()["unfinishedRepoint"], false);
 }
+
+#[test]
+fn astra_5_close_and_restart_wait_for_an_accepted_registration() {
+    use crate::disk;
+    use std::{
+        future::Future,
+        sync::mpsc,
+        task::{Context, Waker},
+    };
+    use tauri::test::{mock_builder, mock_context, noop_assets};
+    let _serial = disk::TEST_SERIAL.lock().unwrap();
+    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+    let web = tauri::WebviewWindowBuilder::new(&app, "connect", Default::default())
+        .build()
+        .unwrap();
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let (entered, started) = mpsc::channel();
+    let (release, stalled) = mpsc::channel();
+    let mut change = Box::pin(commands::mutation(
+        move || {
+            entered.send(()).unwrap();
+            stalled.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(f.0.engine)
+        },
+        CLAUDE,
+        Action::Connect,
+        p["fingerprint"].as_str().unwrap().to_owned(),
+        false,
+    ));
+    assert!(change
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
+    tauri::async_runtime::block_on(async {
+        let closes = disk::disk_begin_close(web.as_ref().window(), "restart".into(), 40)
+            .await
+            .unwrap();
+        if closes {
+            disk::release_close("connect", disk::Release::Cancelled("restart"));
+        }
+        release.send(()).unwrap();
+        let result = wire(change.await);
+        assert!(!closes);
+        assert_eq!(result["code"], "registered");
+    });
+}

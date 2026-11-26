@@ -141,6 +141,25 @@ pub async fn connect_preview(
     })
     .await
 }
+pub(super) async fn mutation(
+    engine: impl FnOnce() -> Result<Engine> + Send + 'static,
+    tool: Tool,
+    action: Action,
+    fingerprint: String,
+    confirm: bool,
+) -> Result<Proposal> {
+    crate::disk::write(move || {
+        Ok(engine().and_then(|e| e.execute(tool, action, &fingerprint, confirm)))
+    })
+    .await
+    .map_err(|err| {
+        if err == "window_destroyed" {
+            Code::WindowDestroyed
+        } else {
+            Code::WorkerFailed
+        }
+    })?
+}
 #[tauri::command]
 pub async fn connect_apply(
     app: tauri::AppHandle,
@@ -148,14 +167,13 @@ pub async fn connect_apply(
     fingerprint: String,
     confirm_replacement: Option<bool>,
 ) -> Result<Proposal> {
-    run(app, true, move |e| {
-        e.execute(
-            tool,
-            Action::Connect,
-            &fingerprint,
-            confirm_replacement.unwrap_or(false),
-        )
-    })
+    mutation(
+        move || runtime(app, true),
+        tool,
+        Action::Connect,
+        fingerprint,
+        confirm_replacement.unwrap_or(false),
+    )
     .await
 }
 #[tauri::command]
@@ -165,14 +183,13 @@ pub async fn connect_remove(
     fingerprint: String,
     confirm_removal: Option<bool>,
 ) -> Result<Proposal> {
-    run(app, true, move |e| {
-        e.execute(
-            tool,
-            Action::Remove,
-            &fingerprint,
-            confirm_removal.unwrap_or(false),
-        )
-    })
+    mutation(
+        move || runtime(app, true),
+        tool,
+        Action::Remove,
+        fingerprint,
+        confirm_removal.unwrap_or(false),
+    )
     .await
 }
 #[derive(Serialize)]

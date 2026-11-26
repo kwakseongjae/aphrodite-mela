@@ -44,6 +44,7 @@ pub enum Code {
     SidecarMissing,
     UnknownLocation,
     WorkerFailed,
+    WindowDestroyed,
     CliNotFound,
     CliUntrusted,
     CliStartFailed,
