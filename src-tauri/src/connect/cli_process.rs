@@ -54,13 +54,40 @@ pub(super) fn controlled(path: &Path) -> bool {
     path.is_absolute()
         && path.ancestors().all(|p| {
             fs::symlink_metadata(p).is_ok_and(|m| {
-                !m.is_symlink() && (m.uid() == user || m.uid() == 0) && m.mode() & 0o022 == 0
+                !m.is_symlink()
+                    && (m.uid() == user || m.uid() == 0)
+                    && m.mode() & 0o022 == 0
+                    && super::files::acl_controlled(p)
             })
         })
 }
 
+fn safe_to_inspect(e: &Engine, path: &Path, meta: &fs::Metadata) -> bool {
+    if path.file_name().and_then(|s| s.to_str()).is_some_and(|s| {
+        [".claude.json", "auth.json", ".credentials.json"]
+            .iter()
+            .any(|name| s.eq_ignore_ascii_case(name))
+    }) {
+        return false;
+    }
+    if meta.nlink() == 1 {
+        return true;
+    }
+    [
+        e.home.join(".claude.json"),
+        e.path(super::Tool::ClaudeCode),
+        e.codex_home.join("auth.json"),
+        e.home.join(".claude/.credentials.json"),
+    ]
+    .iter()
+    .all(|config| match fs::metadata(config) {
+        Ok(other) => (meta.dev(), meta.ino()) != (other.dev(), other.ino()),
+        Err(err) => err.kind() == io::ErrorKind::NotFound,
+    })
+}
+
 impl Program {
-    fn at(selected: PathBuf) -> Option<Self> {
+    fn at(e: &Engine, selected: PathBuf) -> Option<Self> {
         let path = selected.canonicalize().ok()?;
         let m = fs::metadata(&path).ok()?;
         if !m.is_file()
@@ -88,18 +115,18 @@ impl Program {
             .collect::<Vec<_>>();
         let mut program = Self {
             identity: (&m).into(),
-            trusted: controlled(&path),
+            trusted: controlled(&path) && safe_to_inspect(e, &path, &m),
             path,
             interpreter: vec![],
             search_path,
         };
         if program.trusted {
-            program.trusted = program.check_interpreter().is_some();
+            program.trusted = program.check_interpreter(e).is_some();
         }
         Some(program)
     }
 
-    fn check_interpreter(&mut self) -> Option<()> {
+    fn check_interpreter(&mut self, e: &Engine) -> Option<()> {
         // Only inspect trusted files. A native binary has no shebang.
         let mut prefix = Vec::new();
         std::io::BufReader::new(fs::File::open(&self.path).ok()?.take(512))
@@ -113,7 +140,7 @@ impl Program {
         if !interpreter.is_absolute() || !controlled(interpreter.parent()?) {
             return None;
         }
-        self.pin_interpreter(interpreter)?;
+        self.pin_interpreter(e, interpreter)?;
         if interpreter == Path::new("/usr/bin/env") {
             let name = words.next()?;
             if name.starts_with('-') || name.contains(['/', '=']) || words.next().is_some() {
@@ -124,15 +151,28 @@ impl Program {
                 .iter()
                 .map(|dir| dir.join(name))
                 .find(|p| access(p, Access::EXEC_OK).is_ok())?;
-            self.pin_interpreter(&selected)?;
+            self.pin_interpreter(e, &selected)?;
         }
         Some(())
     }
 
-    fn pin_interpreter(&mut self, selected: &Path) -> Option<()> {
+    fn pin_interpreter(&mut self, e: &Engine, selected: &Path) -> Option<()> {
         let path = selected.canonicalize().ok()?;
         let m = fs::metadata(&path).ok()?;
         if !controlled(&path) || !m.is_file() || access(&path, Access::EXEC_OK).is_err() {
+            return None;
+        }
+        if path.to_str().is_none() || !safe_to_inspect(e, &path, &m) {
+            return None;
+        }
+        // A PATH-resolved interpreter must itself be a native Darwin image. An env
+        // wrapper must not introduce a second shebang lookup or shell fallback.
+        let mut magic = [0; 4];
+        fs::File::open(&path).ok()?.read_exact(&mut magic).ok()?;
+        let native = [u32::from_be_bytes(magic), u32::from_le_bytes(magic)]
+            .iter()
+            .any(|m| matches!(m, 0xfeedface | 0xfeedfacf | 0xcafebabe | 0xcafebabf));
+        if !native {
             return None;
         }
         self.interpreter.push((path, (&m).into()));
@@ -145,7 +185,7 @@ impl Program {
             .iter()
             .chain(&engine.claude_dirs)
             .filter(|dir| dir.is_absolute())
-            .find_map(|dir| Self::at(dir.join("claude")))
+            .find_map(|dir| Self::at(engine, dir.join("claude")))
     }
 
     pub fn binding(&self) -> String {

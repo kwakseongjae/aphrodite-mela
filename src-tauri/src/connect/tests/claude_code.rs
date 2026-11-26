@@ -908,3 +908,36 @@ fn astra_4_only_a_complete_missing_diagnostic_can_clear_ownership() {
         assert_eq!(f.status()["entryExists"], Value::Null);
     }
 }
+#[test]
+fn opus_4_trust_accounts_for_write_acls_and_the_env_interpreter() {
+    let f = Fixture::new();
+    let dir = &f.e().cli_dirs[0];
+    let real = dir.join("playback");
+    assert!(Command::new("/bin/chmod")
+        .args(["+a", "everyone allow write"])
+        .arg(&real)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(json!(f.e().status(CLAUDE).unwrap())["trusted"], false);
+    assert!(Command::new("/bin/chmod")
+        .arg("-N")
+        .arg(&real)
+        .status()
+        .unwrap()
+        .success());
+    fs::write(&real, "#!/usr/bin/env fixture-runtime\n").unwrap();
+    let interpreter = dir.join("fixture-runtime");
+    fs::write(&interpreter, "exit 0\n").unwrap();
+    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(f.status()["error"], "cli_untrusted");
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn astra_7_cli_discovery_also_refuses_a_link_to_the_settings_inode() {
+    let f = Fixture::new();
+    fs::hard_link(f.e().cli_dirs[0].join("playback"), f.e().path(CLAUDE)).unwrap();
+    assert_eq!(f.status()["error"], "cli_untrusted");
+    assert!(f.calls().is_empty());
+}

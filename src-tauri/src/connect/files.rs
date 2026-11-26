@@ -107,11 +107,80 @@ pub(super) fn read_receipt(value: io::Result<Option<Vec<u8>>>) -> Result<(Option
 use std::ffi::c_void;
 const EXTENDED_ACL: i32 = 0x100;
 unsafe extern "C" {
+    fn acl_get_file(path: *const libc::c_char, kind: i32) -> *mut c_void;
+    fn acl_get_entry(acl: *mut c_void, which: i32, entry: *mut *mut c_void) -> i32;
+    fn acl_get_tag_type(entry: *mut c_void, tag: *mut i32) -> i32;
+    fn acl_get_permset_mask_np(entry: *mut c_void, mask: *mut u64) -> i32;
+    fn acl_get_qualifier(entry: *mut c_void) -> *mut c_void;
+    fn mbr_uid_to_uuid(uid: libc::uid_t, uuid: *mut u8) -> i32;
     fn acl_init(count: i32) -> *mut c_void;
     fn acl_set_fd_np(fd: i32, acl: *mut c_void, kind: i32) -> i32;
     fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
     fn acl_to_text(acl: *mut c_void, len: *mut isize) -> *mut libc::c_char;
     fn acl_free(ptr: *mut c_void) -> i32;
+}
+
+// Darwin ACL grants can extend write permissions beyond the POSIX mode.
+pub(super) fn acl_controlled(path: &Path) -> bool {
+    struct Allocation(*mut c_void);
+    impl Drop for Allocation {
+        fn drop(&mut self) {
+            unsafe {
+                acl_free(self.0);
+            }
+        }
+    }
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
+        return false;
+    };
+    unsafe {
+        let acl = acl_get_file(path.as_ptr(), EXTENDED_ACL);
+        if acl.is_null() {
+            return matches!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ENOENT | libc::ENOTSUP)
+            );
+        }
+        let acl = Allocation(acl);
+        // sys/acl.h: write/append data, delete, delete child, write attributes,
+        // write extended attributes, write security and change owner.
+        const MUTATING: u64 = (1 << 2)
+            | (1 << 4)
+            | (1 << 5)
+            | (1 << 6)
+            | (1 << 8)
+            | (1 << 10)
+            | (1 << 12)
+            | (1 << 13);
+        let mut which = 0; // ACL_FIRST_ENTRY
+        loop {
+            let mut entry = std::ptr::null_mut();
+            if acl_get_entry(acl.0, which, &mut entry) != 0 {
+                return io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL);
+            }
+            which = -1; // ACL_NEXT_ENTRY
+            let (mut tag, mut mask) = (0, 0);
+            if acl_get_tag_type(entry, &mut tag) != 0
+                || acl_get_permset_mask_np(entry, &mut mask) != 0
+            {
+                return false;
+            }
+            if tag != 1 || mask & MUTATING == 0 {
+                continue;
+            } // ACL_EXTENDED_ALLOW
+            let id = acl_get_qualifier(entry);
+            if id.is_null() {
+                return false;
+            }
+            let id = Allocation(id);
+            if ![0, libc::geteuid()].iter().any(|&uid| {
+                let mut uuid = [0u8; 16];
+                mbr_uid_to_uuid(uid, uuid.as_mut_ptr()) == 0 && uuid == *id.0.cast::<[u8; 16]>()
+            }) {
+                return false;
+            }
+        }
+    }
 }
 
 // A directory can grant read access through an inherited ACL even when the creation
