@@ -1244,15 +1244,16 @@ async function carriedSummary(board:Project):Promise<string>{
 /** What an export says of the files the board came without (0.3-R ④), or nothing when it held none back. */
 function withheldNote(n:number,all=false){return !n?'':all?ui(`${n} file(s) were not sent: the board's record of what it came without could not be read.`,`받을 때 없던 파일의 기록을 읽지 못해 ${n}개를 싣지 않았습니다`):ui(`${n} file(s) the board came without were not sent with it. To send one, put it on the board again.`,`받을 때 없던 파일 ${n}개는 싣지 않았습니다. 실으려면 보드에 다시 놓으세요`);}
 function openExport(){exportChoice={scripts:false,videos:'beside'};exportModal();}
-function exportModal(view = 'prompt') {
+function exportModal(requested = 'prompt') {
   const approved = isApproved(project), page = shownPage(project), own = !!page.kind, sections = hasSectionPage(project);
+  const view = sections ? requested : 'prompt';
   showModal(ui('Export','내보내기'), sections ? ui('Export the design you reviewed as files for the next step.','확인한 디자인을 다음 작업에 쓸 파일로 내보냅니다.') : ui('Save this board, or the page in view, as a file.','이 보드나 보고 있는 페이지를 파일로 저장합니다.'), exportBodyHtml({sections, ko: uiLanguage === 'ko', approved, shown: shownState(), view, code: !sections ? '' : view === 'prompt' ? buildPrompt(project) : view === 'design' ? designMarkdown(project) : own ? '' : pageHtml(project, page), pageCard: own ? pageExportHtml(page) : '', pages: project.pages.length, boardExtension: BOARD_FILE.extension, labels: {copyPrompt: control('Copy prompt'), bundle: control('Download handoff .zip')}}));
   const activeIndex = project.pages.findIndex(p => p.id === page.id);
   const htmlTab = modalRoot.querySelector<HTMLElement>('[data-action="export-tab"][data-view="html"]');
   if (htmlTab) htmlTab.textContent = own ? `${fileName({...project,name:page.name},'html')}` : activeIndex === 0 ? 'index.html' : `page-${activeIndex + 1}.html`;
   // An html page or a media item is shown the way it goes out, no file read: each picture by its size.
-  const code = modalRoot.querySelector<HTMLElement>('.export-code')!;
-  if (view === 'html') { if (own) void exportPage(pageSource(page), exportChoice, outgoing(project, frameHost).host, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, page); }
+  const code = modalRoot.querySelector<HTMLElement>('.export-code');
+  if (view === 'html' && code) { if (own) void exportPage(pageSource(page), exportChoice, outgoing(project, frameHost).host, {inline: false}).then(out => { if (code.isConnected) code.textContent = out.html; }, error => { if (code.isConnected) code.textContent = error instanceof Error ? error.message : String(error); }); else code.textContent = pageHtml(project, page); }
   // The videos choice shows only for a page that has a video, asked of the files' kinds without reading them.
   // The answer goes only into the dialog that asked: one drawn since, for this page or another, asks again for itself.
   // What goes out with the board (0.3-R ④): its pictures and videos, how many and how big, and how many it came without stay here.
