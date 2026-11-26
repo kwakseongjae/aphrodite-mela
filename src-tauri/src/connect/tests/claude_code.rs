@@ -540,3 +540,11 @@ fn astra_2_text_without_an_interpreter_fails_to_start() {
     assert_eq!(f.status()["error"], "cli_start_failed");
 }
 
+#[test]
+fn astra_8_non_utf8_profile_is_rejected_before_a_get() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut f = Fixture::new();
+    f.0.engine.claude_config_dir = Some(f.e().home.join(std::ffi::OsString::from_vec(vec![0xff])));
+    assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
+    assert!(f.calls().is_empty());
+}

@@ -216,6 +216,12 @@ impl Engine {
                 .join("Library/Application Support/Claude/claude_desktop_config.json"),
         }
     }
+    fn profile(&self) -> Result<Option<&str>> {
+        self.claude_config_dir.as_ref().map(|path| {
+            path.to_str().filter(|s| path.is_absolute() && !s.contains(char::is_control))
+                .ok_or(Code::InvalidPath)
+        }).transpose()
+    }
     fn executable(&self) -> &str {
         self.exe.to_str().unwrap_or("")
     }
@@ -258,6 +264,7 @@ impl Engine {
         self.tool_status(Tool::ClaudeCode, true)
     }
     fn tool_status(&self, tool: Tool, ask: bool) -> Result<Status> {
+        if tool == Tool::ClaudeCode { self.profile()?; }
         let path = self.path(tool);
         let mut out = Status {
             tool,

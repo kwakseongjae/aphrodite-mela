@@ -341,6 +341,7 @@ impl State {
 
 pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
     e.validate_location()?;
+    e.profile()?;
     let Some(program) = Program::find(e) else {
         return Ok(Proposal::Copy {
             tool: Tool::ClaudeCode,
@@ -423,6 +424,7 @@ pub(super) fn execute(
     fingerprint: &str,
     confirm: bool,
 ) -> Result<CommandResult, CommandResult> {
+    e.profile()?;
     let (binding, digest) = fingerprint.split_once('.').ok_or(Code::Changed)?;
     let program = Program::find(e).ok_or(Code::Changed)?;
     if !program.trusted || binding != program.binding() || digest.len() != 64 {
