@@ -517,7 +517,15 @@ async function bounded<T>(wait:Promise<T>,ms=SAVE_LIMIT,late:()=>Error=()=>new U
 function within(p:Promise<unknown>,ms:number):Promise<boolean>{return Promise.race([p.then(()=>true,()=>true),new Promise<boolean>(r=>setTimeout(()=>r(false),ms))]);}
 /* The close's own leaving (0.3-R fix 2 #15): every wait in it is bounded, so a write that never ends cannot keep the editor
    from taking input after the person chose to stay; a write that lands after its time is up closes nothing (the closer). */
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;});}
+function nativeClose(timeoutMs:number){
+  if(!nativeDesktop)return {ready:Promise.resolve(true),release:()=>{}};
+  const ticket=crypto.randomUUID();
+  const ready=invoke<boolean>('disk_begin_close',{ticket,timeoutMs});
+  // A delayed IPC reply can arrive after the save deadline. Release its own ticket then.
+  const release=()=>{void ready.then(ok=>ok?invoke('disk_end_close',{ticket}):undefined).catch(()=>{});};
+  return {ready,release};
+}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the

@@ -5,17 +5,26 @@
  * things a thin adapter has to get right: every tool is described and annotated honestly, and the
  * app's own refusals arrive intact rather than being swallowed or reinterpreted.
  *
- *   node scripts/verify-mcp.mjs
+ *   node scripts/verify-mcp.mjs [--live]
  */
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {createInterface} from 'node:readline';
-import {writeFileSync, rmSync} from 'node:fs';
+import {writeFileSync, rmSync, mkdtempSync, rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:http';
 import {join} from 'node:path';
 
-const server = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {stdio: ['pipe', 'pipe', 'pipe']});
+const scratch = mkdtempSync(join(tmpdir(), 'aphrodite-verify-'));
+process.on('exit', () => rmdirSync(scratch));
+const environment = {...process.env};
+if (!environment.APHRODITE_ENDPOINT_FILE && !process.argv.includes('--live')) {
+  environment.APHRODITE_ENDPOINT_FILE = join(scratch, 'absent.json');
+}
+const executable = process.env.APHRODITE_MCP_EXECUTABLE;
+const launch = options => spawn(executable || process.execPath, executable ? [] : ['mcp/aphrodite-mcp/index.mjs'], {env:environment,...options});
+
+const server = launch({stdio: ['pipe', 'pipe', 'pipe']});
 const lines = createInterface({input: server.stdout});
 const pending = new Map();
 const stray = [];
@@ -47,7 +56,7 @@ check('it introduces itself and agrees on a protocol version', async () => {
 });
 
 check('an unknown protocol version gets a known one back, not a refusal', async () => {
-  const other = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {stdio: ['pipe', 'pipe', 'ignore']});
+  const other = launch({stdio: ['pipe', 'pipe', 'ignore']});
   const answer = await new Promise(resolve => {
     createInterface({input: other.stdout}).on('line', line => resolve(JSON.parse(line)));
     other.stdin.write(`${JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {protocolVersion: '1999-01-01', capabilities: {}}})}\n`);
@@ -137,7 +146,7 @@ check('a leftover endpoint file is not trusted, even when its port now answers',
   await new Promise(resolve => stranger.listen(0, '127.0.0.1', resolve));
   const port = stranger.address().port;
 
-  const stalePath = join(tmpdir(), `aphrodite-stale-${process.pid}.json`);
+  const stalePath = join(scratch, 'stale.json');
   writeFileSync(stalePath, JSON.stringify({
     schema: 'aphrodite.agent-endpoint/1',
     port,
@@ -146,7 +155,7 @@ check('a leftover endpoint file is not trusted, even when its port now answers',
     base: `http://127.0.0.1:${port}`,
   }));
 
-  const alt = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {
+  const alt = launch({
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {...process.env, APHRODITE_ENDPOINT_FILE: stalePath},
   });
@@ -185,10 +194,10 @@ check('a call carries the name the client gave at initialize, not a fixed one', 
   });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const port = app.address().port;
-  const file = join(tmpdir(), `aphrodite-caller-${process.pid}.json`);
+  const file = join(scratch, 'caller.json');
   writeFileSync(file, JSON.stringify({schema: 'aphrodite.agent-endpoint/1', port, token: 't'.repeat(48), pid: process.pid, base: `http://127.0.0.1:${port}`}));
   const ask = async clientInfo => {
-    const child = spawn('node', ['mcp/aphrodite-mcp/index.mjs'], {stdio: ['pipe', 'pipe', 'ignore'], env: {...process.env, APHRODITE_ENDPOINT_FILE: file}});
+    const child = launch({stdio: ['pipe', 'pipe', 'ignore'], env: {...process.env, APHRODITE_ENDPOINT_FILE: file}});
     try {
       const out = createInterface({input: child.stdout});
       const answered = new Promise((resolve, reject) => {
@@ -213,7 +222,7 @@ check('a call carries the name the client gave at initialize, not a fixed one', 
 check('the guide arrives as prose, not as an escaped string inside JSON', async () => {
   const {result} = await request('tools/call', {name: 'aphrodite_guide', arguments: {}});
   const text = result.content[0].text;
-  if (result.isError) return; // the app is closed; covered by the check above
+  assert.equal(result.isError, false);
   assert.match(text, /^# Working with Aphrodite/, 'it starts as a document');
   assert.ok(text.includes('\n'), 'real newlines, not \\n');
   assert.ok(!text.startsWith('{'), 'not wrapped in a JSON envelope');
