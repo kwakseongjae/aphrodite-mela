@@ -41,24 +41,10 @@ export const NOBODY: Dispatch = Object.freeze({author: UNKNOWN, surface: 'ui'});
 
 /** The `ui` Dispatches made from trusted events. Nothing else is the person. */
 const fromPerson = new WeakSet<Dispatch>();
-// An OS hand-over vouches only for importing those files, once. It cannot approve, open a
-// picker, or act on behalf of the person anywhere else in the interface.
-const handovers = new WeakMap<Dispatch, {input: object; used: boolean}>();
+/** Draining the OS queue supplies inputs for a future press on the import control. */
 export async function takeHtmlHandovers() {
   const {takeGrantedHtml} = await import('../import/native');
-  return (await takeGrantedHtml()).map(input => {
-    const dispatch = person();
-    handovers.set(dispatch, {input, used: false});
-    return {input, dispatch};
-  });
-}
-export function acceptsHtml(dispatch: Dispatch, input: object): boolean {
-  if (refusal(dispatch, 'edit.import-html')) return false;
-  const handed = handovers.get(dispatch);
-  if (!handed) return true;
-  if (handed.used || handed.input !== input) return false;
-  handed.used = true;
-  return true;
+  return takeGrantedHtml();
 }
 /** Events the app or an agent's command made, with the Dispatch of whoever caused them. */
 const carried = new WeakMap<Event, Dispatch>();
@@ -157,7 +143,6 @@ export function watchTyping(on: Pick<EventTarget, 'addEventListener'>): void {
  */
 export function refusal(d: Dispatch | undefined, rowId?: string): string | undefined {
   if (!d || d === NOBODY) return 'nobody is named for this change: only the person\'s own input or an agent\'s command changes the design';
-  if (handovers.has(d) && rowId !== 'edit.import-html') return 'person_only';
   if (d.surface === 'ui') {
     if (d.author.kind !== 'person') return 'only the person is on the screen';
     if (!fromPerson.has(d)) return 'the screen is the person\'s own input, and nothing else can say it is';

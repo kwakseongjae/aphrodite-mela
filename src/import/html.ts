@@ -1,5 +1,5 @@
 import {runBatch} from '../agent/apply';
-import {acceptsHtml, type Dispatch} from '../agent/dispatch';
+import {refusal, type Dispatch} from '../agent/dispatch';
 import {visiblePages} from '../editor/starter';
 import {htmlProblem, MAX_PAGE_HTML, type StoredMedia} from '../free-page';
 import {MAX_PAGES, type Project} from '../model';
@@ -63,7 +63,7 @@ function fit(project: Project, docs: Document[], target: ImportTarget, refused: 
 
 /** Read first, then apply to the board that is current when the reading ends, in one synchronous commit. */
 export async function importHtml(input: TextInput | GrantedFiles, dispatch: Dispatch | undefined, target: ImportTarget): Promise<ImportResult> {
-  if (!dispatch || !acceptsHtml(dispatch, input)) throw 'person_only';
+  if (!dispatch || refusal(dispatch, IMPORT_HTML)) throw 'person_only';
   const board = target.current().id;
   const live = () => {
     const project = target.current();
