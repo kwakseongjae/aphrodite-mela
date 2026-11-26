@@ -11,3 +11,8 @@ test('each native save awaits its blocking worker before acknowledging the write
     assert.match(source, new RegExp(`pub async fn ${command}\\([^]*?\\{\\s*crate::disk::write\\(move \\|\\| \\{`), command);
   }
 });
+
+test('the disk-image query does not forward the app environment to the system utility', () => {
+  const source=readFileSync(new URL('../src-tauri/src/connect/mod.rs',import.meta.url),'utf8');
+  assert.match(source,/Command::new\("\/usr\/bin\/hdiutil"\)\s*\.env_clear\(\)/);
+});

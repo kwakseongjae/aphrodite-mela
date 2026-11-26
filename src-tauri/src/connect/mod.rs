@@ -526,6 +526,7 @@ fn location(exe: &Path) -> Location {
     }
     if exe.starts_with("/Volumes") {
         let info = std::process::Command::new("/usr/bin/hdiutil")
+            .env_clear()
             .args(["info", "-plist"])
             .output()
             .ok()
