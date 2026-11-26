@@ -142,6 +142,7 @@ test('a mark stays where it can be seen when the panel it sits in is folded',asy
   assert.equal((folded.match(/data-action="notice-open"/g)??[]).length,1,'drawn once');
   assert.match(outsideSide(folded),/notice-open/,'with the side list folded it is drawn outside it');
   const main=readFileSync('src/main.ts','utf8');
+  assert.match(main.slice(main.indexOf('function toggleHomeSidebar(){'),main.indexOf('function toggleHomeSidebar(){')+1500),/classList\.(add|toggle)\('ui-home-marks-float'/,'folding the side list in place takes the marks with it');
   assert.match(main,/panels\.right==='collapsed'\?`<div class="board-actions board-marks"><span class="ui-notice-marks" data-notice-marks>/,'with the inspector folded the marks sit over the board, where Preview sits on a board of pages');
 });
 

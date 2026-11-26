@@ -895,6 +895,8 @@ function toggleHomeSidebar(){
   const home=document.querySelector<HTMLElement>('.folio-home');
   if(!home){render();return;}
   home.dataset.sidebar=homeSidebar;
+  // The marks keep the corner: out of the folded list, back by the agent switch when it opens (src/workspace/home.ts).
+  const marks=home.querySelector<HTMLElement>('.ui-home-marks');if(marks){marks.classList.toggle('ui-home-marks-float',homeSidebar==='collapsed');if(homeSidebar==='collapsed')home.prepend(marks);else home.querySelector('.ui-home-foot')?.prepend(marks);}
   const t=homeCopy[uiLanguage];
   const existing=home.querySelector<HTMLElement>('.folio-side-tab');
   if(homeSidebar==='collapsed'){
