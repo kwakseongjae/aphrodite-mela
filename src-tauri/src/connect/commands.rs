@@ -102,7 +102,6 @@ impl Engine {
                 code @ (Code::UnsupportedLayout
                 | Code::InvalidConfig
                 | Code::Ambiguous
-                | Code::CliNotFound
                 | Code::CopyOnly
                 | Code::DirectoryMissing
                 | Code::NoExtendedAttributes),

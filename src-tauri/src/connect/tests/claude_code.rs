@@ -373,3 +373,18 @@ fn a_success_line_with_extra_text_is_not_a_safe_tail() {
     assert_eq!(reply["exitStatus"], 0);
     assert_eq!(reply["tail"], Value::Null);
 }
+
+#[test]
+fn the_copy_fallback_for_an_absent_program_matches_the_requested_action() {
+    let f = Fixture::new();
+    fs::remove_file(f.e().cli_dirs[0].join("claude")).unwrap();
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(connect["snippet"], CLAUDE.snippet(f.e().executable()));
+    assert_eq!(remove["code"], "cli_not_found");
+    assert_eq!(
+        remove["snippet"],
+        "claude mcp remove --scope user aphrodite"
+    );
+    assert!(f.calls().is_empty());
+}

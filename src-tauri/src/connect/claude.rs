@@ -4,6 +4,8 @@ use serde::Serialize;
 use std::{fs::File, path::Path};
 use xattr::FileExt;
 
+const REMOVE_ARGS: &[&str] = &["mcp", "remove", "--scope", "user", "aphrodite"];
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResult {
@@ -291,10 +293,7 @@ impl State {
         let mut commands = vec![];
         let noop = action == Action::Connect && owned && here;
         if exists && !noop {
-            commands.push(Invocation::new(
-                &self.program,
-                &["mcp", "remove", "--scope", "user", "aphrodite"],
-            ));
+            commands.push(Invocation::new(&self.program, REMOVE_ARGS));
         }
         if action == Action::Connect && !noop {
             commands.push(Invocation::add(&self.program, e.executable()));
@@ -320,7 +319,15 @@ impl State {
 pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
     e.validate_location()?;
     let Some(program) = Program::find(e) else {
-        return e.proposal(Tool::ClaudeCode, Err(Code::CliNotFound));
+        return Ok(Proposal::Copy {
+            tool: Tool::ClaudeCode,
+            path: e.path(Tool::ClaudeCode),
+            code: Code::CliNotFound,
+            snippet: match action {
+                Action::Connect => Tool::ClaudeCode.snippet(e.executable()),
+                Action::Remove => format!("claude {}", REMOVE_ARGS.join(" ")),
+            },
+        });
     };
     let home = files::root(&e.home)?.into_std_file();
     Ok(
