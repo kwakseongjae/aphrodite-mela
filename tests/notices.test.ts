@@ -131,6 +131,20 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   assert.ok(marks>0);
 });
 
+test('a mark stays where it can be seen when the panel it sits in is folded',async()=>{
+  const {workspaceHome}=await import('../src/workspace/home');
+  const mark=troubleMarkHtml(full,true),lib={version:1 as const,entries:[]};
+  const open=workspaceHome(lib,'recent','',mark,'system','ko','grid',true,undefined,'open');
+  const folded=workspaceHome(lib,'recent','',mark,'system','ko','grid',true,undefined,'collapsed');
+  const outsideSide=(html:string)=>html.replace(/<aside[\s\S]*?<\/aside>/,'');
+  assert.equal((open.match(/data-action="notice-open"/g)??[]).length,1);
+  assert.doesNotMatch(outsideSide(open),/notice-open/,'with the side list open it is in the list, by the agent switch');
+  assert.equal((folded.match(/data-action="notice-open"/g)??[]).length,1,'drawn once');
+  assert.match(outsideSide(folded),/notice-open/,'with the side list folded it is drawn outside it');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/panels\.right==='collapsed'\?`<div class="board-actions board-marks"><span class="ui-notice-marks" data-notice-marks>/,'with the inspector folded the marks sit over the board, where Preview sits on a board of pages');
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};
