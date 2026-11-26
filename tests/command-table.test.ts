@@ -84,13 +84,13 @@ test('the interface around the design is offered to no agent surface',()=>{
   }
   // 0.3-P3-fix1: besides approving, the door and the chrome, three rows are the person's alone: files out and in (with links), and Edit in the app.
   // 0.3-R fix 1 and fix 2: and reloading the saved copy from disk or restarting the app, either of which can put an approved board back over a draft.
-  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.page-view-edit','outside.disk-reload','outside.export-page','outside.import','outside.relaunch']);
+  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.import-html','edit.page-view-edit','outside.disk-reload','outside.export-page','outside.import','outside.relaunch']);
 });
 
 test('a screen action only the person does is found by its name, and the chrome an agent may still act is not',()=>{
   for(const [action,row] of [['page-view-edit','edit.page-view-edit'],['download-page-html','outside.export-page'],['download-board-file','outside.export-page'],['import-project','outside.import'],[' Import-Project ','outside.import']])assert.equal(personOnlyRow(action),row,action);
   for(const action of ['zoom-fit','page-view','export','download-bundle','page',undefined,42])assert.equal(personOnlyRow(action),undefined,String(action));
-  for(const row of ['edit.page-view-edit','outside.export-page','outside.import'])assert.deepEqual(commandById[row].surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row);
+  for(const row of ['edit.import-html','edit.page-view-edit','outside.export-page','outside.import'])assert.deepEqual(commandById[row].surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row);
 });
 
 test('a route, a tool and a surface flag say the same thing',()=>{
