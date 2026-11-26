@@ -81,7 +81,7 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     [renameDialogHtml('en',project),'name'],['<button>Back</button><textarea hidden></textarea><select disabled></select><textarea name="brief"></textarea>','brief'],
     ['<button>Back</button><select name="language"></select>','language'],[exported,'download-bundle'],
     [deleteDialogHtml('en',project),'close-modal'],[workspaceDeleteDialogHtml('ko','w',2),'close-modal'],
-    ['<iframe></iframe>','dialog'],[commandPaletteHtml([],'','en'),'command-search'],['<div class="ask-dialog"><button data-action="ask-allow">Allow</button></div>','ask-allow']
+    ['<iframe></iframe>','dialog'],['<div class="connect-switch"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="agent-connect-toggle" aria-pressed="true">On</button></div>','dialog'],[commandPaletteHtml([],'','en'),'command-search'],['<div class="ask-dialog"><button data-action="ask-allow">Allow</button></div>','ask-allow']
   ];
   for(const [body,expected] of cases){
     focused=''; markup=''; showModal('Title','',body);

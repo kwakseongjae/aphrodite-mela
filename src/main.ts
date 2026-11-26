@@ -1132,7 +1132,7 @@ function focusModal(){
   const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
   if(!modal||!body)return;
   const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
-  const first=controls.some(el=>el.dataset.action==='open-link'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
+  const first=controls.some(el=>el.dataset.action==='open-link'||el.dataset.action==='agent-connect-toggle'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
     controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
   (first??modal).focus();
 }
