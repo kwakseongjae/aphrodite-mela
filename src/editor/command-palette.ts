@@ -68,7 +68,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'preview',action:'preview',en:'Preview the page (no scripts, same HTML as export)',ko:'페이지 미리보기 (스크립트 없음, export와 동일 HTML)',group:'review'},
     {id:'agent',action:'agent',en:'Agent assembly console · brief & run log',ko:'에이전트 조립 콘솔 · 브리프·실행 기록',group:'review'},
     {id:'export',action:'export',en:'Export handoff (ZIP, prompt, DESIGN.md, SCENE.json)',ko:'핸드오프 내보내기 (ZIP, 프롬프트, DESIGN.md, SCENE.json)',group:'file'},
-    {id:'save',action:'save-project',en:'Save project file (.aphrodite.json)',ko:'프로젝트 파일 저장 (.aphrodite.json)',group:'file'},
+    {id:'save',action:'save-project',en:'Save a backup file (.aphrodite.json)',ko:'백업 파일로 저장 (.aphrodite.json)',group:'file',keywords:['Save project file','프로젝트 파일 저장']},
     {id:'language',action:'language-settings',en:'Language / 언어',ko:'Language / 언어',group:'file'},
     ...themeChoices.map(c=>({id:`look-${c}`,action:'hub-theme',data:{scheme:c},en:`Theme · ${themeLabel[c].en}`,ko:`테마 · ${themeLabel[c].ko}`,group:'file' as const,keywords:['theme','테마',...themeWords[c]],hint:ctx.theme===c?{en:'current',ko:'현재'}:undefined})),
   ];

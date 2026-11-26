@@ -1,8 +1,8 @@
 /**
  * Sentences the app shares with agents and saved files still say "project": the library's and the board reader's errors, the
  * desktop's, a design system's description. Agents read them word for word, so they stay; a person reads "board", so they are
- * said that way where a person sees them (0.3-L5 fix 1). Only these, whole, so a file name such as project.aphrodite.json and
- * the two names still being chosen ("프로젝트 파일", "Save project") are never touched.
+ * said that way where a person sees them (0.3-L5 fix 1). Only these, whole, so a file name such as project.aphrodite.json is
+ * never touched.
  */
 const said:readonly [string,string][]=[
   ['프로젝트는 20MB 이하여야 합니다.','보드는 20MB 이하여야 합니다.'],

@@ -39,7 +39,7 @@ const controls:Record<string,string>={
  'Replace reference':'레퍼런스 교체','Upload reference':'레퍼런스 올리기','Analyze reference':'레퍼런스 분석',
  'Try a sample reference':'샘플 레퍼런스 써보기','Remove reference':'레퍼런스 제거','Compare 3 directions':'3안 비교','Back to evidence':'단서로 돌아가기',
  'Copy prompt':'프롬프트 복사','Download handoff .zip':'핸드오프 ZIP 내려받기','Save DESIGN.md':'DESIGN.md 저장',
- 'Save project':'프로젝트 저장','Open board':'보드 열기','New board':'새 보드','Project files':'프로젝트 파일',
+ 'Save a backup file':'백업 파일로 저장','Open board':'보드 열기','New board':'새 보드','Board library':'보드 자료함',
  'Duplicate page':'페이지 복제','Delete page':'페이지 삭제','See the computer-use workflow':'에이전트 사용 흐름 보기',
  'Export current workspace':'현재 작업 공간 내보내기','Export disk recovery files':'디스크 복구 파일 내보내기',
  'Back to files':'파일 목록으로','Export file':'파일 내보내기','Download issue proposal':'이슈 제안 내려받기',

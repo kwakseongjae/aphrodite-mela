@@ -21,7 +21,6 @@ test('the sentences agents read still say project, word for word, and a person r
     assert.doesNotMatch(person,/[Pp]roject|프로젝트/,'a person reads: '+person);
   }
   assert.equal(boardWords('Saved project.aphrodite.json'),'Saved project.aphrodite.json','a file name stays');
-  assert.equal(boardWords('프로젝트 파일'),'프로젝트 파일','a name still being chosen stays');
   const main=read('src/main.ts');
   assert.match(main,/function notice\(message:string\)\{toasts=pushToast\(expireToasts\(toasts,Date\.now\(\)\),boardWords\(message\)/,'every notice and toast a person sees');
   assert.match(main,/esc\(boardWords\(providers\[b\.provider\?\?'own'\]\.source\)\)/,'the implementation note');

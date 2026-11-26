@@ -75,7 +75,7 @@ While the delegation is active, these decisions stay human even if the control i
 - **Approve direction** (`approve`) is always locked. Request human review; do not click Approve.
 - **Delete page** (`page-delete`, `delete-page`) is locked unless the recorded scope has `deletePages: true` (default false).
 - **Choose design system** and **Import DESIGN.md** (`choose-system`, `systems`, `import-md`) are locked unless the scope has `changeSystem: true` (default true).
-- **Export**, **Download handoff**, and **Save project** (`export`, `download-bundle`, `save-project`) are locked unless the scope has `export: true` (default true).
+- **Export**, **Download handoff**, and **Save a backup file** (`export`, `download-bundle`, `save-project`) are locked unless the scope has `export: true` (default true).
 
 The record of the session is the assembly run receipts together with the delegation object (operator, intent, start/end fingerprints, receipt count, outcome: `returned` / `ended-by-agent` / `timeout`). A screenshot of this document is not proof of work.
 
