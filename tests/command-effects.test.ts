@@ -52,6 +52,8 @@ const INTERNAL_COMMANDS=[
  * not an effect on the world, but not the app's own data either. Each is a read some row declares.
  */
 const FILE_READS=['board_media_import'];
+// The shell's person-only import receives names from an OS picker or hand-over, and reads only in that grant.
+const GRANTED_FILES=['html_import_pick','html_import_take','html_import_read','html_import_media'];
 const EFFECT=new RegExp([
   `\\binvoke(?:<[^\\n]*?>)?\\('(?:${EXTERNAL_COMMANDS.join('|')})'`,
   'navigator\\.clipboard\\.write',
@@ -209,8 +211,8 @@ test('a listener that leaves the app without a control is caught, directly or th
 test('every Tauri command the interface invokes is classed as leaving the app or not',()=>{
   const invoked=new Set<string>();
   for(const text of Object.values(tree))for(const m of text.matchAll(/\binvoke(?:<[^\n]*?>)?\('([a-z_]+)'/g))invoked.add(m[1]);
-  for(const name of invoked)assert.ok(EXTERNAL_COMMANDS.includes(name)||INTERNAL_COMMANDS.includes(name)||FILE_READS.includes(name),`invoke('${name}') is not classed in this test`);
-  assert.deepEqual([...EXTERNAL_COMMANDS,...INTERNAL_COMMANDS,...FILE_READS].filter(n=>!invoked.has(n)),[],'no class names a command nothing invokes');
+  for(const name of invoked)assert.ok(EXTERNAL_COMMANDS.includes(name)||INTERNAL_COMMANDS.includes(name)||FILE_READS.includes(name)||GRANTED_FILES.includes(name),`invoke('${name}') is not classed in this test`);
+  assert.deepEqual([...EXTERNAL_COMMANDS,...INTERNAL_COMMANDS,...FILE_READS,...GRANTED_FILES].filter(n=>!invoked.has(n)),[],'no class names a command nothing invokes');
 });
 
 /* 0.3-P2-fix1 #11: media_add with a path copies a file an agent names on this Mac onto the board, where

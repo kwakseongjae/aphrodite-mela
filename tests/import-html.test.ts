@@ -164,3 +164,27 @@ test('edits during a read survive and a switch to a different board cannot recei
     e => e === 'board_changed');
   assert.equal(other.project.pages.length, 1);
 });
+
+test('only an OS hand-over can vouch for the source of a native import', async () => {
+  const {takeHtmlHandovers, refusal} = await import('../src/agent/dispatch');
+  const {pickHtml} = await import('../src/import/native');
+  const calls: [string, Record<string, unknown>][] = [];
+  const fake = {__APHRODITE_IMPORT__: 'top-only', __TAURI_INTERNALS__: {invoke: async (cmd: string, args: Record<string, unknown>) => {
+    calls.push([cmd, args]);
+    if (cmd === 'html_import_take') return [{grant: 'os', names: ['a.html']}];
+    if (cmd === 'html_import_read') return Uint8Array.from(Buffer.from('<p>Hello</p>')).buffer;
+    return null;
+  }}};
+  Object.defineProperty(globalThis, 'window', {value: fake, configurable: true});
+  try {
+    await assert.rejects(pickHtml(false, agentDispatch('agent', 'loopback')), e => e === 'person_only');
+    assert.equal(calls.length, 0);
+    const [{input, dispatch}] = await takeHtmlHandovers();
+    assert.ok(refusal(dispatch, 'human.approve'));
+    assert.ok(refusal(dispatch, 'human.door'));
+    await assert.rejects(importHtml({text: '<main>different</main>'}, dispatch, setup().target), e => e === 'person_only');
+    assert.equal((await importHtml(input, dispatch, setup().target)).pages.length, 1);
+    await assert.rejects(importHtml(input, dispatch, setup().target), e => e === 'person_only');
+    assert.deepEqual(calls, [['html_import_take', {shell: 'top-only'}], ['html_import_read', {shell: 'top-only', grant: 'os', name: 'a.html'}]]);
+  } finally { Reflect.deleteProperty(globalThis, 'window'); }
+});
