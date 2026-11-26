@@ -11,7 +11,7 @@ home = Path(os.environ["HOME"])
 assert home.joinpath("fake-cli-home").is_file()
 args = sys.argv[1:]
 with (home / "calls").open("a") as log:
-    print(json.dumps(dict(args=args, cwd=os.getcwd(), env=list(os.environ))), file=log)
+    print(json.dumps(dict(args=args, cwd=os.getcwd(), env=(home / "cli-env").read_text().splitlines())), file=log)
 
 assert args[0] == "mcp"
 verb = args[1]

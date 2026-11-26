@@ -1,6 +1,9 @@
 use super::*;
 use serde_json::{json, Value};
-use std::{process::{Command, Stdio}, time::{Duration, Instant}};
+use std::{
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 
 const CLAUDE: Tool = Tool::ClaudeCode;
 const SCRIPT: &str = include_str!("../../../../tests/support/claude-registration.py");
@@ -12,7 +15,10 @@ impl Fixture {
         let dir = home.engine.home.join("tools 'and spaces'");
         fs::create_dir(&dir).unwrap();
         let program = home.engine.home.join("playback");
-        fs::write(&program, SCRIPT).unwrap();
+        // Record the process environment before macOS's Python launcher adds SDKROOT.
+        fs::write(&program, format!(
+            "#!/bin/sh\n[ \"$HOME\" = {} ] || exit 90\n/usr/bin/env | /usr/bin/cut -d= -f1 > \"$HOME/cli-env\"\nexec /usr/bin/python3 -I - \"$@\" <<'PYTHON'\n{SCRIPT}\nPYTHON\n", format!("'{}'", home.engine.home.display().to_string().replace('\'', "'\"'\"'"))
+        )).unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
         symlink(program, dir.join("claude")).unwrap();
         fs::write(home.engine.home.join("fake-cli-home"), []).unwrap();
@@ -20,27 +26,46 @@ impl Fixture {
         home.engine.cli_dirs = vec![dir];
         Self(home)
     }
-    fn e(&self) -> &Engine { &self.0.engine }
+    fn e(&self) -> &Engine {
+        &self.0.engine
+    }
     fn state(&self, path: &str, args: &str) {
         fs::write(self.e().home.join("entry"), format!("aphrodite:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: stdio\n  Command: {path}\n  Args: {args}\n")).unwrap();
     }
     fn override_reply(&self, verb: &str, reply: Value) {
-        fs::write(self.e().home.join(format!("{verb}-reply")), reply.to_string()).unwrap();
+        fs::write(
+            self.e().home.join(format!("{verb}-reply")),
+            reply.to_string(),
+        )
+        .unwrap();
     }
     fn calls(&self) -> Vec<Value> {
-        fs::read_to_string(self.e().home.join("calls")).unwrap_or_default().lines()
-            .map(|l| serde_json::from_str(l).unwrap()).collect()
+        fs::read_to_string(self.e().home.join("calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
     }
-    fn status(&self) -> Value { json!(self.e().status(CLAUDE).unwrap()) }
+    fn status(&self) -> Value {
+        json!(self.e().status(CLAUDE).unwrap())
+    }
     fn proposal(&self, action: Action) -> Value {
         wire(self.e().prepare(CLAUDE, action, 123))
     }
     fn apply(&self, action: Action, preview: &Value, confirm: bool) -> Value {
-        wire(self.e().execute(CLAUDE, action, preview["fingerprint"].as_str().unwrap(), confirm))
+        wire(self.e().execute(
+            CLAUDE,
+            action,
+            preview["fingerprint"].as_str().unwrap(),
+            confirm,
+        ))
     }
 }
 fn wire(result: Result<Proposal>) -> Value {
-    let data = match result { Ok(p) => json!(p), Err(code) => json!({"code":code}) };
+    let data = match result {
+        Ok(p) => json!(p),
+        Err(code) => json!({"code":code}),
+    };
     assert!(!data.to_string().contains("private-neighbor"), "{data}");
     data
 }
@@ -54,11 +79,263 @@ fn command_preview_is_the_exact_pasteable_argv_and_only_get_runs_before_consent(
     assert_eq!(argv[8], "--");
     assert_eq!(argv[9], f.e().executable());
     assert_eq!(f.calls().len(), 1);
-    assert_eq!(f.calls()[0]["args"], json!(["mcp","get","aphrodite"]));
+    assert_eq!(f.calls()[0]["args"], json!(["mcp", "get", "aphrodite"]));
     let cwd = tempdir().unwrap();
-    let shell = Command::new("/bin/sh").env_clear().env("HOME", &f.e().home)
-        .current_dir(cwd.path()).arg("-c").arg(preview["commands"][0]["line"].as_str().unwrap())
-        .stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+    let shell = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &f.e().home)
+        .current_dir(cwd.path())
+        .arg("-c")
+        .arg(preview["commands"][0]["line"].as_str().unwrap())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
     assert!(shell.success());
     assert_eq!(f.calls()[1]["args"], json!(&argv.as_array().unwrap()[1..]));
+}
+
+#[test]
+fn owned_repoint_restores_the_recorded_path_if_add_fails_after_remove() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    let status = f.status();
+    assert_eq!(
+        (status["owned"].clone(), status["pointsHere"].clone()),
+        (json!(true), json!(false))
+    );
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["willRepoint"], true);
+    assert_eq!(p["confirmationRequired"], false);
+    assert_eq!(p["commands"][0]["argv"][2], "remove");
+    assert_eq!(p["commands"][1]["argv"][2], "add");
+    assert_eq!(p["onAddFailure"]["argv"][9], json!(old));
+    f.override_reply(
+        "add",
+        json!({"exit":17,"err":"private-neighbor","once":true}),
+    );
+    let result = f.apply(Action::Connect, &p, false);
+    assert_eq!(result["code"], "repoint_restored");
+    assert_eq!(result["exitStatus"], 17);
+    assert_eq!(result["restoreExitStatus"], 0);
+    assert_eq!(f.status()["owned"], true);
+    assert!(fs::read_to_string(f.e().home.join("entry"))
+        .unwrap()
+        .contains(old.to_str().unwrap()));
+    let p = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &p, false);
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["exitStatus"], 0);
+    assert_eq!(f.status()["pointsHere"], true);
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["commands"], json!([]));
+    assert_eq!(
+        f.apply(Action::Connect, &p, false)["code"],
+        "already_connected"
+    );
+    let p = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &p, false)["code"], "removed");
+    assert_eq!(f.status()["entryExists"], false);
+    for call in f.calls() {
+        let cwd = Path::new(call["cwd"].as_str().unwrap());
+        assert!(cwd.starts_with("/private/tmp"));
+        assert!(!cwd.exists());
+        for key in call["env"].as_array().unwrap() {
+            assert!(
+                [
+                    "HOME",
+                    "PATH",
+                    "LC_ALL",
+                    "COLUMNS",
+                    "NO_COLOR",
+                    "PWD",
+                    "SHLVL",
+                    "_",
+                    "__CF_USER_TEXT_ENCODING"
+                ]
+                .contains(&key.as_str().unwrap()),
+                "unexpected environment key {key}"
+            );
+        }
+    }
+}
+
+#[test]
+fn foreign_entries_require_bound_confirmation_and_removal_requires_this_executable() {
+    let f = Fixture::new();
+    f.state("/private-neighbor", "--existing");
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["replacementRequired"], true);
+    assert_eq!(p["confirmationRequired"], true);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+    assert_eq!(
+        f.apply(Action::Connect, &p, false)["code"],
+        "confirmation_required"
+    );
+    f.state("/private-neighbor", "--edited");
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "changed");
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+    let p = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "registered");
+    f.state(f.e().executable(), "--customized");
+    assert_eq!(f.status()["owned"], false);
+    let p = f.proposal(Action::Remove);
+    assert_eq!(
+        f.apply(Action::Remove, &p, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &p, true)["code"], "removed");
+}
+
+#[test]
+fn discovery_skips_non_executables_and_dangling_links_and_notices_a_retargeted_link() {
+    let f = Fixture::new();
+    let path = f.e().cli_dirs[0].join("claude");
+    assert!(fs::symlink_metadata(&path).unwrap().is_symlink());
+    let p = f.proposal(Action::Connect);
+    let new = f.e().home.join("new-cli");
+    fs::copy(&path, &new).unwrap();
+    fs::remove_file(&path).unwrap();
+    symlink(&new, &path).unwrap();
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "changed");
+    fs::set_permissions(&new, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(f.status()["installed"], false);
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_not_found");
+    fs::remove_file(new).unwrap();
+    assert_eq!(f.status()["installed"], false);
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}
+
+#[test]
+fn hanging_or_oversized_get_and_generic_get_failure_never_mean_missing() {
+    let mut f = Fixture::new();
+    f.0.engine.cli_timeout = Duration::from_millis(250);
+    let start = Instant::now();
+    f.override_reply("get", json!({"hang":true,"exit":0}));
+    assert_eq!(f.status()["error"], "cli_timeout");
+    assert!(start.elapsed() < Duration::from_secs(3));
+    f.0.engine.cli_timeout = Duration::from_secs(5);
+    for stream in ["err", "out"] {
+        f.override_reply(
+            "get",
+            json!({(stream): "private-neighbor".repeat(20000), "exit":1}),
+        );
+        let s = f.status();
+        assert_eq!(s["error"], "cli_output_limit");
+        assert_eq!(s["entryExists"], Value::Null);
+        assert!(!s.to_string().contains("private-neighbor"));
+    }
+    for exit in [1, 8] {
+        f.override_reply("get", json!({"exit":exit,"err":"private-neighbor"}));
+        let p = f.proposal(Action::Connect);
+        assert_eq!(p["code"], "cli_get_failed");
+        assert_eq!(p["exitStatus"], exit);
+    }
+}
+
+#[test]
+fn only_the_named_user_stanza_can_establish_ownership_and_health_is_not_configuration() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let entry = fs::read_to_string(&path).unwrap();
+    let p = f.proposal(Action::Remove);
+    fs::write(
+        &path,
+        entry.replace("Connected", "Failed to connect\n  Issue: private-neighbor"),
+    )
+    .unwrap();
+    assert_eq!(f.proposal(Action::Remove)["fingerprint"], p["fingerprint"]);
+    for text in [
+        entry.replace("aphrodite:", "private-neighbor:"),
+        entry.replace(
+            "User config (available in all your projects)",
+            "Project config (shared via .mcp.json)",
+        ),
+        entry.replace("  Args: ", "  Args: \nambiguous continuation\n  Args: "),
+    ] {
+        fs::write(&path, text).unwrap();
+        let s = f.status();
+        assert_ne!(s["owned"], true);
+        assert!(!s.to_string().contains("private-neighbor"));
+        assert_ne!(f.apply(Action::Remove, &p, true)["code"], "removed");
+    }
+    fs::write(&path, "aphrodite:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: http\n  URL: https://private-neighbor\n  Headers:\n    example: private-neighbor\n").unwrap();
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.proposal(Action::Connect)["confirmationRequired"], true);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+}
+
+#[test]
+fn failed_add_remove_and_restore_preserve_exit_status_and_stop_the_sequence() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "add",
+        json!({"exit":7,"err":"private-neighbor","once":true}),
+    );
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "cli_add_failed");
+    assert_eq!(err["exitStatus"], 7);
+    assert_eq!(err["tail"], Value::Null);
+    let added = f.apply(Action::Connect, &p, false);
+    assert!(added["tail"].as_str().unwrap().contains(f.e().executable()));
+    let removed = f.proposal(Action::Remove);
+    f.override_reply(
+        "remove",
+        json!({"exit":1,"err":"No MCP server named \"aphrodite\" in user scope","once":true}),
+    );
+    let err = f.apply(Action::Remove, &removed, false);
+    assert_eq!(err["code"], "cli_remove_failed");
+    assert_eq!(err["exitStatus"], 1);
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"exit":13,"err":"private-neighbor","once":true}),
+    );
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "cli_remove_failed");
+    assert_eq!(f.calls().last().unwrap()["args"][1], "remove");
+    f.override_reply("add", json!({"exit":9,"err":"private-neighbor"}));
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "repoint_restore_failed");
+    assert_eq!(err["exitStatus"], 9);
+    assert_eq!(err["restoreExitStatus"], 9);
+    assert!(!f.e().home.join("entry").exists());
+    f.state("/private-neighbor", "");
+    let foreign = f.proposal(Action::Connect);
+    let err = f.apply(Action::Connect, &foreign, true);
+    assert_eq!(err["code"], "foreign_removed_add_failed");
+    assert_eq!(err["exitStatus"], 9);
+    assert_eq!(err["restoreExitStatus"], Value::Null);
+}
+
+#[test]
+fn all_registration_writes_recheck_the_runtime_location_before_running_a_cli() {
+    let mut f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    let before = f.calls().len();
+    for loc in [
+        Location::Translocated,
+        Location::DiskImage,
+        Location::ReadOnly,
+        Location::NotInApplications,
+    ] {
+        f.0.engine.location = loc;
+        for (action, p) in [(Action::Remove, &remove), (Action::Connect, &connect)] {
+            assert_eq!(f.proposal(action)["code"], "move_to_applications");
+            assert_eq!(f.apply(action, p, true)["code"], "move_to_applications");
+        }
+    }
+    assert_eq!(f.calls().len(), before);
 }

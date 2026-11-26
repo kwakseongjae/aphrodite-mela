@@ -49,6 +49,15 @@ pub enum Code {
     CliGetFailed,
     CliUnrecognized,
     CliScopeUnknown,
+    Registered,
+    AlreadyConnected,
+    Removed,
+    CliAddFailed,
+    CliRemoveFailed,
+    RepointRestored,
+    RepointRestoreFailed,
+    ForeignRemovedAddFailed,
+    RecordFailed,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -189,7 +198,11 @@ impl Engine {
     }
     fn path(&self, tool: Tool) -> PathBuf {
         match tool {
-            Tool::ClaudeCode => self.claude_config_dir.as_ref().unwrap_or(&self.home).join(".claude.json"),
+            Tool::ClaudeCode => self
+                .claude_config_dir
+                .as_ref()
+                .unwrap_or(&self.home)
+                .join(".claude.json"),
             Tool::Codex => self.codex_home.join("config.toml"),
             Tool::Cursor => self.home.join(".cursor/mcp.json"),
             Tool::ClaudeDesktop => self
