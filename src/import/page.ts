@@ -57,6 +57,7 @@ type Edit = Span & {value: string};
 
 function inlineRefusal(e: Element, stylesheet: boolean) {
   if (!e.namespaceURI.endsWith('/xhtml')) return 'namespace';
+  if (e.attrs.some(a => a.name.startsWith('on'))) return 'event_handler';
   if (attr(e, 'integrity') !== undefined) return 'integrity';
   if (stylesheet) {
     if (attr(e, 'disabled') !== undefined || attr(e, 'rel')?.toLowerCase().split(/\s+/).includes('alternate')) return 'inactive_style';

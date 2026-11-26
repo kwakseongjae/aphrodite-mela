@@ -14,6 +14,8 @@ The panel gives the shell a five-minute grant pinned to an open directory. A han
 - Enabled, non-alternate CSS stylesheets can be inlined. Only leading, top-level imports are followed. The engine keeps cascade conditions, decodes a sheet before wrapping it and leaves scoped namespaces in their sheet. A parse failure, an unsafe rewritten closing tag or a change of base for a skipped relative reference can keep a sheet external.
 - Local JS, MJS and CJS files can be inlined as classic HTML scripts. Async, deferred, module, nomodule, integrity-protected and foreign-namespace scripts stay external. The inline element must reparse to the intended text and closing boundary. Scripts use the same frame wall as any free page.
 
+A stylesheet link or script with an event-handler attribute stays external with `event_handler`, preserving its load and error behavior.
+
 ## Limits and result
 
 | Limit | Engine behavior |

@@ -459,3 +459,12 @@ test('a nested sheet is decoded using its leading charset before its rules enter
   assert.match(project.pages[1].html!, /@media screen\s*\{\s*p::after\{content:"Café"/);
   assert.doesNotMatch(project.pages[1].html!, /@charset/);
 });
+
+test('stylesheet links and scripts with any event handler stay external without a sibling read', async () => {
+  const html = `<link rel=stylesheet href=a.css media=print onload="this.media='all'"><script src=a.js onload="go()"></script><script src=b.js ONERROR=""></script>`;
+  const r = await example(html, {'a.css': 'p{}', 'a.js': 'go()', 'b.js': 'go()'});
+  assert.equal(r.html, html);
+  assert.deepEqual(r.report.skipped, ['a.css', 'a.js', 'b.js'].map(name => ({name, code: 'event_handler'})));
+  assert.deepEqual(r.reads, ['a.html']);
+  assert.deepEqual(r.report.files.names, []);
+});
