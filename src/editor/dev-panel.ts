@@ -1,5 +1,6 @@
-import type {Block, Project} from '../model';
-import {currentPage} from '../model';
+import type {Block, Page, Project} from '../model';
+import {isStarterPage,shownPage} from './starter';
+import {pageSource} from '../page-export';
 import {componentIdentity, componentRegistry, sceneManifest} from '../components';
 import {blockHtml, pageHtml} from '../render';
 import {buildPrompt, designMarkdown} from '../export';
@@ -148,14 +149,12 @@ function tokensJson(project: Project): string {
   }, null, 2);
 }
 
-function exportPageHtml(project: Project): string {
-  return pageHtml(project, currentPage(project)).replaceAll('src="/assets/', 'src="assets/');
+function exportPageHtml(project: Project, page: Page): string {
+  return page.kind ? pageSource(page) : pageHtml(project, page).replaceAll('src="/assets/', 'src="assets/');
 }
 
-function currentScenePage(project: Project) {
-  const scene = sceneManifest(project);
-  const id = currentPage(project).id;
-  return scene.pages.find(entry => entry.id === id) ?? scene.pages[0];
+function scenePage(scene: ReturnType<typeof sceneManifest>, page: Page) {
+  return scene.pages.find(entry => entry.id === page.id)!;
 }
 
 function presentSlotNames(slots: Record<string, unknown> | undefined): string {
@@ -218,8 +217,7 @@ function contractHtml(block: Block, language: DevPanelLanguage): string {
   return section(ui(language, 'Content contract', '콘텐츠 계약'), '', `<p class="dev-panel-note">${esc(contractHelp(block.kind, language))}</p>${rowsTable(block.text)}`);
 }
 
-function pageHtmlSummary(project: Project, language: DevPanelLanguage): string {
-  const page = currentPage(project);
+function pageHtmlSummary(page: Page, language: DevPanelLanguage): string {
   const kinds = [...new Set(page.blocks.map(b => b.kind))];
   const rows: [string, string][] = [
     [ui(language, 'Page', '페이지'), esc(page.name)],
@@ -235,8 +233,8 @@ function handoffHtml(project: Project, language: DevPanelLanguage): string {
   return section(ui(language, 'Handoff', '핸드오프'), copyButton('design', ui(language, 'Copy DESIGN.md', 'DESIGN.md 복사')), `<p class="dev-panel-handoff">${esc(note)}</p>${copyArea('design', markdown)}`);
 }
 
-function pageMarkupHtml(project: Project, language: DevPanelLanguage): string {
-  const raw = exportPageHtml(project);
+function pageMarkupHtml(project: Project, page: Page, language: DevPanelLanguage): string {
+  const raw = exportPageHtml(project, page);
   const truncated = raw.length > PAGE_HTML_DISPLAY_CAP;
   const display = truncated ? `${raw.slice(0, PAGE_HTML_DISPLAY_CAP)}…` : raw;
   const note = truncated
@@ -249,9 +247,9 @@ function pageMarkupHtml(project: Project, language: DevPanelLanguage): string {
   );
 }
 
-function sceneNodesHtml(project: Project, language: DevPanelLanguage): string {
+function sceneNodesHtml(project: Project, page: Page, language: DevPanelLanguage): string {
   const scene = sceneManifest(project);
-  const rows = walkSceneNodes(currentScenePage(project).nodes as SceneWalkNode[]);
+  const rows = walkSceneNodes(scenePage(scene, page).nodes as SceneWalkNode[]);
   const head = `<tr><th>${esc(ui(language, 'Instance', '인스턴스'))}</th><th>${esc(ui(language, 'Component', '컴포넌트'))}</th><th>${esc(ui(language, 'Variant', '변형'))}</th><th>${esc(ui(language, 'Provider', '제공자'))}</th><th>${esc(ui(language, 'Parent', '부모'))}</th><th>${esc(ui(language, 'Slots', '슬롯'))}</th></tr>`;
   const body = rows.map(({node, depth, parent}) => `<tr><td class="dev-panel-id" style="--d:${depth}">${code(shortId(node.instanceId))}</td><td>${esc(node.componentId)}</td><td>${esc(node.variant ?? '—')}</td><td>${esc(node.provider ?? 'own')}</td><td>${parent ? code(shortId(parent)) : esc('—')}</td><td>${esc(presentSlotNames(node.slots))}</td></tr>`).join('');
   return section(
@@ -279,8 +277,8 @@ function tokensJsonHtml(project: Project, language: DevPanelLanguage): string {
   );
 }
 
-function nodeHtml(project: Project, block: Block, language: DevPanelLanguage): string {
-  const page = currentScenePage(project);
+function nodeHtml(project: Project, shown: Page, block: Block, language: DevPanelLanguage): string {
+  const page = scenePage(sceneManifest(project), shown);
   const node = page.nodes.find(entry => entry.instanceId === block.id);
   const nested = node?.children?.length ?? 0;
   const framed = page.nodes.filter(entry => entry.parentId === block.id).length;
@@ -299,9 +297,11 @@ function nodeHtml(project: Project, block: Block, language: DevPanelLanguage): s
 }
 
 export function devPanelHtml(project: Project, block: Block | undefined, language: DevPanelLanguage, options?: {html?: string}): string {
+  const page = shownPage(project);
+  if (isStarterPage(project, page)) return `<div class="dev-panel"><p class="panel-description">${ui(language, 'This board is empty.', '아직 빈 보드예요.')}</p></div>`;
   const parts = block
-    ? [identityHtml(block, language), tokensHtml(project, language), markupHtml(project, block, language, options?.html), contractHtml(block, language), nodeHtml(project, block, language), handoffHtml(project, language)]
-    : [tokensHtml(project, language), pageHtmlSummary(project, language), pageMarkupHtml(project, language), sceneNodesHtml(project, language), promptHtml(project, language), tokensJsonHtml(project, language), handoffHtml(project, language)];
+    ? [identityHtml(block, language), tokensHtml(project, language), markupHtml(project, block, language, options?.html), contractHtml(block, language), nodeHtml(project, page, block, language), handoffHtml(project, language)]
+    : [tokensHtml(project, language), pageHtmlSummary(page, language), pageMarkupHtml(project, page, language), sceneNodesHtml(project, page, language), promptHtml(project, language), tokensJsonHtml(project, language), handoffHtml(project, language)];
   return `<div class="dev-panel">${parts.join('')}</div>`;
 }
 
