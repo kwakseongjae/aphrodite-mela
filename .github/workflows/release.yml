@@ -44,6 +44,7 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
       TARGET: ${{ matrix.target }}
+      TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,19 +68,9 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # The Rust half — the bridge's route table, the vault's pruning, the updater's version
-      # comparison and its disk-image check — was only ever verified on the author's Mac.
-      # The crate's build script wants the Vision sidecar to exist, and tauri-action builds it
-      # later, so make it first: on a fresh runner it is not there yet and cargo stops at
-      # "resource path bin/aphrodite-vision-… doesn't exist".
-      - name: Build the Vision and MCP sidecars
-        env:
-          # Without the triple the script names the file after the runner's own architecture, so
-          # the Intel job built an aarch64 sidecar and cargo still could not find its own.
-          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
-        run: |
-          node scripts/build-vision.mjs
-          node scripts/build-mcp.mjs
+      # The stdio transcript has already built and exercised the MCP sidecar for this target.
+      - name: Build the Vision sidecar for Cargo
+        run: node scripts/build-vision.mjs
 
       - name: Run Rust tests
         working-directory: src-tauri

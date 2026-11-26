@@ -5,18 +5,24 @@
  * things a thin adapter has to get right: every tool is described and annotated honestly, and the
  * app's own refusals arrive intact rather than being swallowed or reinterpreted.
  *
- *   node scripts/verify-mcp.mjs
+ *   node scripts/verify-mcp.mjs [--live]
  */
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {createInterface} from 'node:readline';
-import {writeFileSync, rmSync} from 'node:fs';
+import {writeFileSync, rmSync, mkdtempSync, rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:http';
 import {join} from 'node:path';
 
+const scratch = mkdtempSync(join(tmpdir(), 'aphrodite-verify-'));
+process.on('exit', () => rmdirSync(scratch));
+const environment = {...process.env};
+if (!environment.APHRODITE_ENDPOINT_FILE && !process.argv.includes('--live')) {
+  environment.APHRODITE_ENDPOINT_FILE = join(scratch, 'absent.json');
+}
 const executable = process.env.APHRODITE_MCP_EXECUTABLE;
-const launch = options => spawn(executable || process.execPath, executable ? [] : ['mcp/aphrodite-mcp/index.mjs'], options);
+const launch = options => spawn(executable || process.execPath, executable ? [] : ['mcp/aphrodite-mcp/index.mjs'], {env:environment,...options});
 
 const server = launch({stdio: ['pipe', 'pipe', 'pipe']});
 const lines = createInterface({input: server.stdout});
@@ -140,7 +146,7 @@ check('a leftover endpoint file is not trusted, even when its port now answers',
   await new Promise(resolve => stranger.listen(0, '127.0.0.1', resolve));
   const port = stranger.address().port;
 
-  const stalePath = join(tmpdir(), `aphrodite-stale-${process.pid}.json`);
+  const stalePath = join(scratch, 'stale.json');
   writeFileSync(stalePath, JSON.stringify({
     schema: 'aphrodite.agent-endpoint/1',
     port,
@@ -188,7 +194,7 @@ check('a call carries the name the client gave at initialize, not a fixed one', 
   });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const port = app.address().port;
-  const file = join(tmpdir(), `aphrodite-caller-${process.pid}.json`);
+  const file = join(scratch, 'caller.json');
   writeFileSync(file, JSON.stringify({schema: 'aphrodite.agent-endpoint/1', port, token: 't'.repeat(48), pid: process.pid, base: `http://127.0.0.1:${port}`}));
   const ask = async clientInfo => {
     const child = launch({stdio: ['pipe', 'pipe', 'ignore'], env: {...process.env, APHRODITE_ENDPOINT_FILE: file}});

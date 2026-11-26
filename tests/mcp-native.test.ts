@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {toolManifest, tools} from '../mcp/aphrodite-mcp/tools.mjs';
 
-const triple = execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.*)$/m)![1];
+const triple = process.env.TAURI_ENV_TARGET_TRIPLE || execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.*)$/m)![1];
 const native = `src-tauri/bin/aphrodite-mcp-${triple}`;
 const nodeServer = 'mcp/aphrodite-mcp/index.mjs';
 
@@ -167,7 +167,7 @@ test('both stdio servers return identical lines and send identical loopback call
       assert.match((await call('aphrodite_get_contract')).result.content[0].text,/not running/);
     status=200;stall=true;
     assert.match((await call('aphrodite_get_contract')).result.content[0].text,/did not answer in time/);
-    await new Promise<void>(resolve=>{app.close(resolve);app.closeAllConnections();});
+    await new Promise<void>(resolve=>{app.close(()=>resolve());app.closeAllConnections();});
     assert.match((await call('aphrodite_get_contract')).result.content[0].text,/not running/);
   });
 });
