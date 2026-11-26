@@ -20,15 +20,15 @@ export function languageSettingsHtml(ui:Language,content?:Language){
  const ko=ui==='ko';
  const options=(value:Language)=>`<option value="en" ${value==='en'?'selected':''}>English</option><option value="ko" ${value==='ko'?'selected':''}>한국어</option>`;
  const chevron='<i data-lucide="chevron-down" class="ui-icon ui-icon-sm" aria-hidden="true"></i>';
- return `<form id="language-settings-form" class="ui-home-form"><label class="ui-label">${ko?'앱 조작 언어':'App interface language'}<span class="ui-select no-menu-select"><select name="uiLanguage" aria-label="${ko?'앱 조작 언어':'App interface language'}">${options(ui)}</select>${chevron}</span></label><p class="ui-home-form-text">${ko?'이 기기의 설정입니다. 프로젝트 내용과 승인 상태는 바뀌지 않습니다.':'A preference on this device. Project content and approval stay unchanged.'}</p>${content?`<label class="ui-label">${ko?'이 프로젝트의 샘플 콘텐츠 언어':'Sample-content language for this project'}<span class="ui-select no-menu-select"><select name="contentLanguage" aria-label="${ko?'샘플 콘텐츠 언어':'Sample-content language'}">${options(content)}</select>${chevron}</span></label><p class="ui-home-form-text">${ko?'새로운 Get Vibe 샘플과 기본 장식 문구에 적용됩니다. 기존 문구는 자동 번역하지 않습니다. 변경하면 방향 재검토가 필요하며 실행 취소할 수 있습니다.':'Used for new Get Vibe samples and default decorations. Existing copy is never translated automatically. A change requires direction review and can be undone.'}</p>`:''}<p class="ui-help">${ko?'번역 적용: 프로젝트 홈, 편집기 화면, 주요 조작, Get Vibe. 일부 진단·기술 식별자와 에이전트용 aria-label은 영어로 남습니다.':'Translated: project home, editor chrome, primary controls and Get Vibe. Some diagnostics, technical identifiers and agent aria-labels stay in English.'}</p><div class="ui-home-form-foot"><button class="ui-btn ui-btn-primary ui-btn-md" type="submit">${ko?'언어 설정 저장':'Save language preferences'}</button></div></form>`;
+ return `<form id="language-settings-form" class="ui-home-form"><label class="ui-label">${ko?'앱 조작 언어':'App interface language'}<span class="ui-select no-menu-select"><select name="uiLanguage" aria-label="${ko?'앱 조작 언어':'App interface language'}">${options(ui)}</select>${chevron}</span></label><p class="ui-home-form-text">${ko?'이 기기의 설정입니다. 보드 내용과 승인 상태는 바뀌지 않습니다.':'A preference on this device. Board content and approval stay unchanged.'}</p>${content?`<label class="ui-label">${ko?'이 보드의 샘플 콘텐츠 언어':'Sample-content language for this board'}<span class="ui-select no-menu-select"><select name="contentLanguage" aria-label="${ko?'샘플 콘텐츠 언어':'Sample-content language'}">${options(content)}</select>${chevron}</span></label><p class="ui-home-form-text">${ko?'새로운 Get Vibe 샘플과 기본 장식 문구에 적용됩니다. 기존 문구는 자동 번역하지 않습니다. 변경하면 방향 재검토가 필요하며 실행 취소할 수 있습니다.':'Used for new Get Vibe samples and default decorations. Existing copy is never translated automatically. A change requires direction review and can be undone.'}</p>`:''}<p class="ui-help">${ko?'번역 적용: 홈, 편집기 화면, 주요 조작, Get Vibe. 일부 진단·기술 식별자와 에이전트용 aria-label은 영어로 남습니다.':'Translated: home, editor chrome, primary controls and Get Vibe. Some diagnostics, technical identifiers and agent aria-labels stay in English.'}</p><div class="ui-home-form-foot"><button class="ui-btn ui-btn-primary ui-btn-md" type="submit">${ko?'언어 설정 저장':'Save language preferences'}</button></div></form>`;
 }
 
 // Only use at known application-control creation sites, never on document HTML.
 const controls:Record<string,string>={
  'Undo':'실행 취소','Redo':'다시 실행','Preview':'미리보기','Export':'내보내기',
- 'Reference':'레퍼런스','Manage project':'프로젝트 관리','Page options':'페이지 옵션',
+ 'Reference':'레퍼런스','Manage board':'보드 관리','Page options':'페이지 옵션',
  'Desktop viewport':'데스크탑 보기','Mobile viewport':'모바일 보기','Computer use guide':'에이전트 사용 안내',
- 'Close':'닫기','Start from a brief':'브리프로 시작','All projects':'전체 프로젝트',
+ 'Close':'닫기','Start from a brief':'브리프로 시작','All boards':'전체 보드',
  'Saved to disk':'디스크에 저장됨','Not saved to disk':'디스크에 저장되지 않음',
  'Saved locally':'로컬에 저장됨','Unsaved':'저장되지 않음','Saving to disk…':'디스크에 저장 중…',
  'Unsaved · export a backup':'저장되지 않음 · 백업을 내보내세요',
@@ -39,7 +39,7 @@ const controls:Record<string,string>={
  'Replace reference':'레퍼런스 교체','Upload reference':'레퍼런스 올리기','Analyze reference':'레퍼런스 분석',
  'Try a sample reference':'샘플 레퍼런스 써보기','Remove reference':'레퍼런스 제거','Compare 3 directions':'3안 비교','Back to evidence':'단서로 돌아가기',
  'Copy prompt':'프롬프트 복사','Download handoff .zip':'핸드오프 ZIP 내려받기','Save DESIGN.md':'DESIGN.md 저장',
- 'Save project':'프로젝트 저장','Open project':'프로젝트 열기','New project':'새 프로젝트','Project files':'프로젝트 파일',
+ 'Save project':'프로젝트 저장','Open board':'보드 열기','New board':'새 보드','Project files':'프로젝트 파일',
  'Duplicate page':'페이지 복제','Delete page':'페이지 삭제','See the computer-use workflow':'에이전트 사용 흐름 보기',
  'Export current workspace':'현재 작업 공간 내보내기','Export disk recovery files':'디스크 복구 파일 내보내기',
  'Back to files':'파일 목록으로','Export file':'파일 내보내기','Download issue proposal':'이슈 제안 내려받기',

@@ -92,7 +92,7 @@ test('a refusal the person must not miss is a notice at the picker, a form, and 
     ['a link macOS opened', /followOpenLink\(readOpenLink\(openLink\(link\.board,link\.page\)\)\)\.catch\(error=>channel\(error\)\(/],
     ['a board file macOS opened', /await openBoardFileNow\(new Uint8Array\(await invoke<ArrayBuffer>\('opened_file_read'[^\n]*?catch\(error\)\{channel\(error\)\(/],
     ['the picker', /await handler\(input\.files\[0\]\); \} catch \(error\) \{ channel\(error\)\(/],
-    ['a form', /catch\(error\)\{channel\(error\)\(error instanceof Error\?error\.message:'프로젝트 저장 실패'\);\}/],
+    ['a form', /catch\(error\)\{channel\(error\)\(error instanceof Error\?error\.message:'보드 저장 실패'\);\}/],
     ['a board file dropped', /openBoardFileNow\(await boardFileBytes\(board\)\)\)\.catch\(error=>channel\(error\)\(/],
     ['a link followed here', /aphroditeOpenLink=href=>\{void followOpenLink\(readOpenLink\(href\)\)\.catch\(error=>channel\(error\)\(/],
   ];

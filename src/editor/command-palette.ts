@@ -27,7 +27,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
   const kinds=ctx.kinds??catalog;
   const add:Command[]=kinds.filter(c=>!c.kind.startsWith('moa')).map(c=>({id:`add-${c.kind}`,action:'add',data:{kind:c.kind},en:`Add ${c.name}`,ko:`${c.name} 추가`,group:'add' as const}));
   const base:Command[]=[
-    {id:'home',action:'home',en:'All projects (home)',ko:'프로젝트 목록(홈)',group:'navigate'},
+    {id:'home',action:'home',en:'All boards (home)',ko:'보드 목록(홈)',group:'navigate'},
     {id:'search',action:'focus-component-search',en:'Find a component',ko:'컴포넌트 검색',group:'navigate',keys:'/'},
     {id:'undo',action:'undo',en:'Undo',ko:'실행 취소',group:'edit',keys:'⌘Z'},
     {id:'redo',action:'redo',en:'Redo',ko:'다시 실행',group:'edit',keys:'⇧⌘Z'},

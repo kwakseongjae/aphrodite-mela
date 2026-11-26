@@ -68,12 +68,12 @@ export async function analyzeReference(data: string): Promise<ReferenceAnalysis>
     out.getContext('2d')!.drawImage(image, region.x * image.naturalWidth, region.y * image.naturalHeight, region.width * image.naturalWidth, region.height * image.naturalHeight, 0, 0, out.width, out.height);
     crop = out.toDataURL('image/jpeg', .8);
   }
-  let engine: ReferenceAnalysis['engine'] = 'Pixels only', lines: TextLine[] = [], warning = '브라우저에서는 색상·텍스처만 분석합니다. 문구는 프로젝트 설명에서 가져옵니다.';
+  let engine: ReferenceAnalysis['engine'] = 'Pixels only', lines: TextLine[] = [], warning = '브라우저에서는 색상·텍스처만 분석합니다. 문구는 보드 설명에서 가져옵니다.';
   if ('__TAURI_INTERNALS__' in window) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const result = await invoke<{ lines: unknown }>('recognize_reference', { dataUrl: data });
-      lines = normalizeLines(result.lines); engine = 'Apple Vision + pixels'; warning = lines.length ? 'OCR 문구와 영역 추정은 틀릴 수 있습니다. 선택 전에 확인해주세요.' : '읽을 수 있는 문구가 없습니다. 프로젝트 설명을 사용합니다.';
+      lines = normalizeLines(result.lines); engine = 'Apple Vision + pixels'; warning = lines.length ? 'OCR 문구와 영역 추정은 틀릴 수 있습니다. 선택 전에 확인해주세요.' : '읽을 수 있는 문구가 없습니다. 보드 설명을 사용합니다.';
     } catch { warning = '네이티브 OCR을 완료하지 못했습니다. 색상·텍스처 분석만 사용합니다.'; }
   }
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));

@@ -131,8 +131,8 @@ export function createArchive(host: ArchiveHost) {
       t('Off by default. What it keeps is a Markdown file on this Mac, never sent anywhere and never in an export unless you put it there.','기본은 꺼짐입니다. 기록은 이 Mac의 마크다운 파일이고, 어디로도 보내지 않으며 내보내기에도 넣지 않습니다.'),
       `<div class="taste-choices">
         ${choice('off','Off','끄기','Nothing is derived or kept.','아무것도 만들지 않고 남기지 않습니다.')}
-        ${choice('project','This project','이 프로젝트','Observed and used inside one project.','한 프로젝트 안에서만 관찰하고 씁니다.')}
-        ${choice('global','All projects','모든 프로젝트','Collected in one file and used everywhere.','한 파일에 모아 모든 곳에서 씁니다.')}
+        ${choice('project','This board','이 보드','Observed and used inside one board.','한 보드 안에서만 관찰하고 씁니다.')}
+        ${choice('global','All boards','모든 보드','Collected in one file and used everywhere.','한 파일에 모아 모든 곳에서 씁니다.')}
       </div>
       ${body}
       ${markdown?`<div class="modal-actions"><button type="button" class="secondary-button" data-action="taste-forget">${t('Forget all of it','전부 잊기')}</button></div>`:''}`);

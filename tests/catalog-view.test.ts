@@ -8,7 +8,7 @@ test('catalog has exact accessible provider choices without changing the project
  const html=catalogView(p,'button','outline','Input',(en)=>en,c=>{calls.push(c.provider);return '<div>preview</div>';});
  assert.deepEqual(calls,['own','mui','astryx','seed','shadcn']);
  for(const provider of calls)for(const action of ['Inspect','Pin','Add'])assert.ok(html.includes(`aria-label="${action} ${provider} button outline"`));
- assert.ok(html.includes('Source palette'));assert.ok(html.includes('Project palette'));
+ assert.ok(html.includes('Source palette'));assert.ok(html.includes('Board palette'));
  assert.ok(html.includes('aria-label="Component index"'));assert.ok(html.includes('data-shelf-count'));
  assert.equal(fingerprint(p),before);
 });

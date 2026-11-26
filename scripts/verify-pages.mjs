@@ -584,7 +584,7 @@ check('files read while the person moves to another project are placed nowhere',
   await personPresses('home'); await sleep(400);
   await personPresses('hub-open', {id: original}); await sleep(3500);
   await evaluate('window.__restoreOnload(), true');
-  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /project changed while the files were read|프로젝트가 바뀌어/);
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /board changed while the files were read|보드가 바뀌어/);
   const lib = JSON.parse(await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`));
   const counts = Object.fromEntries(lib.entries.map(e => [e.project.id, e.project.pages.filter(p => p.kind === 'media').length]));
   result.moving = counts;

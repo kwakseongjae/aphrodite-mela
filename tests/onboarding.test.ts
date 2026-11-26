@@ -19,8 +19,8 @@ test('the welcome sheet offers a language choice, a sample and a blank start',()
   assert.match(html,/data-action="welcome-sample"/);
   assert.match(html,/data-action="welcome-blank"/);
   assert.match(html,/data-action="welcome-dismiss"/);
-  assert.match(html,/샘플 프로젝트로 시작하기/);
-  assert.match(welcomeHtml('en'),/Start with a sample project/);
+  assert.match(html,/샘플 보드로 시작하기/);
+  assert.match(welcomeHtml('en'),/Start with a sample board/);
 });
 
 test('the sample project parses, has a desktop and a mobile frame, and keeps the content language',()=>{
