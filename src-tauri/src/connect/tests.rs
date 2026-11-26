@@ -1148,3 +1148,5 @@ exit 1
     assert_eq!(s.entry_exists, Some(false));
     assert!(!serde_json::to_string(&s).unwrap().contains("private-neighbor"));
 }
+
+mod claude_code;

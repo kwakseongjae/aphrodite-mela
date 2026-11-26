@@ -42,6 +42,7 @@ pub enum Code {
     SidecarMissing,
     UnknownLocation,
     WorkerFailed,
+    CliNotFound,
     CliStartFailed,
     CliTimeout,
     CliOutputLimit,
@@ -283,7 +284,7 @@ impl Engine {
         }
         Ok(out)
     }
-    fn validate(&self, tool: Tool) -> Result<()> {
+    fn validate_location(&self) -> Result<()> {
         if matches!(
             self.location,
             Location::Translocated
@@ -296,6 +297,11 @@ impl Engine {
         if self.location == Location::Unknown {
             return Err(Code::UnknownLocation);
         }
+        Ok(())
+    }
+    fn validate(&self, tool: Tool) -> Result<()> {
+        self.validate_location()?;
+        // The file editor must never open Claude Code's configuration.
         if tool == Tool::ClaudeCode {
             return Err(Code::CopyOnly);
         }

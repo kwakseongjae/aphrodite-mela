@@ -63,6 +63,8 @@ pub async fn connect_status(app: tauri::AppHandle) -> Result<Vec<Status>> {
 #[serde(untagged)]
 pub enum Proposal {
     Edit(Preview),
+    Command(claude::CommandPreview),
+    Outcome(claude::CommandResult),
     Copy {
         tool: Tool,
         path: PathBuf,
@@ -71,6 +73,13 @@ pub enum Proposal {
     },
 }
 impl Engine {
+    pub(super) fn prepare(&self, tool: Tool, action: Action, stamp: u128) -> Result<Proposal> {
+        if tool == Tool::ClaudeCode { return claude::prepare(self, action); }
+        self.proposal(tool, self.preview(tool, action, stamp))
+    }
+    pub(super) fn execute(&self, tool: Tool, action: Action, fingerprint: &str, confirm: bool) -> Result<Proposal> {
+        self.proposal(tool, self.commit(tool, action, fingerprint, confirm))
+    }
     pub(super) fn proposal(&self, tool: Tool, plan: Result<Preview>) -> Result<Proposal> {
         match plan {
             Ok(p) => Ok(Proposal::Edit(p)),
@@ -78,6 +87,7 @@ impl Engine {
                 code @ (Code::UnsupportedLayout
                 | Code::InvalidConfig
                 | Code::Ambiguous
+                | Code::CliNotFound
                 | Code::CopyOnly
                 | Code::DirectoryMissing
                 | Code::NoExtendedAttributes),
@@ -98,17 +108,8 @@ pub async fn connect_preview(
     action: Action,
 ) -> Result<Proposal> {
     run(app, move |e| {
-        e.proposal(
-            tool,
-            e.preview(
-                tool,
-                action,
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|_| Code::Io)?
-                    .as_nanos(),
-            ),
-        )
+        e.prepare(tool, action, SystemTime::now()
+            .duration_since(UNIX_EPOCH).map_err(|_| Code::Io)?.as_nanos())
     })
     .await
 }
@@ -120,15 +121,7 @@ pub async fn connect_apply(
     confirm_replacement: Option<bool>,
 ) -> Result<Proposal> {
     run(app, move |e| {
-        e.proposal(
-            tool,
-            e.commit(
-                tool,
-                Action::Connect,
-                &fingerprint,
-                confirm_replacement.unwrap_or(false),
-            ),
-        )
+        e.execute(tool, Action::Connect, &fingerprint, confirm_replacement.unwrap_or(false))
     })
     .await
 }
@@ -140,15 +133,7 @@ pub async fn connect_remove(
     confirm_removal: Option<bool>,
 ) -> Result<Proposal> {
     run(app, move |e| {
-        e.proposal(
-            tool,
-            e.commit(
-                tool,
-                Action::Remove,
-                &fingerprint,
-                confirm_removal.unwrap_or(false),
-            ),
-        )
+        e.execute(tool, Action::Remove, &fingerprint, confirm_removal.unwrap_or(false))
     })
     .await
 }

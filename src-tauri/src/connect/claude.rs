@@ -115,3 +115,92 @@ pub(super) fn status(e: &Engine, out: &mut Status) -> super::Result<()> {
     }
     Ok(())
 }
+
+use super::{Action, Proposal, Tool};
+
+#[derive(Serialize)]
+pub struct Invocation {
+    argv: Vec<String>,
+    line: String,
+}
+
+fn quote(word: &str) -> String {
+    if !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphanumeric() || b"/_-.".contains(&b)) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\"'\"'"))
+    }
+}
+impl Invocation {
+    fn new(program: &Program, args: &[&str]) -> Self {
+        let argv: Vec<String> = std::iter::once(program.path.to_str().unwrap())
+            .chain(args.iter().copied()).map(str::to_owned).collect();
+        let line = argv.iter().map(|arg| quote(arg)).collect::<Vec<_>>().join(" ");
+        Self { argv, line }
+    }
+    fn add(program: &Program, path: &str) -> Self {
+        Self::new(program, &["mcp","add","--transport","stdio","--scope","user","aphrodite","--",path])
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandPreview {
+    tool: Tool,
+    action: Action,
+    commands: Vec<Invocation>,
+    on_add_failure: Option<Invocation>,
+    will_repoint: bool,
+    replacement_required: bool,
+    confirmation_required: bool,
+    fingerprint: String,
+}
+
+impl State {
+    fn fingerprint(&self, e: &Engine, action: Action) -> String {
+        hash(serde_json::to_vec(&(Tool::ClaudeCode, action, &e.exe, &e.home, &e.claude_config_dir,
+            e.location, &self.program, &self.recorded, self.entry.as_ref().map(|v| &v.digest))).unwrap())
+    }
+    fn plan(&self, e: &Engine, action: Action) -> Result<CommandPreview, CommandResult> {
+        if e.executable().is_empty() || e.executable().contains(char::is_control) ||
+            self.program.path.to_str().unwrap().contains(char::is_control) {
+            return Err(Code::InvalidPath.into());
+        }
+        let exists = self.entry.is_some();
+        let owned = self.owned(e);
+        let here = self.points_here(e);
+        let foreign = exists && !owned;
+        if action == Action::Remove {
+            if !exists { return Err(Code::NoEntry.into()); }
+            if foreign && !here { return Err(Code::ForeignEntry.into()); }
+        }
+        let mut commands = vec![];
+        let noop = action == Action::Connect && owned && here;
+        if exists && !noop {
+            commands.push(Invocation::new(&self.program, &["mcp","remove","--scope","user","aphrodite"]));
+        }
+        if action == Action::Connect && !noop {
+            commands.push(Invocation::add(&self.program, e.executable()));
+        }
+        let will_repoint = action == Action::Connect && owned && !here;
+        Ok(CommandPreview {
+            tool: Tool::ClaudeCode, action, commands,
+            on_add_failure: self.recorded.as_ref().filter(|_| will_repoint)
+                .map(|path| Invocation::add(&self.program, path)),
+            will_repoint, replacement_required: action == Action::Connect && foreign,
+            confirmation_required: foreign, fingerprint: self.fingerprint(e, action),
+        })
+    }
+}
+
+pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
+    e.validate_location()?;
+    let Some(program) = Program::find(e) else {
+        return e.proposal(Tool::ClaudeCode, Err(Code::CliNotFound));
+    };
+    let home = files::root(&e.home)?.into_std_file();
+    Ok(match State::inspect(e, program, &home).and_then(|s| s.plan(e, action)) {
+        Ok(plan) => Proposal::Command(plan),
+        Err(result) => Proposal::Outcome(result),
+    })
+}
