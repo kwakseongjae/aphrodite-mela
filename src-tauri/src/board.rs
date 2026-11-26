@@ -26,7 +26,7 @@ const PAGES_BOUND: u64 = 256 * 1024 * 1024;
 const UPLOADS: &str = "board-uploads";
 const BOARD_FILES: &[(&str, &str)] = &[
     ("png", "image/png"), ("jpg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp"),
-    ("mp4", "video/mp4"), ("webm", "video/webm"), ("woff2", "font/woff2"), ("woff", "font/woff"),
+    ("video.mp4", "video/mp4"), ("webm", "video/webm"), ("woff2", "font/woff2"), ("woff", "font/woff"),
     ("ttf", "font/ttf"), ("otf", "font/otf"), ("wav", "audio/wav"), ("ogg", "audio/ogg"), ("mp3.bin", "audio/mpeg"),
 ];
 
@@ -84,7 +84,7 @@ fn page_asset(head: &[u8]) -> Option<&'static str> {
 }
 
 pub(crate) fn media_extension(ext: &str) -> bool {
-    matches!(ext, "jpeg" | "mp3") || BOARD_FILES.iter().any(|(e, _)| *e == ext)
+    matches!(ext, "jpeg" | "mp3" | "mp4") || BOARD_FILES.iter().any(|(e, _)| *e == ext)
 }
 
 fn extension(mime: &str) -> &'static str {
@@ -333,17 +333,20 @@ pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     if let Some(path) = published_file(base, sha) { return Some(path); }
     if !is_sha(sha) { return None; }
     let pending = base.join(UPLOADS).join("importing");
-    let previous = base.join(MEDIA).join(format!("{sha}.mp3"));
-    if !pending.is_dir() && !previous.is_file() { return None; }
+    let previous = [("mp4", "video/mp4"), ("mp3", "audio/mpeg")].map(|(ext, mime)|
+        (base.join(MEDIA).join(format!("{sha}.{ext}")), mime));
+    if !pending.is_dir() && !previous.iter().any(|(p, _)| p.is_file()) { return None; }
     let _held = settling(base).ok()?;
     if let Some(path) = published_file(base, sha) { return Some(path); }
-    // Earlier HTML-engine builds used .mp3. That suffix is outside the scope now.
-    // Only a supported sound moves to the new name, whose MIME fallback is octet-stream.
-    if previous.is_file() {
-        let mut head = [0; 3];
-        if fs::File::open(&previous).and_then(|mut f| f.read_exact(&mut head)).is_ok() && page_asset(&head) == Some("audio/mpeg") {
-            let dest = base.join(MEDIA).join(format!("{sha}.mp3.bin"));
-            fs::rename(previous, &dest).ok()?;
+    // Earlier versions stored these suffixes with broader signatures. Keep their paths for
+    // existing readers, and link verified bytes under the suffix the current scope serves.
+    for (path, mime) in previous {
+        let Ok(file) = fs::File::open(&path) else { continue };
+        let mut head = Vec::new();
+        file.take(16).read_to_end(&mut head).ok()?;
+        if page_asset(&head) == Some(mime) {
+            let dest = base.join(MEDIA).join(format!("{sha}.{}", extension(mime)));
+            fs::hard_link(path, &dest).ok()?;
             return Some(dest);
         }
     }
@@ -623,6 +626,31 @@ mod tests {
     }
 
     #[test]
+    fn previously_stored_mp4_and_mp3_files_enter_the_asset_scope_only_after_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let media = folder(dir.path(), MEDIA).unwrap();
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let scope = config["app"]["security"]["assetProtocol"]["scope"].as_array().unwrap();
+        for (ext, valid, refused) in [
+            ("mp4", &b"\0\0\0\x18ftypisom"[..], &b"testftypinvalid"[..]),
+            ("mp3", &b"\xff\xf3sample"[..], &b"\xff\xe3invalid"[..]),
+        ] {
+            assert!(!scope.contains(&serde_json::json!(format!("$APPDATA/board-media/*.{ext}"))));
+            for (content, recognized) in [(valid, true), (refused, false)] {
+                let sha = format!("{:x}", Sha256::digest(content));
+                let old = media.join(format!("{sha}.{ext}"));
+                fs::write(&old, content).unwrap();
+                let path = media_file(dir.path(), &sha);
+                assert_eq!(path.is_some(), recognized);
+                if let Some(path) = path {
+                    assert_ne!(old, path);
+                    assert_eq!(fs::metadata(old).unwrap().ino(), fs::metadata(path).unwrap().ino());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn all_four_mp3_heads_have_a_safe_actual_asset_response_and_keep_their_board_type() {
         use tauri::utils::mime_type::MimeType;
         let dir = tempfile::tempdir().unwrap();
@@ -645,7 +673,7 @@ mod tests {
         for (ext, heads) in [
             ("png", vec![&PNG[..]]), ("jpg", vec![&b"\xff\xd8\xff"[..]]),
             ("gif", vec![&b"GIF87a"[..], b"GIF89a"]), ("webp", vec![&b"RIFF0000WEBP"[..]]),
-            ("mp4", vec![&b"\0\0\0\x20ftyp"[..]]), ("webm", vec![&b"\x1a\x45\xdf\xa3"[..]]),
+            ("video.mp4", vec![&b"\0\0\0\x20ftyp"[..]]), ("webm", vec![&b"\x1a\x45\xdf\xa3"[..]]),
             ("ogg", vec![&b"OggS"[..]]), ("wav", vec![&b"RIFF0000WAVE"[..]]),
             ("mp3.bin", vec![&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa", b"\xff\xe3", b"\xff\xe2"]),
             ("woff", vec![&b"wOFFXXXX"[..], b"wOFFOTTO"]), ("woff2", vec![&b"wOF2font"[..]]),
