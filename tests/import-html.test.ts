@@ -94,14 +94,14 @@ test('all top-level pages and their shared files land in one undoable change', a
   const before = structuredClone(designOf(project));
   const out = await importHtml(source, person, target);
   assert.deepEqual(out.pages.map(p => p.name), ['First', 'Second', 'c.html']);
-  assert.equal(out.files.count, 7);
-  assert.equal(out.files.bytes, ['photo.png', 'type.woff', 'film.mp4', 'sound.wav', 'local.js', 'styles/site.css', 'styles/type.css']
+  assert.equal(out.files.count, 6);
+  assert.equal(out.files.bytes, ['photo.png', 'type.woff', 'film.mp4', 'sound.wav', 'styles/site.css', 'styles/type.css']
     .reduce((n, path) => n + fixture('siblings/' + path).length, 0));
   assert.equal(out.remote, 2);
-  assert.deepEqual(out.skipped, [{name: 'missing.png', code: 'missing'}]);
+  assert.deepEqual(out.skipped, [{name: 'local.js', code: 'script_mode'}, {name: 'missing.png', code: 'missing'}]);
   const html = project.pages[1].html!;
   assert.match(html, /@font-face/); assert.match(html, /@media screen and/);
-  assert.match(html, /<script[^>]*>document.body.dataset.ready/);
+  assert.match(html, /<script defer src="local.js"><\/script>/);
   assert.match(html, /srcset="media:[a-f0-9]{64} 1x, https:\/\/example.invalid\/large.png 2x"/);
   assert.match(html, /poster="media:[a-f0-9]{64}"/);
   assert.equal(calls.filter(n => n === 'photo.png').length, 1);
@@ -203,16 +203,16 @@ test('HTML metadata comes from the document, including a late charset and an in-
   assert.match(project.pages[1].html!, /media:1{64}/);
 });
 
-test('deferred scripts see the body, and inlining cannot discard an integrity requirement', async () => {
+test('deferred scripts keep their external timing and integrity requirements stay in place', async () => {
   const {target, project} = setup(), reads: string[] = [];
   const html = '<html><head><script defer src="a.js"></script><link rel=stylesheet href="protected.css" integrity="sha384-test"></head><body><main>Ready</main></body></html>';
   const out = await importHtml({names: ['a.html'], read: async n => {
     reads.push(n); return Buffer.from(n === 'a.html' ? html : 'document.body.dataset.ready=1');
   }, media: async () => { throw 'missing'; }}, person, target);
   const stored = project.pages[1].html!;
-  assert.ok(stored.indexOf('<main>Ready') < stored.indexOf('document.body.dataset.ready=1'));
-  assert.deepEqual(reads, ['a.html', 'a.js']);
-  assert.deepEqual(out.skipped, [{name: 'protected.css', code: 'integrity'}]);
+  assert.equal(stored, html);
+  assert.deepEqual(reads, ['a.html']);
+  assert.deepEqual(out.skipped, [{name: 'a.js', code: 'script_mode'}, {name: 'protected.css', code: 'integrity'}]);
 });
 
 test('a document that exceeds the remaining design budget leaves its slot for a smaller page', async () => {
@@ -275,4 +275,72 @@ test('text kinds and dot components cannot bring notes, data or hidden files int
 test('a UTF-16 meta label without a BOM decodes the UTF-8 title', async () => {
   const {target} = setup();
   assert.equal((await importHtml({text: Buffer.from('<meta charset="utf-16"><title>Café</title>')}, person, target)).pages[0]?.name, 'Café');
+});
+
+async function example(html: string, siblings: Record<string, string> = {}) {
+  const {project, target} = setup();
+  const reads: string[] = [], media = {sha: 'a'.repeat(64), mime: 'image/png', bytes: 7};
+  const report = await importHtml({names: ['a.html'], read: async n => {
+    reads.push(n);
+    if (n === 'a.html') return Buffer.from(html);
+    if (!(n in siblings)) throw 'missing';
+    return Buffer.from(siblings[n]);
+  }, media: async n => { reads.push(n); return media; }}, person, target);
+  return {report, reads, html: project.pages[1]?.html};
+}
+
+test('double-escaped classic scripts and SVG scripts preserve the following main and paragraph', async () => {
+  for (const html of ['<script src=a.js></script><main><p>x</p></main>', '<svg><script src=a.js></script></svg><main><p>x</p></main>']) {
+    const r = await example(html, {'a.js': 'var s = "<!--<script>";'});
+    assert.equal(r.html, html);
+    assert.equal(r.report.files.count, 0);
+    assert.equal(r.report.skipped[0].code, html.startsWith('<svg') ? 'namespace' : 'raw_end_tag');
+  }
+});
+
+test('async, defer, module, nomodule, integrity and data scripts retain their external execution mode', async () => {
+  for (const mode of ['async', 'defer', 'type=module', 'nomodule', 'integrity=""', 'type="application/json"']) {
+    const html = '<script ' + mode + ' src=a.js></script>', r = await example(html, {'a.js': 'import("./dep.js")'});
+    assert.equal(r.html, html);
+    assert.deepEqual(r.reads, ['a.html']);
+    assert.equal(r.report.skipped.length, 1);
+  }
+});
+
+test('disabled and alternate sheets stay external, and a sheet that fails to parse stays linked', async () => {
+  for (const link of ['<link disabled rel="stylesheet" href="theme.css">', '<link rel="alternate stylesheet" href="theme.css">', '<link rel=stylesheet href="theme.css">']) {
+    const r = await example(link, {'theme.css': 'a{'});
+    assert.equal(r.html, link);
+    assert.equal(r.report.files.count, 0);
+    assert.equal(r.report.skipped.length, 1);
+  }
+});
+
+test('a closing style tag introduced by rewriting a CSS escape leaves the original stylesheet linked', async () => {
+  const html = '<link rel=stylesheet href="theme.css"><main>x</main>';
+  const r = await example(html, {'theme.css': String.raw`a{background:url("a.png#\3c /style>")}`});
+  assert.equal(r.html, html);
+  assert.equal(r.report.files.count, 0);
+  assert.equal(r.report.skipped.at(-1)?.code, 'raw_end_tag');
+});
+
+test('only leading top-level imports are followed and charset and namespace stay legal', async () => {
+  const r = await example('<link rel=stylesheet href="theme.css">', {
+    'theme.css': '@import "first.css" screen; a{} @import "late.css"; @media screen{@import "nested.css";}',
+    'first.css': '@charset "utf-8"; p{color:red}',
+  });
+  assert.deepEqual(r.reads, ['a.html', 'theme.css', 'first.css']);
+  assert.doesNotMatch(r.html!, /@media screen\s*\{\s*@charset/i);
+  assert.deepEqual(r.report.skipped.map(x => x.name), ['late.css', 'nested.css']);
+  const ns = await example('<link rel=stylesheet href="a.css">', {'a.css': '@import "b.css" print;', 'b.css': '@namespace x "urn:x"; x|p{}'});
+  assert.doesNotMatch(ns.html!, /@media print\s*\{\s*@namespace/);
+  assert.ok(ns.report.skipped.some(x => x.code === 'css_namespace'));
+});
+
+test('image-set strings, remote candidates and invalid srcset descriptors are accounted before a read', async () => {
+  const r = await example('<style>a{background:image-set("a.png" 1x, "https://example.invalid/b.png" 2x, url(invalid.png) 2q)}</style><img srcset="c.png 2q">');
+  assert.deepEqual(r.reads, ['a.html', 'a.png']);
+  assert.equal(r.report.remote, 1);
+  assert.deepEqual(r.report.skipped.map(i => i.name), ['invalid.png', 'c.png']);
+  assert.match(r.html!, /media:a{64}/);
 });

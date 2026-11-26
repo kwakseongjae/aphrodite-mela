@@ -1,6 +1,6 @@
 import {esc} from '../html';
 import {MAX_PAGE_HTML} from '../free-page';
-import {attr, inDocument, type Element} from './document';
+import {attr, elements, inDocument, type Element} from './document';
 import {rewriteCss} from './css';
 import {address, parent, portable, type References} from './references';
 
@@ -14,18 +14,26 @@ async function srcset(value: string, dir: string | null, refs: References) {
     while (at < value.length && !/[\t\n\f\r ]/.test(value[at])) at++;
     let end = at;
     while (end > start && value[end - 1] === ',') end--;
-    if (end > start) {
-      result += value.slice(from, start) + await refs.media(value.slice(start, end), dir);
-      from = end;
-    }
-    if (at !== end) continue;
+    const descriptors = at;
     let depth = 0;
-    while (at < value.length) {
+    if (end === at) while (at < value.length) {
       const c = value[at++];
       if (c === '(') depth++;
       if (c === ')' && depth) depth--;
       if (c === ',' && !depth) break;
     }
+    if (end <= start) continue;
+    const url = value.slice(start, end);
+    const tokens = value.slice(descriptors, at).replace(/,$/, '').trim().split(/[\t\n\f\r ]+/).filter(Boolean);
+    const kinds = new Set(tokens.map(t => t.slice(-1)));
+    const valid = kinds.size === tokens.length && tokens.every(t =>
+      (/^\d+[wh]$/.test(t) && Number(t.slice(0, -1)) > 0) ||
+      (/^(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?x$/.test(t) && Number.isFinite(Number(t.slice(0, -1))))) &&
+      !(kinds.has('x') && kinds.size > 1) && (!kinds.has('h') || kinds.has('w'));
+    if (!valid) { refs.skip(url, 'invalid_candidate'); continue; }
+    result += value.slice(from, start) + await refs.media(url, dir);
+    from = end;
+    if (result.length + value.length - from > MAX_PAGE_HTML) throw 'too_large';
   }
   return result + value.slice(from);
 }
@@ -47,6 +55,26 @@ function baseDirectory(nodes: Element[], refs: References): string | null {
 type Span = {startOffset: number; endOffset: number};
 type Edit = Span & {value: string};
 
+function inlineRefusal(e: Element, stylesheet: boolean) {
+  if (!e.namespaceURI.endsWith('/xhtml')) return 'namespace';
+  if (attr(e, 'integrity') !== undefined) return 'integrity';
+  if (stylesheet) {
+    if (attr(e, 'disabled') !== undefined || attr(e, 'rel')?.toLowerCase().split(/\s+/).includes('alternate')) return 'inactive_style';
+    if (attr(e, 'type') && attr(e, 'type')!.trim().toLowerCase() !== 'text/css') return 'inactive_style';
+  } else {
+    const type = (attr(e, 'type') ?? (attr(e, 'language') ? 'text/' + attr(e, 'language') : '')).trim();
+    if (['async', 'defer', 'nomodule'].some(a => attr(e, a) !== undefined) ||
+        (type && !/^(?:application|text)\/(?:x-)?(?:javascript|ecmascript)$/i.test(type))) return 'script_mode';
+  }
+}
+
+/** The parser must recover the same raw text and consume the intended closing tag. */
+function representable(opening: string, text: string, tag: string) {
+  const [node] = elements(opening + text + '</' + tag + '><i></i>');
+  return node?.tagName === tag && node.sourceCodeLocation?.endTag?.startOffset === opening.length + text.length &&
+    node.childNodes.map(n => 'value' in n ? n.value : '').join('') === text;
+}
+
 export async function resolvePage(source: string, nodes: Element[], refs: References): Promise<string> {
   const edits: Edit[] = [];
   let size = source.length;
@@ -58,7 +86,7 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
   };
   const dir = baseDirectory(nodes, refs);
   const seen = new Set<number>();
-  const deferred: string[] = [];
+
   for (const e of nodes) {
     const loc = e.sourceCodeLocation!, start = loc.startTag!, tag = e.tagName;
     if (seen.has(start.startOffset)) continue;
@@ -68,37 +96,43 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
     const external = stylesheet ? href : tag === 'script' ? src : undefined;
     if (external !== undefined) {
       const to = refs.locate(external, dir);
-      if (to && attr(e, 'integrity')?.trim()) {
-        refs.skip(external, 'integrity');
-      } else if (to) {
-        const text = await refs.text(to.name, external, stylesheet ? 'style' : 'script');
+      const refused = inlineRefusal(e, stylesheet);
+      if (to && refused) refs.skip(external, refused);
+      else if (to) {
+        const undoFiles = refs.checkpoint();
+        const tagName = stylesheet ? 'style' : 'script';
+        const text = await refs.text(to.name, external, tagName);
         if (text !== undefined) {
-          if (stylesheet) {
-            const css = await rewriteCss(text, parent(to.name), refs, [to.name]);
-            const attrs = e.attrs.filter(a => ['media', 'title', 'id', 'class', 'nonce'].includes(a.name)).map(a => ' ' + a.name + '="' + esc(a.value) + '"').join('');
-            put(start, '<style' + attrs + '>' + css + '</style>');
-          } else {
-            const attribute = loc.attrs!.src;
-            const opening = source.slice(start.startOffset, attribute.startOffset) + source.slice(attribute.endOffset, start.endOffset);
-            const script = opening + text + '</script>';
-            if (attr(e, 'defer') !== undefined && attr(e, 'async') === undefined && attr(e, 'type')?.toLowerCase() !== 'module' && inDocument(e)) {
-              deferred.push(script);
-              put(loc, '');
-            } else put(loc, script);
+          const srcAttr = loc.attrs?.src;
+          const attrs = e.attrs.filter(a => ['media', 'title', 'id', 'class', 'nonce'].includes(a.name))
+            .map(a => ' ' + a.name + '="' + esc(a.value) + '"').join('');
+          const opening = srcAttr && !stylesheet
+            ? source.slice(start.startOffset, srcAttr.startOffset) + source.slice(srcAttr.endOffset, start.endOffset)
+            : '<style' + attrs + '>';
+          const raw = stylesheet ? await rewriteCss(text, parent(to.name), refs, [to.name]) : text;
+          if (raw !== undefined) {
+            if (representable(opening, raw, tagName) && (stylesheet || loc.endTag)) {
+              put(stylesheet ? start : loc, opening + raw + '</' + tagName + '>');
+              continue;
+            }
+            refs.skip(external, 'raw_end_tag');
           }
-          continue;
         }
+        undoFiles();
       }
     }
     if (tag === 'style') {
       const body = {startOffset: start.endOffset, endOffset: loc.endTag?.startOffset ?? loc.endOffset};
       const text = source.slice(body.startOffset, body.endOffset), css = await rewriteCss(text, dir, refs);
-      if (css !== text) put(body, css);
+      if (css !== undefined && css !== text) {
+        if (representable('<style>', css, 'style')) put(body, css);
+        else refs.skip('', 'raw_end_tag');
+      }
     }
     for (const a of e.attrs) {
       const key = a.prefix ? a.prefix + ':' + a.name : a.name;
       let value = a.value;
-      if (key === 'style') value = await rewriteCss(value, dir, refs);
+      if (key === 'style') value = await rewriteCss(value, dir, refs) ?? value;
       else if (key === 'srcset' || key === 'imagesrcset') value = await srcset(value, dir, refs);
       else if ((key === 'src' && ['img', 'video', 'audio', 'source', 'input'].includes(tag)) ||
           (key === 'poster' && tag === 'video') || (a.name === 'href' && tag === 'image') ||
@@ -114,11 +148,6 @@ export async function resolvePage(source: string, nodes: Element[], refs: Refere
       }
       if (value !== a.value) put(loc.attrs?.[key], key + '="' + esc(value) + '"');
     }
-  }
-  if (deferred.length) {
-    const body = nodes.find(e => e.tagName === 'body' && inDocument(e));
-    const end = body?.sourceCodeLocation?.endTag?.startOffset ?? source.length;
-    put({startOffset: end, endOffset: end}, deferred.join(''));
   }
   let at = 0;
   const output: string[] = [];

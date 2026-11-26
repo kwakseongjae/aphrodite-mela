@@ -33,6 +33,13 @@ export class References {
   private expanded = 0;
   constructor(private readonly disk: GrantedFiles | undefined, private readonly mediaCache: Map<string, StoredMedia>) {}
 
+  checkpoint() {
+    const names = new Set(this.names), files = new Map(this.files);
+    return () => {
+      for (const name of this.names) if (!names.has(name)) this.names.delete(name);
+      for (const hash of this.files.keys()) if (!files.has(hash)) this.files.delete(hash);
+    };
+  }
   skip(name: string, code: string) { this.skipped.push({name, code}); }
   locate(url: string, directory: string | null) {
     const to = address(url, directory ?? '');
