@@ -22,12 +22,16 @@ export function sectionOnly(action:string):boolean{
   return action==='add'||action==='reference-promote'||commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',kinds:[]}).some(c=>sectionCommands.has(c.id)&&c.action===action);
 }
 
+/** The words that find each theme, so "dark" runs Dark and not the first theme row. */
+const themeWords:Record<ThemeChoice,string[]>={system:['match the system','시스템 설정 따르기','mac','auto','자동'],light:['light','밝게','라이트','밝은','paper','페이퍼'],dark:['dark','어둡게','다크','어두운','night','midnight','미드나이트']};
+
 export function commandTable(ctx:PaletteContext):Command[]{
   const sections=ctx.sections??true;
   const kinds=ctx.kinds??catalog;
   const add:Command[]=kinds.filter(c=>!c.kind.startsWith('moa')).map(c=>({id:`add-${c.kind}`,action:'add',data:{kind:c.kind},en:`Add ${c.name}`,ko:`${c.name} 추가`,group:'add' as const}));
   const base:Command[]=[
-    {id:'home',action:'home',en:'All boards (home)',ko:'보드 목록(홈)',group:'navigate'},
+    // Home's names from before it held boards stay findable: an agent's palette command may still use them.
+    {id:'home',action:'home',en:'All boards (home)',ko:'보드 목록(홈)',group:'navigate',keywords:['All projects (home)','프로젝트 목록(홈)']},
     {id:'search',action:'focus-component-search',en:'Find a component',ko:'컴포넌트 검색',group:'navigate',keys:'/'},
     {id:'undo',action:'undo',en:'Undo',ko:'실행 취소',group:'edit',keys:'⌘Z'},
     {id:'redo',action:'redo',en:'Redo',ko:'다시 실행',group:'edit',keys:'⇧⌘Z'},
@@ -66,7 +70,7 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'export',action:'export',en:'Export handoff (ZIP, prompt, DESIGN.md, SCENE.json)',ko:'핸드오프 내보내기 (ZIP, 프롬프트, DESIGN.md, SCENE.json)',group:'file'},
     {id:'save',action:'save-project',en:'Save project file (.aphrodite.json)',ko:'프로젝트 파일 저장 (.aphrodite.json)',group:'file'},
     {id:'language',action:'language-settings',en:'Language / 언어',ko:'Language / 언어',group:'file'},
-    ...themeChoices.map(c=>({id:`look-${c}`,action:'hub-theme',data:{scheme:c},en:`Theme · ${themeLabel[c].en}`,ko:`테마 · ${themeLabel[c].ko}`,group:'file' as const,keywords:['theme','dark','light','테마','다크','라이트','어두운','밝은'],hint:ctx.theme===c?{en:'current',ko:'현재'}:undefined})),
+    ...themeChoices.map(c=>({id:`look-${c}`,action:'hub-theme',data:{scheme:c},en:`Theme · ${themeLabel[c].en}`,ko:`테마 · ${themeLabel[c].ko}`,group:'file' as const,keywords:['theme','테마',...themeWords[c]],hint:ctx.theme===c?{en:'current',ko:'현재'}:undefined})),
   ];
   if(ctx.hasSelection)base.push(
     {id:'duplicate',action:'duplicate',en:'Duplicate selected component',ko:'선택한 컴포넌트 복제',group:'edit'},
