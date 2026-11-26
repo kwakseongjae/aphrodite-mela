@@ -235,7 +235,7 @@ impl FileState {
         data: &str,
         receipt: Option<&Receipt>,
     ) -> Result<Staged<'d>> {
-        let name = format!(".aphrodite-{}.tmp", uuid::Uuid::new_v4());
+        let name = format!(".aphrodite-{}.recovery", uuid::Uuid::new_v4());
         let mut opts = OpenOptions::new();
         opts.write(true).create_new(true).mode(0o600);
         let mut file = dir.open_with(&name, &opts).map_err(io_code)?.into_std();
@@ -300,6 +300,27 @@ fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
     rename(dir, recovery.as_ref(), name, RenameFlags::NOREPLACE)?;
     Err(Code::Changed)
 }
+// Swap back only while the live name still holds our candidate. If another writer
+// won the rollback race, retain the displaced generation under the recovery name.
+fn rollback(dir: &Dir, live: &OsStr, displaced: &str, ours: &FileState) -> Result<()> {
+    use rustix::fs::RenameFlags;
+    if !FileState::read(dir, Path::new(live)).is_ok_and(|now| ours.matches(&now)) {
+        return Ok(());
+    }
+    let previous = FileState::read(dir, Path::new(displaced)).ok();
+    rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
+    if FileState::read(dir, Path::new(displaced)).is_ok_and(|now| ours.matches(&now)) {
+        return dir.remove_file(displaced).map_err(io_code);
+    }
+    // A newer live save was exchanged between our check and the rollback syscall.
+    // Put it back if the generation we just restored still occupies the live name.
+    if previous.is_some_and(|prev| {
+        FileState::read(dir, Path::new(live)).is_ok_and(|now| prev.matches(&now))
+    }) {
+        rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
+    }
+    Ok(())
+}
 impl Staged<'_> {
     pub fn publish_checked(
         mut self,
@@ -326,15 +347,14 @@ impl Staged<'_> {
         let correct = FileState::read(self.dir, Path::new(&displaced))
             .is_ok_and(|now| expected.matches(&now));
         if !correct || reachable().is_err() {
-            rename(self.dir, displaced.as_ref(), name, RenameFlags::EXCHANGE)?;
-            if FileState::read(self.dir, Path::new(&displaced)).is_ok_and(|now| ours.matches(&now))
-            {
-                self.dir.remove_file(displaced).map_err(io_code)?;
-            }
+            rollback(self.dir, name, &displaced, &ours)?;
             return Err(Code::Changed);
         }
         if delete {
-            retire(self.dir, name, &ours)?;
+            if let Err(code) = retire(self.dir, name, &ours) {
+                rollback(self.dir, name, &displaced, &ours)?;
+                return Err(code);
+            }
         }
         self.dir.remove_file(displaced).map_err(io_code)
     }

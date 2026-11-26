@@ -820,3 +820,25 @@ fn astra_7_valid_toml_outside_the_splicers_grammar_offers_copy_in_ipc() {
     assert_eq!(copy["code"], "unsupported_layout");
     assert_eq!(copy["snippet"], h.engine.snippet(Tool::Codex));
 }
+
+#[test]
+fn astra_2_a_second_editor_save_remains_at_the_live_name_during_conflict_recovery() {
+    use std::cell::Cell;
+    let h = Home::new();
+    let dir = files::root(&h.engine.home).unwrap();
+    let name = Path::new("local.json");
+    dir.write(name, "first").unwrap();
+    let original = FileState::read(&dir, name).unwrap();
+    let staged = original.temp(&dir, "connected", None).unwrap();
+    let checked = Cell::new(false);
+    let result = staged.publish_checked(name.as_os_str(), &original, false, || {
+        if !checked.replace(true) {
+            return Ok(());
+        }
+        dir.write("editor", "latest").unwrap();
+        dir.rename("editor", &dir, name).unwrap();
+        Err(Code::Changed)
+    });
+    assert!(matches!(result, Err(Code::Changed)));
+    assert_eq!(dir.read(name).unwrap(), b"latest");
+}
