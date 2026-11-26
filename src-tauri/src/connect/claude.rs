@@ -378,22 +378,21 @@ pub struct CommandPreview {
 }
 
 impl State {
-    fn fingerprint(&self, e: &Engine, action: Action) -> String {
-        hash(
-            serde_json::to_vec(&(
-                Tool::ClaudeCode,
-                action,
-                &e.exe,
-                e.home.as_os_str().as_encoded_bytes(),
-                &e.claude_config_dir,
-                e.location,
-                &self.program,
-                &self.record,
-                self.record_error,
-                self.entry.as_ref().map(|v| &v.digest),
-            ))
-            .unwrap(),
-        )
+    fn fingerprint(&self, e: &Engine, action: Action) -> super::Result<String> {
+        serde_json::to_vec(&(
+            Tool::ClaudeCode,
+            action,
+            &e.exe,
+            e.home.as_os_str().as_encoded_bytes(),
+            &e.claude_config_dir,
+            e.location,
+            &self.program,
+            &self.record,
+            self.record_error,
+            self.entry.as_ref().map(|v| &v.digest),
+        ))
+        .map(hash)
+        .map_err(|_| Code::InvalidPath)
     }
     fn plan(&self, e: &Engine, action: Action) -> Result<CommandPreview, CommandResult> {
         let lines = Lines::new(e, Some(&self.program))?;
@@ -441,7 +440,11 @@ impl State {
             will_repoint,
             replacement_required: action == Action::Connect && foreign,
             confirmation_required: foreign,
-            fingerprint: format!("{}.{}", self.program.binding(), self.fingerprint(e, action)),
+            fingerprint: format!(
+                "{}.{}",
+                self.program.binding()?,
+                self.fingerprint(e, action)?
+            ),
         })
     }
 }
@@ -535,12 +538,16 @@ pub(super) fn execute(
     e.profile()?;
     let (binding, digest) = fingerprint.split_once('.').ok_or(Code::Changed)?;
     let program = Program::find(e).ok_or(Code::Changed)?;
-    if !program.trusted || binding != program.binding() || digest.len() != 64 {
+    if !program.trusted
+        || binding != program.binding()?
+        || digest.len() != 64
+        || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+    {
         return Err(Code::Changed.into());
     }
     let store = Store::lock(e)?;
     let mut state = State::inspect(e, program, &store)?;
-    if state.fingerprint(e, action) != digest {
+    if state.fingerprint(e, action)? != digest {
         return Err(Code::Changed.into());
     }
     let plan = state.plan(e, action)?;

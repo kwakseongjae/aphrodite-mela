@@ -23,7 +23,9 @@ pub(super) struct Program {
     pub path: PathBuf,
     identity: Identity,
     pub trusted: bool,
+    #[serde(skip)]
     interpreter: Vec<(PathBuf, Identity)>,
+    #[serde(skip)]
     search_path: Vec<PathBuf>,
 }
 
@@ -188,8 +190,10 @@ impl Program {
             .find_map(|dir| Self::at(engine, dir.join("claude")))
     }
 
-    pub fn binding(&self) -> String {
-        super::hash(serde_json::to_vec(self).expect("validated executable paths"))
+    pub fn binding(&self) -> Result<String, Code> {
+        serde_json::to_vec(&(self, &self.interpreter, &self.search_path))
+            .map(super::hash)
+            .map_err(|_| Code::InvalidPath)
     }
 
     pub fn run(&self, engine: &Engine, args: &[&str]) -> Result<Output, CommandResult> {

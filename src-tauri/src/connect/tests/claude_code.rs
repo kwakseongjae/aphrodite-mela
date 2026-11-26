@@ -1090,6 +1090,8 @@ fn astra_1_preview_displays_the_resolved_file_identity_and_detects_in_place_chan
     let real = f.e().cli_dirs[0].join("playback");
     let m = fs::metadata(&real).unwrap();
     assert_eq!(p["program"]["path"], json!(real));
+    assert!(p["program"].get("searchPath").is_none());
+    assert!(p["program"].get("interpreter").is_none());
     assert_eq!(
         p["program"]["identity"],
         json!({"device":m.dev(), "inode":m.ino(), "size":m.size(),
