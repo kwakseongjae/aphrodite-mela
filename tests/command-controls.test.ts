@@ -127,7 +127,6 @@ test('every form the submit handler answers to is some row’s control, and ever
 
 /* ---- Gestures: every edit made outside the dispatchers and the agent channel ---- */
 const gestureMarkers:Record<string,string>={
-  'board-page-link':"m.kind==='page'",
   'catalog-drop':"before?'catalog:drop':'catalog:add'",
   'block-move-drop':"getData('application/aphrodite-move')",
   'layer-reorder':"'layer:move'",

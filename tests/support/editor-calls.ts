@@ -6,7 +6,10 @@ import {begin,end,newHistory} from '../../src/ledger/session';
 import {placeNewFrames,revealStarter} from '../../src/editor/starter';
 import {ensureSpace} from '../../src/editor/space';
 import {refusal,sourceFor} from '../../src/agent/dispatch';
-import type {Project} from '../../src/model';
+import {currentPage,type Project} from '../../src/model';
+import {humanOnlyBlocked,isDoorAction} from '../../src/agent/authority';
+import {sectionOnly} from '../../src/editor/command-palette';
+import {hasSectionPage} from '../../src/editor/starter';
 
 const main=ts.createSourceFile('main.ts',readFileSync(new URL('../../src/main.ts',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true);
 export const noop=()=>{};
@@ -25,4 +28,10 @@ export function editorBoard(project:Project){
   ensureSpace(project);
   return {project,edits:newHistory(project),screen:'editor',begin,end,placeNewFrames,ensureSpace,revealStarter,refusal,sourceFor,
     persist:noop,recordRun:noop,changeReceipt:noop,saveTyping:noop,render:noop,app:{},rerenderPreservingScroll:noop,lastSaved:true};
+}
+
+/** Dependencies shared by the editor action dispatcher before it reaches the chosen control. */
+export function editorActions(project:Project){
+  return {...editorBoard(project),currentPage,humanOnlyBlocked,isDoorAction,sectionOnly,hasSectionPage,editorMode:'design',
+    selected:'',leaving:0,sameBoard:()=>()=>true,updates:{handle:noop},archive:{handle:noop},pickFile:noop};
 }

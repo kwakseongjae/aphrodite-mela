@@ -47,7 +47,7 @@ export function placementSpace(project: Pick<Project, 'pages' | 'starter' | 'spa
   }
   return {frames};
 }
-/** The person going to the hidden page (Edit in the app, a link to it on the board): it shows from then on. True when it was hidden. */
+/** The person choosing Edit in the app on the hidden page: it shows from then on. True when it was hidden. */
 export function revealStarter(project: Pick<Project, 'starter'>, id: string): boolean {
   if (project.starter !== id) return false;
   delete project.starter;
