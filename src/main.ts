@@ -746,8 +746,10 @@ function setTheme(next:ThemeChoice){
 /** The browser bar and the desktop window take the paper of the theme on screen; following the Mac hands the title bar back to it. */
 async function paintPaper(){
   const shown=shownTheme(theme,systemDark());
-  const paper=getComputedStyle(document.documentElement).getPropertyValue('--ui-bg-app').trim();
-  if(theme!=='system'&&paper)document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach(m=>{m.content=paper;});
+  const paperOf=(look:'light'|'dark')=>{const probe=document.createElement('i');probe.dataset.theme=look;probe.hidden=true;document.body.append(probe);const value=getComputedStyle(probe).getPropertyValue('--ui-bg-app').trim();probe.remove();return value;};
+  const paper=paperOf(shown);
+  // Each meta answers its own media query; a pick puts both on the picked paper, following the Mac gives each its own back.
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach(m=>{const value=theme==='system'?paperOf(/dark/.test(m.media)?'dark':'light'):paper;if(value)m.content=value;});
   if(!nativeDesktop)return;
   try{const {getCurrentWindow}=await import('@tauri-apps/api/window');const w=getCurrentWindow();await w.setTheme(theme==='system'?null:shown);if(paper)await w.setBackgroundColor(paper);}catch{/* the page is drawn in its theme either way */}
 }
