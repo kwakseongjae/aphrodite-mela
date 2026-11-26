@@ -179,7 +179,7 @@ export function renderFailedHtml(detail: string, o: {ko: boolean; board: boolean
   return '<div class="ui-scrim fatal-scrim"><section class="ui-modal ui-modal-md fatal-sheet" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title">'
     + '<div class="ui-modal-body"><span class="ui-option-icon fatal-icon">' + icon('circle-alert', 'ui-icon') + '</span>'
     + '<h2 id="fatal-title" class="ui-modal-title">' + T('The screen stopped drawing.', '화면을 그리다가 멈췄어요.') + '</h2>'
-    + '<p class="ui-modal-text">' + T('Your boards are in this window as they were. Draw the screen again, and if it stops again, keep the boards as a file first.', '보드는 이 창에 그대로 있어요. 화면을 다시 그려 보시고, 또 멈추면 보드를 먼저 파일로 받아 두세요.') + '</p>'
+    + '<p class="ui-modal-text">' + T('Try drawing it again. If it stops again, keep the boards as a file first.', '화면을 다시 그려 보세요. 또 멈추면 보드를 먼저 파일로 받아 두세요.') + '</p>'
     + '<div class="fatal-actions"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="fatal-redraw">' + icon('rotate-cw', 'ui-icon ui-icon-sm') + T('Draw again', '다시 그리기') + '</button>'
     + (o.board ? '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="disk-backup">' + icon('download', 'ui-icon ui-icon-sm') + T('Save this board as a file', '보드를 파일로 저장') + '</button>' : '')
     + '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="hub-backup">' + icon('archive', 'ui-icon ui-icon-sm') + T('Save every board', '모든 보드 저장') + '</button></div>'

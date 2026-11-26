@@ -441,7 +441,16 @@ function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }
 function fatalUp(){return !!document.querySelector('.fatal-scrim');}
 /** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
 function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
-function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
+function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error);});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
+/**
+ * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
+ * other buttons go straight to their actions. Draw again takes the sheet away only once the screen was drawn; if drawing
+ * throws again, the sheet stays and says what stopped it now.
+ */
+function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
+  if(action==='fatal-close'){sheet.remove();return;}
+  try{render();sheet.remove();}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
+}
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
 let toasts:Toast[]=[];let toastId=0;
@@ -1792,7 +1801,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
     case 'notice-open': if(!modalRoot.children.length)openTrouble(); break;
-    case 'fatal-redraw': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove();render(); break;
+    case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
     case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old

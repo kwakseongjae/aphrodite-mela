@@ -256,6 +256,25 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
   assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length\)openTrouble\(\); break;/,'the mark opens nothing over a dialog someone is in, whoever presses it');
 });
 
+/* Astra medium 8: the sheet answers its own buttons, from a real press, without the window's click handler (which may be
+   what broke); Draw again takes the sheet away only once the screen was drawn, and otherwise says what stopped it now. */
+test('Draw again keeps the sheet until the screen is drawn, and the sheet answers its own buttons',async()=>{
+  const {editorCalls}=await import('./support/editor-calls');
+  let removed=0,drawn=0;const pre={textContent:'first'};
+  const sheet={remove:()=>{removed++;},querySelector:(s:string)=>s==='[data-fatal-detail]'?pre:null};
+  const screen:Record<string,unknown>={render:()=>{drawn++;if(drawn===1)throw new TypeError('still broken');},String,Error};
+  editorCalls(['function fatalPress('],screen);
+  const press=screen.fatalPress as (a:string,s:typeof sheet)=>void;
+  press('fatal-redraw',sheet);
+  assert.equal(removed,0,'the redraw threw, so the sheet stays');
+  assert.match(pre.textContent,/still broken/,'and says what stopped it this time');
+  press('fatal-redraw',sheet);
+  assert.equal(removed,1,'drawn, it goes');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/sheet\.addEventListener\('click',e=>\{const b=\(e\.target as HTMLElement\)\.closest<HTMLElement>\('button\[data-action\]'\);if\(!b\)return;e\.stopPropagation\(\);e\.preventDefault\(\);if\(!e\.isTrusted\)return;/,'its own handler, a real press only');
+  assert.doesNotMatch(renderFailedHtml('x',{ko:true,board:true}),/그대로 있어요/,'it claims nothing it cannot know when the app stopped');
+});
+
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip
    left is agent mode's, which goes with agent mode when the command table is finished. */
 const appSource=()=>{const out:string[]=[];const walk=(dir:string)=>{for(const n of readdirSync(dir)){const p=join(dir,n);if(statSync(p).isDirectory()){if(n!=='vendor'&&n!=='generated')walk(p);}else if(/\.ts$/.test(n)&&!/library-render\.ts$/.test(n))out.push(p);}};walk('src');return out;};
