@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,statSync} from 'node:fs';
 import {join} from 'node:path';
-import {NOTICE_PLACES,troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,type Trouble} from '../src/ui/notices';
+import {NOTICE_PLACES,troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,noticeCardHtml,type Trouble} from '../src/ui/notices';
 
 /**
  * 0.3-G2b: a notice has four places and no fifth. A short notice (toast) says a thing is done or refused; a card
@@ -99,6 +99,13 @@ test('a screen that could not be drawn says so in a sheet, with the words the sy
   assert.match(html,/<details[\s\S]*TypeError: x is undefined[\s\S]*<\/details>/);
   assert.doesNotMatch(renderFailedHtml('<img src=x onerror=1>',{ko:false,board:false}),/<img/);
   assert.ok(!actionsOf(renderFailedHtml('e',{ko:false,board:false})).includes('disk-backup'),'with no board open, no board is offered as a file');
+});
+
+test('the new version is told in the one card, through the card place',async()=>{
+  const {updateNoticeHtml}=await import('../src/update-notice');
+  const html=updateNoticeHtml({current:'0.3.0',latest:'0.3.1',newer:true,name:'a.dmg',url:'https://example.test/a.dmg'},'offer','ko');
+  assert.match(html,/^<div class="update-card ui-update ui-card ui-notice-card" role="status" aria-live="polite" data-state="offer">/);
+  assert.equal(noticeCardHtml('x','failed','<p>y</p>'),'<div class="x ui-card ui-notice-card" role="status" aria-live="polite" data-state="failed"><p>y</p></div>');
 });
 
 /* No fifth place: a strip across the top of the window, a red box, a banner shouting at the page. The only strip

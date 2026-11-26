@@ -115,6 +115,11 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean)
   };
 }
 
+/** The card: one, in one place, the lower left, staying until the person decides. `kind` names what it tells (the new version). */
+export function noticeCardHtml(kind: string, state: string, inner: string): string {
+  return '<div class="' + kind + ' ui-card ui-notice-card" role="status" aria-live="polite" data-state="' + esc(state) + '">' + inner + '</div>';
+}
+
 /** The mark that says saving stopped, and opens the dialog again. Nothing when nothing is wrong. */
 export function troubleMarkHtml(t: Trouble | undefined, ko: boolean): string {
   if (!t) return '';
