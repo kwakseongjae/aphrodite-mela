@@ -159,42 +159,48 @@ test('every older sheet paints only with the system tokens',()=>{
 /**
  * 0.3-L5: the app's own markup writes no colour either. A raw colour in a .ts file is the person's design, the brand's
  * artwork, an example in a message, or arithmetic on colours, never the app's chrome. Each file that holds one is pinned to
- * the very colours it holds (fix 1 #12: a new one in a listed file fails as a new file does), and why. src/ui/tokens.ts is the
+ * the very colours it holds and how many times (fix 1 #12, fix 2: a new one, or one more of an allowed one, fails as a new file does), and why. src/ui/tokens.ts is the
  * source of every token and is checked by tests/ui-tokens.test.ts instead.
  */
-const holdsColours:Record<string,{why:string,colours:string[]}>={
-  'agent/bridge.ts':{why:'an example hex in an error an agent reads',colours:['#344e41']},
-  'agent/commands.mjs':{why:'an example hex in a command description an agent reads',colours:['#344e41']},
-  'design/component-theme.ts':{why:'each design system\'s own accent, for the person\'s components',colours:['#18181b','#1976d2','#344e41']},
-  'design/contrast.ts':{why:'black or white text chosen against a design\'s colour',colours:['#000000','#ffffff']},
-  'design/logo.ts':{why:'the brand lockup\'s golden apple, artwork',colours:['#b48a32']},
-  'design/omd.ts':{why:'an example token in a comment',colours:['#5546ff']},
-  'design/presets.ts':{why:'design-system presets for the person\'s pages',colours:['#101319','#17263e','#252330','#28231d','#285578','#9b8aff','#a83c50','#f5f5fa','#f7f3eb','#fbf8f5','#fcfaf7']},
-  'design/studio.ts':{why:'the brand kit\'s colour swatches, shown as the brand\'s data',colours:['#292820','#3a4531','#d7b449','#ebeee4','#f7f5ef']},
-  'design/tokens.ts':{why:'the person\'s design tokens and their defaults',colours:['#187345','#a76600','#ba3030','#d9d4c8','#dfe3eb']},
-  'free-page.ts':{why:'the white document a free page is framed in',colours:['#fff']},
-  'library-render.ts':{why:'a design system\'s components as the person\'s page draws them',colours:['#191919','#344e41','#d4d4d8','#dc2626','#f4f4f5','#ffffff']},
-  'main.ts':{why:'two theme-draft accents for the person\'s design',colours:['#176448','#2255cc']},
-  'model.ts':{why:'the design systems a board can use',colours:['#18181b','#191919','#191f28','#1976d2','#1b1b1f','#202020','#212124','#282828','#292d27','#3182f6','#344e41','#faf8f3','#ff6f0f','#ffffff']},
-  'page-export.ts':{why:'the white ground of an exported picture or video page',colours:['#fff']},
-  'reference.ts':{why:'the white a reference picture is flattened onto before it is read',colours:['#ffffff']},
-  'workspace/workspaces.ts':{why:'the colours a person can pick for a workspace avatar',colours:['#3a4531','#3f5348','#44515c','#5a4e3c','#5c4a3a','#6b4548']},
+const holdsColours:Record<string,{why:string,colours:Record<string,number>}>={
+  'agent/bridge.ts':{why:'an example hex in an error an agent reads',colours:{'#344e41':1}},
+  'agent/commands.mjs':{why:'an example hex in a command description an agent reads',colours:{'#344e41':1}},
+  'design/component-theme.ts':{why:'each design system\'s own accent, for the person\'s components',colours:{'#18181b':1,'#1976d2':1,'#344e41':1}},
+  'design/contrast.ts':{why:'black or white text chosen against a design\'s colour',colours:{'#000000':2,'#ffffff':2}},
+  'design/logo.ts':{why:'the brand lockup\'s golden apple, artwork',colours:{'#b48a32':1}},
+  'design/omd.ts':{why:'an example token in a comment',colours:{'#5546ff':1}},
+  'design/presets.ts':{why:'design-system presets for the person\'s pages',colours:{'#101319':1,'#17263e':1,'#252330':1,'#28231d':2,'#285578':1,'#9b8aff':1,'#a83c50':1,'#f5f5fa':1,'#f7f3eb':1,'#fbf8f5':1,'#fcfaf7':1}},
+  'design/studio.ts':{why:'the brand kit\'s colour swatches, shown as the brand\'s data',colours:{'#292820':1,'#3a4531':1,'#d7b449':1,'#ebeee4':1,'#f7f5ef':1}},
+  'design/tokens.ts':{why:'the person\'s design tokens and their defaults',colours:{'#187345':1,'#a76600':1,'#ba3030':1,'#d9d4c8':1,'#dfe3eb':2}},
+  'free-page.ts':{why:'the white document a free page is framed in',colours:{'#fff':1}},
+  'library-render.ts':{why:'a design system\'s components as the person\'s page draws them',colours:{'#191919':1,'#344e41':1,'#d4d4d8':1,'#dc2626':2,'#f4f4f5':1,'#ffffff':1}},
+  'main.ts':{why:'two theme-draft accents for the person\'s design',colours:{'#176448':1,'#2255cc':3}},
+  'model.ts':{why:'the design systems a board can use',colours:{'#18181b':2,'#191919':1,'#191f28':1,'#1976d2':1,'#1b1b1f':1,'#202020':1,'#212124':2,'#282828':2,'#292d27':1,'#3182f6':1,'#344e41':1,'#faf8f3':1,'#ff6f0f':2,'#ffffff':7}},
+  'page-export.ts':{why:'the white ground of an exported picture or video page',colours:{'#fff':1}},
+  'reference.ts':{why:'the white a reference picture is flattened onto before it is read',colours:{'#ffffff':1}},
+  'workspace/workspaces.ts':{why:'the colours a person can pick for a workspace avatar',colours:{'#3a4531':2,'#3f5348':1,'#44515c':1,'#5a4e3c':1,'#5c4a3a':1,'#6b4548':1}},
 };
-/** Every raw colour written in code: hex of three, four, six or eight digits, a colour function, and a named colour given to a colour property. */
+/** Every raw colour written in code, with how many times: hex of three, four, six or eight digits, a colour function, and a named colour anywhere in a colour property's value. */
 export function codeColours(text:string){
-  const seen=new Set<string>();
-  for(const m of text.matchAll(/(?<![&\w])#([0-9a-f]{3,8})\b/gi))if([3,4,6,8].includes(m[1].length))seen.add('#'+m[1].toLowerCase());
-  for(const m of text.matchAll(/\b(?:rgba?|hsla?|hwb|lab|lch|oklch|oklab)\([^)]*\)/gi))seen.add(m[0].toLowerCase().replace(/\s+/g,''));
-  const named=new RegExp('(?:color|background(?:-color)?|border(?:-[a-z]+)?|fill|stroke|outline(?:-color)?|stop-color|caret-color|accent-color|fillStyle|strokeStyle)\\s*[:=]\\s*["\']?('+namedColours.join('|')+')\\b','gi');
-  for(const m of text.matchAll(named))if(!/^(currentcolor|transparent|inherit)$/i.test(m[1]))seen.add(m[1].toLowerCase());
-  return [...seen].sort();
+  const count:Record<string,number>={},add=(c:string)=>{count[c]=(count[c]??0)+1;};
+  for(const m of text.matchAll(/(?<![&\w])#([0-9a-f]{3,8})\b/gi))if([3,4,6,8].includes(m[1].length))add('#'+m[1].toLowerCase());
+  for(const m of text.matchAll(/\b(?:rgba?|hsla?|hwb|lab|lch|oklch|oklab)\([^)]*\)/gi))add(m[0].toLowerCase().replace(/\s+/g,''));
+  const declaration=new RegExp('(?:color|background(?:-color)?|border(?:-[a-z]+)?|fill|stroke|outline(?:-color)?|stop-color|caret-color|accent-color|fillStyle|strokeStyle)\\s*[:=]\\s*["\']?([^;"\'`}\\n]*)','gi'),word=new RegExp('(?<![-\\w])('+namedColours.join('|')+')(?![-\\w])','gi');
+  for(const m of text.matchAll(declaration))for(const w of m[1].matchAll(word))if(!/^(currentcolor|transparent|inherit)$/i.test(w[1]))add(w[1].toLowerCase());
+  return Object.fromEntries(Object.entries(count).sort(([a],[b])=>a<b?-1:a>b?1:0));
 }
 test('the colour reader in code sees four-digit hex and named colours, and not an entity or an id',()=>{
-  assert.deepEqual(codeColours('a{color:#abcd}b{background: rebeccapurple}c{fill="Red"} &#039; #app #root rgb(1 2 3 / .5)'),['#abcd','rebeccapurple','red','rgb(123/.5)']);
+  assert.deepEqual(codeColours('a{color:#abcd}b{background: rebeccapurple}c{fill="Red"} &#039; #app #root rgb(1 2 3 / .5) d{color:var(--ui-white)}'),{'#abcd':1,rebeccapurple:1,red:1,'rgb(123/.5)':1});
+});
+/* 0.3-L5 fix 2 (#12, #21): a colour used once more where it is already allowed, or a named colour later in a declaration, changes what is read. */
+test('the colour reader counts each colour and reads named colours anywhere in a declaration',()=>{
+  const main=readFileSync(new URL('main.ts',src),'utf8');
+  assert.notDeepEqual(codeColours(main+"x.style.cssText='color:#2255cc;border:1px solid red';"),codeColours(main));
+  assert.deepEqual(codeColours('a{color:#abc}b{color:#ABC;border:1px solid red;outline:2px dashed Navy}'),{'#abc':2,navy:1,red:1});
 });
 test('a raw colour in the app\'s code is only where it draws the person\'s design, the brand or an example, and only the colours pinned there',()=>{
   const code=readdirSync(src,{recursive:true}).map(String).filter(f=>/\.(ts|tsx|mjs)$/.test(f)&&!/^(generated|vendor)\//.test(f)&&f!=='ui/tokens.ts').sort();
-  const found=Object.fromEntries(code.map(f=>[f,codeColours(readFileSync(new URL(f,src),'utf8'))]).filter(([,c])=>c.length));
+  const found=Object.fromEntries(code.map(f=>[f,codeColours(readFileSync(new URL(f,src),'utf8'))]).filter(([,c])=>Object.keys(c).length));
   assert.deepEqual(found,Object.fromEntries(Object.entries(holdsColours).map(([f,p])=>[f,p.colours])));
   for(const [f,p] of Object.entries(holdsColours))assert.ok(p.why.length>20,f+' says why');
 });
