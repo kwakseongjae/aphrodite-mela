@@ -5,7 +5,10 @@ import {createHash} from 'node:crypto';
 import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
 
 /**
- * The older stylesheets can only lose colours and font sizes, never gain them.
+ * The older stylesheets hold no colour of their own, and can only lose font sizes, never gain them.
+ *
+ * 0.3-L5: every colour in them is a src/ui token now, so the colour line is no longer a count that may come down but a
+ * floor: none, in every older sheet, and one that appears fails whatever the sheet. The font sizes are still counted.
  *
  * New screens use src/ui (tokens and parts). The sheets written before it are pinned here at the number
  * of distinct colours and distinct font sizes each held on 2026-11-18, when the system came in; F3–F5
@@ -22,14 +25,14 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  * canvas and in the page it exports (render.ts reads all three), not the app's own screens: moving a
  * screen to src/ui never lowers them, and what a design may look like is not this system's to pin.
  */
-const pins:Record<string,{colours:number,sizes:number,set:string}>={
-  'agent/agent.css':{colours:0,sizes:2,set:'fcbaef50'},
-  'design/component-explorer.css':{colours:0,sizes:15,set:'e4439937'},
-  'design/studio.css':{colours:0,sizes:11,set:'1590246b'},
-  'editor/pointer-editor.css':{colours:0,sizes:2,set:'83ba3aab'},
-  'reference.css':{colours:0,sizes:7,set:'0d8ba2d0'},
-  'style.css':{colours:0,sizes:18,set:'da9bb4be'},
-  'workspace/vault.css':{colours:0,sizes:0,set:'0e7d07ee'},
+const pins:Record<string,{sizes:number,set:string}>={
+  'agent/agent.css':{sizes:2,set:'fcbaef50'},
+  'design/component-explorer.css':{sizes:15,set:'e4439937'},
+  'design/studio.css':{sizes:11,set:'1590246b'},
+  'editor/pointer-editor.css':{sizes:2,set:'83ba3aab'},
+  'reference.css':{sizes:7,set:'0d8ba2d0'},
+  'style.css':{sizes:18,set:'da9bb4be'},
+  'workspace/vault.css':{sizes:0,set:'0e7d07ee'},
 };
 
 const namedRe=new RegExp(`(?<![\\w-])(${namedColours.join('|')})(?![\\w-])`,'gi');
@@ -107,26 +110,25 @@ export function setOf(css:string){
 }
 
 /** What is wrong with one older sheet against its pin, as lines to report. */
-function drift(file:string,css:string,pin:{colours:number,sizes:number,set:string}){
+function drift(file:string,css:string,pin:{sizes:number,set:string}){
   const report:string[]=[];
-  const now={colours:colours(css).size,sizes:sizes(css).size},set=setOf(css);
-  for(const key of ['colours','sizes'] as const){
-    if(now[key]>pin[key])report.push(file+': '+now[key]+' distinct '+key+', more than the '+pin[key]+' pinned. Use the src/ui tokens instead.');
-    if(now[key]<pin[key])report.push(file+': '+now[key]+' distinct '+key+', fewer than the '+pin[key]+' pinned. Lower the pin to '+now[key]+', with set \''+set+'\', in tests/ui-ratchet.test.ts.');
-  }
-  if(!report.length&&set!==pin.set)report.push(file+': the same counts, but a colour or size was swapped for a new one (set '+set+', pinned '+pin.set+'). Use the src/ui tokens instead.');
+  const raw=[...colours(css)],now=sizes(css).size,set=setOf(css);
+  if(raw.length)report.push(file+': '+raw.join(', ')+'. An older sheet holds no colour of its own: use the src/ui tokens.');
+  if(now>pin.sizes)report.push(file+': '+now+' distinct sizes, more than the '+pin.sizes+' pinned. Use the src/ui tokens instead.');
+  if(now<pin.sizes)report.push(file+': '+now+' distinct sizes, fewer than the '+pin.sizes+' pinned. Lower the pin to '+now+', with set \''+set+'\', in tests/ui-ratchet.test.ts.');
+  if(!report.length&&set!==pin.set)report.push(file+': the same count, but a size was swapped for a new one (set '+set+', pinned '+pin.set+'). Use the src/ui tokens instead.');
   return report;
 }
 
-test('the ratchet sees a colour swapped for a new one, not only a count that grows',()=>{
-  const before='.a{color:#111;background:#222;font-size:12px}',after='.a{color:#111;background:#333;font-size:12px}';
-  const pin={colours:2,sizes:1,set:setOf(before)};
+test('the ratchet refuses any colour, and sees a size swapped for a new one, not only a count that grows',()=>{
+  const before='.a{color:var(--ui-text-1);font-size:12px}';
+  const pin={sizes:1,set:setOf(before)};
   assert.deepEqual(drift('x.css',before,pin),[]);
-  assert.equal(drift('x.css',after,pin).length,1);
-  assert.equal(drift('x.css','.a{color:#111;background:#222;font-size:13px}',pin).length,1,'a size swapped too');
+  assert.equal(drift('x.css','.a{color:#111;font-size:12px}',pin).length,1,'one raw colour is one too many');
+  assert.equal(drift('x.css','.a{color:var(--ui-text-1);font-size:13px}',pin).length,1,'a size swapped');
 });
 
-test('no older stylesheet gains a colour or a font size, and one that loses one lowers its pin',()=>{
+test('no older stylesheet holds a colour or gains a font size, and one that loses a size lowers its pin',()=>{
   const report:string[]=[];
   for(const file of legacy){
     const pin=pins[file];
@@ -148,10 +150,39 @@ export function foreignColourVariables(css:string){
   return [...found];
 }
 
-/* 0.3-L4 ④: an older sheet whose colours have all come to the tokens stays there. No raw colour (the pin is 0) and no colour variable but --ui-. */
-test('an older sheet at no colours paints only with the system tokens',()=>{
+/* 0.3-L4 ④, then 0.3-L5 for every older sheet: no raw colour and no colour variable but --ui-. */
+test('every older sheet paints only with the system tokens',()=>{
   assert.deepEqual(foreignColourVariables('.a{color:var(--muted);background:var(--ui-bg-panel);border:1px solid var(--border);width:var(--w)}'),['color: --muted','border: --border']);
-  const zero=Object.entries(pins).filter(([,p])=>p.colours===0).map(([f])=>f);
-  assert.ok(zero.includes('agent/agent.css'));
-  assert.deepEqual(zero.flatMap(f=>foreignColourVariables(readFileSync(new URL(f,src),'utf8')).map(x=>f+': '+x)),[]);
+  assert.deepEqual(legacy.flatMap(f=>foreignColourVariables(readFileSync(new URL(f,src),'utf8')).map(x=>f+': '+x)),[]);
+});
+
+/**
+ * 0.3-L5: the app's own markup writes no colour either. A raw colour in a .ts file is the person's design, the brand's
+ * artwork, an example in a message, or arithmetic on colours, never the app's chrome; these are the files that hold one,
+ * and why. A file added here needs one of those reasons.
+ */
+const holdsColours:Record<string,string>={
+  'agent/bridge.ts':'an example hex in an error an agent reads',
+  'agent/commands.mjs':'an example hex in a command description an agent reads',
+  'design/component-theme.ts':'each design system\'s own accent, for the person\'s components',
+  'design/contrast.ts':'black or white text chosen against a design\'s colour',
+  'design/logo.ts':'the brand lockup\'s golden apple, artwork',
+  'design/omd.ts':'an example token in a comment',
+  'design/presets.ts':'design-system presets for the person\'s pages',
+  'design/studio.ts':'the brand kit\'s colour swatches, shown as the brand\'s data',
+  'design/tokens.ts':'the person\'s design tokens and their defaults',
+  'free-page.ts':'the white document a free page is framed in',
+  'library-render.ts':'a design system\'s components as the person\'s page draws them',
+  'main.ts':'two theme-draft accents for the person\'s design, and the hex example in a message',
+  'model.ts':'the design systems a board can use',
+  'page-export.ts':'the white ground of an exported picture or video page',
+  'reference.ts':'the white a reference picture is flattened onto before it is read',
+  'ui/tokens.ts':'the source of every token',
+  'workspace/workspaces.ts':'the colours a person can pick for a workspace avatar',
+};
+test('a raw colour in the app\'s code is only in the files that draw the person\'s design, the brand or an example',()=>{
+  const code=readdirSync(src,{recursive:true}).map(String).filter(f=>/\.(ts|tsx|mjs)$/.test(f)&&!/^(generated|vendor)\//.test(f)).sort();
+  const raw=/#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?\b|\b(?:rgba?|hsla?|oklch|oklab)\(/i;
+  const found=code.filter(f=>raw.test(readFileSync(new URL(f,src),'utf8')));
+  assert.deepEqual(found,Object.keys(holdsColours).sort());
 });
