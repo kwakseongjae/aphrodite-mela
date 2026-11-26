@@ -95,7 +95,7 @@ test('all top-level pages and their shared files land in one undoable change', a
   const out = await importHtml(source, person, target);
   assert.deepEqual(out.pages.map(p => p.name), ['First', 'Second', 'c.html']);
   assert.equal(out.files.count, 7);
-  assert.equal(out.files.bytes, ['photo.png', 'type.woff2', 'film.mp4', 'sound.ogg', 'local.js', 'styles/site.css', 'styles/type.css']
+  assert.equal(out.files.bytes, ['photo.png', 'type.woff', 'film.mp4', 'sound.wav', 'local.js', 'styles/site.css', 'styles/type.css']
     .reduce((n, path) => n + fixture('siblings/' + path).length, 0));
   assert.equal(out.remote, 2);
   assert.deepEqual(out.skipped, [{name: 'missing.png', code: 'missing'}]);
@@ -224,4 +224,38 @@ test('a document that exceeds the remaining design budget leaves its slot for a 
   const out = await importHtml(input, person, target);
   assert.deepEqual(out.pages.map(p => p.name), ['b.html']);
   assert.deepEqual(out.documents, [{name: 'a.html', code: 'board_limit'}]);
+});
+
+test('source maps do not participate in bringing in a stylesheet', async () => {
+  const {project, target} = setup();
+  const read = async (n: string) => Buffer.from(n === 'a.html' ? '<link rel=stylesheet href="style.css">' : 'body{background:url(img.png)}/*# sourceMappingURL=data:text/plain,ignored */');
+  const out = await importHtml({names: ['a.html'], read, media: async () => ({sha: '2'.repeat(64), bytes: 2, mime: 'image/png'})}, person, target);
+  assert.deepEqual(out.skipped, []);
+  assert.match(project.pages[1].html!, /media:2{64}/);
+});
+
+test('the shared page and board exporters carry the imported media', async () => {
+  const {project, target} = setup(), {source, kept} = siblings();
+  await importHtml(source, person, target);
+  const {sniffBoardFile, MAX_MEDIA_BYTES} = await import('../src/free-page');
+  const host = {maxBytes: MAX_MEDIA_BYTES, read: async (sha: string) => kept.get(sha), stat: async (sha: string) => {
+    const bytes = kept.get(sha); return bytes && {mime: sniffBoardFile(bytes)!, bytes: bytes.length};
+  }};
+  const {exportPage} = await import('../src/page-export');
+  const page = await exportPage(project.pages[1].html!, {scripts: true, videos: 'beside'}, host);
+  assert.match(page.html, /data:font\/woff/);
+  assert.match(page.html, /data:audio\//);
+  assert.equal(page.beside.length, 1);
+  const {writeBoardFile, readBoardFile} = await import('../src/board-file');
+  const archive = await writeBoardFile(project, host);
+  assert.deepEqual(archive.left, []);
+  const copied = new Set<string>();
+  const received = await readBoardFile(archive.bytes, {...host, put: async blob => {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const sha = (await import('node:crypto')).createHash('sha256').update(bytes).digest('hex');
+    copied.add(sha); return {sha, bytes: bytes.length, mime: blob.type};
+  }});
+  await received.place();
+  assert.deepEqual(copied, new Set(kept.keys()));
+  assert.equal(received.project.pages[1].html, project.pages[1].html);
 });

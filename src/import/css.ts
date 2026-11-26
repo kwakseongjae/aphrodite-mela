@@ -52,7 +52,7 @@ function conditional(sheet: string, rest: string): string {
 
 export async function rewriteCss(source: string, dir: string | null, refs: References, chain: string[] = []): Promise<string> {
   let root;
-  try { root = postcss.parse(source, {from: undefined}); }
+  try { root = postcss.parse(source, {from: undefined, map: false}); }
   catch { refs.skip(chain.at(-1) ?? '', 'invalid_css'); return source; }
   const nodes: (AtRule | Declaration)[] = [];
   root.walk(n => { if (n.type === 'decl' || n.type === 'atrule') nodes.push(n); });
@@ -70,7 +70,7 @@ export async function rewriteCss(source: string, dir: string | null, refs: Refer
     if (text === undefined) continue;
     const child = await rewriteCss(text, parent(to.name), refs, [...chain, to.name]);
     const css = conditional(child, node.params.slice(first.sourceEndIndex));
-    try { node.replaceWith(postcss.parse(css, {from: undefined}).nodes); }
+    try { node.replaceWith(postcss.parse(css, {from: undefined, map: false}).nodes); }
     catch { refs.skip(url, 'invalid_css'); }
   }
   return root.toString();
