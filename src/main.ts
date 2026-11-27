@@ -575,7 +575,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
     // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
     const slow=()=>new Unmissable(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
     saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();
-    if(screen==='editor'&&!saves.saved){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!saves.saved)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
+    if(screen==='editor'&&saves.hasUnsavedChanges){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(saves.hasUnsavedChanges)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
     return await go();
   });
 }
@@ -603,7 +603,7 @@ function nativeClose(timeoutMs:number){
   const release=()=>{void ready.then(ok=>ok?invoke('disk_end_close',{ticket}):undefined).catch(()=>{});};
   return {ready,release};
 }
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!saves.saved){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!saves.saved)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;if(!saves.saved)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&saves.hasUnsavedChanges){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(saves.hasUnsavedChanges)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;if(saves.hasUnsavedChanges)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
@@ -2856,7 +2856,7 @@ async function boot(){
     // And says how many leavings are under way, for a check that waits on one.
     (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
     // A tab closed with work not saved asks first, the browser's own way (0.3-R fix 2 #16); the three answers are the desktop's.
-    window.addEventListener('beforeunload',e=>{saveTyping();if(!saves.saved||leaving){e.preventDefault();e.returnValue='';}});
+    window.addEventListener('beforeunload',e=>{saveTyping();if(saves.hasUnsavedChanges){e.preventDefault();e.returnValue='';}});
     // And closes the window the way the desktop does, with a window that only counts that it went.
     (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
   if(screen==='home'&&!saves.unread&&!troubleNow()&&!onboarding.welcomed)welcomeModal();

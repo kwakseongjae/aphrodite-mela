@@ -135,3 +135,18 @@ test('each landed write records its own breadcrumb in an ordinary window',async(
     assert.deepEqual([crumb.path,crumb.revision,crumb.entries],['/old',revision,entries]);
   }
 });
+
+test('closing an unread store asks only when there is work without a receipt',async()=>{
+  for(const screen of ['home','editor']){
+    const {s,edit,writes}=windowWithDisk();
+    s.screen=screen;s.saves.unread='unreadable store';
+    let closed=0;const destroy=async()=>{closed++;};
+    await s.closeWindow(destroy);
+    assert.equal(closed,1);
+    assert.equal(writes.length,0);
+    assert.equal(s.saves.badge,'unsaved');
+    s.screen='editor';edit('work after the read failed');
+    await assert.rejects(s.closeWindow(destroy),/last write did not land/);
+    assert.equal(closed,1);
+  }
+});

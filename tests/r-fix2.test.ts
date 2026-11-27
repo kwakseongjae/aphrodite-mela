@@ -84,7 +84,7 @@ test('after a page the batch makes, its ops need no page_id, but the selection i
 
 /* 16: a browser tab closed with work not saved asks first. */
 test('the browser build warns before a tab with unsaved work is closed', () => {
-  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{(?:saveTyping\(\);)?if\(!saves\.saved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
+  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{(?:saveTyping\(\);)?if\(saves\.hasUnsavedChanges\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
 });
 
 /* 18: an export that held a library picture back says to put it on the board again. A person doing that is enough: it

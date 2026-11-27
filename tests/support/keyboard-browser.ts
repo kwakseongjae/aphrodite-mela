@@ -43,7 +43,6 @@ export async function keyboardBrowser(){
     args:bundled||executablePath?.includes('headless-shell')?['--single-process','--no-zygote','--disable-gpu']:[]});
   try{
     const page=await browser.newPage();
-    await page.addInitScript(()=>localStorage.clear());
     await page.route('**/*',route=>{
       const url=new URL(route.request().url()),file=output.outputFiles.find(f=>f.path.endsWith(url.pathname));
       if(file&&url.pathname!=='/')return route.fulfill({body:file.text,contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript'});

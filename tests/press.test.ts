@@ -1,5 +1,6 @@
 import {before,after,beforeEach,test} from 'node:test';
 import assert from 'node:assert/strict';
+import type {Dialog} from 'playwright-core';
 import {keyboardBrowser} from './support/keyboard-browser';
 
 let rig:Awaited<ReturnType<typeof keyboardBrowser>>;
@@ -8,8 +9,33 @@ after(async()=>{await rig?.browser.close();});
 const scene=(command:string)=>rig.page.evaluate('scene.'+command+'()');
 const focused=()=>rig.page.evaluate(()=> (document.activeElement as HTMLElement)?.dataset.action);
 beforeEach(async()=>{
+  if(rig.page.url()!=='about:blank')await rig.page.evaluate(()=>localStorage.clear());
   await rig.page.goto('http://localhost/');
   await scene('board');
+});
+test('reloading after reading an unreadable store only warns if this window has unsaved changes',async()=>{
+  const {page}=rig;
+  const key='aphrodite-project-library-v1';
+  await scene('edit');
+  const saved=await page.evaluate(key=>localStorage.getItem(key)!,key);
+  assert.ok(saved);
+  await page.evaluate(key=>localStorage.setItem(key,'{unreadable'),key);
+  await page.reload();
+  await page.locator('#modal-root [data-action="close-modal"].ui-btn-md').click();
+  await page.locator('.notice-mark-trouble').click();
+  await page.locator('#modal-root [data-action="close-modal"].ui-btn-md').click();
+  assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),'{unreadable');
+
+  await page.evaluate(([key,value])=>localStorage.setItem(key,value),[key,saved]);
+  const prompts:string[]=[];
+  const accept=async(dialog:Dialog)=>{prompts.push(dialog.type());await dialog.accept();};
+  page.on('dialog',accept);
+  try{await page.reload();}finally{page.off('dialog',accept);}
+  assert.deepEqual(prompts,[]);
+  assert.equal(await page.locator('.notice-mark-trouble').count(),0);
+  await scene('board');await scene('refuse');
+  assert.equal(await page.evaluate(()=>window.dispatchEvent(new Event('beforeunload',{cancelable:true}))),false,
+    'a refused edit still needs a warning');
 });
 test('Space held before the request, including its native button click on release, never allows',async()=>{
   const {page}=rig;

@@ -21,7 +21,8 @@ export class WindowSaves {
     private landed: (revision: number, boards: number) => void) {}
 
   get generation() { return this.live; }
-  get saved() { return this.live === this.acknowledged && !this.error && !this.unread; }
+  get hasUnsavedChanges() { return this.live !== this.acknowledged || !!this.error; }
+  get saved() { return !this.hasUnsavedChanges && !this.unread; }
   get noCopy() { return this.acknowledged === undefined; }
   get native() { return !!this.queue; }
   get writing() { return this.pending > 0; }

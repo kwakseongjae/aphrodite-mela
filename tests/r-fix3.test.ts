@@ -137,7 +137,7 @@ test('deleting a workspace puts back only what is still where it moved it, and e
 
 /* 9: a tab closed while the person is still in a field puts those words in first, then asks if they could not be saved. */
 test('the browser build puts in what is being typed before it decides whether to warn', () => {
-  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{saveTyping\(\);if\(!saves\.saved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
+  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{saveTyping\(\);if\(saves\.hasUnsavedChanges\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
 });
 
 /* 3: the target a batch names reaches the batch's own check as it was sent, so a target that is not an id is refused, not
