@@ -86,10 +86,10 @@ function releaseWorkflow() {
   return JSON.parse(execFileSync('ruby', ['-ryaml','-rjson','-e','puts JSON.generate(YAML.safe_load(File.read(ARGV[0])))', file], {encoding:'utf8'}));
 }
 
-test('publishing or editing a full preview release restores its flag and fails the run', () => {
+test('publishing or editing a full preview release, or the fixed channel release, restores its flag and fails the run', () => {
   const flow = releaseWorkflow();
   const guard = flow.jobs['repair-preview'];
-  assert.equal(guard.if, "github.event_name == 'release' && contains(github.event.release.tag_name, '-preview.') && !github.event.release.prerelease");
+  assert.equal(guard.if, "github.event_name == 'release' && !github.event.release.prerelease && (contains(github.event.release.tag_name, '-preview.') || github.event.release.tag_name == 'preview-channel')");
   const step = guard.steps[0];
   assert.equal(step.env.TAG, '${{ github.event.release.tag_name }}');
   assert.equal(step.env.GH_TOKEN, '${{ secrets.GITHUB_TOKEN }}');

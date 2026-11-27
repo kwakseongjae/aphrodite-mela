@@ -2,7 +2,7 @@ name: Release macOS build
 
 # Builds a signed (and, when secrets are present, notarized) .dmg for Apple Silicon
 # and attaches it to a GitHub Release. Trigger by pushing a tag like v0.1.0,
-# or run manually with a tag name.
+# or run manually with the name of a tag that already exists (the run builds that tag).
 #
 # Secrets (Settings → Secrets → Actions). Stable tags can build without these. The fallback is
 # ad-hoc signed and users must right-click → Open on first launch.
@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0)"
+        description: "An existing release tag (e.g. v0.1.0)"
         required: true
 
 permissions:
@@ -256,7 +256,7 @@ jobs:
           args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
 
   repair-preview:
-    if: github.event_name == 'release' && contains(github.event.release.tag_name, '-preview.') && !github.event.release.prerelease
+    if: github.event_name == 'release' && !github.event.release.prerelease && (contains(github.event.release.tag_name, '-preview.') || github.event.release.tag_name == 'preview-channel')
     runs-on: ubuntu-latest
     steps:
       - name: Restore the prerelease flag
