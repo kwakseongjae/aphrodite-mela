@@ -56,8 +56,44 @@ struct Observation {
     error: Option<Code>,
     exit_status: Option<i32>,
 }
+#[derive(Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Scope {
+    User,
+    Other,
+    Unknown,
+}
+
+impl Scope {
+    fn from_display(value: Option<&String>) -> Self {
+        let Some(value) = value else {
+            return Self::Unknown;
+        };
+        if display_matches(value, "User config (available in all your projects)") {
+            return Self::User;
+        }
+        // Known non-user scopes from the 2.1.327 display.
+        if [
+            "Local config (private to you in this project)",
+            "Project config (shared via .mcp.json)",
+            "Dynamic config (from command line)",
+            "Enterprise config (managed by your organization)",
+            "Managed settings (provided by your organization)",
+            "claude.ai config",
+            "Agent config (from agent frontmatter)",
+        ]
+        .iter()
+        .any(|scope| display_matches(value, scope))
+        {
+            Self::Other
+        } else {
+            Self::Unknown
+        }
+    }
+}
+
 struct Entry {
-    user_scope: bool,
+    scope: Scope,
     command: Option<String>,
     remote: bool,
     plain_stdio: bool,
@@ -81,7 +117,7 @@ fn entry(stdout: &[u8]) -> Result<Entry, Code> {
         return Err(Code::CliUnrecognized);
     }
     let mut entry = Entry {
-        user_scope: false,
+        scope: Scope::Unknown,
         command: None,
         remote: false,
         plain_stdio: false,
@@ -120,9 +156,8 @@ fn entry(stdout: &[u8]) -> Result<Entry, Code> {
         let value = &found.next()?.1;
         found.next().is_none().then_some(value)
     };
-    entry.user_scope = field("Scope")
-        .is_some_and(|s| display_matches(s, "User config (available in all your projects)"));
-    if entry.user_scope {
+    entry.scope = Scope::from_display(field("Scope"));
+    if entry.scope == Scope::User {
         if field("Type").is_some_and(|s| display_matches(s, "stdio")) {
             entry.command = field("Command").filter(|s| !s.is_empty()).cloned();
             let env_count = fields.iter().filter(|(k, _)| *k == "Environment").count();
@@ -306,6 +341,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
                 .is_none()
                 .then_some(state.record.pending.is_some());
             out.entry_exists = Some(state.entry.is_some());
+            out.scope = state.entry.as_ref().map(|entry| entry.scope);
             out.points_here = state.points_here(e);
             out.owned = out.points_here.map(|_| state.owned());
             out.exit_status = state.get_exit;
@@ -440,7 +476,8 @@ impl State {
         let exists = self.entry.is_some();
         let owned = self.owned();
         let current_receipt = self.record.registered.as_deref() == Some(e.executable());
-        if self.entry.as_ref().is_some_and(|v| !v.user_scope) {
+        let scope = self.entry.as_ref().map(|v| v.scope);
+        if scope == Some(Scope::Other) {
             return Err(Code::CliScopeUnknown.into());
         }
         let foreign = exists && !owned;
@@ -448,7 +485,7 @@ impl State {
             if !exists && self.record.pending.is_none() {
                 return Err(Code::NoEntry.into());
             }
-            if foreign && !self.known_sidecar(e) {
+            if foreign && scope == Some(Scope::User) && !self.known_sidecar(e) {
                 return Err(Code::ForeignEntry.into());
             }
         }

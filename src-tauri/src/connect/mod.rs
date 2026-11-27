@@ -130,6 +130,8 @@ pub struct Status {
     exit_status: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     record_error: Option<Code>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<claude::Scope>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
     points_here: Option<bool>,
@@ -324,6 +326,7 @@ impl Engine {
             unfinished_repoint: None,
             exit_status: None,
             record_error: None,
+            scope: None,
             config_exists: None,
             entry_exists: None,
             points_here: None,

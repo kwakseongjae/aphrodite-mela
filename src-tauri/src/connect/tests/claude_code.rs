@@ -1807,3 +1807,61 @@ fn fix3_n5_every_intermediate_file_or_directory_link_has_a_controlled_parent() {
         assert_eq!(f.status()["entryExists"], false);
     }
 }
+
+#[test]
+fn fix3_n6_unreadable_scope_allows_only_confirmed_user_scope_commands() {
+    const USER: &str = "  Scope: User config (available in all your projects)";
+    for scope in ["", "  Scope: reworded", &format!("{USER}\n{USER}")] {
+        for action in [Action::Connect, Action::Remove] {
+            let f = Fixture::new();
+            let add = f.proposal(Action::Connect);
+            f.apply(Action::Connect, &add, false);
+            let entry = f.e().home.join("entry");
+            let previous = fs::read_to_string(&entry).unwrap();
+            fs::write(entry, previous.replace(USER, scope)).unwrap();
+            let status = f.status();
+            assert_eq!(status["entryExists"], true);
+            assert_ne!(status["owned"], true);
+            let p = f.proposal(action);
+            assert_eq!(p["confirmationRequired"], true, "{p}");
+            assert_eq!(status["scope"], "unknown");
+            let mut lines = vec![claude::snippet(f.e(), Action::Remove).unwrap()];
+            if action == Action::Connect {
+                lines.push(claude::snippet(f.e(), action).unwrap());
+                assert_eq!(p["cannotRestoreReplacement"], true);
+            }
+            let shown: Vec<_> = p["commands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["line"].as_str().unwrap())
+                .collect();
+            assert_eq!(shown, lines);
+            let calls = f.calls().len();
+            assert_eq!(f.apply(action, &p, false)["code"], "confirmation_required");
+            assert!(f.calls()[calls..].iter().all(|c| c["args"][1] == "get"));
+            assert_eq!(
+                f.apply(action, &p, true)["code"],
+                if action == Action::Connect {
+                    "registered"
+                } else {
+                    "removed"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn fix3_n6_a_recognized_project_scope_is_still_refused() {
+    let f = Fixture::new();
+    fs::write(
+        f.e().home.join("entry"),
+        "aphrodite:\n  Scope: Project config (shared via .mcp.json)\n",
+    )
+    .unwrap();
+    assert_eq!(f.status()["scope"], "other");
+    for action in [Action::Connect, Action::Remove] {
+        assert_eq!(f.proposal(action)["code"], "cli_scope_unknown");
+    }
+}
