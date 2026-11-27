@@ -16,6 +16,10 @@ mod update;
 mod vault;
 mod workspace;
 
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -106,7 +110,7 @@ fn main() {
                 disk::release_close(window.label(), disk::Release::WindowDestroyed);
             }
         })
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("Aphrodite could not start")
         .run(|app, event| {
             // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
@@ -117,4 +121,18 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+#[test]
+fn the_compiled_context_uses_the_identity_and_updater_of_the_selected_build() {
+    let context = context();
+    let base: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let patch: serde_json::Value = serde_json::from_str(option_env!("TAURI_CONFIG").unwrap_or("{}")).unwrap();
+    let expected = |key: &str| patch[key].as_str().or_else(|| base[key].as_str()).unwrap();
+    let config = context.config();
+    assert_eq!(config.identifier, expected("identifier"));
+    assert_eq!(context.package_info().name, expected("productName"));
+    assert_eq!(context.package_info().version.to_string(), expected("version"));
+    let endpoint = "/plugins/updater/endpoints";
+    assert_eq!(Some(&config.plugins.0["updater"]["endpoints"]), patch.pointer(endpoint).or_else(|| base.pointer(endpoint)));
 }

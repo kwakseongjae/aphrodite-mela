@@ -74,6 +74,7 @@ jobs:
         run: |
           [[ "$TAG" == v* ]]
           node scripts/build-preview.mjs --version "${TAG#v}" --target "$TARGET" --config-only
+          echo "TAURI_CONFIG=$(cat src-tauri/target/preview.conf.json)" >> "$GITHUB_ENV"
           echo "APHRODITE_PREVIEW_VERSION=${TAG#v}" >> "$GITHUB_ENV"
           echo "args=--config src-tauri/target/preview.conf.json" >> "$GITHUB_OUTPUT"
           echo "assets=Aphrodite_[version]_[arch][ext]" >> "$GITHUB_OUTPUT"
@@ -226,7 +227,6 @@ jobs:
           includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
           assetNamePattern: ${{ steps.channel.outputs.assets }}
           args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
-
 
   promote-preview:
     if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease && contains(github.event.release.tag_name, '-preview.')
