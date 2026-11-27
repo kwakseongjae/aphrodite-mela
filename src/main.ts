@@ -471,7 +471,7 @@ function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;ret
 /** A finished change the shortcut can take back: the toast carries Undo for the change it reports, the one recorded for it, while that is still the last (data-action="undo").
  *  An agent's change, pressed through the screen or not, is reported without one: the person did not make it. */
 function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?.author.kind==='person'?`${editSession}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
+function saveLibrary(next:Library){edited++;if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
  const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(store,raw);}library=next;rememberSaved(next,raw.length);}
@@ -833,7 +833,7 @@ function connectMarkNow(){
 }
 /** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
 /* Unsaved work comes first, so its backup choices are always one press away; the folder that went missing is kept apart from the last write. */
-function troubleNow():Trouble|undefined{if(saveTrouble)return {kind:troubleKind(saveTrouble),detail:boardWords(saveTrouble),...(saveRetries?{retries:true}:{})};if(vanished)return {kind:'vanished',path:vanished.path,boards:vanished.entries,replaced:replacedStore};if(startupError)return {kind:'unread',detail:boardWords(startupError)};return undefined;}
+function troubleNow():Trouble|undefined{if(saveTrouble)return {kind:troubleKind(saveTrouble),detail:boardWords(saveTrouble),...(saveRetries?{retries:true}:{})};if(noDiskCopy)return {kind:'empty',path:storagePath};if(vanished)return {kind:'vanished',path:vanished.path,boards:vanished.entries,replaced:replacedStore};if(startupError)return {kind:'unread',detail:boardWords(startupError)};return undefined;}
 /** A write landed while the old folder was missing: the folder at its path is one this window made, not the old one back. */
 let replacedStore=false;
 let troubleSeen='';
@@ -841,7 +841,7 @@ let troubleSeen='';
 let saveTrouble='';
 /** The failed save was refused before it reached the disk's line, so the line has not stopped: the next change tries again. */
 let saveRetries=false;
-function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'?t.path:t.detail);}
+function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'||t.kind==='empty'?t.path:t.detail);}
 /** The person is typing into a field of the window (not a dialog's): a dialog that opened on its own would take the keys from them. */
 function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
 function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&new TextEncoder().encode(JSON.stringify(project,null,2)).length<=20_000_000});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
@@ -1817,7 +1817,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
-    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
+    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(modalRoot.querySelector('[data-reload-confirm]')?reloadAsked:undefined); break;
     case 'notice-open': if(!modalRoot.children.length)openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
@@ -2653,28 +2653,42 @@ if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{
 function saveBadge(state:SaveState){return saveBadgeHtml(state,{native:nativeDesktop,ko:uiLanguage==='ko',title:control(state==='saved'?(nativeDesktop?'Saved to disk':'Saved locally'):state==='saving'?'Saving to disk…':'Unsaved')});}
 function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';  /* Only a save that actually landed is worth remembering, and it is written where the data folder
      is not — so that if that folder ever goes missing, something outlives it that can say so. */
-  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(error){saveTrouble=String(error);saveRetries=false;}else if(saved){saveTrouble='';saveRetries=false;if(!troubleNow())troubleSeen='';}paintMarks();if(error&&!troubleOpened())toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));},
+  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));paintSaveState(saved,!!error);if(error){saveTrouble=String(error);saveRetries=false;}else if(saved){saveTrouble='';saveRetries=false;noDiskCopy=false;if(!troubleNow())troubleSeen='';}paintMarks();if(error&&!troubleOpened())toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));},
   // Each write that lands while the old folder is missing made a folder in its place, whatever the writes after it did.
   ()=>{if(vanished)replacedStore=true;});}
-/** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
-async function reloadFromDisk(){
+/** The save badge and the storage line, for a save that landed, is on its way, or did not land. */
+function paintSaveState(saved:boolean,failed:boolean){syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':failed?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed,native:true})));el.replaceWith(next);});hydrateIconsIn(app);}
+/** The edits made so far, counted where they are made: a reload asked about before one more landed asks again. */
+let edited=0;
+/** What the window holds has no copy on disk (a read found nothing there): unsaved, whatever the last write said. */
+let noDiskCopy=false;
+/** The count of edits the reload question was asked at. */
+let reloadAsked=-1;
+function askReload(){reloadAsked=edited;const c=reloadConfirm(uiLanguage==='ko');showModal(c.title,c.subtitle,c.body,'confirm');}
+/** Discard in-memory edits and re-open the on-disk library with a fresh write queue. `asked` is the count of edits the person said yes at. */
+async function reloadFromDisk(asked?:number){
   if(!nativeDesktop)return;
   // Work this window could not save is thrown away by a reload: the person is asked once, starting on keeping it (src/ui/notices.ts).
-  if((!lastSaved||saveTrouble)&&!modalRoot.querySelector('[data-reload-confirm]')){const c=reloadConfirm(uiLanguage==='ko');showModal(c.title,c.subtitle,c.body,'confirm');return;}
+  if((!lastSaved||saveTrouble||noDiskCopy)&&asked===undefined){askReload();return;}
+  const at=asked??edited;
   // In the line of leavings, so it does not change the board under one: it saves nothing, as it throws away what is unsaved.
-  return turn(()=>reloadFromDiskNow());
+  return turn(()=>reloadFromDiskNow(at));
 }
-async function reloadFromDiskNow(){
+async function reloadFromDiskNow(at=edited){
   // Pressed from a dialog: it closes, and the mark or a toast says how it went.
   if(modalRoot.querySelector('.ui-notice-choices,[data-reload-confirm]'))closeModal();
+  // An edit made since the question (or since the press) would be thrown away unasked: ask again, here and once the read is back.
+  if(edited!==at){askReload();return;}
   const stored=await bounded(invoke<{revision:number;data:string|null;path:string}>('workspace_read'));
+  if(edited!==at){askReload();return;}
   storagePath=stored.path;
-  /* Looking again is the first thing the notice offers, so it has to answer either way. Nothing read changes nothing:
-     the window keeps its work, its trouble and its stopped queue, and nothing in it is counted as saved. */
+  /* Looking again is the first thing the notice offers, so it has to answer either way. Nothing read changes nothing on
+     disk: the window keeps its work, its trouble and its queue. What it holds has no copy on disk now, so none of it is
+     counted as saved, and the dialog with its backup choices opens. */
   const stillGone=storeVanished(stored,readBreadcrumb(store));
-  if(stored.data===null){if(stillGone)vanished=stillGone;paintMarks();toast(stillGone?ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'):ui('There is nothing saved on disk to read. What you did is still only in this window.','디스크에 읽을 저장본이 없어요. 한 일은 아직 이 창에만 있어요.'));return;}
+  if(stored.data===null){if(stillGone)vanished=stillGone;if(library.entries.length||screen==='editor'){noDiskCopy=true;lastSaved=false;paintSaveState(false,true);}paintMarks();if(noDiskCopy&&troubleOpened())return;toast(stillGone?ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'):ui('There is nothing saved on disk to read. What you did is still only in this window.','디스크에 읽을 저장본이 없어요. 한 일은 아직 이 창에만 있어요.'));return;}
   library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
-  diskQueue=attachDiskQueue(stored.revision);storageIssue='';saveTrouble='';saveRetries=false;startupError='';lastSaved=true;troubleSeen='';
+  diskQueue=attachDiskQueue(stored.revision);storageIssue='';saveTrouble='';saveRetries=false;noDiskCopy=false;startupError='';lastSaved=true;troubleSeen='';
   // Read back from a folder this window made after the old one went missing: the old one is still missing.
   // A readable path says nothing of which folder it is: what is said is only what was read.
   if(vanished&&!replacedStore){vanished=undefined;toast(ui('There is a folder in that place again, and its boards were read.','그 자리에 폴더가 다시 있어서, 그 안의 보드를 읽었어요.'));}

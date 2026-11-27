@@ -130,8 +130,8 @@ test('a save that keeps failing opens its dialog once, however many edits follow
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
     toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,
-    vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
-  editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
+    vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
+  editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
   const settle=()=>new Promise(r=>setTimeout(r,5));
   queue.enqueue('one');await settle();
@@ -203,7 +203,7 @@ const reloadScreen=(o:Record<string,unknown>)=>{
     readLibrary:()=>({version:1,entries:[{project:{id:'disk'}}]}),attachDiskQueue:()=>'fresh queue',readTidied:()=>false,queueLibrary:()=>true,LIBRARY_KEY:'k',
     project:{id:'b'},screen:'home',openProject:()=>{},newHistory:()=>({}),render:()=>{},paintMarks:()=>{},toast:(m:string)=>{said.push(m);},ui:(en:string)=>en,
     library:{version:1,entries:[{project:{id:'window'}}]},diskQueue:'failed queue',storageIssue:'x',saveTrouble:'No space left on device (os error 28)',startupError:'',lastSaved:false,troubleSeen:'k',
-    vanished:undefined,replacedStore:false,...o};
+    vanished:undefined,replacedStore:false,edited:0,noDiskCopy:false,paintSaveState:()=>{},troubleOpened:()=>false,askReload:()=>{said.push('asked again');},...o};
   editorCalls(['async function reloadFromDiskNow('],screen);
   return {screen,said,run:screen.reloadFromDiskNow as ()=>Promise<void>};
 };
@@ -229,8 +229,9 @@ test('a folder this window saved into after the old one went missing is not call
 test('a failed save comes before the missing folder, so the backup choices are always reached; a reload that would lose work asks',()=>{
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/function troubleNow\(\):Trouble\|undefined\{if\(saveTrouble\)/,'unsaved work first');
-  const reload=main.slice(main.indexOf('async function reloadFromDisk(){'),main.indexOf('async function reloadFromDiskNow(){'));
-  assert.match(reload,/if\(\(!lastSaved\|\|saveTrouble\)&&!modalRoot\.querySelector\('\[data-reload-confirm\]'\)\)\{const c=reloadConfirm\(uiLanguage==='ko'\);showModal\(/);
+  const reload=main.slice(main.indexOf('async function reloadFromDisk('),main.indexOf('async function reloadFromDiskNow('));
+  assert.match(reload,/if\(\(!lastSaved\|\|saveTrouble\|\|noDiskCopy\)&&asked===undefined\)\{askReload\(\);return;\}/);
+  assert.match(main,/case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(modalRoot\.querySelector\('\[data-reload-confirm\]'\)\?reloadAsked:undefined\);/,'the yes carries the count it was asked at');
 });
 
 /* Astra medium 7: a trouble that could not be shown (another dialog was open, the request to edit was up, the person was
@@ -316,8 +317,8 @@ test('a write that lands while the folder is missing is remembered even when a l
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:noop,troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:noop,
     toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,
-    vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
-  editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
+    vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
+  editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   screen.vanished={path:'/old',revision:9,entries:6,at:''};
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
   queue.enqueue('A');queue.enqueue('B');
@@ -344,4 +345,32 @@ test('a save refused before the disk comes before the missing folder, and says t
   const d=troubleDialog(opened as Trouble,'editor',false);
   assert.match(d.subtitle,/next change tries saving again/);
   assert.deepEqual(actionsOf(d.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload'],'with the backup choices');
+});
+
+/* Astra recheck 4: a read that finds nothing makes what the window holds unsaved, even when the last write had landed
+   (it landed in a folder that has since gone), and opens the dialog with its backup choices; and an edit made between the
+   question and the read, or during the read, is never thrown away unasked. */
+test('a read that finds nothing turns a saved window unsaved and offers its backups',async()=>{
+  let opened=0;
+  const {screen,run}=reloadScreen({invoke:async()=>({revision:0,data:null,path:'/new'}),saveTrouble:'',lastSaved:true,screen:'editor',troubleOpened:()=>{opened++;return true;}});
+  await run();
+  assert.equal(screen.lastSaved,false,'its last write landed in a folder that is gone: nothing of it is on disk now');
+  assert.equal(screen.noDiskCopy,true);
+  assert.equal(opened,1,'the dialog opens');
+  const d=troubleDialog({kind:'empty',path:'/new'},'editor',false);
+  assert.deepEqual(actionsOf(d.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload']);
+  assert.equal(firstFocus(d.body),'disk-backup','starting on keeping the open board');
+  assert.doesNotMatch(d.subtitle+d.body,/writes nothing more|stopped/,'it does not say saving stopped: it has not');
+});
+test('an edit made after the question, or while the disk is read, is not thrown away: the question comes again',async()=>{
+  const early=reloadScreen({invoke:async()=>({revision:3,data:'{}',path:'/s'}),edited:5});
+  await (early.run as unknown as (at:number)=>Promise<void>)(4);
+  assert.deepEqual(early.said,['asked again'],'one more edit since the yes');
+  assert.deepEqual((early.screen.library as {entries:{project:{id:string}}[]}).entries.map(e=>e.project.id),['window']);
+  const during=reloadScreen({saveTrouble:'',lastSaved:true});
+  during.screen.invoke=async()=>{during.screen.edited=(during.screen.edited as number)+1;return {revision:3,data:'{}',path:'/s'};};
+  await during.run();
+  assert.deepEqual(during.said,['asked again'],'an agent\'s edit landed while the disk was read');
+  assert.deepEqual((during.screen.library as {entries:{project:{id:string}}[]}).entries.map(e=>e.project.id),['window'],'and the window keeps it');
+  assert.equal(during.screen.diskQueue,'failed queue');
 });

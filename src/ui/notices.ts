@@ -21,6 +21,7 @@ export type NoticePlace = (typeof NOTICE_PLACES)[number];
  *  app opens; the others when a save fails. */
 export type Trouble =
   | {kind: 'vanished'; path: string; boards: number; replaced?: boolean}
+  | {kind: 'empty'; path: string}
   | {kind: 'full' | 'conflict' | 'failed' | 'unread'; detail: string; retries?: boolean};
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -94,6 +95,16 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
         ? T('This reads the stored boards again. If they still cannot be read, this window goes on saving nothing.', '저장된 보드를 다시 읽어요. 여전히 읽지 못하면 이 창은 계속 아무것도 저장하지 않아요.')
         : T('This opens what is saved on disk, and the next change tries saving again. Changes that were not saved are thrown away, and you are asked first.', '디스크에 저장된 것을 다시 열고, 다음 변경부터 다시 저장해 봐요. 저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요.')});
   const reloads = native ? reload : '';
+  if (t.kind === 'empty') return {
+    title: T('There is no copy of this window’s boards on disk.', '디스크에 이 창의 보드를 저장한 사본이 없어요.'),
+    subtitle: T('Looking again found nothing saved where they are kept. Keep what you did as a file before you close the window.', '다시 찾아봤지만 보드를 두는 곳에 저장된 것이 없었어요. 창을 닫기 전에 한 일을 파일로 받아 두세요.'),
+    body: safe(T('What you did is still in this window.', '지금까지 한 일은 이 창에 그대로 있어요.'), [T('Where we looked', '찾던 곳') + ' <code class="ui-mono">' + esc(t.path) + '</code>'])
+      + '<div class="ui-notice-choices">'
+      + (where === 'editor' ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요.'), first: true}) : '')
+      + choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, as it is now, as one file to keep. It is not a file Import board opens.', '이 창의 모든 보드를 지금 그대로 파일 하나로 받아 둬요. 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'})
+      + (native ? choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was. What this window holds is thrown away by that, and you are asked first.', '폴더를 제자리에 돌려놓았다면 눌러 주세요. 그러면 이 창의 일은 버려지고, 그 전에 한 번 더 물어요.')}) : '')
+      + '</div>' + foot(reopen, later, false),
+  };
   if (t.kind === 'unread') return {
     title: T('The saved boards could not be read.', '저장된 보드를 읽지 못했어요.'),
     subtitle: T('So that nothing is written over them, this window saves nothing until they can be read.', '그 위에 덮어쓰지 않도록, 읽을 수 있을 때까지 이 창은 아무것도 저장하지 않아요.'),

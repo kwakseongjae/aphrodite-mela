@@ -14,7 +14,7 @@ const caseOf = (name: string) => { const at = main.indexOf(`case '${name}':`); a
 test('reloading from disk is the person\'s alone: an agent\'s command is refused, and the handler asks who pressed before it reads the disk', () => {
   assert.equal(personOnlyRow('disk-reload'), 'outside.disk-reload');
   assert.equal(commandById['outside.disk-reload'].author, 'person-only');
-  assert.match(caseOf('disk-reload'), /case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(\);/);
+  assert.match(caseOf('disk-reload'), /case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(/);
 });
 
 /* 4: what an approve button was drawn over names the board, and the review card follows the canvas when an edit redraws only
