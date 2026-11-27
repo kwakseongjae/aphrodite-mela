@@ -291,6 +291,11 @@ impl State {
             .chain(self.suspended_path.as_deref())
             .chain(self.record.pending.as_ref().map(|p| p.previous.as_str()))
             .any(|path| entry.points_at(path) == Some(true))
+            || (entry.plain_stdio
+                && entry
+                    .command
+                    .as_deref()
+                    .is_some_and(|path| Store::other_installation_registered(e, path)))
     }
 }
 

@@ -81,16 +81,136 @@ impl Fixture {
         json!(self.e().ask_claude().unwrap())
     }
     fn proposal(&self, action: Action) -> Value {
-        wire(self.e().prepare(CLAUDE, action, 123))
+        preview_for(self.e(), action)
     }
     fn apply(&self, action: Action, preview: &Value, confirm: bool) -> Value {
-        wire(self.e().execute(
-            CLAUDE,
-            action,
-            preview["fingerprint"].as_str().unwrap(),
-            confirm,
-        ))
+        apply_for(self.e(), action, preview, confirm)
     }
+}
+fn preview_for(engine: &Engine, action: Action) -> Value {
+    wire(engine.prepare(CLAUDE, action, 123))
+}
+fn apply_for(engine: &Engine, action: Action, preview: &Value, confirm: bool) -> Value {
+    wire(engine.execute(
+        CLAUDE,
+        action,
+        preview["fingerprint"].as_str().unwrap(),
+        confirm,
+    ))
+}
+
+#[test]
+fn switching_the_shared_claude_entry_requires_confirmation_in_both_directions() {
+    use claude_record::Store;
+    let f = Fixture::new();
+    let stable = f.installation(STABLE_ID, STABLE_SIDECAR);
+    let preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let program = stable.cli_dirs[0].join("playback");
+    let program = program.to_str().unwrap().replace('\'', "'\"'\"'");
+    let cli = format!(
+        "/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR '{program}' mcp"
+    );
+    let remove_line = format!("{cli} remove --scope user aphrodite");
+    let first = preview_for(&stable, Action::Connect);
+    assert_eq!(
+        apply_for(&stable, Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    assert_eq!(Store::peek(&preview).unwrap().registered, None);
+
+    for (owner, other, target_arg) in [
+        (&stable, &preview, format!("'{PREVIEW_SIDECAR}'")),
+        (&preview, &stable, STABLE_SIDECAR.to_owned()),
+    ] {
+        let old_record = Store::peek(owner).unwrap();
+        assert_eq!(old_record.registered.as_deref(), Some(owner.executable()));
+        let previous_remove = preview_for(owner, Action::Remove);
+        assert_eq!(previous_remove["confirmationRequired"], false);
+        let status = other.ask_claude().unwrap();
+        assert_eq!(status.entry_exists, Some(true));
+        assert_eq!(status.points_here, Some(false));
+        assert_eq!(status.owned, Some(false));
+
+        let change = preview_for(other, Action::Connect);
+        assert_eq!(change["confirmationRequired"], true);
+        assert_eq!(change["replacementRequired"], true);
+        assert_eq!(change["commands"].as_array().unwrap().len(), 2);
+        assert_eq!(change["commands"][0]["line"], remove_line);
+        assert_eq!(
+            change["commands"][1]["line"],
+            format!("{cli} add --transport stdio --scope user aphrodite -- {target_arg}")
+        );
+        let remove = preview_for(other, Action::Remove);
+        assert_eq!(remove["confirmationRequired"], true, "{remove}");
+        assert_eq!(remove["commands"].as_array().unwrap().len(), 1);
+        assert_eq!(remove["commands"][0]["line"], remove_line);
+        assert_eq!(
+            apply_for(other, Action::Remove, &remove, false)["code"],
+            "confirmation_required"
+        );
+        assert_eq!(
+            apply_for(other, Action::Connect, &change, false)["code"],
+            "confirmation_required"
+        );
+        assert_eq!(owner.ask_claude().unwrap().owned, Some(true));
+
+        assert_eq!(
+            apply_for(other, Action::Connect, &change, true)["code"],
+            "registered"
+        );
+        assert_eq!(Store::peek(owner).unwrap(), old_record);
+        assert_eq!(
+            Store::peek(other).unwrap().registered.as_deref(),
+            Some(other.executable())
+        );
+        assert_eq!(other.ask_claude().unwrap().owned, Some(true));
+        assert_eq!(owner.ask_claude().unwrap().owned, Some(false));
+        assert_eq!(
+            apply_for(owner, Action::Remove, &previous_remove, false)["code"],
+            "changed"
+        );
+    }
+    let remove = preview_for(&preview, Action::Remove);
+    assert_eq!(
+        apply_for(&preview, Action::Remove, &remove, true)["code"],
+        "removed"
+    );
+    assert_eq!(stable.ask_claude().unwrap().entry_exists, Some(false));
+}
+
+#[test]
+fn a_sibling_record_allows_only_its_exact_plain_command_in_the_same_profile() {
+    let f = Fixture::new();
+    let stable = f.installation(
+        STABLE_ID,
+        "/Applications/My Stable.app/Contents/MacOS/aphrodite-mcp",
+    );
+    let mut preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let first = preview_for(&stable, Action::Connect);
+    assert_eq!(
+        apply_for(&stable, Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    let remove = || preview_for(&preview, Action::Remove);
+    assert_eq!(remove()["confirmationRequired"], true);
+    f.state(stable.executable(), "--customized");
+    assert_eq!(remove()["code"], "foreign_entry");
+    f.state(&stable.executable().replace("My Stable", "My  Stable"), "");
+    assert_eq!(remove()["code"], "foreign_entry");
+
+    f.state(stable.executable(), "");
+    let settings = stable.path(CLAUDE);
+    symlink(record_path(&f), &settings).unwrap();
+    assert_eq!(remove()["code"], "foreign_entry");
+    fs::remove_file(settings).unwrap();
+
+    preview.claude_config_dir = Some(preview.home.join("another-profile"));
+    let stanza = fs::read_to_string(stable.home.join("entry")).unwrap();
+    f.override_reply("get", json!({"exit":0,"out":stanza}));
+    assert_eq!(
+        preview_for(&preview, Action::Remove)["code"],
+        "foreign_entry"
+    );
 }
 fn wire(result: Result<Proposal>) -> Value {
     let data = match result {

@@ -46,11 +46,9 @@ fn profile_dir(e: &Engine) -> Result<PathBuf> {
     Ok(profile)
 }
 
-fn record_path(e: &Engine, profile: &Path) -> PathBuf {
+fn record_path(app_data: &Path, profile: &Path) -> PathBuf {
     let key = hash(profile.join(".claude.json").as_os_str().as_encoded_bytes());
-    e.app_data
-        .join("connect")
-        .join(format!("claude-{key}.json"))
+    app_data.join("connect").join(format!("claude-{key}.json"))
 }
 
 fn private_file(meta: &fs::Metadata, owner: u32) -> bool {
@@ -162,7 +160,7 @@ impl Store {
     }
     pub(super) fn lock_for_user(e: &Engine, existing_owner: u32) -> Result<Self> {
         let profile = profile_dir(e)?;
-        let path = record_path(e, &profile);
+        let path = record_path(&e.app_data, &profile);
         let dir = path.parent().ok_or(Code::InvalidPath)?;
         // Create only below an existing controlled ancestor. Never follow a pre-existing symlink.
         let ancestor = dir
@@ -247,7 +245,26 @@ impl Store {
         Ok(value)
     }
     pub fn peek(e: &Engine) -> Result<Record> {
-        Self::read_path(&record_path(e, &profile_dir(e)?), &e.claude_settings())
+        Self::peek_in(e, &e.app_data)
+    }
+    fn peek_in(e: &Engine, app_data: &Path) -> Result<Record> {
+        Self::read_path(
+            &record_path(app_data, &profile_dir(e)?),
+            &e.claude_settings(),
+        )
+    }
+    // A sibling journal can identify a path for confirmed removal. Only the
+    // current installation's locked record participates in the ownership check.
+    pub fn other_installation_registered(e: &Engine, command: &str) -> bool {
+        let Some(id) = e.app_data.file_name().and_then(|s| s.to_str()) else {
+            return false;
+        };
+        let other_id = match id.strip_suffix(".preview") {
+            Some(stable_id) => stable_id.to_owned(),
+            None => format!("{id}.preview"),
+        };
+        Self::peek_in(e, &e.app_data.with_file_name(other_id))
+            .is_ok_and(|r| r.registered.as_deref() == Some(command))
     }
     pub fn read(&self) -> Result<(Record, Option<String>)> {
         let mut record = Self::read_path(&self.path, &self.settings)?;
