@@ -11,7 +11,7 @@ import {mcpTools} from '../../src/agent/commands.mjs';
 export const PREFIX = 'aphrodite_';
 
 /**
- * The name this client goes by in the app — on the request the person answers, in the banner and in
+ * The name this client goes by in the app — on the request the person answers, on the connected mark and in
  * every receipt — taken from its own `initialize` (`clientInfo.name`). It is what the program says
  * about itself, so it is cleaned the way the app cleans it (src/agent/authority.ts normalizeCaller),
  * with spaces kept as hyphens, and it may never be `human`. Nothing usable falls back to `mcp-client`.

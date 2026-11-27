@@ -81,7 +81,7 @@ export function considerAsk(caller: string, mode: GuideStatus['mode'], state: As
  * Who the person has let in, remembered by name. It used to be one switch that lapsed after twelve
  * hours, so a person who had already said yes was asked again every morning. Now an agent they allow
  * is remembered — across restarts, with no clock — until they disconnect it, and only they can (see
- * `doorActions` in authority.ts). The banner stays up the whole time and ⌘Z undoes any edit.
+ * `doorActions` in authority.ts). The connected mark stays up the whole time and ⌘Z undoes any edit.
  */
 export const ALLOWED_KEY = 'aphrodite-allowed-agents';
 /** Where the twelve-hour switch kept its deadline. Read nowhere now; cleared on launch. */
