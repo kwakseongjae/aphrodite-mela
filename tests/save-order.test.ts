@@ -49,19 +49,19 @@ test('a pending component image that exceeds the board limit invalidates the dis
   }
 });
 test('Start fresh never writes the old board in place of a refused live edit',async()=>{
-  const {s,edit,press,writes,said}=windowWithDisk();s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
+  const {s,edit,press,writes,said}=windowWithDisk('missing');s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
   const start=press('disk-start-fresh');await tick();writes[0]?.done.resolve(1);await start;
   assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));assert.equal(writes.length,0);
 });
 test('a new edit during Start fresh keeps the reminder until a current save succeeds',async()=>{
-  const {s,edit,press,writes,said}=windowWithDisk();
+  const {s,edit,press,writes,said}=windowWithDisk('missing');
   const start=press('disk-start-fresh');await tick();edit('B');writes[0].done.resolve(1);await start;
   assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));
   await tick();writes[1].done.resolve(2);await tick();const again=press('disk-start-fresh');await tick();
   assert.equal(JSON.parse(writes[2].text).entries[0].project.name,'B');writes[2].done.resolve(3);await again;assert.equal(s.saves.missing,undefined);
 });
 test('quit after an empty read and failed retry exports the same live boards as Save every board',async()=>{
-  const {s,writes,reads,press,edit,files,questions}=windowWithDisk();
+  const {s,writes,reads,press,edit,files,questions}=windowWithDisk('missing');
   edit('replacement');await tick();writes[0].done.resolve(1);await s.saves.flush();assert.equal(s.saves.replaced,true);
   const reading=s.reloadFromDisk();reads[0].resolve({data:null,path:'/old',revision:0});await reading;
   s.project.name='live';await press('hub-backup');
@@ -116,5 +116,22 @@ test('discard reads after earlier writes settle and asks again if a refused edit
     writes[0].done.resolve(1);await tick();
     if(!newer)reads[0].resolve({revision:1,path:'/old',data:writes[0].text});
     await answer;assert.equal(questions.length,newer?2:1);
+  }
+});
+
+test('each landed write records its own breadcrumb in an ordinary window',async()=>{
+  const {s,edit,writes}=windowWithDisk();
+  const {readBreadcrumb}=await import('../src/workspace/breadcrumb');
+  assert.equal(s.saves.missing,undefined);
+  edit('first');
+  s.library.entries=s.library.entries.slice(0,1);
+  edit('second');
+  await tick();
+  assert.equal(readBreadcrumb(s.store),undefined);
+  for(const [i,revision,entries] of [[0,7,2],[1,11,1]]){
+    writes[i].done.resolve(revision);await tick();
+    const crumb=readBreadcrumb(s.store);
+    assert.ok(crumb);
+    assert.deepEqual([crumb.path,crumb.revision,crumb.entries],['/old',revision,entries]);
   }
 });

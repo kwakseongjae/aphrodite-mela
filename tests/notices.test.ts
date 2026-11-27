@@ -196,7 +196,7 @@ test('empty reads preserve the live boards and a stopped queue; the failed save 
 });
 test('only a replacement written by this window keeps the old folder reminder after a read',async()=>{
   for(const replaced of [false,true]){
-    const {s,edit,writes,reads,said}=windowWithDisk();
+    const {s,edit,writes,reads,said}=windowWithDisk('missing');
     if(replaced){edit('A');await Promise.resolve();writes[0].done.resolve(1);await s.saves.flush();}
     const read=s.reloadFromDiskNow();reads[0].resolve({revision:2,path:'/old',data:JSON.stringify(s.library)});await read;
     assert.equal(!!s.saves.missing,replaced);assert.doesNotMatch(said.join(' '),/are back|Found it/);
@@ -279,13 +279,13 @@ test('no notice is drawn outside its four places',()=>{
    queue reports success only for its latest write, so each landed write is recorded on its own: the folder this window
    made is never read back as the old one, and the failed write still comes first. */
 test('a write that lands while the folder is missing is remembered even when a later write fails',async()=>{
-  const {s,edit,writes}=windowWithDisk();
+  const {s,edit,writes}=windowWithDisk('missing');
   edit('A');edit('B');await Promise.resolve();writes[0].done.resolve(1);
   await new Promise(r=>setImmediate(r));writes[1].done.reject(new Error('No space left on device'));await s.saves.flush().catch(()=>{});
   assert.equal(s.saves.replaced,true);assert.equal(s.troubleNow().kind,'full');
 });
 test('a refused edit outranks the missing folder and offers backups before reload',()=>{
-  const {s,edit}=windowWithDisk();edit('bad\uD800');
+  const {s,edit}=windowWithDisk('missing');edit('bad\uD800');
   const trouble=s.troubleNow();assert.equal(trouble.retries,true);assert.equal(trouble.kind,'failed');
   const d=troubleDialog(trouble,'editor',false);assert.match(d.subtitle,/next change tries saving again/);
   assert.deepEqual(actionsOf(d.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload']);
@@ -376,7 +376,7 @@ test('save trouble waits behind the sheet, then gets its turn on dismissal',()=>
    cannot be queued or fails keeps the folder's record and says nothing of a fresh start. Once this window has made a folder
    in that place, the question says it saves there, not in a new folder. */
 test('starting fresh keeps the missing folder until the save lands, and names the folder it saves into',async()=>{
-  const {s,edit,press,writes,questions,said}=windowWithDisk();
+  const {s,edit,press,writes,questions,said}=windowWithDisk('missing');
   edit('A');await Promise.resolve();writes[0].done.resolve(1);await s.saves.flush();
   const starting=press('disk-start-fresh');await new Promise(r=>setImmediate(r));writes[1].done.reject(new Error('full'));await starting;
   assert.ok(s.saves.missing);assert.doesNotMatch(said.join(' '),/Started fresh/);assert.match(questions[0],/the folder this window made at/);
@@ -406,9 +406,7 @@ test('the dialogs scope what they claim, and Space and a resized window leave th
 /* The browser build has no disk line or missing folder: a refused save there says so in its toast and opens no dialog over
    the person's work. */
 test('in the browser build a refused save is a toast, not a dialog',async()=>{
-  const {WindowSaves}=await import('../src/workspace/save-state');
-  const {s,edit,said}=windowWithDisk();let opened=0;
-  s.saves=new WindowSaves(()=>{throw new Error('quota');},()=>s.saveChanged(),()=>{});
+  const {s,edit,said}=windowWithDisk('browser-full');let opened=0;
   s.troubleOpened=()=>{opened++;return true;};
   edit('browser');assert.equal(s.saves.saved,false);assert.equal(opened,0);assert.equal(s.troubleNow(),undefined);
   assert.match(said.join(' '),/Could not save on this device/);
