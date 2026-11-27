@@ -1346,3 +1346,38 @@ fn the_last_installation_to_connect_owns_the_shared_entry() {
         assert_eq!(preview.status(tool).unwrap().points_here, Some(false));
     }
 }
+
+#[test]
+fn a_preview_file_receipt_never_overrides_the_claude_settings_exclusion() {
+    for tool in WRITTEN {
+        let h = Home::new();
+        let stable = &h.engine;
+        let preview = Engine::new(
+            stable.home.clone(),
+            "/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp".into(),
+            &format!("{STABLE_ID}.preview"),
+        );
+        let file = h.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        connect(&preview, tool, 1);
+        assert!(xattr::get(&file, &preview.receipt_key).unwrap().is_some());
+        assert!(xattr::get(&file, &stable.receipt_key).unwrap().is_none());
+        let root = files::root(&stable.home).unwrap();
+        let relative = file.strip_prefix(&stable.home).unwrap();
+        assert!(files::history(&root, relative, &preview.receipt_key).unwrap().is_some());
+        assert!(files::history(&root, relative, &stable.receipt_key).unwrap().is_none());
+        let remove = preview.preview(tool, Action::Remove, 2).unwrap();
+        assert!(!remove.confirmation_required);
+        let settings = preview.path(Tool::ClaudeCode);
+        symlink(&file, &settings).unwrap();
+        for engine in [stable, &preview] {
+            assert_eq!(engine.status(tool).unwrap().error, Some(Code::InvalidPath));
+            assert!(matches!(engine.preview(tool, Action::Connect, 3), Err(Code::InvalidPath)));
+        }
+        assert!(matches!(
+            preview.commit(tool, Action::Remove, &remove.fingerprint, true),
+            Err(Code::InvalidPath)
+        ));
+        fs::remove_file(settings).unwrap();
+        assert_eq!(preview.status(tool).unwrap().owned, Some(true));
+    }
+}
