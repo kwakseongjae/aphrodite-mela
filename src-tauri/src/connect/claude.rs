@@ -68,6 +68,7 @@ struct State {
     program: Program,
     entry: Option<Entry>,
     record: Record,
+    suspended_path: Option<String>,
     record_error: Option<Code>,
     get_exit: Option<i32>,
 }
@@ -171,9 +172,9 @@ impl Entry {
 }
 impl State {
     fn inspect(e: &Engine, program: Program, store: &Store) -> Result<Self, CommandResult> {
-        let (record, warning) = match store.read() {
-            Ok(record) => (record, None),
-            Err(code) => (Record::default(), Some(code)),
+        let (record, suspended_path, warning) = match store.read() {
+            Ok((record, suspended)) => (record, suspended, None),
+            Err(code) => (Record::default(), None, Some(code)),
         };
         // Arm invalidation before asking. A crash or failed receipt save cannot
         // leave an old claim usable after we have witnessed the entry disappear.
@@ -191,7 +192,10 @@ impl State {
             }
         };
         state.record_error = warning;
-        if state.entry.is_none() && state.record.registered.take().is_some() {
+        state.suspended_path = suspended_path;
+        if state.entry.is_none()
+            && (state.record.registered.take().is_some() || state.suspended_path.take().is_some())
+        {
             state.record_error = store.save(&state.record).err();
         } else if state.entry.is_some() && had_claim {
             store.revoke(false)?;
@@ -223,6 +227,7 @@ impl State {
             program,
             entry,
             record,
+            suspended_path: None,
             record_error: None,
             get_exit: output.status,
         })
@@ -248,6 +253,7 @@ impl State {
         };
         std::iter::once(e.executable())
             .chain(self.record.registered.as_deref())
+            .chain(self.suspended_path.as_deref())
             .chain(self.record.pending.as_ref().map(|p| p.previous.as_str()))
             .any(|path| entry.points_at(path) == Some(true))
     }
@@ -280,13 +286,22 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
         return Ok(());
     }
     let inspection = match Store::lock(e) {
-        Ok(store) => State::inspect(e, program, &store),
-        Err(code) => Err(code.into()),
+        Ok(store) => {
+            out.record_error = store.lock_warning;
+            State::inspect(e, program, &store)
+        }
+        Err(Code::CliBusy) => Err(Code::CliBusy.into()),
+        Err(code) => {
+            // A read-only lookup can still establish presence without a usable record.
+            out.record_error = Some(code);
+            State::query(e, program, Record::default(), e.claude_config_dir.clone())
+        }
     };
     match inspection {
         Ok(state) => {
+            out.record_error = out.record_error.or(state.record_error);
             out.error = state.record_error;
-            out.unfinished_repoint = state
+            out.unfinished_repoint = out
                 .record_error
                 .is_none()
                 .then_some(state.record.pending.is_some());
@@ -387,6 +402,8 @@ pub(super) fn snippet(e: &Engine, action: Action) -> super::Result<String> {
 #[serde(rename_all = "camelCase")]
 pub struct CommandPreview {
     program: Program,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record_error: Option<Code>,
     tool: Tool,
     action: Action,
     commands: Vec<Invocation>,
@@ -412,6 +429,7 @@ impl State {
             e.location,
             &self.program,
             &self.record,
+            &self.suspended_path,
             self.entry.as_ref().map(|v| &v.digest),
         ))
         .map(hash)
@@ -460,6 +478,7 @@ impl State {
         let will_repoint = previous.is_some();
         Ok(CommandPreview {
             program: self.program.clone(),
+            record_error: self.record_error,
             tool: Tool::ClaudeCode,
             action,
             commands,
@@ -497,8 +516,14 @@ pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
     let store = Store::lock(e)?;
     Ok(
         match State::inspect(e, program, &store).and_then(|s| s.plan(e, action)) {
-            Ok(plan) => Proposal::Command(plan),
-            Err(result) => Proposal::Outcome(result),
+            Ok(mut plan) => {
+                plan.record_error = plan.record_error.or(store.lock_warning);
+                Proposal::Command(plan)
+            }
+            Err(mut result) => {
+                result.record_error = result.record_error.or(store.lock_warning);
+                Proposal::Outcome(result)
+            }
         },
     )
 }
@@ -585,7 +610,24 @@ pub(super) fn execute(
 ) -> Result<CommandResult, CommandResult> {
     let (program, digest) = verified_program(e, fingerprint)?;
     let store = Store::lock(e)?;
-    let mut state = State::inspect(e, program, &store)?;
+    let warn = |mut result: CommandResult| {
+        result.record_error = result.record_error.or(store.lock_warning);
+        result
+    };
+    execute_locked(e, action, digest, confirm, program, &store)
+        .map(warn)
+        .map_err(warn)
+}
+
+fn execute_locked(
+    e: &Engine,
+    action: Action,
+    digest: &str,
+    confirm: bool,
+    program: Program,
+    store: &Store,
+) -> Result<CommandResult, CommandResult> {
+    let mut state = State::inspect(e, program, store)?;
     if state.fingerprint(e, action)? != digest {
         return Err(Code::Changed.into());
     }
@@ -595,9 +637,9 @@ pub(super) fn execute(
     }
     let Some(first) = plan.commands.first() else {
         return Ok(match action {
-            Action::Remove => save_record(&store, None, Code::Removed.into()),
+            Action::Remove => save_record(store, None, Code::Removed.into()),
             Action::Connect => {
-                save_record(&store, Some(e.executable()), Code::AlreadyConnected.into())
+                save_record(store, Some(e.executable()), Code::AlreadyConnected.into())
             }
         });
     };
@@ -616,15 +658,15 @@ pub(super) fn execute(
         }
         let removed = first
             .run(e, &state, Action::Remove)
-            .map_err(|err| state.reconcile(e, &store, &plan, Action::Remove, err))?;
+            .map_err(|err| state.reconcile(e, store, &plan, Action::Remove, err))?;
         if action == Action::Remove {
-            return Ok(save_record(&store, None, removed));
+            return Ok(save_record(store, None, removed));
         }
     }
     let add = plan.commands.last().unwrap();
     add.run(e, &state, Action::Connect)
-        .map(|added| save_record(&store, Some(e.executable()), added))
-        .map_err(|err| state.reconcile(e, &store, &plan, Action::Connect, err))
+        .map(|added| save_record(store, Some(e.executable()), added))
+        .map_err(|err| state.reconcile(e, store, &plan, Action::Connect, err))
 }
 
 impl State {

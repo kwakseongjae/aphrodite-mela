@@ -1557,3 +1557,144 @@ fn recheck_astra_6_retargeting_a_profile_alias_invalidates_its_preview() {
     assert_eq!(f.apply(Action::Connect, &preview, false)["code"], "changed");
     assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
 }
+
+fn damaged_lock_requires_a_new_claim(damage: impl FnOnce(&Path)) {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    let lock = record_path(&f).with_extension("lock");
+    damage(&lock);
+    let displaced = fs::symlink_metadata(&lock).unwrap();
+    let asked = f.status();
+    assert_eq!(asked["entryExists"], true, "{asked}");
+    assert_eq!(asked["owned"], false);
+    assert_eq!(asked["recordError"], "record_failed");
+    let fresh = fs::symlink_metadata(&lock).unwrap();
+    assert_ne!(displaced.ino(), fresh.ino());
+    assert!(fresh.is_file());
+    assert_eq!(
+        (fresh.mode() & 0o777, fresh.nlink(), fresh.len()),
+        (0o600, 1, 1)
+    );
+    assert!(fs::read_dir(lock.parent().unwrap()).unwrap().flatten().any(
+        |item| fs::symlink_metadata(item.path()).unwrap().ino() == displaced.ino()
+            && item.file_name() != "other-link"
+    ));
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["recordError"], "record_failed");
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    let add = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &add, true);
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["exitStatus"], 0);
+    assert_eq!(result["recordError"], "record_failed");
+    assert_eq!(f.status()["owned"], true);
+    assert!(f.status()["recordError"].is_null());
+}
+
+#[test]
+fn fix3_n1_wrong_mode_lock_suspends_ownership_until_confirmation() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+    });
+}
+
+#[test]
+fn fix3_n1_link_lock_is_moved_without_following_it() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::remove_file(path).unwrap();
+        symlink("missing-target", path).unwrap();
+    });
+}
+
+#[test]
+fn fix3_n1_second_hard_link_is_preserved_during_repair() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::hard_link(path, path.with_file_name("other-link")).unwrap();
+    });
+}
+
+#[test]
+fn fix3_n1_an_absent_entry_and_a_failed_get_keep_their_own_outcomes() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    f.override_reply("get", json!({"exit":14, "once":true}));
+    let failed = f.status();
+    assert_eq!(failed["error"], "cli_get_failed");
+    assert_eq!(failed["exitStatus"], 14);
+    assert_eq!(failed["recordError"], "record_failed");
+    assert_eq!(f.status()["entryExists"], false);
+    let added = f.apply(Action::Connect, &preview, false);
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "record_failed");
+}
+
+#[test]
+fn fix3_n1_a_suspended_old_installation_can_be_removed_with_confirmation() {
+    let mut f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    f.0.engine.exe = "/Applications/Moved/sidecar".into();
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true, "{remove}");
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &remove, true)["code"], "removed");
+}
+
+#[test]
+fn fix3_n1_another_owners_lock_is_displaced_using_the_same_uid_check() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f).with_extension("lock");
+    let original = fs::metadata(&path).unwrap();
+    // Supply a different expected UID to exercise the ownership check without chown.
+    let store = claude_record::Store::lock_for_user(f.e(), original.uid() + 1).unwrap();
+    let (record, hint) = store.read().unwrap();
+    assert!(record.registered.is_none());
+    assert_eq!(hint.as_deref(), Some(f.e().executable()));
+    drop(store);
+    assert_ne!(fs::metadata(path).unwrap().ino(), original.ino());
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(f.apply(Action::Remove, &remove, true)["code"], "removed");
+}
+
+#[test]
+fn fix3_n1_repair_waits_for_the_store_using_the_original_lock() {
+    let f = Fixture::new();
+    let active = claude_record::Store::lock(f.e()).unwrap();
+    let path = record_path(&f).with_extension("lock");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_busy");
+    drop(active);
+    assert_eq!(f.proposal(Action::Connect)["recordError"], "record_failed");
+}
+
+#[test]
+fn fix3_n1_ask_still_reports_presence_if_the_lock_cannot_be_replaced() {
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f).with_extension("lock");
+    let dir = path.parent().unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let asked = f.status();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(asked["entryExists"], true);
+    assert_eq!(asked["owned"], false);
+    assert_eq!(asked["recordError"], "record_failed");
+}

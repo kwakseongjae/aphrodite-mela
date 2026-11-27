@@ -128,6 +128,8 @@ pub struct Status {
     unfinished_repoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_status: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record_error: Option<Code>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
     points_here: Option<bool>,
@@ -307,6 +309,7 @@ impl Engine {
             trusted: None,
             unfinished_repoint: None,
             exit_status: None,
+            record_error: None,
             config_exists: None,
             entry_exists: None,
             points_here: None,

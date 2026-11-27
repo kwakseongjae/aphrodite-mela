@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     thread,
     time::{Duration, Instant},
@@ -65,54 +65,100 @@ fn record_path(e: &Engine, profile: &Path) -> PathBuf {
         .join(format!("claude-{key}.json"))
 }
 
-fn private_file(meta: &fs::Metadata) -> bool {
-    meta.is_file()
-        && meta.nlink() == 1
-        && meta.uid() == unsafe { libc::geteuid() }
-        && meta.mode() & 0o777 == 0o600
+fn private_file(meta: &fs::Metadata, owner: u32) -> bool {
+    meta.is_file() && meta.nlink() == 1 && meta.uid() == owner && meta.mode() & 0o777 == 0o600
 }
 
-fn open_lock(path: &Path, settings: &[PathBuf]) -> Result<File> {
+fn open_lock(path: &Path, settings: &[PathBuf], owner: u32) -> Result<Option<File>> {
     let mut options = OpenOptions::new();
     options
         .read(true)
         .write(true)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    if !path.try_exists().map_err(|_| Code::Io)? {
+    if fs::symlink_metadata(path).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
         match options.clone().create_new(true).open(path) {
             Ok(file) => {
                 let m = file.metadata().map_err(|_| Code::Io)?;
                 files::exclude_settings((m.dev(), m.ino()), settings)?;
                 files::make_private(&file)?;
-                return Ok(file);
+                return Ok(Some(file));
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
             Err(_) => return Err(Code::Io),
         }
     }
     let before = fs::symlink_metadata(path).map_err(|_| Code::Io)?;
-    if !private_file(&before) || !controlled(path) {
-        return Err(Code::InvalidPath);
-    }
     files::exclude_settings((before.dev(), before.ino()), settings)?;
+    if !private_file(&before, owner) || !controlled(path) {
+        return Ok(None);
+    }
     let file = options.open(path).map_err(|_| Code::Io)?;
     let after = file.metadata().map_err(|_| Code::Io)?;
-    if !private_file(&after) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {
+    if !private_file(&after, owner) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {
         return Err(Code::Changed);
     }
     files::exclude_settings((after.dev(), after.ino()), settings)?;
-    Ok(file)
+    Ok(Some(file))
+}
+
+// Every Store holds a shared lock on the directory while it uses a profile lock.
+// Repair takes the directory exclusively so nobody can still be using the old inode.
+fn wait_for_lock(
+    file: &File,
+    deadline: Instant,
+    try_lock: fn(&File) -> io::Result<()>,
+) -> Result<()> {
+    loop {
+        match try_lock(file) {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(Code::CliBusy);
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return Err(Code::Io),
+        }
+    }
+}
+
+const REPAIRED: u8 = 1;
+
+fn replace_lock(dir: &Path, path: &Path) -> Result<File> {
+    let mut fresh = tempfile::Builder::new()
+        .prefix(".damaged-claude-lock-")
+        .tempfile_in(dir)
+        .map_err(|_| Code::RecordFailed)?;
+    files::make_private(fresh.as_file())?;
+    // Publish the suspension and the new lock together, even across an interruption.
+    fresh
+        .write_all(&[REPAIRED])
+        .and_then(|()| fresh.as_file().sync_all())
+        .map_err(|_| Code::RecordFailed)?;
+    use rustix::fs::{renameat_with, RenameFlags, CWD};
+    renameat_with(CWD, fresh.path(), CWD, path, RenameFlags::EXCHANGE)
+        .map_err(|_| Code::RecordFailed)?;
+    fresh.disable_cleanup(true); // Its temporary name now holds the displaced lock.
+    File::open(dir)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| Code::RecordFailed)?;
+    Ok(fresh.into_file())
 }
 
 pub(super) struct Store {
     path: PathBuf,
     lock: File,
+    _directory_lock: File,
+    pub lock_warning: Option<Code>,
     settings: Vec<PathBuf>,
     pub profile: Option<PathBuf>,
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
+        Self::lock_for_user(e, unsafe { libc::geteuid() })
+    }
+    pub(super) fn lock_for_user(e: &Engine, owner: u32) -> Result<Self> {
         let profile = profile_dir(e)?;
         let path = record_path(e, &profile);
         let dir = path.parent().ok_or(Code::InvalidPath)?;
@@ -133,27 +179,34 @@ impl Store {
             return Err(Code::InvalidPath);
         }
         let settings = e.claude_settings();
-        let lock = open_lock(&path.with_extension("lock"), &settings)?;
+        let lock_path = path.with_extension("lock");
+        let directory = File::open(dir).map_err(|_| Code::Io)?;
         let deadline = Instant::now() + Duration::from_millis(750);
-        loop {
-            match fs2::FileExt::try_lock_exclusive(&lock) {
-                Ok(()) => {
-                    return Ok(Self {
-                        path,
-                        lock,
-                        settings,
-                        profile: e.claude_config_dir.as_ref().map(|_| profile),
-                    })
+        use fs2::FileExt as Lock;
+        wait_for_lock(&directory, deadline, Lock::try_lock_shared)?;
+        let lock = match open_lock(&lock_path, &settings, owner)? {
+            Some(file) => file,
+            None => {
+                Lock::unlock(&directory).map_err(|_| Code::Io)?;
+                wait_for_lock(&directory, deadline, Lock::try_lock_exclusive)?;
+                match open_lock(&lock_path, &settings, owner)? {
+                    Some(file) => file, // Another repair won while we waited.
+                    None => replace_lock(dir, &lock_path)?,
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if Instant::now() >= deadline {
-                        return Err(Code::CliBusy);
-                    }
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(_) => return Err(Code::Io),
             }
-        }
+        };
+        wait_for_lock(&lock, deadline, Lock::try_lock_exclusive)?;
+        let mut marker = [0];
+        lock.read_at(&mut marker, 0)
+            .map_err(|_| Code::RecordFailed)?;
+        Ok(Self {
+            path,
+            lock,
+            _directory_lock: directory,
+            lock_warning: (marker[0] == REPAIRED).then_some(Code::RecordFailed),
+            settings,
+            profile: e.claude_config_dir.as_ref().map(|_| profile),
+        })
     }
     fn read_path(path: &Path, settings: &[PathBuf]) -> Result<Record> {
         let before = match fs::symlink_metadata(path) {
@@ -161,7 +214,7 @@ impl Store {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Record::default()),
             Err(_) => return Err(Code::Io),
         };
-        if !controlled(path) || !private_file(&before) {
+        if !controlled(path) || !private_file(&before, unsafe { libc::geteuid() }) {
             return Err(Code::InvalidPath);
         }
         files::exclude_settings((before.dev(), before.ino()), settings)?;
@@ -171,7 +224,9 @@ impl Store {
             .open(path)
             .map_err(|_| Code::Io)?;
         let after = file.metadata().map_err(|_| Code::Io)?;
-        if !private_file(&after) || (before.dev(), before.ino()) != (after.dev(), after.ino()) {
+        if !private_file(&after, unsafe { libc::geteuid() })
+            || (before.dev(), before.ino()) != (after.dev(), after.ino())
+        {
             return Err(Code::Changed);
         }
         files::exclude_settings((after.dev(), after.ino()), settings)?;
@@ -188,12 +243,15 @@ impl Store {
     pub fn peek(e: &Engine) -> Result<Record> {
         Self::read_path(&record_path(e, &profile_dir(e)?), &e.claude_settings())
     }
-    pub fn read(&self) -> Result<Record> {
+    pub fn read(&self) -> Result<(Record, Option<String>)> {
         let mut record = Self::read_path(&self.path, &self.settings)?;
-        if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != 0 {
-            record.registered = None;
-        }
-        Ok(record)
+        let suspended = if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != 0 {
+            record.registered.take()
+        } else {
+            None
+        };
+        // A repaired lock can retain the previous path as a hint for confirmed removal.
+        Ok((record, self.lock_warning.and(suspended)))
     }
     // The lock inode survives receipt replacement, including when the directory is
     // read-only. A nonempty lock suspends the old ownership claim across restarts.
