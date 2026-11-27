@@ -163,3 +163,13 @@ test('a repeated toast carries the newest change\'s Undo or none, and a button h
   assert.ok(s.toasts.every(t=>!t.undo||t.undo===s.undoToken()),'no line holds an Undo for a change that is not the last');
   assert.equal(/data-action="undo"/.test(toastHtml(s.toasts,{undo:s.undoToken()})),false,'and the first line does not get its button back now that its change is last again');
 });
+
+test('Undo stays inert when an intervening edit is undone during dispatch',async()=>{
+  const p=board(),s=editor(p);
+  const first=s.commit(()=>{p.name='First';},person(),'edit.project-rename');
+  (s.undoable as Function)('Renamed.',first);
+  const token=s.toasts.at(-1)!.undo!;
+  s.updates={handle:async()=>{s.commit(()=>{s.project.name='Second';},person(),'edit.project-rename');(s.history as Function)('undo',person());return false;}};
+  await s.action(press('undo',{undoFor:token}),person(),true);
+  assert.equal(s.project.name,'First');assert.equal(s.edits.undo.length,1);
+});

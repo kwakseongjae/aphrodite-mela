@@ -463,10 +463,10 @@ function toast(message:string){if(askOpen())return;notice(message);}
 /** A line shown even over the request to edit: what the person must not miss, a window that could not save before closing. */
 function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId);paintToasts();}
 /** The change on top of the undo stack, as a toast names it: a toast for that change offers Undo, one for any earlier change does not. */
-function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;return top?`${editSession}:${project.id}:${top.seq}`:'';}
+function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;return top?`${editSession}:${edits.generation}:${project.id}:${top.seq}`:'';}
 /** A finished change the shortcut can take back: the toast carries Undo for the change it reports, the one recorded for it, while that is still the last (data-action="undo").
  *  An agent's change, pressed through the screen or not, is reported without one: the person did not make it. */
-function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?.author.kind==='person'?`${editSession}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
+function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?.author.kind==='person'?`${editSession}:${edits.generation}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
 function saveLibrary(next:Library|(()=>Library),edit=true){
   let prepared:Library;
   saves.save(()=>{
@@ -696,6 +696,7 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined,expect?:string)
     // The design it would show could not be saved: nothing moved, and the step stays where it was.
     if(error instanceof StepDoesNotFit){toast(ui('That step would make the board too big to save, so nothing changed.','그 단계는 보드를 저장할 수 없을 만큼 크게 만들어, 아무것도 바꾸지 않았습니다.'));return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
+    edits.generation++;
     (direction==='undo'?edits.undo:edits.redo).pop();
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
