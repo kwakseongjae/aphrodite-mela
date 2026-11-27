@@ -216,7 +216,7 @@ test('the real badge agrees on first paint, receipt and redraw after an empty re
   const {page}=rig;
   const badge=()=>page.locator('[data-save-badge]').getAttribute('data-save-badge');
   assert.equal(await badge(),'saved');
-  await scene('disk');await scene('empty');assert.equal(await badge(),'unsaved');
+  await scene('disk');await scene('reloadDisk');assert.equal(await badge(),'unsaved');
   await scene('redraw');assert.equal(await badge(),'unsaved');
   await scene('edit');assert.equal(await badge(),'saving');
   await scene('refuse');assert.equal(await badge(),'unsaved');
@@ -507,4 +507,19 @@ test('a command waiting for a picture credits only the connection it started und
   assert.equal(reply.ok,true);
   assert.equal(reply.seq,1);
   assert.deepEqual(await connectedMark(),{allowed:'any agent',count:'0',logo:null});
+});
+
+test('the connection keeps its count and writer across board changes and disk reloads',async()=>{
+  const {page}=rig;
+  await scene('mark');
+  assert.equal(await page.evaluate("scene.titleEdit('First board change').then(r=>r.ok)"),true);
+  const mark={allowed:'any agent',count:'1',logo:'/brand/agents/claude-spark-clay.svg'};
+  await page.evaluate("scene.disk(localStorage.getItem('aphrodite-project-library-v1'))");
+  await page.evaluate("scene.board('Second board')");
+  assert.equal(await page.locator('#app').getAttribute('data-project'),'Second board');
+  assert.deepEqual(await connectedMark(),mark);
+  // Only the first board was saved. Reading that library from disk returns the editor to Home.
+  await scene('reloadDisk');
+  assert.equal(await page.locator('#app').getAttribute('data-screen'),'home');
+  assert.deepEqual(await connectedMark(),mark);
 });

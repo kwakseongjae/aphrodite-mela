@@ -10,7 +10,7 @@ export async function keyboardBrowser(){
   const main=await readFile('src/main.ts','utf8');
   const fixture=`
     Object.assign(window,{scene:{
-      board:()=>{markWelcomed();endTour();closeModal();openProject(project);},
+      board:(name)=>{markWelcomed();endTour();closeModal();openProject(name?newBoard(name):project);},
       welcome:()=>welcomeModal(),
       sheet:()=>showFatal('test diagnostic'),
       request:()=>window.aphroditeAgent.run('connect',{},'keyboard-test'),
@@ -24,12 +24,12 @@ export async function keyboardBrowser(){
         {blockId:block.id,field:'title',text:title??block.title,reason:'Set the block title'},'claude-code');},
       wrote:()=>bumpConnect('claude-code'),
       page:()=>openPageView(project.activePageId),
-      disk:()=>{window.__TAURI_INTERNALS__={invoke:async cmd=>{
-        if(cmd==='workspace_read')return {revision:0,path:'/old',data:null};
+      disk:(data=null)=>{window.__TAURI_INTERNALS__={invoke:async cmd=>{
+        if(cmd==='workspace_read')return {revision:0,path:'/old',data};
         if(cmd==='workspace_write')return new Promise((yes,no)=>{window.finishWrite=yes;window.failWrite=no;});
         throw Error(cmd);
       }};attachDiskQueue(0);},
-      empty:()=>reloadFromDiskNow(),
+      reloadDisk:()=>reloadFromDiskNow(),
       edit:()=>{project.name='Queued';persist();},
       refuse:()=>{project.reference='x'.repeat(20_000_000);persist();},
       home:()=>{screen='home';render();},
