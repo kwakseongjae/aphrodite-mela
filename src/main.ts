@@ -2738,7 +2738,7 @@ document.addEventListener('keydown', e => {
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='editor'&&!modalRoot.children.length){
     // Space on a toast's button presses it: it pans the board only from the board.
-    if(e.code==='Space'){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
+    if(e.code==='Space'){if(e.isTrusted&&!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }

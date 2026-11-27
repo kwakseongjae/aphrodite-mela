@@ -264,3 +264,13 @@ test('Space dismisses the focused toast without panning',async()=>{
   await page.keyboard.up('Space');
   assert.equal(await page.locator('#toast button').count(),0);
 });
+
+test('page-made Space events cannot start pan mode or release the person’s Space',async()=>{
+  const {page}=rig;
+  const send=(type:string)=>page.evaluate(type=>document.body.dispatchEvent(
+    new KeyboardEvent(type,{key:' ',code:'Space',bubbles:true,cancelable:true})),type);
+  const pan=page.locator('#canvas-scroll.pan-ready');
+  await send('keydown');await send('keyup');assert.equal(await pan.count(),0);
+  await page.keyboard.down('Space');await send('keyup');assert.equal(await pan.count(),1);
+  await page.keyboard.up('Space');assert.equal(await pan.count(),0);
+});
