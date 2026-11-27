@@ -82,7 +82,7 @@ export function createUpdates(host: UpdateHost) {
   async function handle(action: string): Promise<boolean> {
     switch(action){
           case 'update-install': {
-            if(updateState==='working'||updateState==='installing'||updateState==='restart')break;
+            if(!updateInfo||updateInfo.stableDownload||updateState==='working'||updateState==='installing'||updateState==='restart')break;
             updateState='working';updateDetail='';paintUpdate();
             try{
               const {check}=await import('@tauri-apps/plugin-updater');

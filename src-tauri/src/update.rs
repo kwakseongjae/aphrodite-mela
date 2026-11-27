@@ -2,6 +2,7 @@
 //! compares it with the running version, and — only when the person clicks — downloads that
 //! release's disk image to ~/Downloads and reveals it. The app never replaces itself behind anyone's
 //! back, so what lands on disk is the same signed, notarized DMG the website serves.
+use semver::Version;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Read;
@@ -10,61 +11,71 @@ use std::path::{Path, PathBuf};
 const REPO: &str = "kwakseongjae/aphrodite-mela";
 const MAX_DMG_BYTES: u64 = 200 * 1024 * 1024;
 
-/// Compares two dotted version strings numerically. Missing segments count as zero, and anything
-/// unparsable sorts as zero rather than throwing, so a malformed tag can never look newer.
-pub fn is_newer(candidate: &str, current: &str) -> bool {
-    let part = |v: &str| -> Vec<u64> {
-        v.trim_start_matches('v')
-            .split(['.', '-', '+'])
-            .take(4)
-            .map(|s| s.parse::<u64>().unwrap_or(0))
-            .collect()
-    };
-    let (a, b) = (part(candidate), part(current));
-    for i in 0..a.len().max(b.len()) {
-        let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
-        if x != y {
-            return x > y;
-        }
+// Older releases also accepted a fourth numeric component. Keep that comparison for legacy tags.
+fn version_parts(value: &str) -> Option<(Version, u64)> {
+    let value = value.strip_prefix('v').unwrap_or(value);
+    if let Ok(version) = Version::parse(value) {
+        return Some((version, 0));
     }
-    false
+    let (base, revision) = value.rsplit_once('.')?;
+    let version = Version::parse(base).ok()?;
+    (version.pre.is_empty() && version.build.is_empty()).then_some((version, revision.parse().ok()?))
 }
 
+pub fn is_newer(candidate: &str, current: &str) -> bool {
+    let (Some((a, ar)), Some((b, br))) = (version_parts(candidate), version_parts(current)) else {
+        return false;
+    };
+    a.cmp_precedence(&b).then(ar.cmp(&br)).is_gt()
+}
 
-/// Asks GitHub for the newest published release. Never errors loudly: a machine that is offline or
-/// rate-limited simply reports that there is nothing newer. Off the main thread: a slow network
-/// must never freeze the window.
-#[tauri::command(async)]
-pub fn update_check() -> Result<Value, String> {
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    let quiet = json!({"current": current, "newer": false});
-    // The updater's own manifest, not the API. /releases/latest/download/… is a plain file, so a
-    // shared address — an office, a cafe — cannot spend the hour's sixty API calls and leave
-    // everyone in the building unable to hear about a new version.
-    let body = match fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json")) {
-        Ok(text) => text,
-        Err(_) => return Ok(quiet),
-    };
-    let manifest: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(_) => return Ok(quiet),
-    };
-    let tag = manifest["version"].as_str().unwrap_or("").trim_start_matches('v').to_string();
-    if tag.is_empty() || !is_newer(&tag, &current) {
-        return Ok(json!({"current": current, "latest": tag, "newer": false}));
+fn preview_version(version: &Version) -> bool {
+    version.pre.as_str().strip_prefix("preview.").is_some_and(|n| {
+        !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+    })
+}
+
+pub fn same_channel(current: &Version, candidate: &Version) -> bool {
+    (current.pre.is_empty() && candidate.pre.is_empty()) ||
+        (preview_version(current) && preview_version(candidate))
+}
+
+fn read_manifest(endpoint: &str) -> Option<Value> {
+    serde_json::from_str(&fetch_text(endpoint).ok()?).ok()
+}
+
+// The stable feed can announce a separate DMG to a preview user. Only the app's own feed
+// can produce an in-place offer, and the updater plugin checks the channel again at install.
+fn offer(current: &Version, manifest: &Value, stable_download: bool) -> Option<Value> {
+    let tag = manifest["version"].as_str()?;
+    let tag = tag.strip_prefix('v').unwrap_or(tag);
+    let (candidate, _) = version_parts(tag)?;
+    if !is_newer(tag, &current.to_string()) ||
+        !(if stable_download { preview_version(current) && candidate.pre.is_empty() } else { same_channel(current, &candidate) }) {
+        return None;
     }
-    let Some(name) = dmg_name(&tag) else {
-        return Ok(json!({"current": current, "latest": tag, "newer": false}));
-    };
-    Ok(json!({
-        "current": current,
-        "latest": tag,
-        "newer": true,
-        "name": name,
-        "url": format!("https://github.com/{REPO}/releases/download/v{tag}/{name}"),
+    let name = dmg_name(tag)?;
+    Some(json!({
+        "current": current.to_string(), "latest": tag, "newer": true, "stableDownload": stable_download,
+        "name": name, "url": format!("https://github.com/{REPO}/releases/download/v{tag}/{name}"),
         "notes": format!("https://github.com/{REPO}/releases/tag/v{tag}"),
         "summary": release_summary(manifest["notes"].as_str().unwrap_or(""))
     }))
+}
+
+#[tauri::command(async)]
+pub fn update_check(app: tauri::AppHandle) -> Result<Value, String> {
+    let current = &app.package_info().version;
+    if preview_version(current) {
+        let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
+        if let Some(notice) = read_manifest(&stable).and_then(|manifest| offer(current, &manifest, true)) {
+            return Ok(notice);
+        }
+    }
+    let endpoint = app.config().plugins.0.get("updater")
+        .and_then(|plugin| plugin["endpoints"][0].as_str());
+    Ok(endpoint.and_then(read_manifest).and_then(|manifest| offer(current, &manifest, false))
+        .unwrap_or_else(|| json!({"current": current.to_string(), "newer": false})))
 }
 
 /// The disk image this Mac would want, named the way the release names it. Kept as a fallback for
@@ -431,6 +442,13 @@ mod tests {
 
     #[test]
     fn newer_versions_are_recognised_in_order() {
+        for (older, newer) in [
+            ("0.2.8", "0.3.0-preview.1"), ("0.3.0-preview.1", "0.3.0-preview.2"),
+            ("0.3.0-preview.2", "0.3.0-preview.10"), ("0.3.0-preview.10", "0.3.0"),
+        ] {
+            assert!(is_newer(newer, older));
+            assert!(!is_newer(older, newer));
+        }
         assert!(is_newer("0.1.6", "0.1.5"));
         assert!(is_newer("0.2.0", "0.1.9"));
         assert!(is_newer("1.0.0", "0.9.9"));
@@ -440,6 +458,21 @@ mod tests {
         assert!(!is_newer("0.1.4", "0.1.5"));
         assert!(!is_newer("0.1", "0.1.0"));
         assert!(is_newer("0.1.5.1", "0.1.5"));
+    }
+
+    #[test]
+    fn updates_stay_in_their_channel_and_stable_graduation_is_download_only() {
+        let preview = Version::parse("0.3.0-preview.1").unwrap();
+        let stable = Version::parse("0.2.8").unwrap();
+        let next = json!({"version":"0.3.0-preview.2"});
+        let final_release = json!({"version":"0.3.0"});
+        assert!(offer(&stable, &next, false).is_none());
+        assert!(offer(&preview, &final_release, false).is_none());
+        assert!(offer(&preview, &next, true).is_none());
+        assert_eq!(offer(&preview, &next, false).unwrap()["stableDownload"], false);
+        assert_eq!(offer(&preview, &final_release, true).unwrap()["stableDownload"], true);
+        assert!(offer(&preview, &json!({"version":"0.2.9"}), true).is_none());
+        assert!(offer(&preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
     }
 
     #[test]

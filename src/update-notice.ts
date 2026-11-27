@@ -3,7 +3,7 @@
  * version exists it says so in a small card in the bottom-left corner. Install puts that version in
  * place and then asks whether to restart. Declining a version is remembered, so the offer asks once.
  */
-export type UpdateInfo={current:string;latest?:string;newer:boolean;name?:string;url?:string;size?:number;notes?:string;summary?:string[]};
+export type UpdateInfo={current:string;latest?:string;newer:boolean;name?:string;url?:string;size?:number;stableDownload?:boolean;notes?:string;summary?:string[]};
 export type NoticeState='offer'|'working'|'installing'|'restart'|'ready'|'failed';
 
 /** Progress ticks stay on the card that is already open. A new state still draws a new card. */
@@ -81,6 +81,7 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
         ? t('Putting the new version in place.','새 버전을 자리에 놓는 중.')
         : state==='working'
           ? (detail?esc(detail):t('Starting…','시작하는 중…'))
+          : info.stableDownload ? t('Download the stable app to use this release.','이 버전을 사용하려면 정식 앱을 다운로드해 주세요.')
           : t('Install it, then choose when to restart.','설치한 뒤, 다시 시작할지 고릅니다.');
   const bar=working
     ? `<div class="update-bar ui-progress"${state==='installing'||!detail?' data-indeterminate="true"':''}><i class="ui-progress-bar" style="width:${state==='installing'?'38%':detail||'6%'}"></i></div>`:'';
@@ -91,11 +92,13 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
       ? `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-relaunch">${icon('rotate-cw')}<span>${t('Restart now','다시 시작')}</span></button>`
     : state==='ready'
       ? `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-open">${icon('arrow-up-right')}<span>${t('Open it','열기')}</span></button>`
+      : info.stableDownload
+        ? `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-download">${icon('download')}<span>${t('Download the disk image','디스크 이미지로 받기')}</span></button>`
       : `<button class="ui-btn ui-btn-primary ui-btn-md" data-action="update-install">${icon('download')}<span>${state==='failed'?t('Try again','다시 시도'):t('Install','설치하기')}</span></button>`;
   const menu=working||askRestart?''
     : `<details class="update-more"><summary class="ui-icon-btn" aria-label="${t('More','더 보기')}" title="${t('More','더 보기')}">${icon('ellipsis','ui-icon')}</summary><div class="update-menu ui-menu" role="menu">`
       +(info.notes?`<button class="ui-menu-item" role="menuitem" data-action="update-notes">${t('Release notes','릴리즈 노트')}</button>`:'')
-      +`<button class="ui-menu-item" role="menuitem" data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`
+      +(info.stableDownload?'':`<button class="ui-menu-item" role="menuitem" data-action="update-download">${t('Download the disk image','디스크 이미지로 받기')}</button>`)
       +`<button class="ui-menu-item" role="menuitem" data-action="update-dismiss">${t('Skip this version','이 버전 건너뛰기')}</button>`
       +`<button class="ui-menu-item" role="menuitem" data-action="update-never">${t('Stop checking','업데이트 확인 끄기')}</button>`
       +`</div></details>`;
