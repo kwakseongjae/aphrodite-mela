@@ -44,6 +44,8 @@ const INTERNAL_COMMANDS=[
   'opened_take',
   // Puts the page wall into this window's WebKit and reads it back (src-tauri/src/page_wall.rs): the app's own setting.
   'page_wall_status',
+  // The person's light, dark or the Mac's, kept in the app's own config and put on the main window (src-tauri/src/look.rs).
+  'window_look',
   // A file put on the board is kept in the app's own folder under its hash (src-tauri/src/board.rs); the
   // edit that places it is a row of its own (edit.media for the person, media_add in edit.apply for an agent).
   'board_media_begin','board_media_chunk','board_media_finish','board_media_release',

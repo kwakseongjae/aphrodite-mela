@@ -6,6 +6,7 @@ mod disk;
 mod fonts;
 mod image_library;
 mod import;
+mod look;
 mod opened;
 mod page_wall;
 mod reference;
@@ -28,6 +29,9 @@ fn main() {
                 // The page wall goes in first, before any free page's frame can be made (src-tauri/src/page_wall.rs).
                 // The app's own page may already be loading; it uses no WebRTC, and every frame made after this has none.
                 let _ = page_wall::put_into(&window);
+                // The window opens hidden (tauri.conf.json) and is put on the look the person last picked, or the
+                // Mac's, and on that look's paper before it is shown: no other theme shows before the first paint.
+                look::apply(&window, look::saved(app.handle()));
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -41,6 +45,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            look::window_look,
             connect::connect_status,
             connect::connect_preview,
             connect::connect_apply,

@@ -60,19 +60,19 @@ test('a breadcrumb that never held anything is not worth a warning', () => {
 test('the notice names the folder and what was in it, and escapes the path', () => {
   const crumb = crumbFor('/Users/x/<script>/store', 317, 18, new Date('2026-09-17T00:00:00Z'));
   const ko = vanishedHtml(crumb, true);
-  assert.match(ko, /18개의 프로젝트/, 'it says how much it remembers');
+  assert.match(ko, /18개의 보드/, 'it says how much it remembers');
   assert.match(ko, /저장 폴더가 있던 자리에 없습니다/);
   assert.ok(!ko.includes('<script>'), 'the path is escaped, not executed');
   assert.match(ko, /&lt;script&gt;/);
   const en = vanishedHtml(crumb, false);
-  assert.match(en, /18 projects were saved here/);
+  assert.match(en, /18 boards were saved here/);
   assert.match(en, /Nothing has been deleted/, 'it leads with the reassurance');
 });
 
-test('one project reads as one, not as one projects', () => {
+test('one board reads as one, not as one boards', () => {
   const one = crumbFor('/a', 2, 1, new Date('2026-09-17T00:00:00Z'));
-  assert.match(vanishedHtml(one, false), /1 project were|1 project was/);
-  assert.ok(!vanishedHtml(one, false).includes('1 projects'), 'no bare plural on one');
+  assert.match(vanishedHtml(one, false), /1 board were|1 board was/);
+  assert.ok(!vanishedHtml(one, false).includes('1 boards'), 'no bare plural on one');
 });
 
 /* Starting fresh is the only destructive door in this notice, so it must be a deliberate press and

@@ -107,7 +107,7 @@ export function referencesPanelHtml(
   }
   const chips = ([
     ['all', 'All', '전체'],
-    ['project', 'This project', '이 프로젝트'],
+    ['project', 'This board', '이 보드'],
     ['shared', 'Shared', '공용'],
   ] as const)
     .map(([id, en, kr]) =>

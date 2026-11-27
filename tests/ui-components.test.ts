@@ -272,7 +272,7 @@ test('the app loads the tokens before the parts, from index.html and not from ap
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const tokens=html.indexOf('href="/src/ui/tokens.css"'),parts=html.indexOf('href="/src/ui/components.css"');
   assert.ok(tokens>0&&parts>tokens,'index.html links src/ui/tokens.css, then src/ui/components.css');
-  assert.ok(parts<html.indexOf('<script'),'the sheets load before the app script');
+  assert.ok(parts<html.indexOf('<script type="module"'),'the sheets load before the app script');
   // The source is for the build script and the tests; the app reads the generated stylesheet.
   const appCode=readdirSync(new URL('../src/',import.meta.url),{recursive:true}).map(String).filter(f=>/\.tsx?$/.test(f)&&!f.startsWith('ui/'));
   for(const file of appCode)assert.doesNotMatch(readFileSync(new URL(`../src/${file}`,import.meta.url),'utf8'),/from\s+['"][./]*ui\/tokens/,`${file} imports src/ui/tokens.ts`);

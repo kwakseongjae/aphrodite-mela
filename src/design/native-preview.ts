@@ -12,7 +12,7 @@ export function mountNativePreview(frame:HTMLIFrameElement,generatedPage:string)
  const host=document.createElement('div');host.className=`${frame.className} native-page-preview`;
  host.setAttribute('role','region');host.setAttribute('aria-label',frame.title);host.tabIndex=0;
  const root=host.attachShadow({mode:'open'});
- const reset=document.createElement('style');reset.textContent=':host{display:block;overflow:auto}*{box-sizing:border-box}button,input,select,textarea{font:inherit}';root.append(reset);
+ const reset=document.createElement('style');reset.textContent=':host{display:block;overflow:auto;color-scheme:light}*{box-sizing:border-box}button,input,select,textarea{font:inherit}';root.append(reset);
  parsed.head.querySelectorAll('style').forEach(style=>root.append(document.importNode(style,true)));
  root.append(document.importNode(main,true));frame.replaceWith(host);
  hydrateNativeLibraries(root);

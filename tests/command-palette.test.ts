@@ -78,3 +78,24 @@ test('the palette lists other frames as navigate entries and skips the active on
   assert.match(frames[0].ko,/Checkout/);
   assert.ok(list.some(c=>c.action==='panels-all'));
 });
+
+/* 0.3-L5 fix 1 #8: a theme is found by its own words, and the names Home had before it was called a board still find it (an agent's palette command used them). */
+test('each theme is found first by its own words, and Home by its old names too',()=>{
+  const table=commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop'});
+  for(const [query,scheme] of [['dark','dark'],['light','light'],['match the system','system'],['어둡게','dark'],['밝게','light'],['다크','dark'],['라이트','light'],['시스템 설정','system']] as const)
+    for(const language of ['en','ko'] as const)assert.equal(filterCommands(table,query,language)[0]?.data?.scheme,scheme,query+' in '+language);
+  for(const [query,language] of [['All projects (home)','en'],['All projects','en'],['프로젝트 목록(홈)','ko'],['프로젝트 목록','ko']] as const)
+    assert.equal(filterCommands(table,query,language)[0]?.action,'home',query);
+});
+
+/* 0.3-L5 fix 2 (#8, #19): a theme's own word runs that theme on Enter, even beside a frame whose name holds the same word; the list keeps the rank it was found in. */
+test('"dark" and "light" run their themes first even beside a frame named with the word',()=>{
+  const table=commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',pages:[{id:'d',name:'Dark mockup',active:false},{id:'l',name:'Light study',active:false}]});
+  for(const [query,scheme] of [['dark','dark'],['light','light'],['어둡게','dark'],['밝게','light']] as const)for(const language of ['en','ko'] as const){
+    assert.equal(filterCommands(table,query,language)[0]?.data?.scheme,scheme,query+' in '+language);
+    const first=/<button[^>]*data-palette[^>]*>/.exec(commandPaletteHtml(table,query,language))![0];
+    assert.match(first,new RegExp('data-action="hub-theme" data-scheme="'+scheme+'"'),'Enter runs the first row: '+query+' in '+language);
+  }
+  assert.ok(filterCommands(table,'dark','en').some(c=>c.id.startsWith('frame-')),'the frame is still found');
+  assert.match(/<button[^>]*data-palette[^>]*>/.exec(commandPaletteHtml(table,'','en'))![0],/data-action="home"/,'with nothing typed the groups keep their order');
+});

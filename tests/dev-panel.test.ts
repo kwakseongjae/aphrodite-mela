@@ -10,6 +10,7 @@ import {newBoard,shownPage,visiblePages,isStarterPage} from '../src/editor/start
 import {resolveTokens,semanticTokens} from '../src/design/tokens';
 import {fontStack} from '../src/design/fonts';
 import {esc} from '../src/html';
+import {boardWords} from '../src/workspace/board-words';
 import {personAt,agentDispatch} from '../src/agent/dispatch';
 import {parseBatch} from '../src/agent/ops';
 import {runBatch} from '../src/agent/apply';
@@ -183,7 +184,7 @@ test('selected block exposes node JSON from the scene manifest', () => {
 test('the property and Dev panels inspect the shown page and clear page details on an empty board',()=>{
   const board=editorBoard(newBoard('Board')),project=board.project;
   const label=(en:string)=>en;
-  const screen={...board,editorMode:'dev',selected:'',uiLanguage:'en',ui:label,control:label,esc,icon:label,iconButton:label,button:label,
+  const screen={...board,editorMode:'dev',selected:'',uiLanguage:'en',ui:label,control:label,esc,boardWords,icon:label,iconButton:label,button:label,
     currentPage,shownPage,visiblePages,isStarterPage,devPanelHtml,agentPanelHtml,assemblyRun:null,agentChannelText:()=>'',delegation:startDelegation(project,{operator:'Agent',intent:'Edit',scope:{frameId:project.starter}}),catalog,isApproved,shownState:()=>'',resolveTokens,semanticTokens,semanticLabel:label,fontStack,tokensOpen:false};
   editorCalls(['function commit(','function inspectorPanelHtml(','function inspectorHtml('],screen);
   const {commit,inspectorPanelHtml}=screen as typeof screen & {commit:Function;inspectorPanelHtml:()=>string};
