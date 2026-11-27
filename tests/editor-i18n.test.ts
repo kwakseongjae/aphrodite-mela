@@ -12,7 +12,7 @@ const chrome=[
   'Design mode','Get Vibe','Choose design system',
   'Selected component','Color palette','Ready to export','Import your DESIGN.md',
   'Agent assembly console','Add a section','Click to edit · Drag to move the frame',
-  'Direction, decided.','Like where this is going?','Reference','Manage project',
+  'Direction, decided.','Like where this is going?','Reference','Manage board',
   'Page options','Component variation','Parent frame','Page root',
 ];
 

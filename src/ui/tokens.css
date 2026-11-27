@@ -127,11 +127,14 @@
 
 :root, [data-theme="light"] {
   --ui-color-scheme: light;
+  --ui-art-blend: multiply;
   --ui-bg-app: var(--ui-n-50);
   --ui-bg-panel: var(--ui-n-0);
   --ui-bg-raised: var(--ui-n-0);
   --ui-bg-sunken: var(--ui-n-100);
   --ui-bg-page: var(--ui-white);
+  --ui-bg-paper: var(--ui-n-100);
+  --ui-bg-media: var(--ui-n-900);
   --ui-bg-canvas: var(--ui-floor-light);
   --ui-canvas-dot: rgb(33 31 25 / 0.16);
   --ui-bg-hover: var(--ui-n-100);
@@ -182,11 +185,14 @@
 
 [data-theme="dark"] {
   --ui-color-scheme: dark;
+  --ui-art-blend: normal;
   --ui-bg-app: var(--ui-d-50);
   --ui-bg-panel: var(--ui-d-100);
   --ui-bg-raised: var(--ui-d-200);
   --ui-bg-sunken: var(--ui-d-0);
   --ui-bg-page: var(--ui-white);
+  --ui-bg-paper: var(--ui-n-100);
+  --ui-bg-media: var(--ui-n-900);
   --ui-bg-canvas: var(--ui-floor-dark);
   --ui-canvas-dot: rgb(243 239 227 / 0.14);
   --ui-bg-hover: var(--ui-d-300);
@@ -238,11 +244,14 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --ui-color-scheme: dark;
+    --ui-art-blend: normal;
     --ui-bg-app: var(--ui-d-50);
     --ui-bg-panel: var(--ui-d-100);
     --ui-bg-raised: var(--ui-d-200);
     --ui-bg-sunken: var(--ui-d-0);
     --ui-bg-page: var(--ui-white);
+    --ui-bg-paper: var(--ui-n-100);
+    --ui-bg-media: var(--ui-n-900);
     --ui-bg-canvas: var(--ui-floor-dark);
     --ui-canvas-dot: rgb(243 239 227 / 0.14);
     --ui-bg-hover: var(--ui-d-300);

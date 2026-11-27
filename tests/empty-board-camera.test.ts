@@ -9,7 +9,7 @@ test('a saved camera on a reopened empty board fits the first shown frame exactl
   const project=newBoard('Returning'),other=newBoard('Other'),saved={x:-8000,y:-4000,zoom:0.5},values=new Map<string,string>();
   const localStorage={getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>values.set(k,v)};
   const space={clientWidth:800,clientHeight:600,addEventListener:noop},fits:string[]=[];
-  const screen={...editorBoard(project),localStorage,openingCamera,readCamera,visiblePages,unionBox,fitCamera,AbortController,
+  const screen={...editorBoard(project),store:localStorage,openingCamera,readCamera,visiblePages,unionBox,fitCamera,AbortController,
     cameraProjectId:'',cameraFitPending:false,spaceAbort:undefined,spaceHeld:false,camera:saved,spaceEl:()=>space,
     recordRun:(kind:string)=>fits.push(kind),applyCamera:noop,
     document:{querySelectorAll:()=>visiblePages(screen.project).map(p=>({dataset:{pageId:p.id},offsetWidth:1440,offsetHeight:600}))}};

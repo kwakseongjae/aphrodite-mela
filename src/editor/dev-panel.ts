@@ -106,7 +106,7 @@ function optionsSummary(block: Block): string {
 
 function themeSummary(block: Block, language: DevPanelLanguage): string {
   const theme = block.theme;
-  if (!theme || theme.mode === 'project') return ui(language, 'Project', '프로젝트');
+  if (!theme || theme.mode === 'project') return ui(language, 'Board', '보드');
   if (theme.mode === 'source') return ui(language, 'Source', '소스');
   return `${ui(language, 'Custom', '직접 지정')} · ${theme.accent ?? ''}`;
 }

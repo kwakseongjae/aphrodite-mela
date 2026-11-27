@@ -103,8 +103,8 @@ export function vanishedHtml(crumb: Breadcrumb, ko: boolean): string {
     <div class="ui-banner-body">
       <p class="ui-banner-title">${t('Your saved folder is not where it was.', '저장 폴더가 있던 자리에 없습니다.')}</p>
       <p class="ui-banner-text">${t(
-        `Nothing has been deleted. Last time, ${count} project${count === 1 ? '' : 's'} were saved here:`,
-        `아무것도 지워지지 않았습니다. 마지막에 이곳에 ${count}개의 프로젝트가 저장돼 있었습니다:`,
+        `Nothing has been deleted. Last time, ${count} board${count === 1 ? '' : 's'} were saved here:`,
+        `아무것도 지워지지 않았습니다. 마지막에 이곳에 ${count}개의 보드가 저장돼 있었습니다:`,
       )}</p>
       <p class="ui-banner-text"><code class="ui-mono">${esc(crumb.path)}</code></p>
       <p class="ui-banner-text">${t(
