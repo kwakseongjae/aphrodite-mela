@@ -22,7 +22,7 @@ test('the preview override keeps the board format and separates the installed ap
   assert.equal(preview.build.beforeBuildCommand, `export APHRODITE_PREVIEW_VERSION='${version}' && ${stable.build.beforeBuildCommand}`);
   assert.deepEqual(preview.bundle.fileAssociations, stable.bundle.fileAssociations.map((a: object) => ({...a, rank:'Alternate'})));
   assert.match(stable.plugins.updater.endpoints[0], /\/releases\/latest\/download\/latest.json$/);
-  assert.match(preview.plugins.updater.endpoints[0], /\/releases\/download\/preview-channel\/latest.json$/);
+  assert.match(preview.plugins.updater.endpoints[0], /\/releases\/download\/preview-channel\/preview\.json$/);
   const scheme = 'aphrodite-preview';
   const link = openLink('b1', 'p1', scheme);
   assert.equal(link, 'aphrodite-preview://open?board=b1&page=p1');

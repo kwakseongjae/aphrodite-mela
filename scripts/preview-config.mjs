@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 
 export const stableConfig = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
 export const previewChannel = 'preview-channel';
+export const previewIndex = 'preview.json';
 
 export function previewConfig(version) {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-preview\.(0|[1-9]\d*)$/.test(version)) {
@@ -18,6 +19,6 @@ export function previewConfig(version) {
       macOS: {infoPlist:'target/Info.preview.plist', bundleVersion:version.split('-preview.')[1]},
       fileAssociations: stableConfig.bundle.fileAssociations.map(type => ({...type, rank:'Alternate'})),
     },
-    plugins: {updater: {endpoints: [stableEndpoint.replace('/latest/download/', `/download/${previewChannel}/`)]}},
+    plugins: {updater: {endpoints: [new URL(`../../download/${previewChannel}/${previewIndex}`, stableEndpoint).href]}},
   };
 }

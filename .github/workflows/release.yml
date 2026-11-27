@@ -95,7 +95,7 @@ jobs:
       # exist in the signed one.
       # Tauri treats a *defined but empty* APPLE_* variable as a real setting, so each
       # signing path is its own step and only defines the variables it uses.
-      # The release body is also what lands in latest.json, which is what the app reads to say
+      # The release body is also what lands in latest.json (stable) or preview.json (preview), which is what the app reads to say
       # "what changed". A generic sentence there means the card has nothing to show.
       - name: Read the release notes
         id: notes
@@ -239,7 +239,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Advance the preview channel from the published assets
+      - name: Advance preview.json from the published assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}

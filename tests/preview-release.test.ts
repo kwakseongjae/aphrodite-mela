@@ -36,12 +36,7 @@ test('all three signing modes keep the stable release routing and isolate previe
 
 test('only a complete published preview can advance the fixed manifest for both Macs', async () => {
   const {previewManifest, olderPreview} = await import(new URL('../scripts/promote-preview.mjs', import.meta.url).href);
-  const version = '0.3.0-preview.10';
-  const assets = ['aarch64','x64'].flatMap(arch => ['.dmg','.app.tar.gz','.app.tar.gz.sig'].map(ext=>{
-    const name = `Aphrodite_${version}_${arch}${ext}`;
-    return {name,state:'uploaded',size:12,browser_download_url:`https://github.com/owner/app/releases/download/v${version}/${name}`};
-  }));
-  const release = {tag_name:'v'+version, prerelease:true, draft:false, assets, published_at:'2026-11-27T00:00:00Z', body:'Notes'};
+  const {release,version,assets} = publishedPreview();
   const signature = (asset:{name:string}) => 'signed ' + asset.name;
   const index = previewManifest(release, signature);
   assert.equal(index.version, version);
@@ -56,4 +51,31 @@ test('only a complete published preview can advance the fixed manifest for both 
   assert.equal(olderPreview('0.3.0-preview.2', version),true);
   assert.equal(olderPreview(version, '0.3.0-preview.2'),false);
   assert.equal(olderPreview(version, version),false);
+});
+
+function publishedPreview() {
+  const version = '0.3.0-preview.10';
+  const assets = ['aarch64','x64'].flatMap(arch => ['.dmg','.app.tar.gz','.app.tar.gz.sig'].map(ext=>{
+    const name = `Aphrodite_${version}_${arch}${ext}`;
+    return {name,state:'uploaded',size:12,browser_download_url:`https://github.com/owner/app/releases/download/v${version}/${name}`};
+  }));
+  const release = {tag_name:'v'+version, prerelease:true, draft:false, assets, published_at:'2026-11-27T00:00:00Z', body:'Notes'};
+  return {release,version,assets};
+}
+
+test('a preview writes only preview.json and refuses releases carrying the stable index', async () => {
+  const {promotePreview} = await import(new URL('../scripts/promote-preview.mjs', import.meta.url).href);
+  const {release} = publishedPreview();
+  const channel = {...release, tag_name:'preview-channel', assets:[] as {name:string}[]};
+  const uploads:string[] = [];
+  const promote = () => promotePreview(release.tag_name, (tag:string)=>tag===channel.tag_name ? channel : release,
+    ()=>'signature', (name:string)=>uploads.push(name));
+  promote();
+  assert.deepEqual(uploads,['preview.json']);
+  channel.assets.push({name:'latest.json'});
+  assert.throws(promote,/latest.json/);
+  channel.assets.pop();
+  release.assets.push({...release.assets[0], name:'latest.json'});
+  assert.throws(promote,/latest.json/);
+  assert.equal(uploads.length,1);
 });

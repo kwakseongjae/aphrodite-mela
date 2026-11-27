@@ -2,7 +2,7 @@
 import {execFileSync} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {previewChannel, previewConfig} from './preview-config.mjs';
+import {previewChannel, previewConfig, previewIndex} from './preview-config.mjs';
 
 function previewVersion(release) {
   if (release.draft || !release.prerelease || !release.tag_name.startsWith('v')) throw new Error('Expected a published preview tag');
@@ -35,10 +35,7 @@ export function olderPreview(candidate, existing) {
   return i >= 0 && a[i] < b[i];
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const {TAG:tag, GITHUB_REPOSITORY:repo} = process.env;
-  const gh = (...args) => execFileSync('gh', args, {encoding:'utf8'});
-  const release = name => JSON.parse(gh('api', `repos/${repo}/releases/tags/${name}`));
+export function promotePreview(tag, release, contents, upload) {
   const source = release(tag);
   if (source.tag_name !== tag) throw new Error('Wrong source tag');
   const version = previewVersion(source);
@@ -46,13 +43,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (channel.tag_name !== previewChannel || channel.draft || !channel.prerelease || channel.immutable) {
     throw new Error('The preview-channel prerelease must be published and allow asset updates');
   }
-  const contents = asset => gh('api', '-H', 'Accept: application/octet-stream', `repos/${repo}/releases/assets/${asset.id}`);
-  const current = channel.assets.find(a => a.name === 'latest.json');
+  if ([...source.assets, ...channel.assets].some(a => a.name === 'latest.json')) {
+    throw new Error('A preview release must not contain latest.json');
+  }
+  const current = channel.assets.find(a => a.name === previewIndex);
   if (current && olderPreview(version, JSON.parse(contents(current)).version)) {
     console.log('The channel already names a newer preview.');
   } else {
     const manifest = previewManifest(source, contents);
-    writeFileSync('latest.json', JSON.stringify(manifest, null, 2));
-    gh('release', 'upload', previewChannel, 'latest.json', '--clobber', '--repo', repo);
+    upload(previewIndex, manifest);
   }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const {TAG:tag, GITHUB_REPOSITORY:repo} = process.env;
+  const gh = (...args) => execFileSync('gh', args, {encoding:'utf8'});
+  const release = name => JSON.parse(gh('api', `repos/${repo}/releases/tags/${name}`));
+  const contents = asset => gh('api', '-H', 'Accept: application/octet-stream', `repos/${repo}/releases/assets/${asset.id}`);
+  promotePreview(tag, release, contents, (name, manifest) => {
+    writeFileSync(name, JSON.stringify(manifest, null, 2));
+    gh('release', 'upload', previewChannel, name, '--clobber', '--repo', repo);
+  });
 }
