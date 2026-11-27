@@ -76,16 +76,6 @@ test('quit after an empty read and failed retry exports the same live boards as 
   const closing=runInNewContext('closer.request(destroy)',s);await tick();writes[1].done.reject(new Error('disk full'));await closing;
   assert.equal(closed,true);const boards=(file:string)=>JSON.parse(file).entries.map((e:{project:unknown})=>e.project);assert.deepEqual(boards(files[1]),boards(files[0]));assert.match(questions.at(-1)!,/Save every board as a backup file/);
 });
-test('redrawing the badge after an empty read or refusal never says a write is pending',async()=>{
-  const {readFileSync}=await import('node:fs');const {runInNewContext}=await import('node:vm');
-  const main=readFileSync('src/main.ts','utf8');
-  const expr=main.match(/\$\{(saveBadge\([^\n]*?\))\}<\/div>/)![1];
-  for(const empty of [true,false]){
-    const {s,reads,edit}=windowWithDisk();Object.assign(s,{saveBadge:(v:string)=>v});
-    if(empty){const reading=s.reloadFromDisk();reads[0].resolve({data:null,path:'/old',revision:0});await reading;}else edit('bad\uD800');
-    assert.equal(runInNewContext(expr,s),'unsaved');
-  }
-});
 test('the format sentence follows the live backup and an edit during dispatch cannot change the checked bytes',async()=>{
   const {s,edit,files,press}=windowWithDisk();
   const {importedProject}=await import('../src/workspace/library');
@@ -116,4 +106,16 @@ test('the all-board quit choice keeps its scope when a late write lands while th
   editorCalls(['async function askClose(','async function keepOnClose('],s);
   const choice=await s.askClose(new s.StillSaving());await s.saves.flush();assert.equal(s.saves.noCopy,false);
   await s.keepOnClose(choice);assert.equal(JSON.parse(files[0]).entries?.length,2);
+});
+test('discard reads after earlier writes settle and asks again if a refused edit lands in that wait',async()=>{
+  for(const newer of [false,true]){
+    const {s,edit,writes,reads,questions}=windowWithDisk();
+    edit('A');await tick();await s.reloadFromDisk();
+    const answer=s.reloadFromDisk(Number(s.confirmGeneration));await tick();
+    assert.equal(reads.length,0,'the read must see the outcome of the in-flight write');
+    if(newer)edit('later\uD800');
+    writes[0].done.resolve(1);await tick();
+    if(!newer)reads[0].resolve({revision:1,path:'/old',data:writes[0].text});
+    await answer;assert.equal(questions.length,newer?2:1);
+  }
 });

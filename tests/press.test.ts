@@ -110,3 +110,14 @@ test('a repeated key on Allow stays inert until a new press',async()=>{
   assert.equal(await page.locator('.ask-modal').count(),1);
   await page.keyboard.press('Enter');assert.equal(await page.locator('.ask-modal').count(),0);
 });
+
+test('the real badge agrees on first paint, receipt and redraw after an empty read or refusal',async()=>{
+  const {page}=rig;
+  const badge=()=>page.locator('[data-save-badge]').getAttribute('data-save-badge');
+  assert.equal(await badge(),'saved');
+  await scene('disk');await scene('empty');assert.equal(await badge(),'unsaved');
+  await scene('redraw');assert.equal(await badge(),'unsaved');
+  await scene('edit');assert.equal(await badge(),'saving');
+  await scene('refuse');assert.equal(await badge(),'unsaved');
+  await page.evaluate('finishWrite(1)');await scene('redraw');assert.equal(await badge(),'unsaved');
+});

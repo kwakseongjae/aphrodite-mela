@@ -2744,7 +2744,10 @@ function saveChanged(){
 }
 function paintSaveState(){
   syncStateAttributes();
-  document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saves.saved?'Saved to disk':saves.badge==='saving'?'Saving to disk…':'Unsaved · export a backup');});
+  const home=homeCopy[uiLanguage];
+  document.querySelectorAll('[data-storage-state]').forEach(el=>{
+    el.textContent=saves.native?control(saves.saved?'Saved to disk':saves.badge==='saving'?'Saving to disk…':'Unsaved · export a backup'):(saves.saved?home.storageSaved:home.storageUnsaved);
+  });
   document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{el.replaceWith(document.createRange().createContextualFragment(saveBadge(saves.badge)));});
   hydrateIconsIn(app);
 }
@@ -2762,6 +2765,7 @@ async function reloadFromDiskNow(at=saves.generation){
   // Pressed from a dialog: it closes, and the mark or a toast says how it went.
   if(modalRoot.querySelector('.ui-notice-choices,[data-reload-confirm]'))closeModal();
   // An edit made since the question (or since the press) would be thrown away unasked: ask again, here and once the read is back.
+  if(saves.writing&&saves.generation===at)await bounded(flushDisk().catch(()=>{}));
   if(saves.generation!==at){askReload();return;}
   const stored=await bounded(invoke<{revision:number;data:string|null;path:string}>('workspace_read'));
   if(saves.generation!==at){askReload();return;}

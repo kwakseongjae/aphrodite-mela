@@ -24,6 +24,7 @@ export class WindowSaves {
   get saved() { return this.live === this.acknowledged && !this.error && !this.unread; }
   get noCopy() { return this.acknowledged === undefined; }
   get native() { return !!this.queue; }
+  get writing() { return this.pending > 0; }
   get missing() { return this.missingFolder; }
   get replaced() { return this.replacement; }
   get error() { return this.stopped || this.refused; }
@@ -41,7 +42,7 @@ export class WindowSaves {
   }
 
   emptyRead(record: Breadcrumb | undefined, hasWork: boolean) {
-    if (record) this.missingFolder = record;
+    this.missingFolder ??= record;
     if (hasWork) this.acknowledged = undefined;
   }
 

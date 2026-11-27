@@ -19,6 +19,15 @@ export async function keyboardBrowser(){
       mark:()=>{setAllowed([ANYONE]);refreshBanners();},
       wrote:()=>bumpConnect('claude-code'),
       page:()=>openPageView(project.activePageId),
+      disk:()=>{window.__TAURI_INTERNALS__={invoke:async cmd=>{
+        if(cmd==='workspace_read')return {revision:0,path:'/old',data:null};
+        if(cmd==='workspace_write')return new Promise(yes=>window.finishWrite=yes);
+        throw Error(cmd);
+      }};attachDiskQueue(0);},
+      empty:()=>reloadFromDiskNow(),
+      edit:()=>{project.name='Queued';persist();},
+      refuse:()=>{project.reference='x'.repeat(20_000_000);persist();},
+      redraw:()=>render(),
       approved:()=>isApproved(project),
     }});
   `;
