@@ -2053,3 +2053,17 @@ fn fix3_n9_guide_covers_record_repair_previous_paths_and_launch_behavior() {
         assert!(guide.contains(detail), "missing guide detail: {detail}");
     }
 }
+
+#[test]
+fn fix4_guide_explains_the_shared_journal_and_displaced_lock_names() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    for detail in [
+        "collapses `..` before resolving links",
+        "`$HOME/lnk/..` shares the default profile’s journal",
+        "unlinks the displaced name if it is a regular file or a symlink",
+        "A displaced directory stays",
+        "`.damaged-claude-lock-*`",
+    ] {
+        assert!(guide.contains(detail), "missing guide detail: {detail}");
+    }
+}
