@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 
 test('all three signing modes keep the stable release routing and isolate preview drafts', () => {
   const flow = releaseWorkflow();
@@ -148,4 +151,37 @@ test('the unsigned path fails a preview build before any release action', () => 
   const result = spawnSync('bash',['-ec',steps[i].run],{encoding:'utf8'});
   assert.equal(result.status,1);
   assert.match(result.stdout,/::error::.*sign/i);
+});
+
+function readNotes(tag:string, cwd:string, output:string) {
+  const step = releaseWorkflow().jobs.build.steps.find((s:{id?:string})=>s.id==='notes');
+  return spawnSync('bash',['-eo','pipefail','-c',step.run],{cwd,encoding:'utf8',
+    env:{...process.env,TAG:tag,GITHUB_OUTPUT:output}});
+}
+
+test('only the selected tag’s finished notes can become its release body', t => {
+  const dir = mkdtempSync(join(tmpdir(),'aph-release-notes-'));
+  t.after(()=>rmSync(dir,{recursive:true}));
+  mkdirSync(join(dir,'docs'));
+  const draft = 'v0.3.0-preview.1', ready = 'v0.3.0-preview.2';
+  writeFileSync(join(dir,'docs',`RELEASE-NOTES-${draft}.md`),'[PLACEHOLDER — preview download page link]');
+  writeFileSync(join(dir,'docs',`RELEASE-NOTES-${ready}.md`),'[Download Preview](https://example.org/preview)');
+  const output = join(dir,'output');
+  assert.notEqual(readNotes(draft,dir,output).status,0);
+  assert.equal(readNotes(ready,dir,output).status,0);
+  assert.match(readFileSync(output,'utf8'),/Download Preview/);
+  assert.doesNotMatch(readFileSync(output,'utf8'),/PLACEHOLDER/);
+  assert.notEqual(readNotes('v0.3.0-preview.3',dir,output).status,0);
+  assert.equal(releaseWorkflow().jobs.build.steps[0].with.ref,'refs/tags/${{ env.TAG }}');
+});
+
+if (process.env.TAG) test('the release notes for the tag being built are ready', t => {
+  const dir = mkdtempSync(join(tmpdir(),'aph-tag-notes-'));
+  t.after(()=>rmSync(dir,{recursive:true}));
+  const result = readNotes(process.env.TAG!,process.cwd(),join(dir,'output'));
+  assert.equal(result.status,0,result.stdout+result.stderr);
+});
+
+test('the known limit names the page preview window', () => {
+  assert.match(readFileSync('docs/RELEASE-NOTES-v0.3.0-preview.1.md','utf8'),/A link inside the page preview can open a hidden page separately/);
 });
