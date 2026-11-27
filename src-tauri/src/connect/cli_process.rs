@@ -239,7 +239,12 @@ impl Program {
         .map_err(|_| Code::InvalidPath)
     }
 
-    pub fn run(&self, engine: &Engine, args: &[&str]) -> Result<Output, CommandResult> {
+    pub fn run(
+        &self,
+        engine: &Engine,
+        profile: Option<&Path>,
+        args: &[&str],
+    ) -> Result<Output, CommandResult> {
         if !self.trusted {
             return Err(Code::CliUntrusted.into());
         }
@@ -275,10 +280,7 @@ impl Program {
             ("LC_ALL", Some("C".as_ref())),
             ("NO_COLOR", Some("1".as_ref())),
             ("COLUMNS", Some("32767".as_ref())),
-            (
-                "CLAUDE_CONFIG_DIR",
-                engine.claude_config_dir.as_deref().map(Path::as_os_str),
-            ),
+            ("CLAUDE_CONFIG_DIR", profile.map(Path::as_os_str)),
         ] {
             if let Some(value) = value {
                 let bytes = [key.as_bytes(), b"=", value.as_encoded_bytes()].concat();

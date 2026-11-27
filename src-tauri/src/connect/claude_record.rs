@@ -29,7 +29,7 @@ impl Record {
     }
 }
 
-fn record_path(e: &Engine) -> Result<PathBuf> {
+fn profile_dir(e: &Engine) -> Result<PathBuf> {
     let dir = e.claude_config_dir.as_ref().unwrap_or(&e.home);
     let mut ancestor = dir.as_path();
     let base = loop {
@@ -55,10 +55,14 @@ fn record_path(e: &Engine) -> Result<PathBuf> {
             _ => (),
         }
     }
+    Ok(profile)
+}
+
+fn record_path(e: &Engine, profile: &Path) -> PathBuf {
     let key = hash(profile.join(".claude.json").as_os_str().as_encoded_bytes());
-    Ok(e.app_data
+    e.app_data
         .join("connect")
-        .join(format!("claude-{key}.json")))
+        .join(format!("claude-{key}.json"))
 }
 
 fn private_file(meta: &fs::Metadata) -> bool {
@@ -105,10 +109,12 @@ pub(super) struct Store {
     path: PathBuf,
     lock: File,
     settings: Vec<PathBuf>,
+    pub profile: Option<PathBuf>,
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
-        let path = record_path(e)?;
+        let profile = profile_dir(e)?;
+        let path = record_path(e, &profile);
         let dir = path.parent().ok_or(Code::InvalidPath)?;
         // Create only below an existing controlled ancestor. Never follow a pre-existing symlink.
         let ancestor = dir
@@ -136,6 +142,7 @@ impl Store {
                         path,
                         lock,
                         settings,
+                        profile: e.claude_config_dir.as_ref().map(|_| profile),
                     })
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -179,7 +186,7 @@ impl Store {
         Ok(value)
     }
     pub fn peek(e: &Engine) -> Result<Record> {
-        Self::read_path(&record_path(e)?, &e.claude_settings())
+        Self::read_path(&record_path(e, &profile_dir(e)?), &e.claude_settings())
     }
     pub fn read(&self) -> Result<Record> {
         let mut record = Self::read_path(&self.path, &self.settings)?;

@@ -1539,3 +1539,20 @@ fn recheck_astra_2_private_lock_and_record_cannot_be_settings_symlink_targets() 
     let s = f.proposal(Action::Connect);
     assert_eq!(s["code"], "invalid_path");
 }
+
+#[test]
+fn recheck_astra_6_retargeting_a_profile_alias_invalidates_its_preview() {
+    let mut f = Fixture::new();
+    let alias = f.e().home.join("selected");
+    let first = f.e().home.join("first");
+    let next = f.e().home.join("next");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&next).unwrap();
+    symlink(&first, &alias).unwrap();
+    f.0.engine.claude_config_dir = Some(alias.clone());
+    let preview = f.proposal(Action::Connect);
+    fs::remove_file(&alias).unwrap();
+    symlink(&next, &alias).unwrap();
+    assert_eq!(f.apply(Action::Connect, &preview, false)["code"], "changed");
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}

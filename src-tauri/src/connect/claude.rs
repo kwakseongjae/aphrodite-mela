@@ -5,6 +5,7 @@ use super::{
     hash, Action, Code, Engine, Proposal, Status, Tool,
 };
 use serde::Serialize;
+use std::path::PathBuf;
 
 const REMOVE_ARGS: &[&str] = &["mcp", "remove", "--scope", "user", "aphrodite"];
 
@@ -63,6 +64,7 @@ struct Entry {
     digest: String,
 }
 struct State {
+    profile: Option<PathBuf>,
     program: Program,
     entry: Option<Entry>,
     record: Record,
@@ -179,7 +181,15 @@ impl State {
         if had_claim || warning.is_some() {
             store.revoke(true)?;
         }
-        let mut state = Self::query(e, program, record)?;
+        let mut state = match Self::query(e, program, record, store.profile.clone()) {
+            Ok(state) => state,
+            Err(mut result) => {
+                if had_claim {
+                    result.record_error = store.revoke(false).err();
+                }
+                return Err(result);
+            }
+        };
         state.record_error = warning;
         if state.entry.is_none() && state.record.registered.take().is_some() {
             state.record_error = store.save(&state.record).err();
@@ -188,8 +198,13 @@ impl State {
         }
         Ok(state)
     }
-    fn query(e: &Engine, program: Program, record: Record) -> Result<Self, CommandResult> {
-        let output = program.run(e, &["mcp", "get", "aphrodite"])?;
+    fn query(
+        e: &Engine,
+        program: Program,
+        record: Record,
+        profile: Option<PathBuf>,
+    ) -> Result<Self, CommandResult> {
+        let output = program.run(e, profile.as_deref(), &["mcp", "get", "aphrodite"])?;
         let entry = match output.status {
             Some(0) => Some(
                 entry(&output.stdout).map_err(|code| CommandResult::new(code, output.status))?,
@@ -204,6 +219,7 @@ impl State {
             _ => return Err(CommandResult::new(Code::CliGetFailed, output.status)),
         };
         Ok(Self {
+            profile,
             program,
             entry,
             record,
@@ -390,6 +406,9 @@ impl State {
             &e.exe,
             e.home.as_os_str().as_encoded_bytes(),
             &e.claude_config_dir,
+            self.profile
+                .as_ref()
+                .map(|p| p.as_os_str().as_encoded_bytes()),
             e.location,
             &self.program,
             &self.record,
@@ -488,11 +507,11 @@ impl Invocation {
     fn run(
         &self,
         e: &Engine,
-        program: &Program,
+        state: &State,
         action: Action,
     ) -> Result<CommandResult, CommandResult> {
         let args: Vec<_> = self.argv[1..].iter().map(String::as_str).collect();
-        let output = program.run(e, &args)?;
+        let output = state.program.run(e, state.profile.as_deref(), &args)?;
         let (success, failure) = match action {
             Action::Connect => (Code::Registered, Code::CliAddFailed),
             Action::Remove => (Code::Removed, Code::CliRemoveFailed),
@@ -596,21 +615,26 @@ pub(super) fn execute(
             store.revoke(true)?;
         }
         let removed = first
-            .run(e, &state.program, Action::Remove)
+            .run(e, &state, Action::Remove)
             .map_err(|err| state.reconcile(e, &store, &plan, Action::Remove, err))?;
         if action == Action::Remove {
             return Ok(save_record(&store, None, removed));
         }
     }
     let add = plan.commands.last().unwrap();
-    add.run(e, &state.program, Action::Connect)
+    add.run(e, &state, Action::Connect)
         .map(|added| save_record(&store, Some(e.executable()), added))
         .map_err(|err| state.reconcile(e, &store, &plan, Action::Connect, err))
 }
 
 impl State {
     fn observe(&self, e: &Engine, result: &mut CommandResult) -> Option<State> {
-        match State::query(e, self.program.clone(), self.record.clone()) {
+        match State::query(
+            e,
+            self.program.clone(),
+            self.record.clone(),
+            self.profile.clone(),
+        ) {
             Ok(now) => {
                 result.observed = Some(Observation {
                     entry_exists: Some(now.entry.is_some()),
@@ -683,7 +707,7 @@ impl State {
         }
         // Only the confirmed recovery command may run, and only after observing absence.
         failure.cause = Some(failure.code);
-        match restore.run(e, &self.program, Action::Connect) {
+        match restore.run(e, self, Action::Connect) {
             Ok(result) => failure.restore_exit_status = result.exit_status,
             Err(err) => {
                 failure.restore_exit_status = err.exit_status;

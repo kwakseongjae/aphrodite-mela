@@ -39,8 +39,10 @@ def finish_reply():
         (home / "repoint-snapshot").chmod(0o600)
     if reply.get("hang"):
         time.sleep(30)
-    print(reply.get("out", ""))
-    print(reply.get("err", ""), file=sys.stderr)
+    if "out" in reply:
+        print(reply["out"])
+    if "err" in reply:
+        print(reply["err"], file=sys.stderr)
     if reply.get("signal"):
         os.kill(os.getpid(), reply["signal"])
     sys.exit(reply["exit"])
@@ -52,7 +54,7 @@ def fixture(name, **values):
     template = (home / "fixtures" / (name + ".txt")).read_text().split("\n", 1)[1]
     return template.format(**values)
 
-config = Path(profile or home) / ".claude.json"
+config = Path(profile or home).resolve() / ".claude.json"
 state = home / ("entry" if config == home / ".claude.json" else "entry-" + hashlib.sha256(os.fsencode(config)).hexdigest())  # display only
 if verb == "get":
     assert args == ["mcp", "get", "aphrodite"]
