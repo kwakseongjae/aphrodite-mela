@@ -39,18 +39,23 @@ export function promotePreview(tag, release, contents, upload) {
   const source = release(tag);
   if (source.tag_name !== tag) throw new Error('Wrong source tag');
   const version = previewVersion(source);
-  const channel = release(previewChannel);
-  if (channel.tag_name !== previewChannel || channel.draft || !channel.prerelease || channel.immutable) {
-    throw new Error('The preview-channel prerelease must be published and allow asset updates');
+  function checkedChannel() {
+    const channel = release(previewChannel);
+    if (channel.tag_name !== previewChannel || channel.draft || !channel.prerelease || channel.immutable) {
+      throw new Error('The preview-channel prerelease must be published and allow asset updates');
+    }
+    if ([...source.assets, ...channel.assets].some(a => a.name === 'latest.json')) {
+      throw new Error('A preview release must not contain latest.json');
+    }
+    return channel;
   }
-  if ([...source.assets, ...channel.assets].some(a => a.name === 'latest.json')) {
-    throw new Error('A preview release must not contain latest.json');
-  }
+  const channel = checkedChannel();
   const current = channel.assets.find(a => a.name === previewIndex);
   if (current && olderPreview(version, JSON.parse(contents(current)).version)) {
     console.log('The channel already names a newer preview.');
   } else {
     const manifest = previewManifest(source, contents);
+    checkedChannel();
     upload(previewIndex, manifest);
   }
 }
