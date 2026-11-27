@@ -179,12 +179,12 @@ test('a toast offers Undo only for the change it reports, and checks it again af
   const screen:Record<string,unknown>={askOpen:()=>false,toasts:[],expireToasts:(l:unknown[])=>l,pushToast:(l:unknown[],m:string,at:number,id:number,o:{undo?:string})=>{pushed.push(o);return l;},
     boardWords:(s:string)=>s,toastId:0,paintToasts:()=>{},screen:'editor',editSession:3,project:{id:'b'},edits:{undo:[{seq:7}]}};
   editorCalls(['function undoToken(','function undoable('],screen);
-  const undoable=screen.undoable as (m:string,c:{seq:number}|null)=>void,token=screen.undoToken as ()=>string;
-  undoable('Moved.',{seq:7});
+  const undoable=screen.undoable as (m:string,c:{seq:number;author:{kind:string}}|null)=>void,token=screen.undoToken as ()=>string,you={kind:'person'};
+  undoable('Moved.',{seq:7,author:you});
   assert.equal(pushed[0].undo,token(),'the change it reports is the last one, so Undo is offered');
   undoable('Moved.',null);
   assert.equal(pushed[1].undo,undefined,'nothing recorded, no Undo: it would take back an earlier change');
-  undoable('Moved.',{seq:6});
+  undoable('Moved.',{seq:6,author:you});
   assert.notEqual(pushed[2].undo,token(),'an earlier change is never offered as the last one');
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/function commit\([^]*?\n  return recorded;\n\}/,'commit hands back what it recorded');

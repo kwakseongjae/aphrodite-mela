@@ -468,8 +468,9 @@ function toast(message:string){if(askOpen())return;notice(message);}
 function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId);paintToasts();}
 /** The change on top of the undo stack, as a toast names it: a toast for that change offers Undo, one for any earlier change does not. */
 function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;return top?`${editSession}:${project.id}:${top.seq}`:'';}
-/** A finished change the shortcut can take back: the toast carries Undo for the change it reports, the one recorded for it, while that is still the last (data-action="undo"). */
-function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?`${editSession}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
+/** A finished change the shortcut can take back: the toast carries Undo for the change it reports, the one recorded for it, while that is still the last (data-action="undo").
+ *  An agent's change, pressed through the screen or not, is reported without one: the person did not make it. */
+function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?.author.kind==='person'?`${editSession}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
 function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
   // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
