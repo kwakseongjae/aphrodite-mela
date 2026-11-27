@@ -141,9 +141,9 @@ fn replace_lock(dir: &Path, path: &Path) -> Result<()> {
     File::open(dir)
         .and_then(|f| f.sync_all())
         .map_err(|_| Code::RecordFailed)?;
-    let displaced = fs::symlink_metadata(fresh.path()).map_err(|_| Code::RecordFailed)?;
-    if displaced.is_file() || displaced.is_symlink() {
-        fs::remove_file(fresh.path()).map_err(|_| Code::RecordFailed)?;
+    // The fresh lock is already in place, so tidying the displaced name is best effort.
+    if fs::symlink_metadata(fresh.path()).is_ok_and(|m| m.is_file() || m.is_symlink()) {
+        let _ = fs::remove_file(fresh.path());
     }
     Ok(())
 }
