@@ -77,10 +77,10 @@ fn open_lock(path: &Path, settings: &[PathBuf], owner: u32) -> Result<Option<Fil
         }
     }
     let before = fs::symlink_metadata(path).map_err(|_| Code::Io)?;
-    files::exclude_settings((before.dev(), before.ino()), settings)?;
     if !private_file(&before, owner) || !controlled(path) {
         return Ok(None);
     }
+    files::exclude_settings((before.dev(), before.ino()), settings)?;
     let file = options.open(path).map_err(|_| Code::Io)?;
     let after = file.metadata().map_err(|_| Code::Io)?;
     if !private_file(&after, owner) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {

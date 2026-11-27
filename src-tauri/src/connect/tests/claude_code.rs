@@ -1140,16 +1140,25 @@ fn astra_1_an_env_symlink_still_checks_its_selected_interpreter() {
     assert!(f.calls().is_empty());
 }
 #[test]
-fn astra_7_the_registration_lock_refuses_settings_aliases_before_opening() {
+fn astra_7_a_read_only_settings_alias_is_displaced_before_opening_the_lock() {
+    use std::os::unix::fs::MetadataExt;
     let f = Fixture::new();
     let path = record_path(&f).with_extension("lock");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     let settings = f.e().path(CLAUDE);
-    fs::write(&settings, []).unwrap();
+    fs::write(&settings, b"preserve").unwrap();
     fs::set_permissions(&settings, fs::Permissions::from_mode(0o400)).unwrap();
-    fs::hard_link(settings, path).unwrap();
-    assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
-    assert!(f.calls().is_empty());
+    fs::hard_link(&settings, &path).unwrap();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["recordError"], "record_failed");
+    assert_eq!(preview["commands"][0]["argv"][2], "add");
+    let calls = f.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["args"], json!(["mcp", "get", "aphrodite"]));
+    let kept = fs::metadata(&settings).unwrap();
+    assert_ne!(fs::metadata(path).unwrap().ino(), kept.ino());
+    assert_eq!(kept.mode() & 0o777, 0o400);
+    assert_eq!(fs::read(settings).unwrap(), b"preserve");
 }
 
 #[test]
@@ -1616,6 +1625,37 @@ fn fix3_n1_second_hard_link_is_preserved_during_repair() {
     damaged_lock_requires_a_new_claim(|path| {
         fs::hard_link(path, path.with_file_name("other-link")).unwrap();
     });
+}
+
+#[test]
+fn fix4_f2_either_preview_repairs_a_lock_hard_linked_to_settings() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    let lock = record_path(&f).with_extension("lock");
+    let settings = f.e().home.join(".claude.json");
+    let target = f.e().home.join("settings-file");
+    let contents = b"{\"preserve\":true}\n";
+    fs::write(&target, contents).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    symlink(&target, &settings).unwrap();
+    let original = fs::metadata(&settings).unwrap();
+    for action in [Action::Connect, Action::Remove] {
+        fs::remove_file(&lock).unwrap();
+        fs::hard_link(&target, &lock).unwrap();
+        let preview = f.proposal(action);
+        assert_eq!(preview["confirmationRequired"], true, "{preview}");
+        assert_eq!(preview["recordError"], "record_failed");
+        assert_eq!(fs::read_link(&settings).unwrap(), target);
+        let after = fs::metadata(&settings).unwrap();
+        assert_eq!(
+            (after.ino(), after.mode()),
+            (original.ino(), original.mode())
+        );
+        assert_eq!(fs::read(&settings).unwrap(), contents);
+        assert_ne!(fs::metadata(&lock).unwrap().ino(), original.ino());
+    }
 }
 
 #[test]
