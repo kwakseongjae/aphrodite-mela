@@ -465,7 +465,7 @@ function showFatal(detail:string){
     try{await action(button,dispatchOf(e),true);}
     catch(error){
       if(at!==attempt)return;
-      if(act==='fatal-copy')status.textContent=ko?'복사하지 못했습니다. 글을 선택해 복사하세요.':'Could not copy. Select the text and copy it.';
+      if(act==='fatal-copy')status.textContent=ko?'복사하지 못했어요. 글을 선택해서 복사해 주세요.':'Could not copy. Select the text and copy it.';
       else{
         status.textContent=ko?'파일로 저장하지 못했어요.':'The file could not be saved.';
         raw.textContent='\n\n'+String(error);

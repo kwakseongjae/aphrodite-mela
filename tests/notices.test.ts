@@ -456,3 +456,11 @@ test('every connected mark shows the logo of the agent whose change it counted, 
   const main=readFileSync('src/main.ts','utf8');
   assert.equal((main.match(/(?<!let )connectWrites=0;/g)??[]).length,(main.match(/connectWrites=0;connectWriter='';/g)??[]).length,'the logo is forgotten wherever the count is');
 });
+
+/* The sheet's two failure lines speak alike: the copy one in the same polite ending as the save one. */
+test('the render-failed sheet says a failed copy as it says a failed save',()=>{
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/status\.textContent=ko\?'복사하지 못했어요\. 글을 선택해서 복사해 주세요\.':'Could not copy\. Select the text and copy it\.';/);
+  assert.match(main,/status\.textContent=ko\?'파일로 저장하지 못했어요\.':'The file could not be saved\.';/);
+  assert.doesNotMatch(main,/복사하지 못했습니다\. 글을 선택해 복사하세요\./,'the old line is nowhere');
+});

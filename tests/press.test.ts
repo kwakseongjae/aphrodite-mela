@@ -187,14 +187,14 @@ test('the sheet replaces failure feedback and Copy contains only the diagnostics
   `);
   const copy=page.locator('[data-action="fatal-copy"]'),status=page.locator('[data-fatal-status]');
   await copy.click();await copy.click();assert.equal(await status.count(),1);
-  assert.match((await status.textContent())!,/Could not copy|복사하지 못했습니다/);
+  assert.match((await status.textContent())!,/Could not copy\. Select the text and copy it\.|복사하지 못했어요\. 글을 선택해서 복사해 주세요\./);
   await page.locator('[data-action="fatal-backup"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-fatal-detail]')?.textContent?.includes('disk refused'));
   assert.match((await status.textContent())!,/The file could not be saved\.|파일로 저장하지 못했어요\./);
   await page.evaluate(`navigator.clipboard.writeText=async text=>window.copied=text`);await copy.click();
   const copied=await page.evaluate<string>('window.copied');
   assert.match(copied,/test diagnostic/);assert.match(copied,/disk refused/);
-  assert.doesNotMatch(copied,/Could not copy|복사하지 못했습니다|could not be saved|저장하지 못했어요/);
+  assert.doesNotMatch(copied,/Could not copy|복사하지 못했어요|could not be saved|저장하지 못했어요/);
 });
 test('the standalone page and editor show the allowed scope after an agent writes',async()=>{
   const {page}=rig;await scene('mark');
