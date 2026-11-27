@@ -4,6 +4,19 @@ The Mac app includes a small MCP server named `aphrodite-mcp`. A client launches
 
 The server runs without Node. It reads Aphrodite’s local endpoint file on each call and passes the request to the running app. With the app closed, the guide still explains how to work with Aphrodite. Open the app to read or change a board. Permission to edit and approval of a direction belong to the person in Aphrodite. Registering the server grants neither.
 
+## Connecting to Preview
+
+Install Aphrodite Preview in Applications, open it, and register its bundled server with your client.
+
+```sh
+claude mcp add --transport stdio --scope user aphrodite -- '/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp'
+codex mcp add aphrodite -- '/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp'
+```
+
+Both apps use the client entry named `aphrodite`. If Claude Code already has that user entry, remove it with `claude mcp remove --scope user aphrodite` before adding the other installation. Restart the client. Open the preview board and allow the client's request to edit there. A client points to one installation at a time. The connection engine reports the other installation as an existing entry with `pointsHere: false`. Replacing it through the engine requires confirmation.
+
+The source Node adapter defaults to stable. To target Preview, launch it with `APHRODITE_ENDPOINT_FILE="$HOME/Library/Application Support/studio.aphrodite.mela.preview/agent-endpoint.json"`. The explicit file also takes precedence in either bundled executable. A running preview advertises its version in this file.
+
 ## Where the entry goes
 
 These are the user-level locations on macOS. The documentation was checked on November 26, 2026. The engine is available to the desktop application. Its settings screen is a separate change.

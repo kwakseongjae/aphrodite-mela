@@ -41,6 +41,11 @@ export const NOBODY: Dispatch = Object.freeze({author: UNKNOWN, surface: 'ui'});
 
 /** The `ui` Dispatches made from trusted events. Nothing else is the person. */
 const fromPerson = new WeakSet<Dispatch>();
+/** Draining the OS queue supplies inputs for a future press on the import control. */
+export async function takeHtmlHandovers() {
+  const {takeGrantedHtml} = await import('../import/native');
+  return takeGrantedHtml();
+}
 /** Events the app or an agent's command made, with the Dispatch of whoever caused them. */
 const carried = new WeakMap<Event, Dispatch>();
 /** Whoever `sendAs` is sending events for, only while it runs; undefined outside it. */

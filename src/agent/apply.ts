@@ -26,7 +26,7 @@ import {commandById, type Surface} from './commands.mjs';
  * `created` is every page the batch made, in order, so the agent can address what it just made.
  * `designChars` is how long the resulting design serializes to, for measuring what saving takes.
  */
-export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; part: 'ops' | 'patch'};
+export type BatchResult = {ok: true; project: Project; selected: string; created: string[]; designChars: number} | {ok: false; index: number; error: string; code?: 'design_limit' | 'invalid_project'; part: 'ops' | 'patch'};
 type Focus = {selected: string; created: string[]; place: typeof placeFrame};
 
 /** A free page's html, written by an op: held to what a page may store, or an error sentence. */
@@ -234,7 +234,7 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
     // 2MB would not fit in one, and a project that cannot be saved cannot be undone into either.
     json = JSON.stringify(next);
     try { parseProject(json); }
-    catch (error) { return {ok: false, index: -1, part: 'ops', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
+    catch (error) { return {ok: false, index: -1, part: 'ops', code: json.length > MAX_PROJECT ? 'design_limit' : 'invalid_project', error: `the ops would leave the project invalid: ${error instanceof Error ? error.message : String(error)}`}; }
   }
   if (batch.patch?.length) {
     // What the patch changed is read against what the ops made: a media item media_add placed is theirs, not the patch's.
@@ -259,7 +259,7 @@ function attempt(project: Project, batch: {ops: Op[]; patch?: PatchOp[]; pageId?
   // (src/ledger/types.ts). So the design alone is held to the rest: a batch that lands is a project that
   // saves and opens, whoever records it and with whatever reason.
   const designChars = (batch.patch?.length || !json ? JSON.stringify(next) : json).length;
-  if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
+  if (designChars > MAX_PROJECT - LEDGER_RESERVE) return {ok: false, code: 'design_limit', index: -1, part: batch.ops.length ? 'ops' : 'patch', error: `with this change the design would be ${designChars.toLocaleString('en')} characters; a project holds ${(MAX_PROJECT - LEDGER_RESERVE).toLocaleString('en')} of design beside its history. Make the page smaller, or split the work across pages or another project.`};
   return {ok: true, project: next, selected: focus.selected, created: focus.created, designChars};
 }
 

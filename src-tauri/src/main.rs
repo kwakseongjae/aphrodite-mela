@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
 mod board;
+mod channel;
 mod connect;
 mod disk;
 mod fonts;
 mod image_library;
+mod import;
 mod look;
 mod opened;
 mod page_wall;
@@ -16,7 +18,13 @@ mod update;
 mod vault;
 mod workspace;
 
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
 fn main() {
+    let context = context();
+    let channel = channel::Channel::from_identifier(&context.config().identifier);
     tauri::Builder::default()
         .setup(|app| {
             // A relaunch after an update starts us from the old process, and macOS does not hand
@@ -39,8 +47,10 @@ fn main() {
         .manage(agent::AgentBridge::default())
         .manage(opened::OpenedState(Default::default()))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(import::plugin())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new()
+            .default_version_comparator(move |current, release| update::can_install(channel, current, release)).build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             look::window_look,
@@ -97,6 +107,11 @@ fn main() {
             board::board_media_release,
             board::board_media_path,
             board::free_page_write,
+            import::html_import_pick,
+            import::html_import_take,
+            import::html_import_read,
+            import::html_import_media,
+            import::html_import_finish,
             opened::opened_take,
             opened::opened_file_read
         ])
@@ -105,15 +120,32 @@ fn main() {
                 disk::release_close(window.label(), disk::Release::WindowDestroyed);
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Aphrodite could not start")
         .run(|app, event| {
             // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                opened::opened(app, urls);
+                let others = urls.into_iter().filter(|url| {
+                    !import::route_file(url, |path| import::hand_over(app, path))
+                }).collect();
+                opened::opened(app, others);
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+#[test]
+fn the_compiled_context_uses_the_identity_and_updater_of_the_selected_build() {
+    let context = context();
+    let base: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let patch: serde_json::Value = serde_json::from_str(option_env!("TAURI_CONFIG").unwrap_or("{}")).unwrap();
+    let expected = |key: &str| patch[key].as_str().or_else(|| base[key].as_str()).unwrap();
+    let config = context.config();
+    assert_eq!(config.identifier, expected("identifier"));
+    assert_eq!(context.package_info().name, expected("productName"));
+    assert_eq!(context.package_info().version.to_string(), expected("version"));
+    let endpoint = "/plugins/updater/endpoints";
+    assert_eq!(Some(&config.plugins.0["updater"]["endpoints"]), patch.pointer(endpoint).or_else(|| base.pointer(endpoint)));
 }

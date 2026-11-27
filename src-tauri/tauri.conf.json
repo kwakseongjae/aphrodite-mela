@@ -26,7 +26,14 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/board-media/*",
+          "$APPDATA/board-media/*.png",
+          "$APPDATA/board-media/*.jpg",
+          "$APPDATA/board-media/*.gif",
+          "$APPDATA/board-media/*.webp",
+          "$APPDATA/board-media/*.webm",
+          "$APPDATA/board-media/*.wav",
+          "$APPDATA/board-media/*.ogg",
+          "$APPDATA/board-media/*.mp3.bin",
           "$APPDATA/free-pages/**"
         ]
       },

@@ -69,6 +69,7 @@ dependencies = [
  "objc2-web-kit",
  "plist",
  "rustix",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

@@ -11,7 +11,12 @@
 set -u
 V="${1:-0.2.0}"
 REPO=kwakseongjae/aphrodite-mela
-SUPPORT="$HOME/Library/Application Support/studio.aphrodite.mela"
+# The second argument selects the installed app and its storage (stable by default).
+IDENTIFIER="${2:-studio.aphrodite.mela}"
+if [[ "${V}" == *-preview.* && "${IDENTIFIER}" != *.preview ]] || [[ "${V}" != *-preview.* && "${IDENTIFIER}" == *.preview ]]; then
+  print -u2 'Pass the identifier of the app built for this version.'; exit 2
+fi
+SUPPORT="$HOME/Library/Application Support/$IDENTIFIER"
 say(){ print -r -- "$@" }
 pass(){ say "  ✓ $1" }
 fail(){ say "  ✗ $1"; FAILED=1 }
@@ -42,16 +47,24 @@ if xcrun stapler validate "$DMG" >/dev/null 2>&1; then pass "notarization ticket
 
 say "\n== Mounting it for you"
 MP=$(hdiutil attach -nobrowse "$DMG" | sed -n 's#.*\(/Volumes/.*\)$#\1#p' | tail -1)
-if [ -d "$MP/Aphrodite.app" ]; then
-  pass "mounted at $MP"
-  say "  version inside: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$MP/Aphrodite.app/Contents/Info.plist")"
-else
-  fail "could not find Aphrodite.app in the image"; exit 4
+APPS=("$MP"/*.app(N))
+if (( ${#APPS[@]} != 1 )); then fail "expected one app in the image"; exit 4; fi
+APP="${APPS[1]}"
+PLIST="$APP/Contents/Info.plist"
+BUILT_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+BUILT_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+if [[ "$IDENTIFIER" == *.preview ]]; then
+  BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+  BUILT_VERSION="$BUILT_VERSION-preview.$BUILD_NUMBER"
 fi
+if [[ "$BUILT_ID" != "$IDENTIFIER" || "$BUILT_VERSION" != "$V" ]]; then
+  fail "expected $IDENTIFIER $V, found $BUILT_ID $BUILT_VERSION"; exit 4
+fi
+pass "mounted ${APP:t} $BUILT_VERSION at $MP"
 
 say "\n────────────────────────────────────────────────────────"
 say " Now do this by hand, and time the first paint:"
-say "   1. Drag Aphrodite to Applications."
+say "   1. Drag ${APP:t} to Applications."
 say "   2. Double-click it in Applications. Start counting."
 say ""
 say " Watch for — any 'no' is worth writing down:"

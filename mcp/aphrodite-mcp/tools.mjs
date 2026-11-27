@@ -45,6 +45,7 @@ export const tools = mcpTools();
 export const toolByName = Object.fromEntries(tools.map(t => [t.name, t]));
 
 /** What the client sees — the call plumbing stays here. */
-export function toolManifest() {
-  return tools.map(({name, title, description, inputSchema, annotations}) => ({name, title, description, inputSchema, annotations}));
+export function toolManifest(scheme) {
+  const selected = scheme ? mcpTools(scheme) : tools;
+  return selected.map(({name, title, description, inputSchema, annotations}) => ({name, title, description, inputSchema, annotations}));
 }

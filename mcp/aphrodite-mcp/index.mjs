@@ -10,6 +10,7 @@
  *
  * No dependencies on purpose: `node mcp/aphrodite-mcp/index.mjs` and nothing to install.
  */
+import {schemeForIdentifier} from '../../src/board-scheme.mjs';
 import {protocol} from './protocol.mjs';
 import {once} from 'node:events';
 import {frames, decode, parse, fitsTree, validateScalars, readEndpoint, responseBody} from './wire.mjs';
@@ -24,7 +25,9 @@ const NAME = 'aphrodite';
    nobody knew to bump, and a client shows it in its server list. The one place the version lives is
    package.json; if that cannot be read the server still starts, because a wrong number in a label is
    not a reason to refuse an agent. */
-const VERSION = (() => {
+const build = process.env.APHRODITE_PREVIEW_VERSION || process.env.TAURI_CONFIG
+  ? (await import('../../scripts/preview-config.mjs')).buildIdentity() : undefined;
+const VERSION = build?.version || (() => {
   try {
     return JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version ?? '0.0.0';
   } catch {
@@ -157,7 +160,7 @@ async function handle(message, who) {
       return reply(id, {
         protocolVersion: version,
         capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}},
-        serverInfo: {name: NAME, version: VERSION},
+        serverInfo: {name: NAME, version: (process.env.APHRODITE_ENDPOINT_FILE && endpoint()?.version) || VERSION},
         instructions: protocol.instructions,
       });
     }
@@ -167,7 +170,7 @@ async function handle(message, who) {
     case 'ping':
       return reply(id, {});
     case 'tools/list':
-      return reply(id, {tools: toolManifest()});
+      return reply(id, {tools: toolManifest(schemeForIdentifier(endpoint()?.identifier ?? build?.identifier ?? ''))});
     case 'prompts/list':
       return reply(id, {prompts: promptManifest()});
     case 'prompts/get': {

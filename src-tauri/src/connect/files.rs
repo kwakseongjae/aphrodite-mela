@@ -14,7 +14,9 @@ use std::{
 };
 use xattr::FileExt;
 
-const RECEIPT: &str = "studio.aphrodite.mela.mcp-entry";
+pub fn receipt_key(identifier: &str) -> String {
+    format!("{identifier}.mcp-entry")
+}
 fn io_code(e: io::Error) -> Code {
     if e.raw_os_error() == Some(libc::ENOTSUP) {
         return Code::NoExtendedAttributes;
@@ -134,14 +136,14 @@ fn make_private(file: &File) -> Result<()> {
 }
 
 // Origin tags belong to the inode macOS tagged. The receipt is managed separately.
-fn carried_attributes(file: &File) -> Result<Vec<OsString>> {
+fn carried_attributes(file: &File, receipt_key: &str) -> Result<Vec<OsString>> {
     let mut keys: Vec<_> = file
         .list_xattr()
         .map_err(io_code)?
         .filter(|key| {
-            !matches!(
+            key != receipt_key && !matches!(
                 key.to_str(),
-                Some(RECEIPT | "com.apple.provenance" | "com.apple.quarantine")
+                Some("com.apple.provenance" | "com.apple.quarantine")
             )
         })
         .collect();
@@ -149,7 +151,7 @@ fn carried_attributes(file: &File) -> Result<Vec<OsString>> {
     Ok(keys)
 }
 
-fn copy_protections(original: &File, staged: &File) -> Result<()> {
+fn copy_protections(original: &File, staged: &File, receipt_key: &str) -> Result<()> {
     let from = original.metadata().map_err(io_code)?;
     let to = staged.metadata().map_err(io_code)?;
     let fd = staged.as_raw_fd();
@@ -158,7 +160,7 @@ fn copy_protections(original: &File, staged: &File) -> Result<()> {
     {
         return Err(io_code(io::Error::last_os_error()));
     }
-    for key in carried_attributes(original)? {
+    for key in carried_attributes(original, receipt_key)? {
         let value = original
             .get_xattr(&key)
             .map_err(io_code)?
@@ -194,7 +196,7 @@ fn copy_protections(original: &File, staged: &File) -> Result<()> {
 
 // Darwin exposes ACLs separately from extended attributes. Compare their external
 // representation as well as the mode and attributes after an exchange.
-fn protections(file: &File) -> Result<String> {
+fn protections(file: &File, receipt_key: &str) -> Result<String> {
     let meta = file.metadata().map_err(io_code)?;
     let mut parts =
         vec![serde_json::to_vec(&(meta.mode(), meta.uid(), meta.gid(), meta.st_flags())).unwrap()];
@@ -216,7 +218,7 @@ fn protections(file: &File) -> Result<String> {
             return Err(Code::Io);
         }
     }
-    for key in carried_attributes(file)? {
+    for key in carried_attributes(file, receipt_key)? {
         parts.push(key.as_encoded_bytes().to_vec());
         parts.push(file.get_xattr(key).map_err(io_code)?.ok_or(Code::Changed)?);
     }
@@ -224,6 +226,7 @@ fn protections(file: &File) -> Result<String> {
 }
 
 pub struct FileState {
+    receipt_key: String,
     pub text: Option<String>,
     pub mode: u32,
     pub protection: String,
@@ -233,11 +236,12 @@ pub struct FileState {
     file: Option<File>,
 }
 impl FileState {
-    pub fn read(root: &Dir, relative: &Path) -> Result<Self> {
+    pub fn read(root: &Dir, relative: &Path, receipt_key: &str) -> Result<Self> {
         let meta = match root.symlink_metadata(relative) {
             Ok(meta) => meta,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Ok(Self {
+                    receipt_key: receipt_key.into(),
                     text: None,
                     mode: 0o600,
                     protection: String::new(),
@@ -263,15 +267,16 @@ impl FileState {
         let mut source = String::new();
         file.read_to_string(&mut source)
             .map_err(|_| Code::InvalidConfig)?;
-        let (receipt, xattrs) = read_receipt(file.get_xattr(RECEIPT))?;
+        let (receipt, xattrs) = read_receipt(file.get_xattr(receipt_key))?;
         Ok(Self {
+            receipt_key: receipt_key.into(),
             text: Some(source),
             mode: meta.mode() & 0o7777,
             revision: (meta.ino(), meta.mtime(), meta.mtime_nsec()),
             receipt,
             xattrs,
             protection: if xattrs {
-                protections(&file)?
+                protections(&file, receipt_key)?
             } else {
                 String::new()
             },
@@ -321,13 +326,13 @@ impl FileState {
         make_private(&file)?;
         file.write_all(data.as_bytes()).map_err(io_code)?;
         if let Some(original) = &self.file {
-            copy_protections(original, &file)?;
-            if protections(&file)? != self.protection {
+            copy_protections(original, &file, &self.receipt_key)?;
+            if protections(&file, &self.receipt_key)? != self.protection {
                 return Err(Code::Changed);
             }
         }
         if let Some(r) = receipt {
-            file.set_xattr(RECEIPT, &serde_json::to_vec(r).unwrap())
+            file.set_xattr(&self.receipt_key, &serde_json::to_vec(r).unwrap())
                 .map_err(io_code)?;
         }
         file.sync_all().map_err(io_code)?;
@@ -360,7 +365,7 @@ fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
     use rustix::fs::RenameFlags;
     let recovery = format!(".aphrodite-{}.recovery", uuid::Uuid::new_v4());
     rename(dir, name, recovery.as_ref(), RenameFlags::NOREPLACE)?;
-    if FileState::read(dir, Path::new(&recovery)).is_ok_and(|now| expected.matches(&now)) {
+    if FileState::read(dir, Path::new(&recovery), &expected.receipt_key).is_ok_and(|now| expected.matches(&now)) {
         return dir.remove_file(recovery).map_err(io_code);
     }
     rename(dir, recovery.as_ref(), name, RenameFlags::NOREPLACE)?;
@@ -370,18 +375,18 @@ fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
 // won the rollback race, retain the displaced generation under the recovery name.
 fn rollback(dir: &Dir, live: &OsStr, displaced: &str, ours: &FileState) -> Result<()> {
     use rustix::fs::RenameFlags;
-    if !FileState::read(dir, Path::new(live)).is_ok_and(|now| ours.matches(&now)) {
+    if !FileState::read(dir, Path::new(live), &ours.receipt_key).is_ok_and(|now| ours.matches(&now)) {
         return Ok(());
     }
-    let previous = FileState::read(dir, Path::new(displaced)).ok();
+    let previous = FileState::read(dir, Path::new(displaced), &ours.receipt_key).ok();
     rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
-    if FileState::read(dir, Path::new(displaced)).is_ok_and(|now| ours.matches(&now)) {
+    if FileState::read(dir, Path::new(displaced), &ours.receipt_key).is_ok_and(|now| ours.matches(&now)) {
         return dir.remove_file(displaced).map_err(io_code);
     }
     // A newer live save was exchanged between our check and the rollback syscall.
     // Put it back if the generation we just restored still occupies the live name.
     if previous.is_some_and(|prev| {
-        FileState::read(dir, Path::new(live)).is_ok_and(|now| prev.matches(&now))
+        FileState::read(dir, Path::new(live), &ours.receipt_key).is_ok_and(|now| prev.matches(&now))
     }) {
         rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
     }
@@ -396,7 +401,7 @@ impl Staged<'_> {
         reachable: impl Fn() -> Result<()>,
     ) -> Result<()> {
         use rustix::fs::RenameFlags;
-        let ours = FileState::read(self.dir, Path::new(&self.name))?;
+        let ours = FileState::read(self.dir, Path::new(&self.name), &expected.receipt_key)?;
         reachable()?;
         if expected.text.is_none() {
             rename(self.dir, self.name.as_ref(), name, RenameFlags::NOREPLACE)?;
@@ -410,7 +415,7 @@ impl Staged<'_> {
         rename(self.dir, self.name.as_ref(), name, RenameFlags::EXCHANGE)?;
         // Drop must never unlink the displaced file until we have identified it.
         let displaced = std::mem::take(&mut self.name);
-        let correct = FileState::read(self.dir, Path::new(&displaced))
+        let correct = FileState::read(self.dir, Path::new(&displaced), &expected.receipt_key)
             .is_ok_and(|now| expected.matches(&now));
         if !correct || reachable().is_err() {
             rollback(self.dir, name, &displaced, &ours)?;
@@ -467,21 +472,21 @@ pub fn parent(root: &Dir, target: &Path) -> Result<Dir> {
 
 // An editor can replace the config inode. Keep the original digest and generated delimiters
 // on its directory too, for a *confirmed* undo. Only the config inode can establish ownership.
-fn history_key(name: &std::ffi::OsStr) -> String {
-    format!("{RECEIPT}.{}", super::hash(name.as_encoded_bytes()))
+fn history_key(receipt_key: &str, name: &std::ffi::OsStr) -> String {
+    format!("{receipt_key}.{}", super::hash(name.as_encoded_bytes()))
 }
-pub fn history(root: &Dir, target: &Path) -> Result<Option<Receipt>> {
+pub fn history(root: &Dir, target: &Path, receipt_key: &str) -> Result<Option<Receipt>> {
     let dir = parent(root, target)?.into_std_file();
-    let key = history_key(target.file_name().ok_or(Code::InvalidPath)?);
+    let key = history_key(receipt_key, target.file_name().ok_or(Code::InvalidPath)?);
     Ok(dir
         .get_xattr(key)
         .map_err(io_code)?
         .and_then(|v| serde_json::from_slice::<Receipt>(&v).ok())
         .filter(|r| r.path == target))
 }
-pub fn set_history(dir: &Dir, name: &std::ffi::OsStr, receipt: Option<&Receipt>) -> Result<()> {
+pub fn set_history(dir: &Dir, name: &std::ffi::OsStr, receipt: Option<&Receipt>, receipt_key: &str) -> Result<()> {
     let file = dir.try_clone().map_err(io_code)?.into_std_file();
-    let key = history_key(name);
+    let key = history_key(receipt_key, name);
     if let Some(r) = receipt {
         file.set_xattr(key, &serde_json::to_vec(r).unwrap())
             .map_err(io_code)

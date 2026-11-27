@@ -84,13 +84,13 @@ test('the interface around the design is offered to no agent surface',()=>{
   }
   // 0.3-P3-fix1: besides approving, the door and the chrome, three rows are the person's alone: files out and in (with links), and Edit in the app.
   // 0.3-R fix 1 and fix 2: and reloading the saved copy from disk or restarting the app, either of which can put an approved board back over a draft.
-  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.page-view-edit','outside.copy-diagnostics','outside.disk-reload','outside.export-page','outside.import','outside.relaunch','outside.render-failed-backup']);
+  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.import-html','edit.page-view-edit','outside.copy-diagnostics','outside.disk-reload','outside.export-page','outside.import','outside.relaunch','outside.render-failed-backup']);
 });
 
 test('a screen action only the person does is found by its name, and the chrome an agent may still act is not',()=>{
   for(const [action,row] of [['page-view-edit','edit.page-view-edit'],['download-page-html','outside.export-page'],['download-board-file','outside.export-page'],['import-project','outside.import'],[' Import-Project ','outside.import'],['fatal-copy','outside.copy-diagnostics'],['fatal-redraw','human.render-failed'],['fatal-close','human.render-failed']])assert.equal(personOnlyRow(action),row,action);
   for(const action of ['zoom-fit','page-view','export','download-bundle','page',undefined,42])assert.equal(personOnlyRow(action),undefined,String(action));
-  for(const row of ['edit.page-view-edit','outside.export-page','outside.import'])assert.deepEqual(commandById[row].surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row);
+  for(const row of ['edit.import-html','edit.page-view-edit','outside.export-page','outside.import'])assert.deepEqual(commandById[row].surfaces,{ui:true,mcp:false,loopback:false,inApp:false},row);
 });
 
 test('a route, a tool and a surface flag say the same thing',()=>{
@@ -190,4 +190,20 @@ test('an MCP tool hands the app the reason and the revision its row asks for',()
     assert.equal(body.reason,'Why',`${tool.name} passes the reason on`);
     if(row.revision==='checked')assert.equal(body.base_revision,'1:a:b',`${tool.name} passes base_revision on`);
   }
+});
+
+test('the ledger recipe exemption follows whether an edit has a control bound', () => {
+  const script = readFileSync(new URL('../scripts/verify-ledger.mjs', import.meta.url), 'utf8');
+  const filter = script.split('\n').find(line => line.startsWith('const onScreen = '))!;
+  assert.match(filter, /r\.controls\.length/);
+  assert.doesNotMatch(filter, /r\.id/);
+  const ids = commands.filter(r => r.grade === 'edit' && r.surfaces.ui && r.controls.length).map(r => r.id).sort();
+  const recipes = [...script.matchAll(/^  '(edit\.[\w-]+)': \{source:/gm)].map(m => m[1]).sort();
+  assert.deepEqual(ids, recipes);
+});
+
+test('the media drop and paste comment belongs to the media edit row',()=>{
+  const table=readFileSync(new URL('../src/agent/commands.mjs',import.meta.url),'utf8');
+  const row=table.match(/a picture or a video the person drops from the Finder[^]*?\bid: '([^']+)'/);
+  assert.equal(row?.[1],'edit.media');
 });

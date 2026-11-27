@@ -12,13 +12,14 @@
  */
 import {Inflate, strFromU8, strToU8, zipSync, type Zippable} from 'fflate';
 import {LEFT_OUT_ALL, MAX_LEFT_OUT, MAX_PROJECT, parseProject, uid, type Project} from './model';
-import {filesNamed, htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffMedia, type FrameHost} from './free-page';
+import {filesNamed, htmlProblem, isFreePage, MAX_PAGE_HTML, mediaExtension, mediaNamed, sniffBoardFile, sniffMedia, type FrameHost} from './free-page';
 import {LEDGER_BUDGET, readLedger} from './ledger/types';
 import {fitSaved} from './ledger/ledger';
 import {MAX_EXPORT_FILE} from './page-export';
 import {savedText, utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
 import {halfPairIn} from './text';
+import {boardScheme} from './board-scheme.mjs';
 import named from '../src-tauri/board-file.json';
 
 /**
@@ -50,7 +51,7 @@ export const BOARD_FILE_FORMAT = 1;
  * words less what JSON adds around them, so a project a save holds always fits.
  */
 const MAX_TEXTS = MAX_PROJECT + JSON.stringify({[FORMAT_KEY]: BOARD_FILE_FORMAT}).length;
-const MEDIA = /^media\/([0-9a-f]{64})\.(png|jpg|gif|webp|mp4|webm)$/;
+const MEDIA = /^media\/([0-9a-f]{64})\.(png|jpg|gif|webp|mp4|webm|woff2?|ttf|otf|wav|ogg|mp3)$/;
 /** A picture from the image library a section page shows (`local:<id>`), carried by its id: what src-tauri/src/image_library.rs keeps, at most 12 MB. */
 const LOCAL = /^local\/([0-9a-f]{16})\.(png|jpg|webp)$/;
 const MAX_LOCAL_BYTES = 12 * 1024 * 1024;
@@ -328,8 +329,8 @@ export async function readBoardFile(bytes: Uint8Array, host: Pick<FrameHost, 'pu
   for (const sha of new Set([...text.matchAll(MEDIA_NAMED)].map(m => m[1]))) {
     const name = carried.get(sha);
     if (!name) { left.push({file: sha, why: 'the file does not carry it'}); continue; }
-    const data = take(name), mime = sniffMedia(data.subarray(0, 16));
-    if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture or video its name says'}); continue; }
+    const data = take(name), mime = sniffBoardFile(data.subarray(0, 16));
+    if (!mime || mediaExtension(mime) !== MEDIA.exec(name)![2]) { left.push({file: sha, why: 'it is not the picture, video, font or sound its name says'}); continue; }
     if (await digest(data) !== sha) { left.push({file: sha, why: 'its bytes are not the ones its name was made from'}); continue; }
     verified.push([sha, name, mime]);
   }
@@ -416,7 +417,7 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
   const files: Zippable = {...local};
   for (const [name, text] of Object.entries(texts)) files[name] = strToU8(text);
   for (const [sha, file] of sizes) {
-    const data = await host.read(sha), mime = data && sniffMedia(data.subarray(0, 16));
+    const data = await host.read(sha), mime = data && sniffBoardFile(data.subarray(0, 16));
     if (!data || !mime || data.length !== file.bytes) { left.push(sha); continue; }
     files[`media/${sha}.${mediaExtension(mime)}`] = [data, {level: 0}];
   }
@@ -430,8 +431,8 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
  */
 export type OpenLink = {board: string; page?: string};
 const ID = /^[a-zA-Z0-9_-]{1,200}$/;
-export function readOpenLink(href: string): OpenLink | undefined {
-  if (href.length > 1000 || !/^aphrodite:\/\/open\/?\?/i.test(href)) return undefined;
+export function readOpenLink(href: string, scheme = boardScheme): OpenLink | undefined {
+  if (href.length > 1000 || !href.toLowerCase().startsWith(scheme + ':') || !/^:\/\/open\/?\?/i.test(href.slice(scheme.length))) return undefined;
   const query = href.slice(href.indexOf('?') + 1);
   if (query.includes('#')) return undefined;
   const got: Record<string, string> = {};
@@ -442,6 +443,6 @@ export function readOpenLink(href: string): OpenLink | undefined {
   }
   return got.board ? {board: got.board, ...(got.page ? {page: got.page} : {})} : undefined;
 }
-export function openLink(board: string, page?: string): string {
-  return `aphrodite://open?board=${board}${page ? `&page=${page}` : ''}`;
+export function openLink(board: string, page?: string, scheme = boardScheme): string {
+  return `${scheme}://open?board=${board}${page ? `&page=${page}` : ''}`;
 }

@@ -512,7 +512,9 @@ const person = {
     await waitFor(() => evaluate(`!!document.querySelector('.board-media img[src]')`), 'the picture on the board', 20);
   }},
 };
-const onScreen = commands.filter(r => r.grade === 'edit' && r.surfaces.ui);
+// The engine-only import has no control to press yet. Its unit test drives the real ledger and undo.
+// As soon as the screen supplies a control, this gate requires a recipe for it too.
+const onScreen = commands.filter(r => r.grade === 'edit' && r.surfaces.ui && r.controls.length > 0);
 
 check('every edit the person can make has a way to be driven here', () => {
   assert.deepEqual(onScreen.map(r => r.id).sort(), Object.keys(person).sort());

@@ -5,6 +5,11 @@ use std::{
 };
 use tempfile::{tempdir, TempDir};
 
+const STABLE_ID: &str = "studio.aphrodite.mela";
+fn stable_key() -> String {
+    files::receipt_key(STABLE_ID)
+}
+
 struct Home {
     _dir: TempDir,
     engine: Engine,
@@ -16,6 +21,7 @@ impl Home {
         let engine = Engine::new(
             home,
             PathBuf::from("/Applications/Design \"A\".app/Contents/MacOS/aphrodite-mcp"),
+            STABLE_ID,
         );
         Self { _dir: dir, engine }
     }
@@ -401,7 +407,7 @@ fn a_file_first_created_by_another_process_wins_even_at_the_final_rename() {
     let e = &h.engine;
     let dir = root(&e.home).unwrap();
     let name = Path::new("config.toml");
-    let f = FileState::read(&dir, name).unwrap();
+    let f = FileState::read(&dir, name, &stable_key()).unwrap();
     let pending = f.temp(&dir, "our bytes", None).unwrap();
     dir.write(name, "their bytes").unwrap();
     assert!(pending
@@ -704,7 +710,7 @@ fn astra_2_the_displaced_save_is_checked_for_connect_and_remove() {
     let name = Path::new("local.json");
     for delete in [false, true] {
         dir.write(name, "first").unwrap();
-        let expected = FileState::read(&dir, name).unwrap();
+        let expected = FileState::read(&dir, name, &stable_key()).unwrap();
         let staged = expected.temp(&dir, "second", None).unwrap();
         dir.write(name, "editor").unwrap();
         assert!(matches!(
@@ -739,7 +745,7 @@ fn opus_8_unsupported_xattrs_leave_status_readable_and_apply_copy_only() {
     let path = h.file(Tool::Cursor, "{}");
     let root = files::root(&h.engine.home).unwrap();
     let rel = path.strip_prefix(&h.engine.home).unwrap();
-    let mut f = FileState::read(&root, rel).unwrap();
+    let mut f = FileState::read(&root, rel, &stable_key()).unwrap();
     f.xattrs = supported;
     assert!(matches!(
         h.engine
@@ -778,7 +784,7 @@ fn astra_4_the_receipt_hash_is_the_digest_of_the_written_region_itself() {
         let source = fs::read_to_string(&path).unwrap();
         let layout = edit::layout(tool, Some(&source), h.engine.executable()).unwrap();
         let receipt: Receipt = serde_json::from_slice(
-            &xattr::get(&path, "studio.aphrodite.mela.mcp-entry")
+            &xattr::get(&path, &h.engine.receipt_key)
                 .unwrap()
                 .unwrap(),
         )
@@ -842,7 +848,7 @@ fn astra_2_a_second_editor_save_remains_at_the_live_name_during_conflict_recover
     let dir = files::root(&h.engine.home).unwrap();
     let name = Path::new("local.json");
     dir.write(name, "first").unwrap();
-    let original = FileState::read(&dir, name).unwrap();
+    let original = FileState::read(&dir, name, &stable_key()).unwrap();
     let staged = original.temp(&dir, "connected", None).unwrap();
     let checked = Cell::new(false);
     let result = staged.publish_checked(name.as_os_str(), &original, false, || {
@@ -926,9 +932,9 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
     let root = files::root(&h.engine.home).unwrap();
     let rel = file.strip_prefix(&h.engine.home).unwrap();
     let dir = files::parent(&root, rel).unwrap();
-    let mut history = files::history(&root, rel).unwrap().unwrap();
+    let mut history = files::history(&root, rel, &stable_key()).unwrap().unwrap();
     history.wrapper = Some(("obsolete prefix".into(), "obsolete suffix".into()));
-    files::set_history(&dir, rel.file_name().unwrap(), Some(&history)).unwrap();
+    files::set_history(&dir, rel.file_name().unwrap(), Some(&history), &stable_key()).unwrap();
     let editor = file.with_extension("new");
     fs::write(&editor, fs::read(&file).unwrap()).unwrap();
     fs::rename(editor, &file).unwrap();
@@ -938,7 +944,7 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
     ));
     assert!(!remove(&h.engine, tool, true).unwrap().deletes_file);
     assert_eq!(fs::read_to_string(&file).unwrap(), original);
-    assert!(files::history(&root, rel).unwrap().is_none());
+    assert!(files::history(&root, rel, &stable_key()).unwrap().is_none());
 
     connect(&h.engine, tool, 2);
     let edited = fs::read_to_string(&file).unwrap().replace("blue", "green");
@@ -948,12 +954,12 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
         fs::read_to_string(&file).unwrap(),
         original.replace("blue", "green")
     );
-    assert!(files::history(&root, rel).unwrap().is_none());
+    assert!(files::history(&root, rel, &stable_key()).unwrap().is_none());
     // A directory receipt from a newly created file describes the complete original
     // insertion. Reuse that receipt after an editor adds a second server and settings.
     fs::remove_file(&file).unwrap();
     connect(&h.engine, tool, 3);
-    let creation = files::history(&root, rel).unwrap().unwrap();
+    let creation = files::history(&root, rel, &stable_key()).unwrap().unwrap();
     let added = r#"{"mcpServers":{"next":{"command":"keep"}},"theme":"blue"}"#;
     let with_entry = edit::edited(
         added,
@@ -965,7 +971,7 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
     let editor = file.with_extension("new");
     fs::write(&editor, with_entry).unwrap();
     fs::rename(editor, &file).unwrap();
-    files::set_history(&dir, rel.file_name().unwrap(), Some(&creation)).unwrap();
+    files::set_history(&dir, rel.file_name().unwrap(), Some(&creation), &stable_key()).unwrap();
     assert!(
         !h.engine
             .preview(tool, Action::Remove, 4)
@@ -974,7 +980,7 @@ fn recheck_4_confirmed_undo_uses_generated_delimiters_and_clears_directory_histo
     );
     remove(&h.engine, tool, true).unwrap();
     assert_eq!(fs::read_to_string(&file).unwrap(), added);
-    assert!(files::history(&root, rel).unwrap().is_none());
+    assert!(files::history(&root, rel, &stable_key()).unwrap().is_none());
 }
 
 #[test]
@@ -1128,4 +1134,25 @@ fn third_review_an_empty_image_inventory_allows_a_second_writable_volume() {
         classify(plist::Value::Dictionary(Default::default())),
         Location::NotInApplications
     );
+}
+
+#[test]
+fn the_last_installation_to_connect_owns_the_shared_entry() {
+    for tool in WRITTEN {
+        let h = Home::new();
+        let stable = &h.engine;
+        let preview = Engine::new(stable.home.clone(), "/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp".into(), &format!("{STABLE_ID}.preview"));
+        h.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        connect(stable, tool, 1);
+        let status = preview.status(tool).unwrap();
+        assert_eq!((status.entry_exists, status.points_here, status.owned), (Some(true), Some(false), Some(false)));
+        let change = connect(&preview, tool, 2);
+        assert!(change.replacement_required);
+        assert_eq!(stable.status(tool).unwrap().points_here, Some(false));
+        assert_eq!(stable.status(tool).unwrap().owned, Some(false));
+        assert!(matches!(remove(stable, tool, true), Err(Code::ForeignEntry)));
+        assert_eq!(preview.status(tool).unwrap().owned, Some(true));
+        assert!(connect(stable, tool, 3).replacement_required);
+        assert_eq!(preview.status(tool).unwrap().points_here, Some(false));
+    }
 }
