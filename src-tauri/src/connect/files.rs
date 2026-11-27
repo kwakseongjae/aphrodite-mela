@@ -307,7 +307,16 @@ pub(super) fn exclude_settings(identity: (u64, u64), settings: &[PathBuf]) -> Re
         match std::fs::metadata(path) {
             Ok(m) if (m.dev(), m.ino()) == identity => return Err(Code::InvalidPath),
             Ok(_) => (),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::NotADirectory
+                        | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                ()
+            }
             Err(err) => return Err(io_code(err)),
         }
     }

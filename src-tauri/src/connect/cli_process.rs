@@ -80,17 +80,14 @@ fn safe_to_inspect(e: &Engine, path: &Path, meta: &fs::Metadata) -> bool {
     if meta.nlink() == 1 {
         return true;
     }
-    [
-        e.home.join(".claude.json"),
-        e.path(super::Tool::ClaudeCode),
-        e.codex_home.join("auth.json"),
-        e.home.join(".claude/.credentials.json"),
-    ]
-    .iter()
-    .all(|config| match fs::metadata(config) {
-        Ok(other) => (meta.dev(), meta.ino()) != (other.dev(), other.ino()),
-        Err(err) => err.kind() == io::ErrorKind::NotFound,
-    })
+    super::files::exclude_settings(
+        (meta.dev(), meta.ino()),
+        &[
+            e.codex_home.join("auth.json"),
+            e.home.join(".claude/.credentials.json"),
+        ],
+    )
+    .is_ok()
 }
 
 impl Identity {

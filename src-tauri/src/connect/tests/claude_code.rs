@@ -1748,3 +1748,36 @@ fn fix3_n3_file_comparison_includes_the_textually_joined_profile_settings() {
         Some(Code::InvalidPath)
     );
 }
+
+fn file_clients_with_unreachable_settings(f: &Fixture) {
+    for tool in [Tool::Cursor, Tool::Codex, Tool::ClaudeDesktop] {
+        f.0.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        let status = f.e().status(tool).unwrap();
+        assert_eq!(status.error, None, "{tool:?}");
+        assert_eq!(status.entry_exists, Some(false));
+        assert!(f.e().preview(tool, Action::Connect, 1).is_ok());
+    }
+    // Exercise the extra identity comparisons for a multiply-linked executable too.
+    let cli = f.e().cli_dirs[0].join("playback");
+    fs::hard_link(cli, f.e().home.join("same-program")).unwrap();
+    assert_eq!(f.e().status(CLAUDE).unwrap().trusted, Some(true));
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn fix3_n4_file_clients_can_inspect_configs_when_dot_claude_is_a_file() {
+    let f = Fixture::new();
+    fs::write(f.e().home.join(".claude"), []).unwrap();
+    file_clients_with_unreachable_settings(&f);
+}
+
+#[test]
+fn fix3_n4_file_clients_can_inspect_configs_under_an_unreadable_profile_ancestor() {
+    let mut f = Fixture::new();
+    let parent = f.e().home.join("private");
+    fs::create_dir(&parent).unwrap();
+    f.0.engine.claude_config_dir = Some(parent.join("profile"));
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o000)).unwrap();
+    file_clients_with_unreachable_settings(&f);
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+}
