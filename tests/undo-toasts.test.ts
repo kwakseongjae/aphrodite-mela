@@ -5,13 +5,14 @@
  */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {initialProject,systems,canonicalSystem,currentPage,catalog,makeBlock,type Project} from '../src/model';
+import {initialProject,isApproved,systems,canonicalSystem,currentPage,catalog,makeBlock,type Project} from '../src/model';
 import {pushToast,expireToasts,toastHtml,type Toast} from '../src/design/toasts';
 import {stepForScreen,HumanOnlyStep,StepDoesNotFit} from '../src/ledger/session';
 import {ensureSpace,tidyFrames} from '../src/editor/space';
 import {visiblePages} from '../src/editor/starter';
 import {sampleSrc,sampleImages} from '../src/design/sample-images';
 import {applyEditorCommand} from '../src/editor/commands';
+import {themeProposal,applyThemeProposal} from '../src/design/theme-proposal';
 import {layerMove} from '../src/editor/layer-reorder';
 import {canParent} from '../src/layout';
 import {supportsProvider} from '../src/providers';
@@ -72,6 +73,37 @@ test('moving or resizing on the canvas offers Undo for that gesture',async()=>{
   assert.equal(shown(s).undo,false,'a gesture that changed nothing says so, with no Undo');
 });
 
+test('tidying the frames offers Undo for the tidy',async()=>{
+  const p=board();p.pages.push({id:'second',name:'Second',blocks:[]});ensureSpace(p);p.space!.frames.second={...p.space!.frames.second,x:4000,y:2600};
+  const s=editor(p,[],{tidyFrames,visiblePages});
+  await oneStep(s,q=>q.space,()=>s.action(press('tidy-frames'),person(),true));
+});
+
+test('choosing a design system and a heading font each offer Undo',async()=>{
+  const p=board(),other=systems.find(x=>x.id!==p.system.id)!;
+  const s=editor(p,[],{systems,canonicalSystem,sanitizeFamily:(f:string)=>f});
+  await oneStep(s,q=>q.system,()=>s.action(press('choose-system',{system:other.id}),person(),true));
+  await oneStep(s,q=>q.system,()=>s.action(press('font-choose',{family:'Fraunces'}),person(),true));
+});
+
+test('putting a picture on a component offers Undo for the picture',async()=>{
+  const p=board(),s=editor(p,[],{sampleSrc});s.selected=hero(p).id;
+  const id=sampleImages[0].id;
+  await oneStep(s,q=>hero(q).image,()=>s.action(press('apply-sample',{sample:id}),person(),true));
+});
+
+test('placing a component offers Undo for that one',async()=>{
+  const p=board(),s=editor(p,['function addBlock('],{catalog,makeBlock,explorerBlock,canParent,supportsProvider,nodePath,insertionTarget:()=>undefined,document:{querySelector:()=>null}});
+  await oneStep(s,q=>currentPage(q).blocks.length,()=>(s.addBlock as (k:string,d:unknown)=>void)('cta',person()));
+});
+
+
+test('applying a theme draft offers Undo for the draft, and approves nothing',async()=>{
+  const p=board(),s=editor(p,[],{applyThemeProposal});
+  await oneStep(s,q=>q.system,()=>{s.themeDraft=themeProposal(s.project,'#2255cc','serif');return s.action(press('proposal-apply'),person(),true);});
+  assert.equal(isApproved(s.project),false,'nothing was approved along the way');
+});
+
 test('removing a component offers Undo for the removal',async()=>{
   const p=board(),s=editor(p);s.selected=hero(p).id;
   await oneStep(s,q=>currentPage(q).blocks.map(b=>b.id),()=>s.action(press('delete-block'),person(),true));
@@ -88,3 +120,11 @@ test('a change an agent made is never offered to the person to undo',async()=>{
   assert.equal(shown(s).undo,false,'nor for an agent\'s removal');
 });
 
+test('another change landing takes the Undo off a toast',async()=>{
+  const p=board(),other=systems.find(x=>x.id!==p.system.id)!,s=editor(p,[],{systems,canonicalSystem});
+  await s.action(press('choose-system',{system:other.id}),person(),true);
+  assert.equal(shown(s).undo,true);
+  earlier(s);
+  assert.equal(/data-action="undo"/.test(toastHtml(s.toasts,{undo:s.undoToken()})),false,'its Undo would take back the later change, so it goes');
+  assert.equal(await pressUndo(s),false);
+});

@@ -1363,9 +1363,10 @@ function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provid
   if(!canParent([...blocks,b],b.id,b.parentId)){recordRun('catalog:rejected',{reason:'invalid-depth',parentId:b.parentId});toast('이 프레임에는 더 깊게 중첩할 수 없습니다. 삽입 대상을 바꾸세요.');return;}
   if(!choice&&supportsProvider(project.system.id,kind))b.provider=project.system.id;
   const parentName=nodePath(blocks,b.parentId);
-  commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
+  const done=commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
   document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  toast(`${catalog.find(c => c.kind === kind)!.name} ${ui('added →','추가됨 →')} ${parentName}`);
+  const name=catalog.find(c => c.kind === kind)!.name;
+  undoable(ui(`${name} was added to ${parentName}.`,`${name} 컴포넌트를 ${parentName}에 추가했어요.`),done);
 }
 function bindDragAndDrop() {
  app.querySelector('.catalog-shelf')?.remove();
@@ -1579,8 +1580,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 보드로 돌아가세요.');break;}recordRun('review:requested',{approved:false},d);if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
     case 'assembly-end': recordRun('run:ended',{},d);if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
-    case 'moa-recipe': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
-    case 'pointer-lab': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');toast('Pointer lab · 기존 페이지는 보존됩니다');break;
+    case 'moa-recipe': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;const done=commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');undoable(ui('The Moa sample was added as a page of its own. Edit any node, and try it in Preview. Your other pages are kept.','Moa 견본을 새 페이지로 추가했어요. 노드를 하나씩 고치고 미리보기에서 눌러 볼 수 있어요. 다른 페이지는 그대로예요.'),done);break;}
+    case 'pointer-lab': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}const done=commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');undoable(ui('The pointer lab was added as a page of its own. Your other pages are kept.','포인터 실험 페이지를 새로 추가했어요. 다른 페이지는 그대로예요.'),done);break;}
     case 'undo': history('undo',d); break;
     case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
@@ -1602,20 +1603,20 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
     case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
-    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
+    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;const done=commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();undoable(ui(`${placed.length} proposals were placed below the frame. Choose one from its frame label.`,`프레임 아래에 ${placed.length}안을 놓았어요. 프레임 이름표에서 하나를 골라 보세요.`),done);break;}
     case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;const done=commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);undoable(ui('The proposal replaced its source frame.','제안을 원본 프레임에 적용했어요.'),done);break;}
-    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
+    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const done=commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);undoable(ui('The proposal was kept as a page of its own.','제안을 별도 페이지로 남겼어요.'),done);break;}
     case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;const done=commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);undoable(ui('The proposal was discarded.','제안을 버렸어요.'),done);break;}
     case 'zoom-fit': fitAll();break;
     case 'zoom-frame': fitFrame(project.activePageId);break;
     case 'zoom-100': zoomCenter(1);break;
     case 'zoom-in': zoomCenter(stepZoom(camera.zoom,1));break;
     case 'zoom-out': zoomCenter(stepZoom(camera.zoom,-1));break;
-    case 'tidy-frames': commit(()=>{project.space=tidyFrames(project.space!,visiblePages(project).map(p=>p.id));},d,'edit.frame');recordRun('frame:tidied',{frames:project.pages.length},d);fitAll();toast(ui('Frames tidied into a row','프레임을 한 줄로 정렬했습니다'));break;
+    case 'tidy-frames': {const done=commit(()=>{project.space=tidyFrames(project.space!,visiblePages(project).map(p=>p.id));},d,'edit.frame');recordRun('frame:tidied',{frames:project.pages.length},d);fitAll();undoable(ui('The frames were tidied into a row.','프레임을 한 줄로 정리했어요.'),done);break;}
     case 'new-frame': showModal(ui('New frame','새 프레임'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
 
     case 'systems': designBridgeModal(); break;
-    case 'choose-system': commit(() => { project.system = canonicalSystem({ ...systems.find(s => s.id === el.dataset.system)! }); }, d, 'edit.system'); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
+    case 'choose-system': {const done=commit(() => { project.system = canonicalSystem({ ...systems.find(s => s.id === el.dataset.system)! }); }, d, 'edit.system'); closeModal(); undoable(ui('The design system was applied to every page.','모든 페이지에 디자인 시스템을 적용했어요.'),done); break;}
     case 'brief': briefModal(); break;
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
@@ -1627,7 +1628,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
       if(!here())break;if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
-      commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+      const done=commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();undoable(ui('The reference\'s tokens were applied, with its original text and SHA-256 kept. It is not applied as a whole design system.','레퍼런스의 토큰을 적용하고 원문과 SHA-256을 함께 보존했어요. 디자인 시스템 전체를 적용한 것은 아니에요.'),done);break;
     }
     case 'omd-issue': {
       const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
@@ -1670,7 +1671,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'shelf-remove': if(project.shelf){project.shelf=project.shelf.filter((_,i)=>i!==Number(el.dataset.index));persist();await flushDisk();render();}break;
     case 'theme-review': themeReview(true);break;
     case 'proposal-blue': case 'proposal-green': themeDraft=themeProposal(project,act==='proposal-blue'?'#2255cc':'#176448',themeDraft?.candidate.system.font??project.system.font);themeReview();break;
-    case 'proposal-apply': if(themeDraft){const draft=themeDraft;commit(()=>applyThemeProposal(project,draft),d,'edit.system',{source:'theme:draft-applied'});closeModal();themeDraft=null;toast(ui('Theme draft applied. Direction approval still required.','테마 초안 적용. 디자인 방향 승인은 별도입니다.'));}break;
+    case 'proposal-apply': if(themeDraft){const draft=themeDraft;const done=commit(()=>applyThemeProposal(project,draft),d,'edit.system',{source:'theme:draft-applied'});closeModal();themeDraft=null;undoable(ui('The theme draft was applied. Approving the direction is still a step of its own.','테마 초안을 적용했어요. 방향 승인은 따로 해야 해요.'),done);}break;
     case 'proposal-full': if(themeDraft){showModal(ui('Proposed screen','제안 화면'),ui('Not applied yet. Scroll to review the whole page.','아직 적용하지 않았습니다. 스크롤해서 페이지 전체를 확인하세요.'),`<iframe class="preview-frame" title="Proposed screen only" sandbox="allow-scripts"></iframe><button class="secondary-button" data-action="proposal-back">${ui('Back to comparison','비교로 돌아가기')}</button>`,true);mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,themeDraft.candidate,currentPage(themeDraft.candidate));}break;
     case 'proposal-back': themeReview();break;
     case 'proposal-export': if(themeDraft)await saveFile('aphrodite-theme-draft.zip',await exportBundle(themeDraft.candidate),'application/zip');break;
@@ -1684,9 +1685,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       // The person putting a library picture on the board lets it go out with the board, one it came without included (0.3-R fix 2 #18): saved
       // even when the board already showed it, so doing what the export's notice says is enough.
       const freed=()=>{if(d.author.kind==='person'&&carriedNow(project,[src])){persist();return true;}return false;};
-      if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');freed();toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');freed();toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else if(localRefsIn(project).includes(id)&&freed())toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+      if(b&&['hero','products'].includes(b.kind)){const done=commit(()=>{b.image=src;},d,'edit.image');freed();undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done);}else if(!project.reference){const done=commit(()=>{project.reference=src;},d,'edit.reference');freed();undoable(ui('It was set as the reference.','레퍼런스로 정했어요.'),done);}else if(localRefsIn(project).includes(id)&&freed())toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'font-picker': fontQuery='';await loadFonts();fontPickerModal();break;
-    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
+    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');const done=commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();undoable(family?ui(`Headings are now set in ${family}.`,`제목에 ${family} 서체를 적용했어요.`):ui('Headings are back on the design system font.','제목 서체를 디자인 시스템 기본 서체로 바꿨어요.'),done);break;}
     case 'font-install': {
       const font=freeFonts.find(f=>f.id===el.dataset.id);if(!font)break;
       fontBusy=font.id;fontPickerModal();
@@ -1721,15 +1722,15 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;
-    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
-    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }, d, 'edit.image'); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
+    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){const done=commit(()=>{b.image=src;},d,'edit.image');undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done);}else if(!project.reference){const done=commit(()=>{project.reference=src;},d,'edit.reference');undoable(ui('It was set as the reference.','레퍼런스로 정했어요.'),done);}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { const done=commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }, d, 'edit.image'); undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
       if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
       const projectId=project.id,blockId=b.id;
       const assign=(image:string)=>{if(!here())return;const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
       if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
     }
-    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
+    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; const done=commit(() => { b.image = image; }, d, 'edit.image'); undoable(ui('The image was replaced.','이미지를 바꿨어요.'),done); }); break;
     case 'reference': referenceModal(); break;
     case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); if (!here()) break; commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
     case 'analyze-reference': {
@@ -1773,16 +1774,16 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
         const read = importDesignGraph(JSON.parse(text));
         if (!read.report.read) throw new Error(ui('No tokens were found in that file.','이 파일에서 토큰을 찾지 못했습니다.'));
         const system = graphSystem(project.system, read, read.report.name ?? file.name.replace(/\.json$/i, ''), ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'));
-        commit(() => { project.system = system; }, d, 'edit.system');
+        const done=commit(() => { project.system = system; }, d, 'edit.system');
         closeModal();
         // What the board kept is what is said: a colour name it cannot store is counted as not kept.
-        toast(importSummary({...read.report, carried: Object.keys(system.carried ?? {}).length}, uiLanguage === 'ko'));
+        undoable(importSummary({...read.report, carried: Object.keys(system.carried ?? {}).length}, uiLanguage === 'ko'),done);
         return;
       }
       const s = canonicalSystem(importDesignMarkdown(text, file.name, project.system));
-      commit(() => { project.system = s; }, d, 'edit.system');
+      const done=commit(() => { project.system = s; }, d, 'edit.system');
       closeModal();
-      toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
+      undoable(ui('The colour tokens were imported, and the original DESIGN.md is kept.','색상 토큰을 가져왔어요. 원본 DESIGN.md도 그대로 보존해요.'),done);
     }); break;
     case 'design-md': showModal('DESIGN.md', ui('The tokens and component contract of this work. Checking against the full OmD spec is not connected yet.','현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.'), `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
@@ -1984,7 +1985,7 @@ document.addEventListener('submit', async e => {
     toast(id?ui('Workspace updated','작업 공간을 업데이트했습니다'):`‘${name}’ · ${ui('workspace created','작업 공간을 만들었습니다')}`);
     return;
   }
-  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
+  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');const done=commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);undoable(ui('The frame was made. Press A to add components.','프레임을 만들었어요. A를 눌러 컴포넌트를 추가해 보세요.'),done);return;}
   if(form.id==='agent-mode-form'){startAgentMode(clip(String(data.get('operator')??''),100),clip(String(data.get('intent')??''),1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
@@ -2016,7 +2017,7 @@ document.addEventListener('submit', async e => {
   }
   if (form.id === 'brief-form') {
     const brief = String(data.get('brief')).trim(); if (!brief) return;
-    commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }, d!, 'edit.brief'); closeModal(); toast(ui('Draft assembled · Auto fill로 분위기를 확인해보세요.','초안을 조립했습니다 · Get Vibe로 분위기를 확인해보세요.'));
+    const done=commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }, d!, 'edit.brief'); closeModal(); undoable(ui('The draft was assembled. Try Get Vibe to see its mood.','초안을 조립했어요. Get Vibe로 분위기를 확인해 보세요.'),done);
   } else if (form.id === 'fill-form') {
     if (!data.has('copy') && !data.has('images')) { toast('채울 콘텐츠를 한 가지 이상 선택해주세요.'); return; }
     let changed = 0;
