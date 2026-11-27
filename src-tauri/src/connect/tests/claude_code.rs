@@ -425,7 +425,7 @@ fn the_copy_fallback_for_an_absent_program_matches_the_requested_action() {
     assert_eq!(remove["code"], "cli_not_found");
     assert_eq!(
         remove["snippet"],
-        "claude mcp remove --scope user aphrodite"
+        "/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR claude mcp remove --scope user aphrodite"
     );
     assert!(f.calls().is_empty());
 }
@@ -638,6 +638,7 @@ fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
                 .env_clear()
                 .env("HOME", &f.e().home)
                 .env("CLAUDE_CONFIG_DIR", f.e().home.join("wrong"))
+                .env("CLAUDE_CODE_CUSTOM_OAUTH_URL", "https://wrong.invalid")
                 .arg("-c")
                 .arg(line)
                 .output()
@@ -645,6 +646,10 @@ fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
             assert!(result.status.success());
             let calls = f.calls();
             let call = calls.last().unwrap();
+            assert!(!call["env"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("CLAUDE_CODE_CUSTOM_OAUTH_URL")));
             assert_eq!(call["profile"], json!(profile));
             assert_eq!(call["args"], json!(&cmd["argv"].as_array().unwrap()[1..]));
         }
@@ -1443,4 +1448,32 @@ exit 1
     fs::write(f.e().home.join("replacement"), "different file").unwrap();
     let status = f.status();
     assert_eq!(status["entryExists"], false, "{status}");
+}
+#[test]
+fn recheck_astra_11_copied_undo_clears_terminal_profile_selectors_in_three_shells() {
+    for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+        let mut f = Fixture::new();
+        for profile in [None, Some(f.e().home.join("profile's $한글"))] {
+            f.0.engine.claude_config_dir = profile.clone();
+            let add = f.proposal(Action::Connect);
+            f.apply(Action::Connect, &add, false);
+            let line = claude::snippet(f.e(), Action::Remove).unwrap();
+            let output = Command::new(shell)
+                .env_clear()
+                .env("HOME", &f.e().home)
+                .env("CLAUDE_CONFIG_DIR", "/wrong profile")
+                .env("CLAUDE_CODE_CUSTOM_OAUTH_URL", "https://example.invalid")
+                .args(["-c", &line])
+                .output()
+                .unwrap();
+            let calls = f.calls();
+            let call = calls.last().unwrap();
+            assert_eq!(call["profile"], json!(profile));
+            assert!(!call["env"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("CLAUDE_CODE_CUSTOM_OAUTH_URL")));
+            assert!(output.status.success());
+        }
+    }
 }

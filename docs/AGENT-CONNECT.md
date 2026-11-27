@@ -24,16 +24,16 @@ A Finder-launched app does not see shell variables from your shell startup files
 The preview and copyable snippets use the resolved program. When it cannot be found, the manual commands use `claude` from your terminal. With the default profile, the fallback setup for an app in Applications is
 
 ```sh
-claude mcp add --transport stdio --scope user aphrodite -- /Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp
+/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR claude mcp add --transport stdio --scope user aphrodite -- /Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp
 ```
 
 If Aphrodite inherited `CLAUDE_CONFIG_DIR`, every generated command includes that setting. For example, the same fallback for a named profile is
 
 ```sh
-CLAUDE_CONFIG_DIR='/Users/ada/Claude Work' claude mcp add --transport stdio --scope user aphrodite -- /Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp
+CLAUDE_CONFIG_DIR='/Users/ada/Claude Work' /usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL claude mcp add --transport stdio --scope user aphrodite -- /Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp
 ```
 
-With a default-profile line, use a terminal where `CLAUDE_CONFIG_DIR` is unset to act on the same profile. The app starts the absolute program directly, with a fresh mode-0700 working directory inside Darwin’s per-user temporary folder. It checks the ancestors for shared write access and project markers. Each invocation has ten seconds and 64 KiB per output stream. The child gets the home directory, a restricted PATH, output-format settings, and the selected profile. A successful result can include the exact add or remove acknowledgment, up to 256 bytes. Aphrodite never opens Claude Code’s settings file or passes provider tokens to the process.
+The copied line clears the terminal’s custom OAuth selector. The default-profile line also clears the terminal’s configuration directory. The app starts the absolute program directly, with a fresh mode-0700 working directory inside Darwin’s per-user temporary folder. It checks the ancestors for shared write access and project markers. Each invocation has ten seconds and 64 KiB per output stream. The child gets the home directory, a restricted PATH, output-format settings, and the selected profile. A successful result can include the exact add or remove acknowledgment, up to 256 bytes. Aphrodite never opens Claude Code’s settings file or passes provider tokens to the process.
 
 Aphrodite owns a recognized user-scope stdio entry when its reported command exactly matches the current sidecar or the last sidecar Aphrodite registered for that profile, with empty arguments and no environment values. Claude Code 2.1.327 prints a bare `Environment:` for an empty environment. Aphrodite stores its own record in a mode-0600 file under `~/Library/Application Support/studio.aphrodite.mela/connect/`, keyed by profile. It publishes the record by atomic rename under a bounded lock. Observing absence clears the previous ownership claim. If registration succeeds but the record cannot be saved, `registered_record_missing` tells the screen to show the registration and offer another connect press to repair the record.
 
@@ -60,13 +60,13 @@ For Codex, remove the `[mcp_servers.aphrodite]` table and its fields. For Cursor
 For Claude Code, copy the remove snippet (`connect_snippet` with action `remove`) for your installation and profile. The default-profile fallback is
 
 ```sh
-claude mcp remove --scope user aphrodite
+/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR claude mcp remove --scope user aphrodite
 ```
 
 The corresponding fallback for the named profile above is
 
 ```sh
-CLAUDE_CONFIG_DIR='/Users/ada/Claude Work' claude mcp remove --scope user aphrodite
+CLAUDE_CONFIG_DIR='/Users/ada/Claude Work' /usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL claude mcp remove --scope user aphrodite
 ```
 
 Use the explicit lookup to check the result. To undo a re-point by hand, remove the new entry and run the old add command from the preview. To restore a replaced foreign entry, use its original registration instructions. Restart the client so it picks up the change.

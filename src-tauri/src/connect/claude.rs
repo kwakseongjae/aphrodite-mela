@@ -336,12 +336,13 @@ impl<'a> Lines<'a> {
             .map(|arg| quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
+        let env = "/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL";
         let line = match self.profile {
             Some(dir) => format!(
-                "CLAUDE_CONFIG_DIR='{}' {command}",
+                "CLAUDE_CONFIG_DIR='{}' {env} {command}",
                 dir.replace('\'', "'\"'\"'")
             ),
-            None => command,
+            None => format!("{env} -u CLAUDE_CONFIG_DIR {command}"),
         };
         Invocation { argv, line }
     }
