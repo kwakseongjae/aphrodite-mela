@@ -81,9 +81,9 @@ test('the format sentence follows the live backup and an edit during dispatch ca
   const {importedProject}=await import('../src/workspace/library');
   const {troubleDialog}=await import('../src/ui/notices');
   const line={textContent:''};
-  Object.assign(s,{TextEncoder,importedProject,pageView:undefined,reimportable:(text:string)=>{try{importedProject(text,s.library);return true;}catch{return false;}},
+  Object.assign(s,{TextEncoder,importedProject,pageView:undefined,
     troubleKey:()=>'',icon:()=>'',troubleDialog,modalRoot:{querySelector:()=>line},showModal:(_t:string,_sub:string,body:string)=>{line.textContent=body;}});
-  editorCalls(['function openTrouble('],s);
+  editorCalls(['function reimportable(','function openTrouble('],s);
   s.library.entries=Array.from({length:200},(_,i)=>({...s.library.entries[0],project:{...s.project,id:i?'board-'+i:s.project.id}}));
   s.openTrouble({kind:'failed',detail:'size',retries:true});
   assert.match(line.textContent,/It is in the format Import board reads/);

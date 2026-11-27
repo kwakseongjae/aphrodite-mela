@@ -35,4 +35,3 @@ export function windowWithDisk(){
   s.saves=new WindowSaves(noop,()=>s.saveChanged(),noop);s.attachDiskQueue(0);s.saves.emptyRead(missing,false);
   return {s,writes,reads,said,questions,files,edit:(name:string)=>{board.name=name;s.persist();},press:(action:string,data:Record<string,string>={})=>s.action({dataset:{action,...data}},personAt({isTrusted:true}),true)};
 }
-

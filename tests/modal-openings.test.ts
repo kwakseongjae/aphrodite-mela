@@ -100,4 +100,3 @@ test('opening a dialog focuses its first field, primary action or keep answer an
   focused='command-search';later();
   assert.equal(focused,'command-search','the deferred focus preserves a field already focused by its opener');
 });
-
