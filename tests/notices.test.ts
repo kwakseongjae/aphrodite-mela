@@ -129,7 +129,7 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
-    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,
     vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
   editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
@@ -254,7 +254,7 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/function closeModal\(\)[^]*?offerAsk\(\);\n  offerTrouble\(\);\n\}/,'closing a dialog gives a waiting trouble its turn, after a waiting request');
   assert.match(main,/document\.addEventListener\('focusout',\(\)=>offerTrouble\(\)\);/,'and so does leaving a field');
-  assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length\)openTrouble\(\); break;/,'the mark opens nothing over a dialog someone is in, whoever presses it');
+  assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length&&!fatalUp\(\)\)openTrouble\(\); break;/,'the mark opens nothing over a dialog someone is in, whoever presses it');
 });
 
 /* Astra medium 8: the sheet answers its own buttons, from a real press, without the window's click handler (which may be
@@ -436,4 +436,34 @@ test('the sheet saves and copies before the app\'s state is read, with actions a
   assert.deepEqual(saved.map(x=>x[0]),['aphrodite.json','aphrodite-workspace.json']);
   assert.deepEqual(JSON.parse(saved[1][1]).entries,['live'],'every board as it is now');
   assert.deepEqual(copied,['TypeError: x']);
+});
+
+/* Astra recheck 9 and 11: while the render-failed sheet is up it owns the keyboard and the pointer, in both phases, and a
+   save trouble neither opens nor takes focus behind it; once the sheet goes, the trouble gets its turn. ⌘C still copies. */
+test('nothing opens, focuses or runs behind the render-failed sheet, and ⌘C still copies from it',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  let opened=0,offered=0,navigated=0,focused=0;let sheetUp=true;
+  const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false,querySelector:(s:string)=>s==='#command-list'?{}:null},askOpen:()=>false,
+    document:{activeElement:null,addEventListener:(_t:string,fn:unknown)=>{screen.keyup=fn;},getElementById:()=>null},HTMLElement:Object,fatalUp:()=>sheetUp,
+    troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),openTrouble:()=>{opened++;},troubleKey:(t:{kind:string})=>t.kind,
+    offerTrouble:()=>{offered++;},render:noop,spaceHeld:false,paletteKey:()=>'down',paletteKeyHandled:false,paletteNavigate:()=>{navigated++;}};
+  editorCalls(['function typing(','function troubleOpened(','function fatalPress(',"document.addEventListener('keyup',e=>{if(e.code==='Space'"],screen);
+  assert.equal((screen.troubleOpened as ()=>boolean)(),false,'a failed save waits while the sheet is up');
+  assert.equal(opened,0);
+  (screen.keyup as (e:unknown)=>void)({code:'ArrowDown',key:'ArrowDown'});
+  assert.equal(navigated,0,'the palette under the sheet does not run on a key let go');
+  sheetUp=false;(screen.fatalPress as (a:string,s:unknown)=>void)('fatal-close',{remove:noop,querySelector:()=>null});
+  assert.equal(offered,1,'the sheet put away, the waiting trouble is offered');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/function focusModal\(\)\{\n  if\(fatalUp\(\)\)return;/,'a focus already on its way does not move behind the sheet');
+  assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length&&!fatalUp\(\)\)openTrouble\(\);/);
+  assert.match(main,/if\(target\?\.closest\?\.\('\.agent-banner,\.fatal-scrim'\)\)return;/,'the person\'s press reaches the sheet while an agent holds the screen');
+  let prevented=0;const key=(k:Record<string,unknown>)=>({key:'c',metaKey:false,ctrlKey:false,isTrusted:true,target:{},preventDefault:()=>{prevented++;},...k});
+  const s2:Record<string,unknown>={document:{querySelector:()=>({contains:()=>false,querySelectorAll:()=>[]}),activeElement:null},Node:Object};
+  editorCalls(['function fatalKey('],s2);
+  (s2.fatalKey as (e:unknown)=>void)(key({metaKey:true}));
+  assert.equal(prevented,0,'⌘C copies the selected details');
+  (s2.fatalKey as (e:unknown)=>void)(key({}));
+  assert.equal(prevented,1,'a plain key aimed outside the sheet is held back');
+  void focused;
 });

@@ -440,7 +440,7 @@ function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }
 /** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
 function fatalUp(){return !!document.querySelector('.fatal-scrim');}
 /** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
-function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
+function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c')return;if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
 function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /**
  * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
@@ -448,8 +448,8 @@ function showFatal(detail:string){let ko=document.documentElement.lang==='ko',bo
  * sheet away only once the screen was drawn; if drawing throws again, the sheet stays and says what stopped it now.
  */
 function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
-  if(action==='fatal-close'){sheet.remove();return;}
-  try{render();sheet.remove();}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
+  if(action==='fatal-close'){sheet.remove();offerTrouble();return;}
+  try{render();sheet.remove();offerTrouble();}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
 }
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
@@ -851,7 +851,7 @@ function typing(){const on=document.activeElement;return on instanceof HTMLEleme
 function reimportable(text:string){if(new TextEncoder().encode(text).length>20_000_000)return false;try{importedProject(text,library);return true;}catch{return false;}}
 function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&reimportable(JSON.stringify(project,null,2))});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
 /** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
-function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing())return false;openTrouble(t);return true;}
+function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing()||fatalUp())return false;openTrouble(t);return true;}
 /** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
 function offerTrouble(){setTimeout(()=>{if(troubleNow())troubleOpened();},0);}
 document.addEventListener('focusout',()=>offerTrouble());
@@ -1230,6 +1230,7 @@ function inspectorHtml(page:Page) {
   <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-shown="${esc(shownState())}"`)}</div>`;
 }
 function focusModal(){
+  if(fatalUp())return;
   const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
   if(!modal||!body)return;
   // A dialog that opened without a press names what it starts on: the choice that loses nothing (src/ui/notices.ts).
@@ -1829,7 +1830,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
     case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(modalRoot.querySelector('[data-reload-confirm]')?reloadAsked:undefined); break;
-    case 'notice-open': if(!modalRoot.children.length)openTrouble(); break;
+    case 'notice-open': if(!modalRoot.children.length&&!fatalUp())openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old
@@ -2050,7 +2051,7 @@ let paletteKeyHandled=false;
 /** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
 function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
 function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>send(item,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
-document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
+document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(fatalUp()||!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
 function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
@@ -2446,7 +2447,7 @@ for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblc
     if(e.isTrusted&&connectMode&&lease&&lease.label!==HUMAN){lease={label:HUMAN,since:Date.now()};}
     if(!agentLocked()||!e.isTrusted)return;
     const target=e.target as HTMLElement|null;
-    if(target?.closest?.('.agent-banner'))return;
+    if(target?.closest?.('.agent-banner,.fatal-scrim'))return;
     if(e instanceof KeyboardEvent&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
     e.stopImmediatePropagation();if(e.cancelable)e.preventDefault();
   },{capture:true,passive:false});

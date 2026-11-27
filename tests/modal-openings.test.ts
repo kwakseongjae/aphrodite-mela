@@ -70,7 +70,7 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     }};
   const frame={contentWindow:{},closest:()=>true};
   let message:(e:object)=>void=noop;
-  const screen={modalRoot,app:{},document:{activeElement:null,querySelectorAll:()=>[frame]},window:{},modalReturnFocus:null,comparisonObserver:null,
+  const screen={modalRoot,app:{},document:{activeElement:null,querySelectorAll:()=>[frame]},window:{},modalReturnFocus:null,comparisonObserver:null,fatalUp:()=>false,
     addEventListener:(_name:string,fn:typeof message)=>{message=fn;},ui:(en:string)=>en,linkOut,esc,leavePage:noop,
     askOpen:()=>markup.includes('class="ask-dialog"'),control:(s:string)=>s,icon:()=>'',hydrateIcons:noop,hydrateNativeLibraries:noop,syncStateAttributes:noop,
     setTimeout:(fn:()=>void)=>{later=fn;}};
