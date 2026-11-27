@@ -56,3 +56,16 @@ test('the local command selects one target, the preview hook and an unsigned app
   assert.equal(config().bundle.macOS.bundleVersion, '12');
   assert.deepEqual(plist.CFBundleURLTypes,[{CFBundleURLName:config().identifier+'.open', CFBundleURLSchemes:['aphrodite-preview']}]);
 });
+
+test('frontend links follow the build identifier even when its version is a release candidate', () => {
+  for (const [identifier, scheme] of [[stable.identifier,'aphrodite'],[stable.identifier+'.preview','aphrodite-preview']]) {
+    const config = execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',
+      "import config from './vite.config.ts'; console.log(JSON.stringify(config.define))"
+    ],{encoding:'utf8',env:{...process.env,APHRODITE_PREVIEW_VERSION:'',TAURI_CONFIG:JSON.stringify({identifier,version:'0.3.0-rc.1'})}});
+    const defines = JSON.parse(config);
+    const builtScheme = JSON.parse(defines.__BOARD_SCHEME__);
+    assert.equal(JSON.parse(defines.__APP_VERSION__),'0.3.0-rc.1');
+    assert.equal(openLink('board',undefined,builtScheme),scheme+'://open?board=board');
+    assert.deepEqual(readOpenLink(scheme+'://open?board=board',builtScheme),{board:'board'});
+  }
+});

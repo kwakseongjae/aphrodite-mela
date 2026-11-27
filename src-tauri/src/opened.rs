@@ -131,7 +131,7 @@ pub fn receive(opened: &mut Opened, urls: &[tauri::Url], scheme: &str) {
 
 pub fn opened(app: &AppHandle, urls: Vec<tauri::Url>) {
     if let Ok(mut opened) = app.state::<OpenedState>().0.lock() {
-        let scheme = if app.package_info().version.pre.is_empty() { "aphrodite" } else { "aphrodite-preview" };
+        let scheme = crate::channel::Channel::from_identifier(&app.config().identifier).board_scheme();
         receive(&mut opened, &urls, scheme);
     }
     let _ = app.emit_to("main", "aphrodite-opened", ());
@@ -182,10 +182,10 @@ mod tests {
         assert!(rows.len() >= 20);
         for row in rows {
             let href = row["href"].as_str().unwrap();
-            let got = read_link(href, "aphrodite").map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
+            let got = read_link(href, crate::channel::Channel::from_identifier("studio.aphrodite.mela").board_scheme()).map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
             assert_eq!(got, row["opens"], "{href}");
             let preview = href.replacen("aphrodite:", "aphrodite-preview:", 1).replacen("APHRODITE:", "APHRODITE-PREVIEW:", 1);
-            let got = read_link(&preview, "aphrodite-preview").map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
+            let got = read_link(&preview, crate::channel::Channel::from_identifier("studio.aphrodite.mela.preview").board_scheme()).map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
             assert_eq!(got, row["opens"], "{preview}");
         }
     }

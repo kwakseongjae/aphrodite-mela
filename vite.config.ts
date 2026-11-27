@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
-import { readFileSync } from 'node:fs';
+import { buildIdentity, schemeForIdentifier } from './scripts/preview-config.mjs';
 import { appPolicy, policyInHtml } from './src/csp.mjs';
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
+const build = buildIdentity();
 // The browser build runs under the app's own policy. `tauri dev` loads the dev server into the desktop
 // webview, which takes its policy from tauri.conf.json, so the dev server only sends one to a browser.
 const browserPolicy = { 'Content-Security-Policy': appPolicy('browser') };
@@ -11,7 +11,7 @@ export default defineConfig({
   server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] }, headers: desktopDev ? {} : browserPolicy },
   preview: { headers: browserPolicy },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
-  define: { __APP_VERSION__: JSON.stringify(process.env.APHRODITE_PREVIEW_VERSION || pkg.version), __BOARD_SCHEME__: JSON.stringify(process.env.APHRODITE_PREVIEW_VERSION ? 'aphrodite-preview' : 'aphrodite') },
+  define: { __APP_VERSION__: JSON.stringify(build.version), __BOARD_SCHEME__: JSON.stringify(schemeForIdentifier(build.identifier)) },
   plugins: [{ name: 'app-policy', transformIndexHtml: { order: 'pre', handler: html => policyInHtml(html) } }],
   build: { target: 'es2022' },
 });

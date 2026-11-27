@@ -2,7 +2,7 @@
 import {execFileSync} from 'node:child_process';
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
-import {previewConfig} from './preview-config.mjs';
+import {previewConfig, schemeForIdentifier} from './preview-config.mjs';
 
 const {values} = parseArgs({options: {
   version:{type:'string'}, target:{type:'string'}, 'config-only':{type:'boolean'},
@@ -14,7 +14,7 @@ const file = 'src-tauri/target/preview.conf.json';
 mkdirSync('src-tauri/target', {recursive:true});
 if (!values['config-only']) config.bundle.createUpdaterArtifacts = false;
 const template = readFileSync(new URL('../src-tauri/Info.preview.plist.in', import.meta.url), 'utf8');
-const plist = template.replace('@IDENTIFIER@', config.identifier).replace('@SHORT_VERSION@', config.version.split('-')[0]);
+const plist = template.replace('@IDENTIFIER@', config.identifier).replace('@SCHEME@', schemeForIdentifier(config.identifier)).replace('@SHORT_VERSION@', config.version.split('-')[0]);
 writeFileSync('src-tauri/' + config.bundle.macOS.infoPlist, plist);
 writeFileSync(file, JSON.stringify(config));
 if (!values['config-only']) {

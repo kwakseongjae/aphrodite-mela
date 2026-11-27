@@ -2,6 +2,7 @@
 //! compares it with the running version, and — only when the person clicks — downloads that
 //! release's disk image to ~/Downloads and reveals it. The app never replaces itself behind anyone's
 //! back, so what lands on disk is the same signed, notarized DMG the website serves.
+use crate::channel::Channel;
 use semver::Version;
 use tauri_plugin_updater::{RemoteRelease, RemoteReleaseInner};
 use serde_json::{json, Value};
@@ -36,11 +37,6 @@ fn preview_version(version: &Version) -> bool {
     })
 }
 
-fn same_channel(current: &Version, candidate: &Version) -> bool {
-    (current.pre.is_empty() && candidate.pre.is_empty()) ||
-        (preview_version(current) && preview_version(candidate))
-}
-
 // Both channels use the same signing key. A signed stable binary is still the wrong app.
 fn preview_archives(release: &RemoteRelease) -> bool {
     let RemoteReleaseInner::Static { platforms } = &release.data else { return false };
@@ -51,9 +47,11 @@ fn preview_archives(release: &RemoteRelease) -> bool {
     })
 }
 
-pub fn can_install(current: Version, release: RemoteRelease) -> bool {
-    same_channel(&current, &release.version) && release.version.cmp_precedence(&current).is_gt()
-        && (current.pre.is_empty() || preview_archives(&release))
+pub fn can_install(channel: Channel, current: Version, release: RemoteRelease) -> bool {
+    release.version.cmp_precedence(&current).is_gt() && match channel {
+        Channel::Stable => release.version.pre.is_empty(),
+        Channel::Preview => preview_version(&release.version) && preview_archives(&release),
+    }
 }
 
 fn read_manifest(client: &ureq::Agent, endpoint: &str) -> Option<Value> {
@@ -62,17 +60,17 @@ fn read_manifest(client: &ureq::Agent, endpoint: &str) -> Option<Value> {
 
 // The stable feed can announce a separate DMG to a preview user. Only the app's own feed
 // can produce an in-place offer, and the updater plugin checks the channel again at install.
-fn offer(current: &Version, manifest: &Value, stable_download: bool) -> Option<Value> {
+fn offer(channel: Channel, current: &Version, manifest: &Value, stable_download: bool) -> Option<Value> {
     let tag = manifest["version"].as_str()?;
     let tag = tag.strip_prefix('v').unwrap_or(tag);
     let (candidate, _) = version_parts(tag)?;
     let accepted = if stable_download {
-        preview_version(current) && candidate.pre.is_empty()
-    } else if preview_version(current) {
+        channel == Channel::Preview && candidate.pre.is_empty()
+    } else if channel == Channel::Preview {
         let release: RemoteRelease = serde_json::from_value(manifest.clone()).ok()?;
-        can_install(current.clone(), release)
+        can_install(channel, current.clone(), release)
     } else {
-        same_channel(current, &candidate)
+        candidate.pre.is_empty()
     };
     if !accepted || !is_newer(tag, &current.to_string()) {
         return None;
@@ -90,15 +88,16 @@ fn offer(current: &Version, manifest: &Value, stable_download: bool) -> Option<V
 pub fn update_check(app: tauri::AppHandle) -> Result<Value, String> {
     let current = &app.package_info().version;
     let client = agent(current);
-    if preview_version(current) {
+    let channel = Channel::from_identifier(&app.config().identifier);
+    if channel == Channel::Preview {
         let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
-        if let Some(notice) = read_manifest(&client, &stable).and_then(|manifest| offer(current, &manifest, true)) {
+        if let Some(notice) = read_manifest(&client, &stable).and_then(|manifest| offer(channel, current, &manifest, true)) {
             return Ok(notice);
         }
     }
     let endpoint = app.config().plugins.0.get("updater")
         .and_then(|plugin| plugin["endpoints"][0].as_str());
-    Ok(endpoint.and_then(|url| read_manifest(&client, url)).and_then(|manifest| offer(current, &manifest, false))
+    Ok(endpoint.and_then(|url| read_manifest(&client, url)).and_then(|manifest| offer(channel, current, &manifest, false))
         .unwrap_or_else(|| json!({"current": current.to_string(), "newer": false})))
 }
 
@@ -491,13 +490,24 @@ mod tests {
         let asset = |arch| json!({"url":format!("https://github.com/{REPO}/releases/download/v{version}/Aphrodite_{version}_{arch}.app.tar.gz"), "signature":"sig"});
         let next = json!({"version":version, "platforms":{"darwin-aarch64":asset("aarch64"), "darwin-x86_64":asset("x64")}});
         let final_release = json!({"version":"0.3.0"});
-        assert!(offer(&stable, &next, false).is_none());
-        assert!(offer(&preview, &final_release, false).is_none());
-        assert!(offer(&preview, &next, true).is_none());
-        assert_eq!(offer(&preview, &next, false).unwrap()["stableDownload"], false);
-        assert_eq!(offer(&preview, &final_release, true).unwrap()["stableDownload"], true);
-        assert!(offer(&preview, &json!({"version":"0.2.9"}), true).is_none());
-        assert!(offer(&preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
+        assert!(offer(Channel::Stable, &stable, &next, false).is_none());
+        assert!(offer(Channel::Preview, &preview, &final_release, false).is_none());
+        assert!(offer(Channel::Preview, &preview, &next, true).is_none());
+        assert_eq!(offer(Channel::Preview, &preview, &next, false).unwrap()["stableDownload"], false);
+        assert_eq!(offer(Channel::Preview, &preview, &final_release, true).unwrap()["stableDownload"], true);
+        assert!(offer(Channel::Preview, &preview, &json!({"version":"0.2.9"}), true).is_none());
+        assert!(offer(Channel::Preview, &preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
+    }
+
+    #[test]
+    fn a_stable_release_candidate_can_be_offered_and_install_the_final_release() {
+        let current = Version::parse("0.3.0-rc.1").unwrap();
+        let manifest = json!({"version":"0.3.0","platforms":{}});
+        let channel = Channel::from_identifier("studio.aphrodite.mela");
+        assert!(crate::opened::read_link("aphrodite://open?board=b", channel.board_scheme()).is_some());
+        let offered = offer(channel, &current, &manifest, false);
+        let install = can_install(channel, current, serde_json::from_value(manifest).unwrap());
+        assert!(offered.is_some() && install, "offered={offered:?}, install={install}");
     }
 
     #[test]
@@ -507,8 +517,8 @@ mod tests {
             "darwin-aarch64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0/Aphrodite_aarch64.app.tar.gz"),"signature":"s"},
             "darwin-x86_64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0-preview.2/Aphrodite_0.3.0-preview.2_x64.app.tar.gz"),"signature":"s"}
         }});
-        assert!(offer(&current, &mixed, false).is_none());
-        assert!(!can_install(current, serde_json::from_value(mixed).unwrap()));
+        assert!(offer(Channel::Preview, &current, &mixed, false).is_none());
+        assert!(!can_install(Channel::Preview, current, serde_json::from_value(mixed).unwrap()));
     }
 
     #[test]

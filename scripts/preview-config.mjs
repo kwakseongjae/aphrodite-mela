@@ -22,3 +22,14 @@ export function previewConfig(version) {
     plugins: {updater: {endpoints: [new URL(`../../download/${previewChannel}/${previewIndex}`, stableEndpoint).href]}},
   };
 }
+
+// Tauri supplies its merge patch in CI. The local beforeBuildCommand selects the same preview explicitly.
+export function buildIdentity() {
+  const base = process.env.APHRODITE_PREVIEW_VERSION ? previewConfig(process.env.APHRODITE_PREVIEW_VERSION) : stableConfig;
+  const patch = JSON.parse(process.env.TAURI_CONFIG || '{}');
+  return {identifier:patch.identifier ?? base.identifier, version:patch.version ?? base.version};
+}
+
+export function schemeForIdentifier(identifier) {
+  return identifier.endsWith('.preview') ? 'aphrodite-preview' : 'aphrodite';
+}

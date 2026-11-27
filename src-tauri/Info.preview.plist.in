@@ -11,7 +11,7 @@
 			<string>@IDENTIFIER@.open</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>aphrodite-preview</string>
+				<string>@SCHEME@</string>
 			</array>
 		</dict>
 	</array>

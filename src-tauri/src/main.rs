@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod agent;
 mod board;
+mod channel;
 mod connect;
 mod disk;
 mod fonts;
@@ -21,6 +22,8 @@ fn context() -> tauri::Context<tauri::Wry> {
 }
 
 fn main() {
+    let context = context();
+    let channel = channel::Channel::from_identifier(&context.config().identifier);
     tauri::Builder::default()
         .setup(|app| {
             // A relaunch after an update starts us from the old process, and macOS does not hand
@@ -45,7 +48,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new()
-            .default_version_comparator(update::can_install).build())
+            .default_version_comparator(move |current, release| update::can_install(channel, current, release)).build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             look::window_look,
@@ -110,7 +113,7 @@ fn main() {
                 disk::release_close(window.label(), disk::Release::WindowDestroyed);
             }
         })
-        .build(context())
+        .build(context)
         .expect("Aphrodite could not start")
         .run(|app, event| {
             // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
