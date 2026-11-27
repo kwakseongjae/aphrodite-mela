@@ -224,7 +224,7 @@ test('undo and redo name who asked: the key handler by the event, action() befor
   const start=main.indexOf('async function action(');
   const asked=main.indexOf('const d=given??NOBODY;',start);
   assert.ok(asked>start&&asked<main.indexOf('await ',start),'read before an agent\'s click returns');
-  assert.match(main,/case 'undo': history\('undo',d\); break;\n\s*case 'redo': history\('redo',d\); break;/);
+  assert.match(main,/case 'undo': history\('undo',d,el\.dataset\.undoFor\); break;\n\s*case 'redo': history\('redo',d\); break;/);
 });
 
 test('the MCP interface tool and every bridge route funnel into runAgentCommand',()=>{
