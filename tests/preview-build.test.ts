@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {openLink, readOpenLink} from '../src/board-file';
 
 const stable = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
@@ -31,4 +35,23 @@ test('the preview override keeps the board format and separates the installed ap
   assert.ok(!plist.includes('<string>aphrodite</string>'));
   assert.throws(() => previewConfig('0.3.0'));
   assert.throws(() => previewConfig('0.3.0-preview.01'));
+});
+
+test('the local command selects one target, the preview hook and an unsigned app bundle', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'aph-preview-build-'));
+  const npm = join(dir,'npm');
+  const script = fileURLToPath(new URL('../scripts/build-preview.mjs', import.meta.url));
+  writeFileSync(npm, '#!/bin/sh\nprintf "%s\\n" "$TAURI_ENV_TARGET_TRIPLE" "$@" > invocation\n', {mode:0o700});
+  t.after(()=>rmSync(dir,{recursive:true}));
+  const target = 'x86_64-apple-darwin';
+  const args = [script,'--target',target,'--version',version];
+  const env = {...process.env, PATH:dir+':'+process.env.PATH};
+  execFileSync(process.execPath,args,{cwd:dir,env});
+  assert.deepEqual(readFileSync(join(dir,'invocation'),'utf8').trim().split('\n'),
+    [target,'run','tauri','--','build','--config','src-tauri/target/preview.conf.json','--target',target,'--bundles','app','--no-sign']);
+  const config = () => JSON.parse(readFileSync(join(dir,'src-tauri/target/preview.conf.json'),'utf8'));
+  assert.equal(config().bundle.createUpdaterArtifacts,false);
+  execFileSync(process.execPath,[...args,'--config-only'],{cwd:dir,env});
+  assert.equal(config().bundle.createUpdaterArtifacts,undefined);
+  assert.equal(config().version,version);
 });

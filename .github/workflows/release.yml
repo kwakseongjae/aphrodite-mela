@@ -21,6 +21,8 @@ name: Release macOS build
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -32,6 +34,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'release'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -64,6 +67,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Select the preview build for a preview tag
+        id: channel
+        if: contains(env.TAG, '-preview.')
+        run: |
+          [[ "$TAG" == v* ]]
+          node scripts/build-preview.mjs --version "${TAG#v}" --target "$TARGET" --config-only
+          echo "APHRODITE_PREVIEW_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "args=--config src-tauri/target/preview.conf.json" >> "$GITHUB_OUTPUT"
+          echo "assets=Aphrodite_[version]_[arch][ext]" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
         run: npm test
@@ -129,9 +142,10 @@ jobs:
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          prerelease: ${{ contains(env.TAG, '-preview.') }}
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
 
       - name: Build and publish release (signed, notarized with Apple ID)
         if: steps.signing.outputs.mode == 'appleid'
@@ -151,9 +165,18 @@ jobs:
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          prerelease: ${{ contains(env.TAG, '-preview.') }}
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
+
+      - name: Keep the stapled preview DMG under its published asset name
+        if: contains(env.TAG, '-preview.') && steps.signing.outputs.mode != 'unsigned'
+        run: |
+          dir="src-tauri/target/$TARGET/release/bundle/dmg"
+          for dmg in "$dir"/Aphrodite\ Preview_*.dmg; do
+            mv "$dmg" "$dir/Aphrodite_${dmg##*/Aphrodite Preview_}"
+          done
 
       # tauri-action notarizes and staples the .app, but not the .dmg container. Gatekeeper
       # evaluates the DMG first when a user double-clicks the download, so notarize + staple it
@@ -200,5 +223,24 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: true
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
+
+
+  promote-preview:
+    if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease && contains(github.event.release.tag_name, '-preview.')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: aphrodite-preview-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Advance the preview channel from the published assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/promote-preview.mjs
