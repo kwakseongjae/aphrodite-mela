@@ -1728,9 +1728,50 @@ fn fix3_n3_automatic_and_copied_lines_use_claudes_textual_profile_join() {
     assert!(output.status.success());
     assert_eq!(f.calls().last().unwrap()["profile"], json!(spelling));
     assert!(!home.join("entry").exists());
-    // The registration record still uses the physically resolved profile directory.
-    f.0.engine.claude_config_dir = Some(home.join("real"));
+    // Claude used the default profile's settings, so its journal holds the claim.
+    f.0.engine.claude_config_dir = None;
     assert!(record_path(&f).is_file());
+}
+
+#[test]
+fn fix4_f1_a_textual_parent_cannot_borrow_the_link_targets_claim() {
+    let mut f = Fixture::new();
+    let home = f.e().home.clone();
+    let real = home.join("real");
+    fs::create_dir_all(real.join("sub")).unwrap();
+    symlink("real/sub", home.join("lnk")).unwrap();
+    f.0.engine.claude_config_dir = Some(real.clone());
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    assert_eq!(f.status()["owned"], true);
+    let real_journal = record_path(&f);
+    let claim = fs::read(&real_journal).unwrap();
+
+    f.0.engine.claude_config_dir = Some(home.join("lnk/.."));
+    f.state(f.e().executable(), ""); // Hand-added entry in the playback's default profile.
+    let asked = f.status();
+    assert_eq!(asked["entryExists"], true);
+    assert_eq!(asked["owned"], false);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.status()["entryExists"], true);
+    assert_eq!(fs::read(&real_journal).unwrap(), claim);
+
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, true)["code"], "registered");
+    f.0.engine.claude_config_dir = None;
+    assert_eq!(f.status()["owned"], true);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["code"], "removed");
+    f.0.engine.claude_config_dir = Some(home.join("lnk/.."));
+    assert_eq!(f.status()["entryExists"], false);
+    f.0.engine.claude_config_dir = Some(real);
+    assert_eq!(fs::read(real_journal).unwrap(), claim);
+    assert_eq!(f.status()["owned"], true);
 }
 
 #[test]

@@ -1,5 +1,5 @@
 //! Aphrodite's own per-profile state. Readers see either generation of an atomic rename.
-use super::{cli_process::controlled, files, hash, Code, Engine, Result};
+use super::{claude_textual_dir, cli_process::controlled, files, hash, Code, Engine, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -30,9 +30,9 @@ impl Record {
 }
 
 fn profile_dir(e: &Engine) -> Result<PathBuf> {
-    let dir = e.claude_config_dir.as_ref().unwrap_or(&e.home);
+    let dir = claude_textual_dir(e.claude_config_dir.as_ref().unwrap_or(&e.home));
     let mut ancestor = dir.as_path();
-    let base = loop {
+    let mut profile = loop {
         match ancestor.canonicalize() {
             Ok(base) => break base,
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -41,20 +41,8 @@ fn profile_dir(e: &Engine) -> Result<PathBuf> {
             Err(_) => return Err(Code::InvalidPath),
         }
     };
-    let mut profile = base;
-    for part in dir
-        .strip_prefix(ancestor)
-        .map_err(|_| Code::InvalidPath)?
-        .components()
-    {
-        match part {
-            std::path::Component::Normal(name) => profile.push(name),
-            std::path::Component::ParentDir => {
-                profile.pop();
-            }
-            _ => (),
-        }
-    }
+    let suffix = dir.strip_prefix(ancestor).map_err(|_| Code::InvalidPath)?;
+    profile.extend(suffix.components());
     Ok(profile)
 }
 

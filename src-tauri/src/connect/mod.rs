@@ -187,6 +187,19 @@ struct Receipt {
     entry: String,
 }
 
+// Claude collapses ".." in its profile/filename join before following any symlinks.
+fn claude_textual_dir(dir: &Path) -> PathBuf {
+    let mut joined = PathBuf::new();
+    for part in dir.components() {
+        if part == std::path::Component::ParentDir {
+            joined.pop();
+        } else {
+            joined.push(part);
+        }
+    }
+    joined
+}
+
 struct Engine {
     app_data: PathBuf,
     home: PathBuf,
@@ -230,18 +243,10 @@ impl Engine {
     }
     fn claude_settings(&self) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        // Claude joins the setting and filename textually, collapsing ".." before
-        // following symlinks. Protect that location as well as the filesystem spelling.
+        // Protect Claude's textual join as well as the filesystem spelling.
         let mut profiles: Vec<_> = self.claude_config_dir.iter().cloned().collect();
         if let Some(dir) = &self.claude_config_dir {
-            let mut joined = PathBuf::new();
-            for part in dir.components() {
-                if part == std::path::Component::ParentDir {
-                    joined.pop();
-                } else {
-                    joined.push(part);
-                }
-            }
+            let joined = claude_textual_dir(dir);
             if &joined != dir {
                 profiles.push(joined);
             }
