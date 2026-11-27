@@ -302,3 +302,53 @@ test('a failed browser storage write shows an unsaved badge through redraw',asyn
   assert.equal(await badge.getAttribute('data-save-badge'),'unsaved');
   await scene('redraw');assert.equal(await badge.getAttribute('data-save-badge'),'unsaved');
 });
+
+for(const lost of ['blur','Meta release']){
+  test('a fresh Enter on the request still works after a lost keyup and '+lost,async()=>{
+    const {page}=rig;await scene('request');
+    const session=await page.context().newCDPSession(page);
+    const enter={key:'Enter',code:'Enter',windowsVirtualKeyCode:13};
+    try{
+      if(lost==='Meta release')await page.keyboard.down('Meta');
+      await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',...enter,modifiers:lost==='blur'?0:4});
+      if(lost==='blur'){
+        await page.evaluate(()=>{
+          const frame=document.createElement('iframe');document.body.append(frame);
+          frame.contentWindow!.focus();frame.remove();
+        });
+        await page.locator('.ask-modal [data-action="ask-allow"]').focus();
+      }else await page.keyboard.up('Meta');
+      assert.equal(await page.locator('.ask-modal').count(),1);
+      // macOS never sent the old Enter release. The next physical down is not a repeat.
+      await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',...enter});
+      await session.send('Input.dispatchKeyEvent',{type:'keyUp',...enter});
+      assert.equal(await page.locator('.ask-modal').count(),0);
+    }finally{await session.detach();}
+  });
+}
+
+test('the sheet permits native copy of its selected details and blocks a plain key aimed underneath',async()=>{
+  const {page}=rig;await scene('sheet');await page.locator('.fatal-scrim summary').click();
+  const detail=page.locator('[data-fatal-detail]');
+  const selection=await detail.evaluate(el=>{
+    const range=document.createRange();range.selectNodeContents(el);
+    const s=window.getSelection()!;s.removeAllRanges();s.addRange(range);
+    return s.toString();
+  });
+  assert.match(selection,/test diagnostic/);
+  const copy=page.evaluate(()=>new Promise<string>(resolve=>{
+    document.addEventListener('copy',e=>{
+      // Observe the native copy without replacing the developer's system clipboard.
+      e.preventDefault();resolve(e.isTrusted?window.getSelection()!.toString():'');
+    },{once:true});
+  }));
+  const session=await page.context().newCDPSession(page);
+  try{
+    await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'c',code:'KeyC',windowsVirtualKeyCode:67,modifiers:4,commands:['copy']});
+    await session.send('Input.dispatchKeyEvent',{type:'keyUp',key:'c',code:'KeyC',modifiers:4});
+    assert.equal(await copy,selection);
+  }finally{await session.detach();}
+  const passed=await page.locator('#app').evaluate(el=>el.dispatchEvent(
+    new KeyboardEvent('keydown',{key:'a',code:'KeyA',bubbles:true,cancelable:true})));
+  assert.equal(passed,false);
+});
