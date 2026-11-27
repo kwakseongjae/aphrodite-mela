@@ -41,9 +41,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new()
-            .default_version_comparator(|current, release| {
-                update::same_channel(&current, &release.version) && release.version.cmp_precedence(&current).is_gt()
-            }).build())
+            .default_version_comparator(update::can_install).build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             look::window_look,

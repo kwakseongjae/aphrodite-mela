@@ -3,6 +3,7 @@
 //! release's disk image to ~/Downloads and reveals it. The app never replaces itself behind anyone's
 //! back, so what lands on disk is the same signed, notarized DMG the website serves.
 use semver::Version;
+use tauri_plugin_updater::{RemoteRelease, RemoteReleaseInner};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Read;
@@ -35,9 +36,24 @@ fn preview_version(version: &Version) -> bool {
     })
 }
 
-pub fn same_channel(current: &Version, candidate: &Version) -> bool {
+fn same_channel(current: &Version, candidate: &Version) -> bool {
     (current.pre.is_empty() && candidate.pre.is_empty()) ||
         (preview_version(current) && preview_version(candidate))
+}
+
+// Both channels use the same signing key. A signed stable binary is still the wrong app.
+fn preview_archives(release: &RemoteRelease) -> bool {
+    let RemoteReleaseInner::Static { platforms } = &release.data else { return false };
+    let version = &release.version;
+    platforms.len() == 2 && [("darwin-aarch64", "aarch64"), ("darwin-x86_64", "x64")].iter().all(|(key, arch)| {
+        let expected = format!("https://github.com/{REPO}/releases/download/v{version}/Aphrodite_{version}_{arch}.app.tar.gz");
+        platforms.get(*key).is_some_and(|p| p.url.as_str() == expected && !p.signature.trim().is_empty())
+    })
+}
+
+pub fn can_install(current: Version, release: RemoteRelease) -> bool {
+    same_channel(&current, &release.version) && release.version.cmp_precedence(&current).is_gt()
+        && (current.pre.is_empty() || preview_archives(&release))
 }
 
 fn read_manifest(endpoint: &str) -> Option<Value> {
@@ -50,8 +66,15 @@ fn offer(current: &Version, manifest: &Value, stable_download: bool) -> Option<V
     let tag = manifest["version"].as_str()?;
     let tag = tag.strip_prefix('v').unwrap_or(tag);
     let (candidate, _) = version_parts(tag)?;
-    if !is_newer(tag, &current.to_string()) ||
-        !(if stable_download { preview_version(current) && candidate.pre.is_empty() } else { same_channel(current, &candidate) }) {
+    let accepted = if stable_download {
+        preview_version(current) && candidate.pre.is_empty()
+    } else if preview_version(current) {
+        let release: RemoteRelease = serde_json::from_value(manifest.clone()).ok()?;
+        can_install(current.clone(), release)
+    } else {
+        same_channel(current, &candidate)
+    };
+    if !accepted || !is_newer(tag, &current.to_string()) {
         return None;
     }
     let name = dmg_name(tag)?;
@@ -464,7 +487,9 @@ mod tests {
     fn updates_stay_in_their_channel_and_stable_graduation_is_download_only() {
         let preview = Version::parse("0.3.0-preview.1").unwrap();
         let stable = Version::parse("0.2.8").unwrap();
-        let next = json!({"version":"0.3.0-preview.2"});
+        let version = "0.3.0-preview.2";
+        let asset = |arch| json!({"url":format!("https://github.com/{REPO}/releases/download/v{version}/Aphrodite_{version}_{arch}.app.tar.gz"), "signature":"sig"});
+        let next = json!({"version":version, "platforms":{"darwin-aarch64":asset("aarch64"), "darwin-x86_64":asset("x64")}});
         let final_release = json!({"version":"0.3.0"});
         assert!(offer(&stable, &next, false).is_none());
         assert!(offer(&preview, &final_release, false).is_none());
@@ -473,6 +498,17 @@ mod tests {
         assert_eq!(offer(&preview, &final_release, true).unwrap()["stableDownload"], true);
         assert!(offer(&preview, &json!({"version":"0.2.9"}), true).is_none());
         assert!(offer(&preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
+    }
+
+    #[test]
+    fn a_preview_version_label_cannot_offer_a_stable_archive() {
+        let current = Version::parse("0.3.0-preview.1").unwrap();
+        let mixed = json!({"version":"0.3.0-preview.2","platforms":{
+            "darwin-aarch64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0/Aphrodite_aarch64.app.tar.gz"),"signature":"s"},
+            "darwin-x86_64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0-preview.2/Aphrodite_0.3.0-preview.2_x64.app.tar.gz"),"signature":"s"}
+        }});
+        assert!(offer(&current, &mixed, false).is_none());
+        assert!(!can_install(current, serde_json::from_value(mixed).unwrap()));
     }
 
     #[test]
