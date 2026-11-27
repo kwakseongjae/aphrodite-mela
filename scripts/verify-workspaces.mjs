@@ -321,7 +321,8 @@ check('stored boards that cannot be read open their dialog once, Later leaves a 
     assert.equal(await dialogOpen(), true, 'the mark opens it again');
     await pressIn('#modal-root [data-action="close-modal"].ui-btn-md');
   } finally {
-    await evaluate(`localStorage.setItem('aphrodite-project-library-v1', ${JSON.stringify(kept)}), true`);
+    // A store that held nothing is left holding nothing, not the text "null".
+    await evaluate(kept === null ? `localStorage.removeItem('aphrodite-project-library-v1'), true` : `localStorage.setItem('aphrodite-project-library-v1', ${JSON.stringify(kept)}), true`);
     await evaluate('location.reload(), true');
     await sleep(2_500);
   }

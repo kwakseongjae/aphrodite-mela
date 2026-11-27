@@ -811,6 +811,8 @@ function bannersHtml(){return agentBannerHtml();}
 /** The marks beside Preview and Export, and in home's side list: saving stopped, and who is connected. */
 function marksHtml(){return troubleMarkHtml(troubleNow(),uiLanguage==='ko')+connectMarkNow();}
 /** The connected mark's popover, placed in the window under its mark rather than inside a panel that may clip it. */
+/** An open mark's popover is placed again when the window changes size, so it stays in the window. */
+window.addEventListener('resize',()=>document.querySelectorAll<HTMLDetailsElement>('details.connect-mark[open]').forEach(placeMarkPopover));
 function placeMarkPopover(d:HTMLDetailsElement){const pop=d.querySelector<HTMLElement>('.notice-pop'),at=d.querySelector('summary')?.getBoundingClientRect();if(!pop||!at)return;pop.classList.add('is-placed');const w=pop.offsetWidth,h=pop.offsetHeight,gap=4;const below=at.bottom+gap+h<=innerHeight;pop.style.top=`${Math.max(gap,below?at.bottom+gap:at.top-gap-h)}px`;pop.style.left=`${Math.min(Math.max(gap,at.right-w),innerWidth-w-gap)}px`;}
 document.addEventListener('toggle',e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.matches('.notice-mark-connect')||!d.open)return;placeMarkPopover(d);},true);
 /** What each slot was last painted with: a save that changes nothing there does not take the focus out of an open mark. */
@@ -849,7 +851,7 @@ function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'||t.kind===
 function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
 /** The backup's text opens again through Import board: it is under the file limit and the importer itself takes it. The importer reads the text only. */
 function reimportable(text:string){if(new TextEncoder().encode(text).length>20_000_000)return false;try{importedProject(text,library);return true;}catch{return false;}}
-function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&reimportable(JSON.stringify(project,null,2))});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
+function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':pageView?'page':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&reimportable(JSON.stringify(project,null,2))});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
 /** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
 function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing()||fatalUp())return false;openTrouble(t);return true;}
 /** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
@@ -2653,7 +2655,8 @@ document.addEventListener('keydown', e => {
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='editor'&&!modalRoot.children.length){
-    if(e.code==='Space'){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
+    // Space on a toast's button presses it: it pans the board only from the board.
+    if(e.code==='Space'&&!(e.target as HTMLElement).closest?.('#toast')){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }

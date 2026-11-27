@@ -57,14 +57,18 @@ const details = (summary: string, text: string) =>
  * there is to keep: off the editor no board is open, so the open board is not offered as a file.
  */
 export type TroubleFacts = {native?: boolean; reimport?: boolean; windowBoards?: number};
-export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean, o: TroubleFacts = {}): {title: string; subtitle: string; body: string} {
+export function troubleDialog(t: Trouble, where: 'home' | 'editor' | 'page', ko: boolean, o: TroubleFacts = {}): {title: string; subtitle: string; body: string} {
+  // A page seen on its own covers the editor: the board is open there too, and its mark sits beside Edit in the app.
+  const board = where !== 'home';
   // What the app knows and can do here: the browser build reads no disk, so it never offers a reload (src/main.ts reloadFromDisk).
   const native = o.native ?? true;
   const T = (en: string, k: string) => (ko ? k : en);
   const later = T('Later', '나중에');
   const reopen = where === 'home'
     ? T('Closing this leaves a mark at the bottom left, which opens it again.', '닫아도 왼쪽 아래의 표시에서 다시 열 수 있어요.')
-    : T('Closing this leaves a mark beside Preview, which opens it again.', '닫아도 미리보기 옆의 표시에서 다시 열 수 있어요.');
+    : where === 'page'
+      ? T('Closing this leaves a mark beside Edit in the app, which opens it again.', '닫아도 "앱에서 편집" 옆의 표시에서 다시 열 수 있어요.')
+      : T('Closing this leaves a mark beside Preview, which opens it again.', '닫아도 미리보기 옆의 표시에서 다시 열 수 있어요.');
   if (t.kind === 'vanished') {
     const n = t.boards;
     return {
@@ -88,7 +92,7 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
     };
   }
   const recovery = choice({action: 'hub-recovery', icon: 'hard-drive', name: T('Save the files on disk as they are', '디스크에 있는 파일을 그대로 저장'), why: native
-      ? T('This copies the list of boards saved on disk and the save before it, untouched, into one file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '디스크에 저장된 보드 목록과 그 직전 저장본을 손대지 않고 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.')
+      ? T('This copies the list of boards saved on disk, and the save before it if there is one, untouched, into one file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '디스크에 저장된 보드 목록과, 있다면 그 직전 저장본을 손대지 않고 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.')
       : T('This copies the boards this browser keeps, untouched, into one file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '이 브라우저가 보관한 보드를 손대지 않고 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.'), first: t.kind === 'unread'});
   const reload = choice({action: 'disk-reload', icon: 'rotate-cw', name: T('Reload from disk', '디스크에서 다시 불러오기'),
     why: t.kind === 'full'
@@ -102,8 +106,8 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
     subtitle: T('Looking again found nothing saved where they are kept. Keep what you did as a file before you close the window.', '다시 찾아봤지만 보드를 두는 곳에 저장된 것이 없었어요. 창을 닫기 전에 한 일을 파일로 받아 두세요.'),
     body: safe(T('What you did is still in this window.', '지금까지 한 일은 이 창에 그대로 있어요.'), [T('Where we looked', '찾던 곳') + ' <code class="ui-mono">' + esc(t.path) + '</code>'])
       + '<div class="ui-notice-choices">'
-      + (where === 'editor' ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요.'), first: true}) : '')
-      + choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, as it is now, as one file to keep. It is not a file Import board opens.', '이 창의 모든 보드를 지금 그대로 파일 하나로 받아 둬요. 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'})
+      + (board ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요.'), first: true}) : '')
+      + choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, as it is now, as one file to keep. It is not a file Import board opens.', '이 창의 모든 보드를 지금 그대로 파일 하나로 받아 둬요. 보드 가져오기로 여는 파일은 아니에요.'), first: !board})
       + (native ? choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was. What this window holds is thrown away by that, and you are asked first.', '폴더를 제자리에 돌려놓았다면 눌러 주세요. 그러면 이 창의 일은 버려지고, 그 전에 한 번 더 물어요.')}) : '')
       + '</div>' + foot(reopen, later, false),
   };
@@ -116,20 +120,20 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
       + foot(reopen, later, false),
   };
   const head = {
-    full: [T('Your Mac is out of space, so the last change was not saved.', '이 Mac의 저장 공간이 가득 차서 마지막 변경을 저장하지 못했어요.'),
-      T('This window has stopped saving, and writes nothing more until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 디스크에 더 쓰지 않아요.')],
+    full: [T('The disk the boards are saved on is out of space, so the last change was not saved.', '보드를 저장하는 디스크의 공간이 가득 차서 마지막 변경을 저장하지 못했어요.'),
+      T('This window has stopped saving, and saves no more boards to disk until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 보드를 디스크에 더 저장하지 않아요.')],
     conflict: [T('The saved copy changed under this window, so saving stopped.', '저장된 보드가 이 창이 알던 것과 달라져서 저장을 멈췄어요.'),
-      T('A second window may have saved, or the folder may have moved. So that neither overwrites the other, this window writes nothing more until you reload.', '다른 창이 저장했거나 저장 폴더가 옮겨졌을 수 있어요. 서로 덮어쓰지 않도록, 다시 불러오기 전까지 이 창은 더 쓰지 않아요.')],
+      T('A second window may have saved, or the folder may have moved. So that neither overwrites the other, this window saves no more boards to disk until you reload.', '다른 창이 저장했거나 저장 폴더가 옮겨졌을 수 있어요. 서로 덮어쓰지 않도록, 다시 불러오기 전까지 이 창은 보드를 디스크에 더 저장하지 않아요.')],
     failed: [T('The boards could not be saved to disk.', '보드를 디스크에 저장하지 못했어요.'),
-      T('This window has stopped saving, and writes nothing more until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 디스크에 더 쓰지 않아요.')],
+      T('This window has stopped saving, and saves no more boards to disk until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 보드를 디스크에 더 저장하지 않아요.')],
   }[t.kind as 'full' | 'conflict' | 'failed'];
   // Refused before it reached the disk (a board too big to save, say): nothing has stopped, and the next change tries again.
   if (t.retries) head[1] = T('The next change tries saving again. Until one is saved, what you did since is only in this window.', '다음 변경 때 다시 저장해 봐요. 저장되기 전까지 그동안 한 일은 이 창에만 있어요.');
-  const keep = where === 'editor'
+  const keep = board
     ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.')
       + (o.reimport ? ' ' + T('Import board opens it again, unapproved.', '보드 가져오기로 다시 열 수 있어요(승인은 다시 해야 해요).') : ''), first: true})
     : '';
-  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, with the changes the disk did not take, as one file to keep. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it. It is not a file Import board opens.', '이 창의 모든 보드를, 디스크가 받지 못한 변경까지 파일 하나로 받아 둬요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요. 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'});
+  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, with the changes the disk did not take, as one file to keep. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it. It is not a file Import board opens.', '이 창의 모든 보드를, 디스크가 받지 못한 변경까지 파일 하나로 받아 둬요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요. 보드 가져오기로 여는 파일은 아니에요.'), first: !board});
   return {
     title: head[0],
     subtitle: head[1],

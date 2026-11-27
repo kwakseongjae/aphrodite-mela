@@ -129,7 +129,7 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
-    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,pageView:undefined,fatalUp:()=>false,
     vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
   editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
@@ -241,7 +241,7 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
   let opened=0;let active:{matches:(s:string)=>boolean}|null={matches:()=>true};
   const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false},askOpen:()=>false,document:{get activeElement(){return active;}},HTMLElement:Object,
     troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',
-    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder,reimportable:()=>false,fatalUp:()=>false};
+    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder,reimportable:()=>false,pageView:undefined,fatalUp:()=>false};
   editorCalls(['function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const shown=screen.troubleOpened as ()=>boolean;
   assert.equal(shown(),false,'the person is typing: it waits');
@@ -316,7 +316,7 @@ test('a write that lands while the folder is missing is remembered even when a l
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>++calls===1?Promise.resolve(5):Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:noop,troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:noop,
-    toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,
+    toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,pageView:undefined,fatalUp:()=>false,
     vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
   editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   screen.vanished={path:'/old',revision:9,entries:6,at:''};
@@ -336,7 +336,7 @@ test('a save refused before the disk comes before the missing folder, and says t
   const screen:Record<string,unknown>={screen:'editor',toasts:[],undoToken:()=>'',settleUndo:(l:unknown)=>l,paintToasts:noop,library:{entries:[]},project:{id:'b'},workspaces:{activeId:'w'},
     upsertProject:()=>({}),saveLibrary:()=>{throw new Error('the board is larger than a saved board may be');},diskQueue:{},lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,
     vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,troubleSeen:'',paintMarks:noop,troubleKind,boardWords:(s:string)=>s,
-    modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(t:{kind:string;retries?:boolean})=>{opened=t;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
+    modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,pageView:undefined,fatalUp:()=>false,typing:()=>false,openTrouble:(t:{kind:string;retries?:boolean})=>{opened=t;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
   editorCalls(['function persist(','function troubleNow(','function troubleOpened('],screen);
   (screen.persist as ()=>void)();
   assert.equal(screen.lastSaved,false);
@@ -497,4 +497,26 @@ test('starting fresh keeps the missing folder until the save lands, and names th
   const again=await run({replacedStore:true});
   assert.match(again.asked[0],/the folder this window made at \/old/,'a folder this window made is named as that, not a new one');
   assert.doesNotMatch(again.asked[0],/new folder/);
+});
+
+/* Astra recheck 12: each sentence says only what the code knows. The raw copy holds the save before the last only if there
+   is one; a full disk is the disk the boards are on, not the whole Mac; a stopped window stops saving boards, not every file;
+   the page seen on its own has its mark beside Edit. Space on a toast's button presses it, and an open popover is placed
+   again when the window changes size. */
+test('the dialogs scope what they claim, and Space and a resized window leave the toast and the popover usable',()=>{
+  for(const ko of [false,true]){
+    const home=troubleDialog(unread,'home',ko).body;
+    assert.match(home,ko?/있다면 그 직전 저장본/:/the save before it if there is one/);
+    const f=troubleDialog(full,'editor',ko);
+    assert.doesNotMatch(f.title,ko?/이 Mac의 저장 공간/:/Your Mac is out of space/);
+    assert.match(f.title,ko?/보드를 저장하는 디스크/:/The disk the boards are saved on/);
+    for(const t of [full,conflict,failed])assert.match(troubleDialog(t,'editor',ko).subtitle,ko?/보드를 디스크에 더 저장하지 않아요/:/saves no more boards to disk/);
+    const page=troubleDialog(full,'page',ko);
+    assert.match(page.body,ko?/"앱에서 편집" 옆의 표시/:/a mark beside Edit in the app/);
+    assert.deepEqual(actionsOf(page.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload'],'the board is open there too');
+  }
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/troubleDialog\(t,screen==='home'\?'home':pageView\?'page':'editor'/);
+  assert.match(main,/if\(e\.code==='Space'&&!\(e\.target as HTMLElement\)\.closest\?\.\('#toast'\)\)\{/);
+  assert.match(main,/window\.addEventListener\('resize',\(\)=>document\.querySelectorAll<HTMLDetailsElement>\('details\.connect-mark\[open\]'\)\.forEach\(placeMarkPopover\)\);/);
 });
