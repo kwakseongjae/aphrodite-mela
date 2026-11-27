@@ -2593,17 +2593,22 @@ function mountSpace(){
     recordRun('frame:preset',{pageId:id,preset});
   },{signal});
 }
+/** Keys the person holds down. One that was down before (a repeat, or held while a sheet went away) is not a fresh press, and answers no request. */
+const heldKeys=new Set<string>();
+document.addEventListener('keyup',e=>{heldKeys.delete(e.key);});
+window.addEventListener('blur',()=>{heldKeys.clear();});
 document.addEventListener('keydown', e => {
+  // Noted before anything else reads the key, the sheet included: a key held through its going away is still the same press.
+  const fresh=!e.repeat&&!heldKeys.has(e.key);if(e.isTrusted)heldKeys.add(e.key);
   // A sheet over everything (a screen that could not be drawn) takes every key: nothing under it hears one (src/ui/notices.ts).
   if(fatalUp()){fatalKey(e);return;}
   // Enter allows and Esc is Not now, from the person's own keyboard and with the focus in the request only (src/editor/ask-keys.ts).
   if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
     const on=document.activeElement as HTMLElement|null;
-    const said=askKey(e.code==='Escape'?'Escape':e.key,e.isTrusted,{sheet:false,inAsk:!!on?.closest('.ask-modal'),onButton:on?.matches('button')?on.dataset.action??'button':''});
+    const said=askKey(e.code==='Escape'?'Escape':e.key,e.isTrusted,{sheet:false,inAsk:!!on?.closest('.ask-modal'),onButton:on?.matches('button')?on.dataset.action??'button':'',fresh});
     if(said==='button')return;
     e.preventDefault();
-    if(said==='to-allow')modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();
-    else if(said==='allow'||said==='decline')answerAsk(said==='allow');
+    if(said==='allow'||said==='decline')answerAsk(said==='allow');
     return;
   }
   // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
