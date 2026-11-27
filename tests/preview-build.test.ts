@@ -29,10 +29,6 @@ test('the preview override keeps the board format and separates the installed ap
   assert.deepEqual(readOpenLink(link, scheme), {board:'b1', page:'p1'});
   assert.equal(readOpenLink(link, 'aphrodite'), undefined);
   assert.equal(readOpenLink(openLink('b1'), scheme), undefined);
-  const plist = readFileSync('src-tauri/' + preview.bundle.macOS.infoPlist, 'utf8');
-  assert.match(plist, /<string>aphrodite-preview<\/string>/);
-  assert.ok(plist.includes(preview.identifier + '.open'));
-  assert.ok(!plist.includes('<string>aphrodite</string>'));
   assert.throws(() => previewConfig('0.3.0'));
   assert.throws(() => previewConfig('0.3.0-preview.01'));
 });
@@ -54,4 +50,9 @@ test('the local command selects one target, the preview hook and an unsigned app
   execFileSync(process.execPath,[...args,'--config-only'],{cwd:dir,env});
   assert.equal(config().bundle.createUpdaterArtifacts,undefined);
   assert.equal(config().version,version);
+  const plistPath = join(dir, 'src-tauri', config().bundle.macOS.infoPlist);
+  const plist = JSON.parse(execFileSync('plutil',['-convert','json','-o','-',plistPath], {encoding:'utf8'}));
+  assert.equal(plist.CFBundleShortVersionString, '0.3.0');
+  assert.equal(config().bundle.macOS.bundleVersion, '12');
+  assert.deepEqual(plist.CFBundleURLTypes,[{CFBundleURLName:config().identifier+'.open', CFBundleURLSchemes:['aphrodite-preview']}]);
 });

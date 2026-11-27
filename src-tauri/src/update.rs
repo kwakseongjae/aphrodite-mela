@@ -56,8 +56,8 @@ pub fn can_install(current: Version, release: RemoteRelease) -> bool {
         && (current.pre.is_empty() || preview_archives(&release))
 }
 
-fn read_manifest(endpoint: &str) -> Option<Value> {
-    serde_json::from_str(&fetch_text(endpoint).ok()?).ok()
+fn read_manifest(client: &ureq::Agent, endpoint: &str) -> Option<Value> {
+    serde_json::from_str(&fetch_text(client, endpoint).ok()?).ok()
 }
 
 // The stable feed can announce a separate DMG to a preview user. Only the app's own feed
@@ -89,15 +89,16 @@ fn offer(current: &Version, manifest: &Value, stable_download: bool) -> Option<V
 #[tauri::command(async)]
 pub fn update_check(app: tauri::AppHandle) -> Result<Value, String> {
     let current = &app.package_info().version;
+    let client = agent(current);
     if preview_version(current) {
         let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
-        if let Some(notice) = read_manifest(&stable).and_then(|manifest| offer(current, &manifest, true)) {
+        if let Some(notice) = read_manifest(&client, &stable).and_then(|manifest| offer(current, &manifest, true)) {
             return Ok(notice);
         }
     }
     let endpoint = app.config().plugins.0.get("updater")
         .and_then(|plugin| plugin["endpoints"][0].as_str());
-    Ok(endpoint.and_then(read_manifest).and_then(|manifest| offer(current, &manifest, false))
+    Ok(endpoint.and_then(|url| read_manifest(&client, url)).and_then(|manifest| offer(current, &manifest, false))
         .unwrap_or_else(|| json!({"current": current.to_string(), "newer": false})))
 }
 
@@ -187,14 +188,14 @@ fn release_summary(body: &str) -> Vec<String> {
 /// the bytes must actually be a disk image before anything is written where the person will click it.
 /// Runs off the main thread, so the window stays alive for the length of the download.
 #[tauri::command(async)]
-pub fn update_download(url: String, name: String) -> Result<Value, String> {
+pub fn update_download(app: tauri::AppHandle, url: String, name: String) -> Result<Value, String> {
     let home = std::env::var_os("HOME").ok_or("no home directory")?;
-    download_dmg_into(&PathBuf::from(home).join("Downloads"), &url, &name)
+    download_dmg_into(&agent(&app.package_info().version), &PathBuf::from(home).join("Downloads"), &url, &name)
 }
 
 /// The download itself, given the folder to land in. Refuses anything that is not a release of this
 /// app, writes under a temporary name, and only moves it into place once the bytes are a disk image.
-fn download_dmg_into(dir: &Path, url: &str, name: &str) -> Result<Value, String> {
+fn download_dmg_into(client: &ureq::Agent, dir: &Path, url: &str, name: &str) -> Result<Value, String> {
     if !url.starts_with(&format!("https://github.com/{REPO}/releases/download/")) {
         return Err("that download does not come from this app's releases".into());
     }
@@ -211,7 +212,7 @@ fn download_dmg_into(dir: &Path, url: &str, name: &str) -> Result<Value, String>
     if target.exists() {
         return Ok(json!({"path": target.to_string_lossy(), "alreadyThere": true}));
     }
-    let bytes = fetch_bytes(url)?;
+    let bytes = fetch_bytes(client, url)?;
     if !looks_like_dmg(&bytes) {
         return Err("that download is not a macOS disk image".into());
     }
@@ -347,16 +348,16 @@ fn looks_like_dmg(bytes: &[u8]) -> bool {
     bytes.len() > 512 && bytes[bytes.len() - 512..].starts_with(b"koly")
 }
 
-fn agent() -> ureq::Agent {
+fn agent(version: &Version) -> ureq::Agent {
     ureq::AgentBuilder::new()
+        .user_agent(&format!("Aphrodite/{version}"))
         .timeout_connect(std::time::Duration::from_secs(10))
         .build()
 }
 
-fn fetch_text(url: &str) -> Result<String, String> {
-    agent()
+fn fetch_text(client: &ureq::Agent, url: &str) -> Result<String, String> {
+    client
         .get(url)
-        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
         .set("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(20))
         .call()
@@ -365,10 +366,9 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let response = agent()
+fn fetch_bytes(client: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+    let response = client
         .get(url)
-        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(600))
         .call()
         .map_err(|e| format!("download failed: {e}"))?;
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_release_manifest_parses() {
-        let body = fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json"))
+        let body = fetch_text(&ureq::Agent::new(), &format!("https://github.com/{REPO}/releases/latest/download/latest.json"))
             .expect("the manifest answers");
         let manifest: Value = serde_json::from_str(&body).expect("valid json");
         let version = manifest["version"].as_str().expect("a version");
@@ -552,11 +552,11 @@ mod tests {
             ("http://github.com/kwakseongjae/aphrodite-mela/releases/download/v1/a.dmg", "a.dmg"),
             ("https://github.com/someone-else/app/releases/download/v1/a.dmg", "a.dmg"),
         ] {
-            assert!(download_dmg_into(dir.path(), url, name).is_err(), "{url}");
+            assert!(download_dmg_into(&ureq::Agent::new(), dir.path(), url, name).is_err(), "{url}");
         }
         let good = format!("https://github.com/{REPO}/releases/download/v0.1.5/x.dmg");
         for name in ["../../escape.dmg", ".hidden.dmg", "notes.txt", "payload.sh"] {
-            assert!(download_dmg_into(dir.path(), &good, name).is_err(), "{name}");
+            assert!(download_dmg_into(&ureq::Agent::new(), dir.path(), &good, name).is_err(), "{name}");
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0, "nothing was written");
     }
@@ -567,13 +567,13 @@ mod tests {
     fn live_download_lands_a_real_disk_image() {
         let dir = tempfile::tempdir().expect("temp dir");
         let url = format!("https://github.com/{REPO}/releases/download/v0.1.5/Aphrodite_0.1.5_aarch64.dmg");
-        let got = download_dmg_into(dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("download");
+        let got = download_dmg_into(&ureq::Agent::new(), dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("download");
         let path = PathBuf::from(got["path"].as_str().expect("a path"));
         assert!(path.is_file());
         assert!(fs::metadata(&path).unwrap().len() > 20_000_000);
         assert!(looks_like_dmg(&fs::read(&path).unwrap()));
         assert!(!dir.path().join("Aphrodite_0.1.5_aarch64.dmg.part").exists(), "the partial file is gone");
-        let again = download_dmg_into(dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("second call");
+        let again = download_dmg_into(&ureq::Agent::new(), dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("second call");
         assert_eq!(again["alreadyThere"], json!(true), "a file already there is not downloaded twice");
     }
 

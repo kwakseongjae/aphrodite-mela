@@ -15,7 +15,7 @@ export function previewConfig(version) {
     version,
     build: {beforeBuildCommand: `export APHRODITE_PREVIEW_VERSION='${version}' && ${stableConfig.build.beforeBuildCommand}`},
     bundle: {
-      macOS: {infoPlist: 'Info.preview.plist'},
+      macOS: {infoPlist:'target/Info.preview.plist', bundleVersion:version.split('-preview.')[1]},
       fileAssociations: stableConfig.bundle.fileAssociations.map(type => ({...type, rank:'Alternate'})),
     },
     plugins: {updater: {endpoints: [stableEndpoint.replace('/latest/download/', `/download/${previewChannel}/`)]}},

@@ -53,6 +53,10 @@ APP="${APPS[1]}"
 PLIST="$APP/Contents/Info.plist"
 BUILT_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
 BUILT_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+if [[ "$IDENTIFIER" == *.preview ]]; then
+  BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+  BUILT_VERSION="$BUILT_VERSION-preview.$BUILD_NUMBER"
+fi
 if [[ "$BUILT_ID" != "$IDENTIFIER" || "$BUILT_VERSION" != "$V" ]]; then
   fail "expected $IDENTIFIER $V, found $BUILT_ID $BUILT_VERSION"; exit 4
 fi
