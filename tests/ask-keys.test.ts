@@ -39,7 +39,7 @@ test('a held key never answers the request to edit, however the focus or the she
   const el=(action:string,inAsk:boolean)=>({dataset:{action},matches:(s:string)=>s==='button',closest:(s:string)=>s==='.ask-modal'&&inAsk?{}:null});
   const answers:boolean[]=[];let sheet=false;let focused=el('undo',false);
   const screen:Record<string,unknown>={askKey,askOpen:()=>true,fatalUp:()=>sheet,fatalKey:()=>{},answerAsk:(allow:boolean)=>{answers.push(allow);},
-    document:{addEventListener:on,get activeElement(){return focused;}},window:{addEventListener:on},Set};
+    document:{addEventListener:on,get activeElement(){return focused;}},window:{addEventListener:on},Set,leaving:1,modalRoot:{children:[]},pageView:null};
   editorCalls(['const heldKeys','document.addEventListener(\'keyup\',e=>{heldKeys','window.addEventListener(\'blur\'','document.addEventListener(\'keydown\''],screen);
   const send=(type:string,key:string,repeat=false)=>{for(const fn of listeners[type]??[])fn({type,key,code:key,repeat,isTrusted:true,preventDefault(){}});};
   send('keydown','Enter');send('keydown','Enter',true);send('keydown','Enter',true);
@@ -55,4 +55,6 @@ test('a held key never answers the request to edit, however the focus or the she
   assert.deepEqual(answers,[true],'a fresh press on Allow allows');
   send('keyup','Enter');send('keydown','Enter');send('blur','');send('keydown','Enter');
   assert.deepEqual(answers,[true,true,true],'a key whose release was lost while the window was away is not held for good');
+  send('keyup','Enter');send('keydown','Meta');send('keydown','Enter');send('keyup','Meta');send('keydown','Enter');
+  assert.deepEqual(answers,[true,true,true,true,true],'and one let go while ⌘ was down, which sends no keyup on macOS, is not held either');
 });

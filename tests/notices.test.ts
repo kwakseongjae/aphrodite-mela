@@ -203,7 +203,7 @@ const reloadScreen=(o:Record<string,unknown>)=>{
     readLibrary:()=>({version:1,entries:[{project:{id:'disk'}}]}),attachDiskQueue:()=>'fresh queue',readTidied:()=>false,queueLibrary:()=>true,LIBRARY_KEY:'k',
     project:{id:'b'},screen:'home',openProject:()=>{},newHistory:()=>({}),render:()=>{},paintMarks:()=>{},toast:(m:string)=>{said.push(m);},ui:(en:string)=>en,
     library:{version:1,entries:[{project:{id:'window'}}]},diskQueue:'failed queue',storageIssue:'x',saveTrouble:'No space left on device (os error 28)',startupError:'',lastSaved:false,troubleSeen:'k',
-    vanished:undefined,replacedStore:false,edited:0,noDiskCopy:false,paintSaveState:()=>{},troubleOpened:()=>false,askReload:()=>{said.push('asked again');},...o};
+    vanished:undefined,replacedStore:false,edited:0,noDiskCopy:false,paintSaveState:()=>{},askOpen:()=>false,fatalUp:()=>false,openTrouble:()=>{said.push('dialog');},askReload:()=>{said.push('asked again');},...o};
   editorCalls(['async function reloadFromDiskNow('],screen);
   return {screen,said,run:screen.reloadFromDiskNow as ()=>Promise<void>};
 };
@@ -215,7 +215,7 @@ test('a reload that read nothing leaves the window as it was: still unsaved, sti
   assert.equal(screen.saveTrouble,'No space left on device (os error 28)');
   assert.equal(screen.diskQueue,'failed queue','no fresh queue: that would be starting fresh without its question');
   assert.deepEqual((screen.library as {entries:{project:{id:string}}[]}).entries.map(e=>e.project.id),['window']);
-  assert.match(said.join(' '),/not there|nothing saved/i);
+  assert.deepEqual(said,['dialog'],'it answers with the dialog that keeps the window\'s work');
 });
 test('a folder this window saved into after the old one went missing is not called the old one come back',async()=>{
   const {screen,said,run}=reloadScreen({invoke:async()=>({revision:3,data:'{}',path:'/old'}),vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:true,saveTrouble:'',lastSaved:true});
@@ -350,13 +350,13 @@ test('a save refused before the disk comes before the missing folder, and says t
 /* Astra recheck 4: a read that finds nothing makes what the window holds unsaved, even when the last write had landed
    (it landed in a folder that has since gone), and opens the dialog with its backup choices; and an edit made between the
    question and the read, or during the read, is never thrown away unasked. */
-test('a read that finds nothing turns a saved window unsaved and offers its backups',async()=>{
-  let opened=0;
-  const {screen,run}=reloadScreen({invoke:async()=>({revision:0,data:null,path:'/new'}),saveTrouble:'',lastSaved:true,screen:'editor',troubleOpened:()=>{opened++;return true;}});
+test('a read that finds nothing turns a saved window unsaved and answers every press with its backups',async()=>{
+  const {screen,said,run}=reloadScreen({invoke:async()=>({revision:0,data:null,path:'/new'}),saveTrouble:'',lastSaved:true,screen:'editor'});
   await run();
   assert.equal(screen.lastSaved,false,'its last write landed in a folder that is gone: nothing of it is on disk now');
   assert.equal(screen.noDiskCopy,true);
-  assert.equal(opened,1,'the dialog opens');
+  await run();
+  assert.deepEqual(said,['dialog','dialog'],'pressed again, it answers again: a trouble already seen is no reason to say nothing');
   const d=troubleDialog({kind:'empty',path:'/new'},'editor',false);
   assert.deepEqual(actionsOf(d.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload']);
   assert.equal(firstFocus(d.body),'disk-backup','starting on keeping the open board');
@@ -423,7 +423,7 @@ test('the sheet saves and copies before the app\'s state is read, with actions a
   const {personAt,agentDispatch,refusal}=await import('../src/agent/dispatch');
   const {humanOnlyBlocked,isDoorAction}=await import('../src/agent/authority');
   const saved:[string,string][]=[];const copied:string[]=[];const pre={textContent:'TypeError: x'};
-  const screen:Record<string,unknown>={humanOnlyBlocked,isDoorAction,refusal,editorMode:'design',NOBODY:{author:{kind:'unknown',name:''},surface:'ui'},JSON,
+  const screen:Record<string,unknown>={humanOnlyBlocked,isDoorAction,refusal,editorMode:'agent',delegation:{scope:{}},isBlockedWhileDelegated:()=>true,NOBODY:{author:{kind:'unknown',name:''},surface:'ui'},JSON,
     currentPage:()=>{throw new Error('the open page cannot be read');},project:{id:'p',name:'Live'},fileName:(_p:unknown,n:string)=>n,liveLibrary:()=>({version:1,entries:['live']}),
     saveFile:async(n:string,text:string)=>{saved.push([n,text]);return true;},navigator:{clipboard:{writeText:async(t:string)=>{copied.push(t);}}},
     document:{querySelector:(q:string)=>q==='[data-fatal-detail]'?pre:null},toast:()=>{},ui:(en:string)=>en};
@@ -435,7 +435,7 @@ test('the sheet saves and copies before the app\'s state is read, with actions a
   for(const a of ['fatal-backup','fatal-backup-all','fatal-copy'])await action(press(a),personAt({isTrusted:true}),true);
   assert.deepEqual(saved.map(x=>x[0]),['aphrodite.json','aphrodite-workspace.json']);
   assert.deepEqual(JSON.parse(saved[1][1]).entries,['live'],'every board as it is now');
-  assert.deepEqual(copied,['TypeError: x']);
+  assert.deepEqual(copied,['TypeError: x'],'and all of it while an agent holds the screen: the sheet is the person\'s');
 });
 
 /* Astra recheck 9 and 11: while the render-failed sheet is up it owns the keyboard and the pointer, in both phases, and a
@@ -459,12 +459,15 @@ test('nothing opens, focuses or runs behind the render-failed sheet, and ⌘C st
   assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length&&!fatalUp\(\)\)openTrouble\(\);/);
   assert.match(main,/if\(target\?\.closest\?\.\('\.agent-banner,\.fatal-scrim'\)\)return;/,'the person\'s press reaches the sheet while an agent holds the screen');
   let prevented=0;const key=(k:Record<string,unknown>)=>({key:'c',metaKey:false,ctrlKey:false,isTrusted:true,target:{},preventDefault:()=>{prevented++;},...k});
-  const s2:Record<string,unknown>={document:{querySelector:()=>({contains:()=>false,querySelectorAll:()=>[]}),activeElement:null},Node:Object};
+  let offeredAfterEscape=0;
+  const s2:Record<string,unknown>={document:{querySelector:()=>({contains:()=>false,querySelectorAll:()=>[],remove:()=>{}}),activeElement:null},Node:Object,offerTrouble:()=>{offeredAfterEscape++;}};
   editorCalls(['function fatalKey('],s2);
   (s2.fatalKey as (e:unknown)=>void)(key({metaKey:true}));
   assert.equal(prevented,0,'⌘C copies the selected details');
   (s2.fatalKey as (e:unknown)=>void)(key({}));
   assert.equal(prevented,1,'a plain key aimed outside the sheet is held back');
+  (s2.fatalKey as (e:unknown)=>void)(key({key:'Escape',code:'Escape'}));
+  assert.equal(offeredAfterEscape,1,'put away by Escape, a waiting trouble gets its turn too');
   void focused;
 });
 
@@ -519,4 +522,20 @@ test('the dialogs scope what they claim, and Space and a resized window leave th
   assert.match(main,/troubleDialog\(t,screen==='home'\?'home':pageView\?'page':'editor'/);
   assert.match(main,/if\(e\.code==='Space'&&!\(e\.target as HTMLElement\)\.closest\?\.\('#toast'\)\)\{/);
   assert.match(main,/window\.addEventListener\('resize',\(\)=>document\.querySelectorAll<HTMLDetailsElement>\('details\.connect-mark\[open\]'\)\.forEach\(placeMarkPopover\)\);/);
+});
+
+/* In the browser build a save refused once and then taken clears its trouble and what was seen of it, so the same refusal
+   later opens its dialog again. */
+test('a refused save that is later taken clears what was seen of it',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  let fail=true;
+  const screen:Record<string,unknown>={screen:'editor',toasts:[],undoToken:()=>'',settleUndo:(l:unknown)=>l,paintToasts:noop,library:{entries:[]},project:{id:'b'},workspaces:{activeId:'w'},
+    upsertProject:()=>({}),saveLibrary:()=>{if(fail)throw new Error('the board is larger than a saved board may be');},diskQueue:undefined,lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,noDiskCopy:false,
+    vanished:undefined,replacedStore:false,troubleSeen:'',paintMarks:noop,troubleKind,boardWords:(s:string)=>s,storagePath:'',
+    modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(x:{kind:string})=>{screen.troubleSeen=x.kind;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
+  editorCalls(['function persist(','function troubleNow(','function troubleOpened('],screen);
+  (screen.persist as ()=>void)();
+  assert.equal(screen.troubleSeen,'failed');
+  fail=false;(screen.persist as ()=>void)();
+  assert.equal(screen.saveTrouble,'');assert.equal(screen.troubleSeen,'','seen no more, so it opens again next time');
 });

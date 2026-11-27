@@ -440,7 +440,7 @@ function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }
 /** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
 function fatalUp(){return !!document.querySelector('.fatal-scrim');}
 /** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
-function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c')return;if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
+function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();offerTrouble();return;}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c')return;if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
 function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /**
  * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
@@ -481,7 +481,7 @@ function liveLibrary():Library{if(screen!=='editor')return library;const at=libr
   return {...library,entries:at>=0?library.entries.map((e,i)=>i===at?{...e,project}:e):[{project,createdAt:now,updatedAt:now,pinned:false,archived:false,workspaceId:workspaces.activeId},...library.entries]};}
 function persist() { if(screen!=='editor')return;
   // Every change and every step goes through here: an Undo drawn for a change that is no longer the last is taken off its toast.
-  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; if(!diskQueue&&saveRetries){saveTrouble='';saveRetries=false;paintMarks();} } catch(error) { lastSaved = false;
+  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; if(!diskQueue&&saveRetries){saveTrouble='';saveRetries=false;if(!troubleNow())troubleSeen='';paintMarks();} } catch(error) { lastSaved = false;
     // A save refused before it reaches the disk ranks as any failed save: its dialog, with the backup choices, comes before a missing folder.
     if(!startupError){saveTrouble=error instanceof Error?error.message:String(error);saveRetries=true;paintMarks();if(troubleOpened())return;}
     toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.')); } }
@@ -1497,16 +1497,17 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   // Who may edit is decided the same way: allowing, declining, the switch and disconnecting run only from the person's own input.
   if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
-  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
-  // The sheet over a screen that could not be drawn is answered before anything below reads the app's state, which may be what broke.
+  // The sheet over a screen that could not be drawn is answered before anything below reads the app's state, which may be what broke,
+  // and before the lock an agent holding the screen puts on the window: the sheet is the person's whatever holds the screen.
   if(act==='fatal-copy'||act==='fatal-backup'||act==='fatal-backup-all'){switch(act){
     case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{const pre=document.querySelector('[data-fatal-detail]');if(pre)pre.textContent+='\n\n'+ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.');}break;}
     case 'fatal-backup': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');break;}
     case 'fatal-backup-all': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');break;}
   }return;}
+  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
   if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
@@ -2620,7 +2621,7 @@ function mountSpace(){
 }
 /** Keys the person holds down. One that was down before (a repeat, or held while a sheet went away) is not a fresh press, and answers no request. */
 const heldKeys=new Set<string>();
-document.addEventListener('keyup',e=>{heldKeys.delete(e.key);});
+document.addEventListener('keyup',e=>{heldKeys.delete(e.key);/* A key let go while ⌘ was down sends no keyup on macOS. */if(e.key==='Meta')heldKeys.clear();});
 window.addEventListener('blur',()=>{heldKeys.clear();});
 document.addEventListener('keydown', e => {
   // Noted before anything else reads the key, the sheet included: a key held through its going away is still the same press.
@@ -2707,7 +2708,7 @@ async function reloadFromDiskNow(at=edited){
      disk: the window keeps its work, its trouble and its queue. What it holds has no copy on disk now, so none of it is
      counted as saved, and the dialog with its backup choices opens. */
   const stillGone=storeVanished(stored,readBreadcrumb(store));
-  if(stored.data===null){if(stillGone)vanished=stillGone;if(library.entries.length||screen==='editor'){noDiskCopy=true;lastSaved=false;paintSaveState(false,true);}paintMarks();if(noDiskCopy&&troubleOpened())return;toast(stillGone?ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'):ui('There is nothing saved on disk to read. What you did is still only in this window.','디스크에 읽을 저장본이 없어요. 한 일은 아직 이 창에만 있어요.'));return;}
+  if(stored.data===null){if(stillGone)vanished=stillGone;if(library.entries.length||screen==='editor'){noDiskCopy=true;lastSaved=false;paintSaveState(false,true);}paintMarks();if(noDiskCopy&&!askOpen()&&!fatalUp()){openTrouble();return;}toast(stillGone?ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'):ui('There is nothing saved on disk to read. What you did is still only in this window.','디스크에 읽을 저장본이 없어요. 한 일은 아직 이 창에만 있어요.'));return;}
   library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
   diskQueue=attachDiskQueue(stored.revision);storageIssue='';saveTrouble='';saveRetries=false;noDiskCopy=false;startupError='';lastSaved=true;troubleSeen='';
   // Read back from a folder this window made after the old one went missing: the old one is still missing.
