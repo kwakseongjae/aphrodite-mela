@@ -79,6 +79,23 @@ test('untrusted key events cannot answer a request, and changing focus cancels a
   await page.locator('[data-action="ask-decline"]').focus();await allow.focus();await page.keyboard.up('Enter');
   assert.equal(await allow.count(),1);await page.keyboard.press('Enter');assert.equal(await allow.count(),0);
 });
+test('Not now answers only when the person presses the button on the request',async()=>{
+  const {page}=rig;await scene('request');
+  const decline=page.locator('.ask-modal [data-action="ask-decline"]');
+  await decline.evaluate(el=>(el as HTMLElement).click());
+  assert.equal(await decline.count(),1,'a page-made click on the real button left the request open');
+  await page.evaluate(()=>{
+    const other=document.createElement('button');
+    other.dataset.action='ask-allow';other.id='outside-request';
+    Object.assign(other.style,{position:'fixed',top:'0',left:'0',zIndex:'2147483647'});
+    other.textContent='Allow';document.body.append(other);
+  });
+  await page.locator('#outside-request').click();
+  assert.equal(await decline.count(),1,'a trusted click outside the request left it open');
+  await decline.focus();await page.keyboard.press('Enter');
+  assert.equal(await decline.count(),0);
+  assert.equal((await scene('request') as {status:string}).status,'declined');
+});
 test('the sheet replaces failure feedback and Copy contains only the diagnostics',async()=>{
   const {page}=rig;await scene('sheet');await page.locator('.fatal-scrim summary').click();
   await page.evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('clipboard refused')}}});
