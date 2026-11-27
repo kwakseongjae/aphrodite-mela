@@ -11,7 +11,7 @@ export default defineConfig({
   server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] }, headers: desktopDev ? {} : browserPolicy },
   preview: { headers: browserPolicy },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  define: { __APP_VERSION__: JSON.stringify(process.env.APHRODITE_PREVIEW_VERSION || pkg.version), __BOARD_SCHEME__: JSON.stringify(process.env.APHRODITE_PREVIEW_VERSION ? 'aphrodite-preview' : 'aphrodite') },
   plugins: [{ name: 'app-policy', transformIndexHtml: { order: 'pre', handler: html => policyInHtml(html) } }],
   build: { target: 'es2022' },
 });

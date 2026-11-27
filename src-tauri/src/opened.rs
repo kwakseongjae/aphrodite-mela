@@ -47,12 +47,14 @@ fn is_id(text: &str) -> bool {
 
 /// The board and page an `aphrodite://open?board=…&page=…` link names, or None for anything else: another
 /// host, a fragment, a key it does not know, one twice, or an id that is not one.
-pub fn read_link(href: &str) -> Option<OpenLink> {
+pub fn read_link(href: &str, scheme: &str) -> Option<OpenLink> {
     if href.len() > 1000 {
         return None;
     }
     let lower = href.to_ascii_lowercase();
-    let query = ["aphrodite://open?", "aphrodite://open/?"].iter().find(|lead| lower.starts_with(*lead)).map(|lead| &href[lead.len()..])?;
+    let rest = lower.strip_prefix(scheme)?;
+    let prefix = ["://open?", "://open/?"].into_iter().find(|prefix| rest.starts_with(prefix))?;
+    let query = &href[scheme.len() + prefix.len()..];
     if query.contains('#') {
         return None;
     }
@@ -103,7 +105,7 @@ pub fn read_board_file(path: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// Takes what macOS asked the app to open: links read now, files kept by path for the app to ask for.
-pub fn receive(opened: &mut Opened, urls: &[tauri::Url]) {
+pub fn receive(opened: &mut Opened, urls: &[tauri::Url], scheme: &str) {
     for url in urls {
         match url.scheme() {
             "file" => {
@@ -113,8 +115,8 @@ pub fn receive(opened: &mut Opened, urls: &[tauri::Url]) {
                     opened.files.push((id, path));
                 }
             }
-            "aphrodite" => {
-                if let Some(link) = read_link(url.as_str()) {
+            name if name == scheme => {
+                if let Some(link) = read_link(url.as_str(), scheme) {
                     opened.links.push(link);
                 }
             }
@@ -129,7 +131,8 @@ pub fn receive(opened: &mut Opened, urls: &[tauri::Url]) {
 
 pub fn opened(app: &AppHandle, urls: Vec<tauri::Url>) {
     if let Ok(mut opened) = app.state::<OpenedState>().0.lock() {
-        receive(&mut opened, &urls);
+        let scheme = if app.package_info().version.pre.is_empty() { "aphrodite" } else { "aphrodite-preview" };
+        receive(&mut opened, &urls, scheme);
     }
     let _ = app.emit_to("main", "aphrodite-opened", ());
 }
@@ -179,8 +182,11 @@ mod tests {
         assert!(rows.len() >= 20);
         for row in rows {
             let href = row["href"].as_str().unwrap();
-            let got = read_link(href).map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
+            let got = read_link(href, "aphrodite").map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
             assert_eq!(got, row["opens"], "{href}");
+            let preview = href.replacen("aphrodite:", "aphrodite-preview:", 1).replacen("APHRODITE:", "APHRODITE-PREVIEW:", 1);
+            let got = read_link(&preview, "aphrodite-preview").map(|l| serde_json::to_value(l).unwrap()).unwrap_or(serde_json::Value::Null);
+            assert_eq!(got, row["opens"], "{preview}");
         }
     }
 
@@ -218,11 +224,11 @@ mod tests {
         let mut opened = Opened::default();
         let file = format!("file:///tmp/a%20b.{}", extension());
         let urls: Vec<tauri::Url> = [file.as_str(), "aphrodite://open?board=b1&page=p1", "aphrodite://open?board=b1&file=/etc/passwd", "https://example.com/", "aphrodite://edit?board=b1"].iter().map(|u| tauri::Url::parse(u).unwrap()).collect();
-        receive(&mut opened, &urls);
+        receive(&mut opened, &urls, "aphrodite");
         assert_eq!(opened.links, vec![OpenLink { board: "b1".into(), page: Some("p1".into()) }]);
         assert_eq!(opened.files, vec![(1, PathBuf::from(format!("/tmp/a b.{}", extension())))]);
         let many: Vec<tauri::Url> = (0..30).map(|i| tauri::Url::parse(&format!("aphrodite://open?board=b{i}")).unwrap()).collect();
-        receive(&mut opened, &many);
+        receive(&mut opened, &many, "aphrodite");
         assert_eq!(opened.links.len(), MAX_WAITING);
         assert_eq!(opened.links.last().unwrap().board, "b29");
     }
