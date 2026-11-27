@@ -53,7 +53,9 @@ struct Observation {
     exit_status: Option<i32>,
 }
 struct Entry {
+    user_scope: bool,
     command: Option<String>,
+    remote: bool,
     plain_stdio: bool,
     digest: String,
 }
@@ -65,124 +67,99 @@ struct State {
     get_exit: Option<i32>,
 }
 
-fn missing(bytes: &[u8]) -> bool {
-    let Ok(text) = std::str::from_utf8(bytes) else {
-        return false;
-    };
-    let Some(reason) = text
-        .strip_suffix('\n')
-        .unwrap_or(text)
-        .strip_prefix("No MCP server named \"aphrodite\". ")
-    else {
-        return false;
-    };
-    if reason == "Run `claude mcp add` to add one." {
-        return true;
-    }
-    let name = |s: &str| {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-    };
-    if let Some(suggestion) = reason
-        .strip_prefix("Did you mean \"")
-        .and_then(|s| s.strip_suffix("\"? Run `claude mcp list` to see all."))
-    {
-        return name(suggestion);
-    }
-    let Some(list) = reason.strip_prefix("Configured servers: ") else {
-        return false;
-    };
-    let names = if let Some((names, tail)) = list.split_once(" (and ") {
-        let more = tail
-            .strip_suffix(" more — run `claude mcp list` to see all)")
-            .and_then(|n| n.parse::<usize>().ok());
-        if !more.is_some_and(|n| n > 0) || names.split(", ").count() != 8 {
-            return false;
-        }
-        names
-    } else {
-        list
-    };
-    names.split(", ").count() <= 8 && names.split(", ").all(name)
-}
-
+// Only the first line establishes presence. The remaining text is a human-readable
+// hint. Keep its fields local, including any other server names or settings.
 fn entry(stdout: &[u8]) -> Result<Entry, Code> {
-    let text = std::str::from_utf8(stdout).map_err(|_| Code::CliUnrecognized)?;
-    if text.chars().any(|c| c != '\n' && c.is_control()) {
+    let mut lines = stdout.split(|&b| b == b'\n');
+    if lines.next() != Some(b"aphrodite:") {
         return Err(Code::CliUnrecognized);
     }
-    let lines: Vec<_> = text
-        .strip_suffix('\n')
-        .unwrap_or(text)
-        .split('\n')
-        .collect();
-    let ["aphrodite:", scope, status, body @ .., "", "To remove this server, run: claude mcp remove aphrodite -s user"] =
-        lines.as_slice()
-    else {
-        return Err(Code::CliUnrecognized);
+    let mut entry = Entry {
+        user_scope: false,
+        command: None,
+        remote: false,
+        plain_stdio: false,
+        digest: hash(stdout),
     };
-    if *scope != "  Scope: User config (available in all your projects)" {
-        return Err(Code::CliScopeUnknown);
-    }
-    if !status
-        .strip_prefix("  Status: ")
-        .is_some_and(|s| !s.is_empty())
-    {
-        return Err(Code::CliUnrecognized);
-    }
-    // The health check can add one Issue line. Neither it nor Status is configuration.
-    let fields = match body {
-        [issue, rest @ ..] if issue.starts_with("  Issue: ") => rest,
-        fields => fields,
-    };
-    let (command, plain_stdio) = match fields {
-        ["  Type: stdio", command, args, options @ ..] => {
-            let path = command
-                .strip_prefix("  Command: ")
-                .filter(|p| !p.is_empty())
-                .ok_or(Code::CliUnrecognized)?;
-            let args = args
-                .strip_prefix("  Args:")
-                .filter(|s| s.is_empty() || s.starts_with(' '))
-                .ok_or(Code::CliUnrecognized)?;
-            let env = match options {
-                [] => &[][..],
-                ["  Environment:", pairs @ ..] if named_values(pairs, "=") => pairs,
-                _ => return Err(Code::CliUnrecognized),
-            };
-            (
-                Some(path.to_owned()),
-                matches!(args, "" | " ") && env.is_empty(),
-            )
+    let mut fields = Vec::<(&str, String)>::new();
+    for bytes in lines {
+        let Ok(line) = std::str::from_utf8(bytes) else {
+            return Ok(entry);
+        };
+        if line.chars().any(char::is_control) {
+            return Ok(entry);
         }
-        ["  Type: http" | "  Type: sse" | "  Type: ws", url, options @ ..]
-            if url.strip_prefix("  URL: ").is_some_and(|v| !v.is_empty())
-                && (options.is_empty()
-                    || matches!(options, ["  Headers:", pairs @ ..] if named_values(pairs, ": "))) =>
-        {
-            (None, false)
+        if line.starts_with("To remove this server, run:") {
+            break;
         }
-        _ => return Err(Code::CliUnrecognized),
+        if let Some((key, value)) = line.strip_prefix("  ").and_then(|s| s.split_once(':')) {
+            if !key.is_empty() && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+                fields.push((key, value.trim().to_owned()));
+                continue;
+            }
+        }
+        if let Some((_, value)) = fields.last_mut() {
+            if !line.trim().is_empty() {
+                value.push('\n');
+                value.push_str(line.trim());
+            }
+        }
+    }
+    let field = |name| {
+        let mut found = fields.iter().filter(|(key, _)| *key == name);
+        let value = &found.next()?.1;
+        found.next().is_none().then_some(value)
     };
-    Ok(Entry {
-        command,
-        plain_stdio,
-        digest: hash(fields.join("\n")),
-    })
+    entry.user_scope = field("Scope")
+        .is_some_and(|s| display_matches(s, "User config (available in all your projects)"));
+    if entry.user_scope {
+        if field("Type").is_some_and(|s| display_matches(s, "stdio")) {
+            entry.command = field("Command").filter(|s| !s.is_empty()).cloned();
+            let env_count = fields.iter().filter(|(k, _)| *k == "Environment").count();
+            entry.plain_stdio = field("Args").is_some_and(|s| s.is_empty())
+                && (env_count == 0 || field("Environment").is_some_and(|s| s.is_empty()));
+        } else {
+            entry.remote = field("Type")
+                .is_some_and(|s| ["http", "sse", "ws"].iter().any(|t| display_matches(s, t)));
+        }
+    }
+    fields.retain(|(k, _)| !matches!(*k, "Status" | "Issue"));
+    entry.digest = hash(serde_json::to_vec(&fields).map_err(|_| Code::CliUnrecognized)?);
+    Ok(entry)
 }
 
-fn named_values(lines: &[&str], separator: &str) -> bool {
-    let mut names = std::collections::HashSet::new();
-    lines.iter().all(|line| {
-        line.strip_prefix("    ")
-            .and_then(|value| value.split_once(separator))
-            .is_some_and(|(name, _)| {
-                !name.is_empty() && !name.contains(char::is_whitespace) && names.insert(name)
-            })
-    })
+// A line break can split a word or replace spaces. Match against one known path
+// without guessing a wrap width or reconstructing someone else's command.
+fn display_matches(display: &str, expected: &str) -> bool {
+    let normalized = expected
+        .split(' ')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut rest = normalized.as_str();
+    for line in display.lines() {
+        let part = line
+            .split(' ')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let Some(tail) = rest.trim_start_matches(' ').strip_prefix(&part) else {
+            return false;
+        };
+        rest = tail;
+    }
+    rest.is_empty()
 }
 
+impl Entry {
+    fn points_at(&self, path: &str) -> Option<bool> {
+        if self.remote {
+            Some(false)
+        } else {
+            self.command.as_ref().map(|s| display_matches(s, path))
+        }
+    }
+}
 impl State {
     fn inspect(e: &Engine, program: Program, store: &Store) -> Result<Self, CommandResult> {
         let (record, warning) = match store.read() {
@@ -203,8 +180,9 @@ impl State {
                 entry(&output.stdout).map_err(|code| CommandResult::new(code, output.status))?,
             ),
             Some(1)
-                if (output.stdout.iter().all(|b| *b == b'\n') && missing(&output.stderr))
-                    || (output.stderr.iter().all(|b| *b == b'\n') && missing(&output.stdout)) =>
+                if output
+                    .stderr
+                    .starts_with(b"No MCP server named \"aphrodite\".") =>
             {
                 None
             }
@@ -218,13 +196,19 @@ impl State {
             get_exit: output.status,
         })
     }
-    fn points_here(&self, e: &Engine) -> bool {
-        self.entry.as_ref().and_then(|v| v.command.as_deref()) == Some(e.executable())
+    fn points_here(&self, e: &Engine) -> Option<bool> {
+        self.entry
+            .as_ref()
+            .map_or(Some(false), |v| v.points_at(e.executable()))
     }
-    fn owned(&self, e: &Engine) -> bool {
+    fn owned(&self) -> bool {
         self.entry.as_ref().is_some_and(|v| {
             v.plain_stdio
-                && (self.points_here(e) || v.command.as_ref() == self.record.registered.as_ref())
+                && self
+                    .record
+                    .registered
+                    .as_deref()
+                    .is_some_and(|p| v.points_at(p) == Some(true))
         })
     }
 }
@@ -271,8 +255,8 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
                 .is_none()
                 .then_some(state.record.pending.is_some());
             out.entry_exists = Some(state.entry.is_some());
-            out.points_here = Some(state.points_here(e));
-            out.owned = Some(state.owned(e));
+            out.points_here = state.points_here(e);
+            out.owned = out.points_here.map(|_| state.owned());
             out.exit_status = state.get_exit;
         }
         Err(result) => {
@@ -397,8 +381,11 @@ impl State {
     fn plan(&self, e: &Engine, action: Action) -> Result<CommandPreview, CommandResult> {
         let lines = Lines::new(e, Some(&self.program))?;
         let exists = self.entry.is_some();
-        let owned = self.owned(e);
-        let here = self.points_here(e);
+        let owned = self.owned();
+        let here = self.points_here(e) == Some(true);
+        if self.entry.as_ref().is_some_and(|v| !v.user_scope) {
+            return Err(Code::CliScopeUnknown.into());
+        }
         let foreign = exists && !owned;
         if let Some(code) = self.record_error {
             // A press can repair a malformed receipt for a recognized current entry.
@@ -595,8 +582,8 @@ impl State {
             Ok(now) => {
                 result.observed = Some(Observation {
                     entry_exists: Some(now.entry.is_some()),
-                    owned: Some(now.owned(e)),
-                    points_here: Some(now.points_here(e)),
+                    owned: now.points_here(e).map(|_| now.owned()),
+                    points_here: now.points_here(e),
                     error: None,
                     exit_status: now.get_exit,
                 });
@@ -627,7 +614,7 @@ impl State {
             return failure;
         };
         if let Some(entry) = &now.entry {
-            if entry.plain_stdio && now.points_here(e) {
+            if entry.plain_stdio && now.points_here(e) == Some(true) {
                 return save_record(store, Some(e.executable()), failure);
             }
             // A failed remove may have left the old definition intact. An intervening
@@ -670,11 +657,9 @@ impl State {
             return failure;
         };
         let previous = self.record.pending.as_ref().map(|p| p.previous.as_str());
-        if after
-            .entry
-            .as_ref()
-            .is_some_and(|v| v.plain_stdio && v.command.as_deref() == previous)
-        {
+        if after.entry.as_ref().is_some_and(|v| {
+            v.plain_stdio && previous.is_some_and(|p| v.points_at(p) == Some(true))
+        }) {
             failure.code = Code::RepointRestored;
             if let Some(observed) = &mut failure.observed {
                 observed.owned = Some(true);

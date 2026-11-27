@@ -477,9 +477,10 @@ fn astra_4_ambiguous_fields_and_controls_never_establish_the_command() {
         )
         .unwrap();
         let status = f.status();
-        assert_eq!(status["pointsHere"], Value::Null);
-        assert_eq!(status["owned"], Value::Null);
-        assert_eq!(f.proposal(Action::Remove)["code"], "cli_unrecognized");
+        assert_eq!(status["entryExists"], true);
+        assert_ne!(status["owned"], true);
+        let remove = f.proposal(Action::Remove);
+        assert!(remove["code"].is_string() || remove["confirmationRequired"] == true);
     }
     for extra in [
         "  Other: value",
@@ -492,7 +493,10 @@ fn astra_4_ambiguous_fields_and_controls_never_establish_the_command() {
             base.replace("  Environment:", &format!("  Environment:\n{extra}")),
         )
         .unwrap();
-        assert_eq!(f.status()["pointsHere"], Value::Null);
+        let status = f.status();
+        assert_eq!(status["pointsHere"], true);
+        assert_eq!(status["owned"], false);
+        assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
     }
 }
 
@@ -697,10 +701,7 @@ fn astra_6_a_press_repairs_a_missing_record_and_observed_absence_forgets_the_old
     assert_eq!(added["code"], "registered_record_missing");
     assert_eq!(added["exitStatus"], 0);
     let p = f.proposal(Action::Connect);
-    assert_eq!(
-        f.apply(Action::Connect, &p, false)["code"],
-        "already_connected"
-    );
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "registered");
     assert!(path.is_file());
     let old = f.e().exe.clone();
     f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
@@ -894,7 +895,7 @@ fn opus_10_the_guide_uses_generated_setup_and_undo_and_explains_the_active_looku
 }
 
 #[test]
-fn astra_4_only_a_complete_missing_diagnostic_can_clear_ownership() {
+fn astra_4_only_the_exact_missing_sentence_can_clear_ownership() {
     let f = Fixture::new();
     for name in [
         "get-missing",
@@ -916,7 +917,7 @@ fn astra_4_only_a_complete_missing_diagnostic_can_clear_ownership() {
         "No MCP server named \"aphrodite\". Configured servers: other\r",
     ] {
         f.override_reply("get", json!({"exit":1, "err":text}));
-        assert_eq!(f.status()["entryExists"], Value::Null);
+        assert_eq!(f.status()["entryExists"], false);
     }
 }
 #[test]
@@ -964,8 +965,8 @@ fn astra_6_readable_registration_survives_an_unreadable_record() {
     assert_eq!(s["error"], "record_failed");
     let repair = f.proposal(Action::Connect);
     assert_eq!(
-        f.apply(Action::Connect, &repair, false)["code"],
-        "already_connected"
+        f.apply(Action::Connect, &repair, true)["code"],
+        "registered"
     );
     assert_eq!(f.status()["error"], Value::Null);
 }
@@ -1028,6 +1029,8 @@ fn opus_1_fake_health_uses_the_installed_macos_formatters_tick() {
 fn opus_1_supported_optional_fields_have_versioned_fixtures() {
     let f = Fixture::new();
     let path = f.e().home.join("entry");
+    let preview = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &preview, false);
     for (name, plain) in [("get-stdio-no-env", true), ("get-stdio-env-values", false)] {
         let fixture =
             fs::read_to_string(f.e().home.join("fixtures").join(format!("{name}.txt"))).unwrap();
@@ -1139,4 +1142,119 @@ fn astra_7_the_registration_lock_refuses_settings_aliases_before_opening() {
     fs::hard_link(settings, path).unwrap();
     assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
     assert!(f.calls().is_empty());
+}
+
+#[test]
+fn recheck_opus_1_connector_list_allows_first_connect_without_disclosing_names() {
+    let f = Fixture::new();
+    let diagnostic =
+        include_str!("../../../../tests/fixtures/claude-code/get-missing-connectors.txt")
+            .split_once('\n')
+            .unwrap()
+            .1
+            .trim_end();
+    f.override_reply("get", json!({"exit":1,"err":diagnostic}));
+    let preview = f.proposal(Action::Connect);
+    assert!(preview["commands"].is_array(), "{preview}");
+    assert!(!preview.to_string().contains("claude.ai"));
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+}
+
+#[test]
+fn recheck_astra_4_missing_sentence_is_decisive_only_on_stderr_with_exit_one() {
+    let f = Fixture::new();
+    let sentence = "No MCP server named \"aphrodite\". Configured servers: plugin:example:calendar";
+    for (exit, out, err, exists) in [
+        (1, "", sentence, json!(false)),
+        (1, sentence, "", Value::Null),
+        (2, "", sentence, Value::Null),
+        (1, "", "No MCP server named \"aphrodite-x\".", Value::Null),
+    ] {
+        f.override_reply("get", json!({"exit":exit,"out":out,"err":err}));
+        let status = f.status();
+        assert_eq!(status["entryExists"], exists);
+        assert!(!status.to_string().contains("plugin:"));
+    }
+}
+
+#[test]
+fn recheck_opus_2_wrapped_fields_still_hint_at_the_sidecar() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let path = f.e().home.join("entry");
+    let stanza = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        stanza
+            .replace("all your projects", "all   your\n    projects")
+            .replace("Contents/MacOS", "Contents/Ma\n    cOS"),
+    )
+    .unwrap();
+    assert_eq!(f.status()["pointsHere"], true);
+    fs::write(
+        &path,
+        include_str!("../../../../tests/fixtures/claude-code/get-stdio-node.txt")
+            .split_once('\n')
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(f.status()["pointsHere"], false);
+}
+
+#[test]
+fn recheck_opus_3_trimmed_empty_argument_requires_a_confirmed_remove() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &preview, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &preview, true)["code"], "removed");
+}
+
+#[test]
+fn recheck_astra_1_lossy_command_without_a_record_requires_confirmed_replacement() {
+    let f = Fixture::new();
+    // A tab in the original command prints as a space in this stanza.
+    f.state(f.e().executable(), "");
+    assert_eq!(f.status()["owned"], false);
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["commands"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(
+        f.apply(Action::Connect, &preview, true)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn recheck_astra_3_health_and_future_fields_do_not_establish_ownership() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let stanza = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        stanza.replace("✔ Connected", "Future format\n  Timeout: 30"),
+    )
+    .unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["owned"], false);
+    assert_eq!(s["pointsHere"], true);
+    fs::write(path, "aphrodite:\n  Future: something\n").unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["pointsHere"], Value::Null);
 }

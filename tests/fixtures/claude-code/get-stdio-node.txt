@@ -1,0 +1,10 @@
+# Claude Code 2.1.327, planner's piped stdout capture; user name replaced
+aphrodite:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: stdio
+  Command: node
+  Args: /Users/<name>/projects/aphrodite-mela/mcp/aphrodite-mcp/index.mjs
+  Environment:
+
+To remove this server, run: claude mcp remove aphrodite -s user
