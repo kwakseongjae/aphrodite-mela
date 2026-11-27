@@ -238,10 +238,13 @@ for(const surface of ['board dialog','palette']){
       await field.fill('');
       await page.locator('[data-palette]:visible').first().evaluate(el=>el.classList.add('is-active'));
     }
+    // Keep the actual event and inspect it after every capture listener has run.
+    await page.evaluate(()=>window.addEventListener('keydown',e=>Object.assign(window,{composingDown:e}),{capture:true,once:true}));
     const session=await page.context().newCDPSession(page);
     try{
       await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Process',code:'Enter',windowsVirtualKeyCode:229});
       await session.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+      assert.equal(await page.evaluate('window.composingDown.defaultPrevented'),false);
       assert.equal(await field.count(),1);
       assert.ok(await field.evaluate(el=>el===document.activeElement));
     }finally{await session.detach();}
