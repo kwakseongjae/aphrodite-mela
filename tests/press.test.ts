@@ -467,3 +467,44 @@ test('batches, system changes and undo count once per recorded change',async()=>
   await run('act',{action:'undo'},3);
   await run('act',{action:'redo'},4);
 });
+
+async function reconnect(){
+  await scene('connections');
+  const toggle=rig.page.locator('.connect-switch [data-action="agent-connect-toggle"]');
+  await toggle.click({force:true});
+  await toggle.click({force:true});
+}
+test('a new connection stays at zero when a recorded edit finishes replying',async()=>{
+  const {page}=rig;
+  await scene('mark');
+  await page.clock.install({time:new Date('2030-01-01T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2030-01-01T00:01:00Z'));
+  try{
+    await page.evaluate("window.oldEdit=scene.titleEdit('Landed before disconnect');void 0");
+    assert.equal(await page.evaluate("window.aphroditeAgent.run('state').then(r=>r.seq)"),1);
+    assert.equal((await connectedMark()).count,'1');
+    await reconnect();
+    await page.clock.runFor(100);
+    assert.equal(await page.evaluate('window.oldEdit.then(r=>r.ok)'),true);
+    assert.deepEqual(await connectedMark(),{allowed:'any agent',count:'0',logo:null});
+  }finally{await page.clock.resume();}
+});
+
+test('a command waiting for a picture credits only the connection it started under',async()=>{
+  const {page}=rig;
+  await scene('mark');
+  let release!:()=>void;
+  const held=new Promise<void>(yes=>{release=yes;});
+  const sample='**/assets/demo-reference.jpg';
+  await page.route(sample,async route=>{
+    await held;
+    await route.fulfill({path:'public/assets/demo-reference.jpg',contentType:'image/jpeg'});
+  },{times:1});
+  const requested=page.waitForRequest(sample,{timeout:10_000});
+  const edit=page.evaluate<{ok:boolean;seq:number}>(`window.aphroditeAgent.run('act',{action:'demo-reference'},'claude-code')`);
+  try{await requested;await reconnect();}finally{release();}
+  const reply=await edit;
+  assert.equal(reply.ok,true);
+  assert.equal(reply.seq,1);
+  assert.deepEqual(await connectedMark(),{allowed:'any agent',count:'0',logo:null});
+});
