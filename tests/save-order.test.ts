@@ -1,0 +1,77 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {setImmediate as tick} from 'node:timers/promises';
+import {MAX_PROJECT} from '../src/model';
+import {libraryText} from '../src/workspace/library';
+import {editorCalls} from './support/editor-calls';
+import {windowWithDisk,deferred} from './support/save-window';
+
+test('each step reports saved only for the acknowledged live edit',async()=>{
+  for(const steps of ['A B ok ok','A refuse ok','A refuse B ok fail','A B ok refuse fail','A fail B','A ok B refuse ok']){
+    const {s,edit,writes}=windowWithDisk();
+    let live='',ack='',index=0;
+    for(const step of steps.split(' ')){
+      if(step==='ok'||step==='fail'){
+        const w=writes[index++];assert.ok(w);
+        if(step==='ok'){ack=JSON.parse(w.text).entries[0].project.name;w.done.resolve(index);}else w.done.reject(new Error('disk full'));
+      }else{live=step==='refuse'?'bad\uD800':step;edit(live);}
+      await tick();
+      assert.equal(s.saves.saved,ack===live,steps+' after '+step);
+    }
+  }
+});
+test('quit after a refused B and a late acknowledgement of A keeps the window open',async()=>{
+  const {s,writes,edit}=windowWithDisk();
+  edit('A');await tick();s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
+  writes[0].done.resolve(1);await tick();
+  let closed=false;await assert.rejects(s.closeWindow(async()=>{closed=true;}));
+  assert.equal(closed,false);
+});
+test('a pending component image that exceeds the board limit invalidates the discard answer and a read in flight',async()=>{
+  for(const during of [false,true]){
+    const {s,reads,questions,press,edit}=windowWithDisk();
+    const image=deferred<string>();await press('block-image');const importing=s.finishImage(image.promise);
+    edit('bad\uD800');await s.reloadFromDisk();assert.equal(questions.length,1);
+    const at=s.saves.generation;
+    const reading=during?s.reloadFromDisk(at):undefined;
+    image.resolve('data:image/png;base64,'+'A'.repeat(MAX_PROJECT));await importing;
+    if(during){reads[0].resolve({path:'/old',data:libraryText(s.library),revision:1});await reading;}
+    else {const answer=s.reloadFromDisk(at);reads[0]?.resolve({path:'/old',data:libraryText(s.library),revision:1});await answer;}
+    assert.equal(questions.length,2,'ask again after the refused import');
+    assert.equal(reads.length,during?1:0);
+  }
+});
+test('Start fresh never writes the old board in place of a refused live edit',async()=>{
+  const {s,edit,press,writes,said}=windowWithDisk();s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
+  const start=press('disk-start-fresh');await tick();writes[0]?.done.resolve(1);await start;
+  assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));assert.equal(writes.length,0);
+});
+test('a new edit during Start fresh keeps the reminder until a current save succeeds',async()=>{
+  const {s,edit,press,writes,said}=windowWithDisk();
+  const start=press('disk-start-fresh');await tick();edit('B');writes[0].done.resolve(1);await start;
+  assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));
+  await tick();writes[1].done.resolve(2);await tick();const again=press('disk-start-fresh');await tick();
+  assert.equal(JSON.parse(writes[2].text).entries[0].project.name,'B');writes[2].done.resolve(3);await again;assert.equal(s.saves.missing,undefined);
+});
+test('quit after an empty read and failed retry exports the same live boards as Save every board',async()=>{
+  const {s,writes,reads,press,files,questions}=windowWithDisk();
+  const reading=s.reloadFromDisk();reads[0].resolve({data:null,path:'/old',revision:0});await reading;
+  s.project.name='live';await press('hub-backup');
+  const {windowCloser}=await import('../src/workspace/closing');
+  Object.assign(s,{windowCloser,StillSaving:class extends Error{},nativeDesktop:false});
+  editorCalls(['async function askClose(','async function keepOnClose(','const closer=windowCloser'],s);
+  const {runInNewContext}=await import('node:vm');
+  let closed=false;s.destroy=async()=>{closed=true;};
+  const closing=runInNewContext('closer.request(destroy)',s);await tick();writes[0].done.reject(new Error('disk full'));await closing;
+  assert.equal(closed,true);const boards=(file:string)=>JSON.parse(file).entries.map((e:{project:unknown})=>e.project);assert.deepEqual(boards(files[1]),boards(files[0]));assert.match(questions.at(-1)!,/Save every board as a backup file/);
+});
+test('redrawing the badge after an empty read or refusal never says a write is pending',async()=>{
+  const {readFileSync}=await import('node:fs');const {runInNewContext}=await import('node:vm');
+  const main=readFileSync('src/main.ts','utf8');
+  const expr=main.match(/\$\{(saveBadge\([^\n]*?\))\}<\/div>/)![1];
+  for(const empty of [true,false]){
+    const {s,reads,edit}=windowWithDisk();Object.assign(s,{saveBadge:(v:string)=>v});
+    if(empty){const reading=s.reloadFromDisk();reads[0].resolve({data:null,path:'/old',revision:0});await reading;}else edit('bad\uD800');
+    assert.equal(runInNewContext(expr,s),'unsaved');
+  }
+});

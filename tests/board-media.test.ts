@@ -210,7 +210,7 @@ test('the sidebar sends people to the board where a dropped picture is placed',a
   const screen={...editorBoard(project),spaceAbort:undefined,AbortController,document:{getElementById:(id:string)=>id==='canvas-scroll'?space:null},
     cameraProjectId:project.id,spaceHeld:false,applyCamera:noop,camera:{x:0,y:0,zoom:1},visiblePages,screenToWorld,who:personAt,isBoardFileName,
     frameHost:{maxBytes:MAX_MEDIA_BYTES,put:async()=>({sha,mime:'image/png'}),mediaUrl:async()=> 'blob:picture'},mediaSize:async()=>({width:50,height:50}),
-    mediaRefusal,MAX_PAGES,preflightBatch,selected:'',libraryRefusal:noop,library:{},diskQueue:null,BROWSER_LIBRARY_ESTIMATE:5_000_000,
+    mediaRefusal,MAX_PAGES,preflightBatch,selected:'',libraryRefusal:noop,library:{},saves:{native:false,saved:true},BROWSER_LIBRARY_ESTIMATE:5_000_000,
     mediaFrame,runBatch,carriedNow:noop};
   editorCalls(['function commit(','function mountSpace(','function spaceEl(','function spaceLocal(','async function putMedia('],screen);
   const host=screen as typeof screen & {mountSpace:Function;putMedia:(...args:unknown[])=>Promise<void>};

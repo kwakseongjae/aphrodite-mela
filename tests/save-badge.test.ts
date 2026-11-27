@@ -6,14 +6,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {saveState, saveBadgeHtml} from '../src/editor/save-badge.ts';
-
-test('the line is saved, saving or not saved, as the store says', () => {
-  assert.equal(saveState({saved: true, failed: false, native: true}), 'saved');
-  assert.equal(saveState({saved: false, failed: false, native: true}), 'saving', 'the desktop is still writing');
-  assert.equal(saveState({saved: false, failed: true, native: true}), 'unsaved');
-  assert.equal(saveState({saved: false, failed: false, native: false}), 'unsaved', 'a browser save that did not land is not on its way');
-});
+import {saveBadgeHtml} from '../src/editor/save-badge.ts';
 
 test('each state reads as itself, and only the unsaved one is a warning', () => {
   const saved = saveBadgeHtml('saved', {native: true, ko: false, title: 'Saved to disk'});
@@ -31,6 +24,6 @@ test('the write queue\'s answer redraws the line it finds by its data- attribute
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   const answer = main.slice(main.indexOf('function attachDiskQueue'), main.indexOf('async function reloadFromDisk'));
   assert.match(answer, /\[data-save-badge\]/);
-  assert.match(answer, /saveBadge\(saveState\(/);
+  assert.match(answer, /saveBadge\(saves\.badge/);
   assert.doesNotMatch(main, /\.save-indicator/, 'no lookup by a class nothing draws');
 });

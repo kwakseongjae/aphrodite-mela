@@ -27,7 +27,7 @@ export function editorCalls(starts:string[],screen:Record<string,unknown>){
 export function editorBoard(project:Project){
   ensureSpace(project);
   return {project,edits:newHistory(project),screen:'editor',begin,end,placeNewFrames,ensureSpace,revealStarter,refusal,sourceFor,
-    persist:noop,recordRun:noop,changeReceipt:noop,saveTyping:noop,render:noop,app:{},rerenderPreservingScroll:noop,lastSaved:true};
+    persist:noop,recordRun:noop,changeReceipt:noop,saveTyping:noop,render:noop,app:{},rerenderPreservingScroll:noop,saves:{saved:true}};
 }
 
 /** Dependencies shared by the editor action dispatcher before it reaches the chosen control. */

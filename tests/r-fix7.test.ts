@@ -59,7 +59,7 @@ test('every close request is held and goes through the closer', () => {
   const closing = readFileSync(join(root, 'src/workspace/closing.ts'), 'utf8');
   const handler = closing.slice(closing.indexOf('export function closeRequests('));
   assert.ok(handler.indexOf('event.preventDefault();') > 0 && handler.indexOf('event.preventDefault();') < handler.indexOf('if(closing)return;'), 'held first, whatever the board');
-  assert.doesNotMatch(main, /onCloseRequested\(async event=>\{[^]*?if\(lastSaved[^)]*\)return;/, 'a saved board is not let through to close on its own');
+  assert.doesNotMatch(main, /onCloseRequested\(async event=>\{[^]*?if\(saves\.saved[^)]*\)return;/, 'a saved board is not let through to close on its own');
 });
 
 /* 4: a board file whose write to the disk is refused says so as a notice, even over a request to edit. */

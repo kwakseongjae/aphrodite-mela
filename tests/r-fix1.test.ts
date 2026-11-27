@@ -169,10 +169,9 @@ test('a patch of two clearings and nothing else is refused, not taken as an empt
 
 /* 10: every write into the disk's line is held to what the desktop can save. */
 test('every library put in the disk\'s line goes through libraryText', () => {
-  const calls = [...main.matchAll(/enqueue\(([^)]*)\)/g)].map(m => m[1]);
-  assert.ok(calls.length >= 2);
-  for (const arg of calls) assert.ok(arg === 'raw' || arg.startsWith('libraryText('), `enqueue(${arg})`);
-  assert.match(main, /const raw=libraryText\(next\);if\(diskQueue\)\{diskQueue\.enqueue\(raw\);\}/);
+  assert.doesNotMatch(main,/\.enqueue\(/,'the editor cannot bypass the save state');
+  assert.equal([...main.matchAll(/saves\.save\(/g)].length,1,'one snapshot builder for every writer');
+  assert.match(main, /const text=libraryText\(prepared\)/);
   assert.doesNotMatch(main, /enqueue\(JSON\.stringify/);
 });
 

@@ -8,10 +8,6 @@ import {esc} from '../html';
  */
 export type SaveState = 'saved' | 'saving' | 'unsaved';
 
-export function saveState(s: {saved: boolean; failed: boolean; native: boolean}): SaveState {
-  return s.saved ? 'saved' : s.failed || !s.native ? 'unsaved' : 'saving';
-}
-
 /** `title` is the control label main.ts writes through control(), so an agent's description of it matches. */
 export function saveBadgeHtml(state: SaveState, o: {native: boolean; ko: boolean; title: string}): string {
   const t = (en: string, ko: string) => o.ko ? ko : en;
