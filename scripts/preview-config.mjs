@@ -29,7 +29,3 @@ export function buildIdentity() {
   const patch = JSON.parse(process.env.TAURI_CONFIG || '{}');
   return {identifier:patch.identifier ?? base.identifier, version:patch.version ?? base.version};
 }
-
-export function schemeForIdentifier(identifier) {
-  return identifier.endsWith('.preview') ? 'aphrodite-preview' : 'aphrodite';
-}

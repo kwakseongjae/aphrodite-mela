@@ -5,9 +5,10 @@ import {toolManifest, tools, refusalText, FALLBACK_CALLER} from '../mcp/aphrodit
 import {promptManifest, prompts} from '../mcp/aphrodite-mcp/prompts.mjs';
 import {protocol} from '../mcp/aphrodite-mcp/protocol.mjs';
 
-import {previewConfig, stableConfig} from './preview-config.mjs';
+import {buildIdentity} from './preview-config.mjs';
+import {schemeForIdentifier} from '../src/board-scheme.mjs';
 
-const build = process.env.APHRODITE_PREVIEW_VERSION ? previewConfig(process.env.APHRODITE_PREVIEW_VERSION) : stableConfig;
+const build = buildIdentity();
 const triple = process.env.TAURI_ENV_TARGET_TRIPLE || execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.+)$/m)[1];
 const bin = 'src-tauri/bin';
 const target = 'src-tauri/target/mcp';
@@ -22,7 +23,7 @@ const templates = Object.fromEntries(prompts.map(prompt => {
   const arg = prompt.arguments[0]?.name;
   return [prompt.name, {arg, empty:prompt.build()[0].content.text, parts:prompt.build({[arg]:marker})[0].content.text.split(marker)}];
 }));
-const manifest = {version:stableConfig.version, identifier:stableConfig.identifier, ...protocol, fallbackCaller:FALLBACK_CALLER, tools:toolManifest(), routes,
+const manifest = {version:build.version, identifier:build.identifier, ...protocol, fallbackCaller:FALLBACK_CALLER, tools:toolManifest(schemeForIdentifier(build.identifier)), routes,
   prompts:promptManifest(), templates,
   refused:refusalText({},marker).split(marker),
   board:refusalText({error:'',open:{name:marker}},403).split(marker),

@@ -6,6 +6,8 @@ import {createServer} from 'node:http';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {buildIdentity} from '../scripts/preview-config.mjs';
+import {schemeForIdentifier} from '../src/board-scheme.mjs';
 import {toolManifest, tools} from '../mcp/aphrodite-mcp/tools.mjs';
 
 const triple = process.env.TAURI_ENV_TARGET_TRIPLE || execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.*)$/m)![1];
@@ -16,13 +18,19 @@ const buildScript = 'scripts/build-mcp.mjs';
 const manifestFile = 'src-tauri/bin/mcp-manifest.json';
 
 before(() => {
-  if (existsSync(manifestFile)) execFileSync(process.execPath,[buildScript,'--check-manifest',manifestFile]);
+  if (existsSync(manifestFile)) {
+    // A preceding local build may have selected the other installation.
+    const {identifier,version} = JSON.parse(readFileSync(manifestFile,'utf8'));
+    execFileSync(process.execPath,[buildScript,'--check-manifest',manifestFile],{env:{
+      ...process.env, TAURI_CONFIG:JSON.stringify({identifier,version}),
+    }});
+  }
   execFileSync(process.execPath,[buildScript],{stdio:'inherit',env:{...process.env,TAURI_ENV_TARGET_TRIPLE:triple}});
 });
 
 test('the generated native manifest agrees with its sources, including call plumbing', () => {
   const generated=JSON.parse(readFileSync(manifestFile,'utf8'));
-  assert.deepEqual(generated.tools,toolManifest());
+  assert.deepEqual(generated.tools,toolManifest(schemeForIdentifier(buildIdentity().identifier)));
   execFileSync(process.execPath,[buildScript,'--check-manifest',manifestFile]);
   const dir=mkdtempSync(join(tmpdir(),'aph-manifest-'));
   const fixture=join(dir,'stale.json');
@@ -369,32 +377,36 @@ test('each bundled server reaches its own installation and the Node override rea
   });
   for (const {identifier,version} of [stable,preview]) {
     mkdirSync(join(support, identifier), {recursive:true});
-    writeFileSync(file(identifier), JSON.stringify({base, version, token:identifier, pid:process.pid}));
+    writeFileSync(file(identifier), JSON.stringify({base, version, identifier, token:identifier, pid:process.pid}));
   }
   const clean:NodeJS.ProcessEnv = {...process.env, HOME:home};
   delete clean.APHRODITE_ENDPOINT_FILE;
   delete clean.APHRODITE_PREVIEW_VERSION;
+  delete clean.TAURI_CONFIG;
   async function transcript(cmd:string, args:string[], env:NodeJS.ProcessEnv) {
     const child = spawn(cmd,args,{env});
-    child.stdin.end('{"id":1,"method":"initialize"}\n{"id":2,"method":"tools/call","params":{"name":"aphrodite_get_contract"}}\n');
+    child.stdin.end('{"id":1,"method":"initialize"}\n{"id":2,"method":"tools/call","params":{"name":"aphrodite_get_contract"}}\n{"id":3,"method":"tools/list"}\n');
     const replies = new Map();
     for await (const frame of frames(child.stdout)) {
       const reply = JSON.parse(frame.toString());
       replies.set(reply.id,reply.result);
     }
-    return [replies.get(1).serverInfo.version, JSON.parse(replies.get(2).content[0].text)];
+    const schemes = replies.get(3).tools.flatMap((tool:{description:string}) =>
+      Array.from(tool.description.matchAll(/(aphrodite(?:-preview)?):\/\//g), m=>m[1]));
+    return [replies.get(1).serverInfo.version, JSON.parse(replies.get(2).content[0].text), schemes];
   }
   try {
     for (const build of [stable, preview]) {
       const env = {...clean, ...(build === preview ? {APHRODITE_PREVIEW_VERSION:preview.version} : {})};
       // Cargo and rustup keep their normal caches. Only the test clients see the temporary home.
-      execFileSync(process.execPath,[buildScript],{env:{...process.env, APHRODITE_PREVIEW_VERSION:env.APHRODITE_PREVIEW_VERSION || ''}});
-      const expected = [build.version, 'Bearer ' + build.identifier];
+      execFileSync(process.execPath,[buildScript],{env:{...process.env, TAURI_CONFIG:'', APHRODITE_PREVIEW_VERSION:env.APHRODITE_PREVIEW_VERSION || ''}});
+      const scheme = build === preview ? 'aphrodite-preview' : 'aphrodite';
+      const expected = [build.version, 'Bearer ' + build.identifier, [scheme,scheme]];
       assert.deepEqual(await transcript(native, [], env), expected);
       const nodeEnv = build === preview ? {...clean, APHRODITE_ENDPOINT_FILE:file(preview.identifier)} : clean;
       assert.deepEqual(await transcript(process.execPath,[nodeServer],nodeEnv),expected);
       assert.deepEqual(await transcript(native, [], {...env, APHRODITE_ENDPOINT_FILE:file(stable.identifier)}),
-        [build.version, 'Bearer ' + stable.identifier]);
+        [build.version, 'Bearer ' + stable.identifier, [scheme,scheme]]);
     }
   } finally {
     // Leave the executable requested by the enclosing build in place for Cargo and Tauri.

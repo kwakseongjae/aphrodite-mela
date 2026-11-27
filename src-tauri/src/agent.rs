@@ -158,6 +158,7 @@ fn write_endpoint_file(app: &AppHandle, port: u16, token: &str) -> Result<String
     let body = json!({
         "schema": "aphrodite.agent-endpoint/1",
         "version": app.package_info().version.to_string(),
+        "identifier": app.config().identifier,
         "port": port,
         "token": token,
         "pid": std::process::id(),

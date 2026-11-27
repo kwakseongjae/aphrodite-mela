@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
-import { buildIdentity, schemeForIdentifier } from './scripts/preview-config.mjs';
+import { buildIdentity } from './scripts/preview-config.mjs';
+import { schemeForIdentifier } from './src/board-scheme.mjs';
 import { appPolicy, policyInHtml } from './src/csp.mjs';
 const build = buildIdentity();
 // The browser build runs under the app's own policy. `tauri dev` loads the dev server into the desktop

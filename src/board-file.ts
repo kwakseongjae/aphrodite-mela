@@ -19,6 +19,7 @@ import {MAX_EXPORT_FILE} from './page-export';
 import {savedText, utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
 import {halfPairIn} from './text';
+import {boardScheme} from './board-scheme.mjs';
 import named from '../src-tauri/board-file.json';
 
 /**
@@ -430,7 +431,6 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
  */
 export type OpenLink = {board: string; page?: string};
 const ID = /^[a-zA-Z0-9_-]{1,200}$/;
-const boardScheme = typeof __BOARD_SCHEME__ === 'undefined' ? 'aphrodite' : __BOARD_SCHEME__;
 export function readOpenLink(href: string, scheme = boardScheme): OpenLink | undefined {
   if (href.length > 1000 || !href.toLowerCase().startsWith(scheme + ':') || !/^:\/\/open\/?\?/i.test(href.slice(scheme.length))) return undefined;
   const query = href.slice(href.indexOf('?') + 1);

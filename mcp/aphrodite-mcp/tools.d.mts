@@ -22,7 +22,7 @@ export type Tool = {
 export declare const PREFIX: string;
 export declare const tools: Tool[];
 export declare const toolByName: Record<string, Tool>;
-export declare function toolManifest(): Omit<Tool, 'route' | 'params' | 'body'>[];
+export declare function toolManifest(scheme?: string): Omit<Tool, 'route' | 'params' | 'body'>[];
 export declare const FALLBACK_CALLER: string;
 /** A refusal as the agent reads it, with the board open now when the refusal names it. */
 export declare function refusalText(payload: {error?: string; status?: number; open?: unknown} | undefined, status: number): string;

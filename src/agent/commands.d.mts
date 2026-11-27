@@ -64,5 +64,5 @@ export declare function gradeOfKind(kind: string): Grade | undefined;
 export declare function kindsOfGrade(...grades: Grade[]): string[];
 export declare function loopbackRoutes(): string[];
 export declare function toTool(row: Row): Tool;
-export declare function mcpTools(): Tool[];
+export declare function mcpTools(scheme?: string): Tool[];
 export function personOnlyRow(actionName: unknown): string | undefined;

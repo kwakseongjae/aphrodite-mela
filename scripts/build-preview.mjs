@@ -2,7 +2,8 @@
 import {execFileSync} from 'node:child_process';
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
-import {previewConfig, schemeForIdentifier} from './preview-config.mjs';
+import {previewConfig} from './preview-config.mjs';
+import {schemeForIdentifier} from '../src/board-scheme.mjs';
 
 const {values} = parseArgs({options: {
   version:{type:'string'}, target:{type:'string'}, 'config-only':{type:'boolean'},

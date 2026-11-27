@@ -69,3 +69,9 @@ test('frontend links follow the build identifier even when its version is a rele
     assert.deepEqual(readOpenLink(scheme+'://open?board=board',builtScheme),{board:'board'});
   }
 });
+
+test('the pages check uses a link from the running build for its board addresses', () => {
+  const check = readFileSync('scripts/verify-pages.mjs','utf8');
+  assert.doesNotMatch(check,/aphrodite(?:-preview)?:\/\//);
+  assert.match(check,/new URL\(made.link\).protocol/);
+});
