@@ -1887,3 +1887,18 @@ fn fix3_n8_swapping_the_previewed_file_at_the_last_check_refuses_before_get() {
     assert_eq!(f.calls().len(), count, "a lookup started after the swap");
     assert_eq!(result["code"], "changed");
 }
+
+#[test]
+fn fix3_n9_guide_covers_record_repair_previous_paths_and_launch_behavior() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    for detail in [
+        "successful Connect press replaces a damaged record",
+        "previous path in an unfinished re-point",
+        "profile exactly as you spelled it",
+        "Wrappers that locate siblings through their own script path are unsupported",
+        "Claude Code 2.1.327",
+        "2026-11-27",
+    ] {
+        assert!(guide.contains(detail), "missing guide detail: {detail}");
+    }
+}

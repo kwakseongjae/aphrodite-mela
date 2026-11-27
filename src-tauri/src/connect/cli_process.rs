@@ -287,6 +287,9 @@ impl Program {
             .transpose()?;
         // Darwin spawn takes a pathname. volfs provides a stable object name on
         // supporting volumes. The open file keeps its inode from being recycled.
+        // Observed on macOS arm64, 2026-11-27: native Claude Code 2.1.327 launched by
+        // file ID with a clean environment. A missing name exited 1 with empty stdout
+        // and one missing-name stderr line; the registered aphrodite exited 0 with empty stderr.
         let object = image_id.object_path();
         let launch_path = object.as_ref().unwrap_or(image_path);
         let script_object = interpreter.and_then(|_| self.identity.object_path());
