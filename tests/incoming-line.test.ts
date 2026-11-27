@@ -19,7 +19,7 @@ test('a board file from the picker takes its place in the line as it starts to b
 });
 
 test('the workspaces on screen change only once they are stored', () => {
-  assert.match(main, /function saveWorkspaces\(next:WorkspaceBook\)\{if\(!writeWorkspaces\(localStorage,next\)\)throw new Error\([^\n]*\);workspaces=next;\}/);
+  assert.match(main, /function saveWorkspaces\(next:WorkspaceBook\)\{if\(!writeWorkspaces\(store,next\)\)throw new Error\([^\n]*\);workspaces=next;\}/);
 });
 
 /* 0.3-P3-fix5 #2: a board already in the library that its workspace keeps from opening is said to be imported, there. */

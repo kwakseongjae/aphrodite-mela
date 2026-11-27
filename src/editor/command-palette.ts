@@ -2,11 +2,13 @@ import {catalog,type BlockKind} from '../model';
 import {icon} from '../design/icon';
 import {esc} from '../html';
 import type {Language} from '../i18n';
+import {themeChoices,type ThemeChoice} from '../theme';
+import {themeLabel} from './help-menu';
 
 /** One entry of the in-app command palette. `action`/`data` map 1:1 to the existing data-action dispatcher. */
 export type Command={id:string;action:string;data?:Record<string,string>;en:string;ko:string;group:'navigate'|'add'|'edit'|'design'|'review'|'file';keys?:string;hint?:{en:string;ko:string};keywords?:string[];related?:boolean};
 
-export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean};
+export type PaletteContext={hasSelection:boolean;canUndo:boolean;canRedo:boolean;approved:boolean;viewport:'desktop'|'mobile';kinds?:readonly {kind:BlockKind;name:string}[];pages?:readonly {id:string;name:string;active:boolean}[];sections?:boolean;theme?:ThemeChoice};
 
 /** The rows that work on sections (0.3-L4b): left out while the board has no section page, like their dock buttons. */
 const sectionCommands:ReadonlySet<string>=new Set(['search','autofill','systems','theme','explorer','reference']);
@@ -20,12 +22,16 @@ export function sectionOnly(action:string):boolean{
   return action==='add'||action==='reference-promote'||commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',kinds:[]}).some(c=>sectionCommands.has(c.id)&&c.action===action);
 }
 
+/** The words that find each theme, so "dark" runs Dark and not the first theme row. */
+const themeWords:Record<ThemeChoice,string[]>={system:['match the system','시스템 설정 따르기','mac','auto','자동'],light:['light','밝게','라이트','밝은','paper','페이퍼'],dark:['dark','어둡게','다크','어두운','night','midnight','미드나이트']};
+
 export function commandTable(ctx:PaletteContext):Command[]{
   const sections=ctx.sections??true;
   const kinds=ctx.kinds??catalog;
   const add:Command[]=kinds.filter(c=>!c.kind.startsWith('moa')).map(c=>({id:`add-${c.kind}`,action:'add',data:{kind:c.kind},en:`Add ${c.name}`,ko:`${c.name} 추가`,group:'add' as const}));
   const base:Command[]=[
-    {id:'home',action:'home',en:'All projects (home)',ko:'프로젝트 목록(홈)',group:'navigate'},
+    // Home's names from before it held boards stay findable: an agent's palette command may still use them.
+    {id:'home',action:'home',en:'All boards (home)',ko:'보드 목록(홈)',group:'navigate',keywords:['All projects (home)','프로젝트 목록(홈)']},
     {id:'search',action:'focus-component-search',en:'Find a component',ko:'컴포넌트 검색',group:'navigate',keys:'/'},
     {id:'undo',action:'undo',en:'Undo',ko:'실행 취소',group:'edit',keys:'⌘Z'},
     {id:'redo',action:'redo',en:'Redo',ko:'다시 실행',group:'edit',keys:'⇧⌘Z'},
@@ -62,8 +68,9 @@ export function commandTable(ctx:PaletteContext):Command[]{
     {id:'preview',action:'preview',en:'Preview the page (no scripts, same HTML as export)',ko:'페이지 미리보기 (스크립트 없음, export와 동일 HTML)',group:'review'},
     {id:'agent',action:'agent',en:'Agent assembly console · brief & run log',ko:'에이전트 조립 콘솔 · 브리프·실행 기록',group:'review'},
     {id:'export',action:'export',en:'Export handoff (ZIP, prompt, DESIGN.md, SCENE.json)',ko:'핸드오프 내보내기 (ZIP, 프롬프트, DESIGN.md, SCENE.json)',group:'file'},
-    {id:'save',action:'save-project',en:'Save project file (.aphrodite.json)',ko:'프로젝트 파일 저장 (.aphrodite.json)',group:'file'},
+    {id:'save',action:'save-project',en:'Save a backup file (.aphrodite.json)',ko:'백업 파일로 저장 (.aphrodite.json)',group:'file',keywords:['Save project file','프로젝트 파일 저장']},
     {id:'language',action:'language-settings',en:'Language / 언어',ko:'Language / 언어',group:'file'},
+    ...themeChoices.map(c=>({id:`look-${c}`,action:'hub-theme',data:{scheme:c},en:`Theme · ${themeLabel[c].en}`,ko:`테마 · ${themeLabel[c].ko}`,group:'file' as const,keywords:['theme','테마',...themeWords[c]],hint:ctx.theme===c?{en:'current',ko:'현재'}:undefined})),
   ];
   if(ctx.hasSelection)base.push(
     {id:'duplicate',action:'duplicate',en:'Duplicate selected component',ko:'선택한 컴포넌트 복제',group:'edit'},
@@ -80,6 +87,7 @@ export function scoreCommand(c:Command,query:string,language:Language){
   const q=normalizeQuery(query);if(!q)return 0;
   const label=normalizeQuery(language==='ko'?c.ko:c.en);
   const keywords=normalizeQuery((c.keywords??[]).join(' '));
+  if((c.keywords??[]).some(k=>normalizeQuery(k)===q))return 5;
   if(label.startsWith(q))return 4;
   if(label.includes(q)||keywords.includes(q))return 3;
   const tokens=query.trim().split(/\s+/).map(normalizeQuery).filter(Boolean);
@@ -106,7 +114,7 @@ export function commandPaletteHtml(commands:Command[],query:string,language:Lang
   const list=filterCommands(commands,query,language);
   const matched=list.filter(c=>!c.related),related=list.filter(c=>c.related);
   const order:Command['group'][]=['navigate','design','review','edit','file','add'];
-  const groups=order.filter(g=>matched.some(c=>c.group===g));
+  const groups=query.trim()?[...new Set(matched.map(c=>c.group))]:order.filter(g=>matched.some(c=>c.group===g));
   const button=(c:Command)=>`<button type="button" class="ui-menu-item" role="option" data-palette data-action="${esc(c.action)}"${Object.entries(c.data??{}).map(([k,v])=>` data-${k}="${esc(v)}"`).join('')}><span class="ui-palette-name">${esc(ko?c.ko:c.en)}</span>${c.hint?`<small class="ui-palette-hint">${esc(ko?c.hint.ko:c.hint.en)}</small>`:''}${c.keys?`<span class="ui-menu-key">${esc(c.keys)}</span>`:''}</button>`;
   const items=groups.map(g=>`<li class="palette-group" role="presentation"><span class="ui-menu-label">${esc(groupLabel[g][language])}</span><ul role="group">${matched.filter(c=>c.group===g).map(c=>`<li>${button(c)}</li>`).join('')}</ul></li>`).join('')+(related.length?`<li class="palette-group palette-related"><span class="ui-menu-label">${ko?'관련 항목':'Related'}</span></li>${related.map(c=>`<li data-related="true">${button(c)}</li>`).join('')}`:'');
   return `<div class="palette ui-palette"><label class="ui-input ui-input-sunken ui-palette-search">${icon('search','ui-icon ui-icon-sm')}<input id="command-search" type="search" autocomplete="off" aria-label="${ko?'명령·컴포넌트·프레임 검색':'Search commands, components, frames'}" placeholder="${ko?'예: 히어로 추가, 디자인 시스템, 내보내기':'e.g. add hero, design system, export'}" value="${esc(query)}"></label><ul class="palette-list ui-palette-list" role="listbox" aria-label="${ko?'명령':'Commands'}" id="command-list">${items||`<li class="ui-empty-text ui-palette-empty" role="status">${ko?'일치하는 명령이 없습니다.':'No matching commands.'}</li>`}</ul><p class="ui-help ui-palette-foot">${ko?'⌘K 또는 ? 로 열기 · ↑↓ 이동 · Enter 실행 · Esc 닫기 · “방향 승인”은 항상 화면에서 직접 클릭합니다.':'Open with ⌘K or ? · ↑↓ move · Enter run · Esc close · “Approve direction” is always a direct click on screen.'}</p></div>`;

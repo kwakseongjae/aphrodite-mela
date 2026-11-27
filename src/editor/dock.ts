@@ -69,9 +69,13 @@ function caretButton(groupId:string,open:boolean,ko:boolean){
   return `<button type="button" class="dock-caret ui-icon-btn" data-action="dock-group" data-group="${esc(groupId)}" aria-expanded="${open}" aria-label="${esc(label)}">${icon('chevron-down','ui-icon ui-icon-xs')}</button>`;
 }
 
-function toolButton(item:DockItem,state:{activeTool?:string;language:Language}){
+/** Why Preview is off on a board that shows no page yet (0.3-L5 fix 1): it would open the hidden page every new board starts with. */
+export function nothingToPreview(ko:boolean){return ko?'보드에 보이는 페이지가 아직 없어 미리 볼 것이 없습니다.':'There is nothing to preview yet: the board shows no page.';}
+
+function toolButton(item:DockItem,state:{activeTool?:string;language:Language;empty?:boolean}){
   const label=copy(item,state.language==='ko');
-  return `<button type="button" class="dock-tool ui-icon-btn" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}" aria-pressed="${state.activeTool===item.id}" aria-label="${esc(label)}" title="${esc(label)} · ${esc(item.key)}">${icon(item.icon,'ui-icon')}</button>`;
+  const off=item.action==='preview'&&state.empty;
+  return `<button type="button" class="dock-tool ui-icon-btn" data-action="${esc(item.action)}"${dataAttrs(item.data)} data-tool="${esc(item.id)}" aria-pressed="${state.activeTool===item.id}" aria-label="${esc(label)}" title="${esc(off?nothingToPreview(state.language==='ko'):`${label} · ${item.key}`)}"${off?' disabled':''}>${icon(item.icon,'ui-icon')}</button>`;
 }
 
 function toolMenu(group:DockGroup,current:DockItem,ko:boolean){
@@ -88,7 +92,7 @@ function zoomMenu(ko:boolean){
   return `<div class="dock-menu ui-menu" role="menu" data-group="zoom">${items}</div>`;
 }
 
-export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number;openGroup?:string;sections?:boolean}):string{
+export function dockHtml(state:{mode:EditorMode;language:Language;activeTool?:string;delegated?:boolean;zoom?:number;openGroup?:string;sections?:boolean;empty?:boolean}):string{
   const ko=state.language==='ko';
   const tools=shownGroups(state.sections??true).map(group=>{
     const current=currentItem(group,state.activeTool);

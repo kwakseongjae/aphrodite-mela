@@ -18,7 +18,7 @@
         "minWidth": 900,
         "minHeight": 620,
         "dragDropEnabled": false,
-        "theme": "Light",
+        "visible": false,
         "backgroundColor": "#F7F5EF"
       }
     ],

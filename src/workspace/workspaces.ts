@@ -115,9 +115,9 @@ export function workspaceInitials(name:string):string{
 }
 export function avatarStyle(ws:Workspace):string{
   const a=ws.avatar;
-  if(a.kind==='color')return `background:${esc(a.value)};color:#fff`;
+  if(a.kind==='color')return `background:${esc(a.value)};color:var(--ui-white)`;
   if(a.kind==='image')return `background-image:url(${esc(a.value)});background-size:cover`;
-  return 'background:#f0efe8';
+  return 'background:var(--ui-bg-sunken)';
 }
 export function avatarContent(ws:Workspace):string{
   if(ws.avatar.kind==='emoji')return esc(ws.avatar.value);

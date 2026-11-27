@@ -5,7 +5,10 @@ import {createHash} from 'node:crypto';
 import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
 
 /**
- * The older stylesheets can only lose colours and font sizes, never gain them.
+ * The older stylesheets hold no colour of their own, and can only lose font sizes, never gain them.
+ *
+ * 0.3-L5: every colour in them is a src/ui token now, so the colour line is no longer a count that may come down but a
+ * floor: none, in every older sheet, and one that appears fails whatever the sheet. The font sizes are still counted.
  *
  * New screens use src/ui (tokens and parts). The sheets written before it are pinned here at the number
  * of distinct colours and distinct font sizes each held on 2026-11-18, when the system came in; F3–F5
@@ -22,14 +25,14 @@ import {namedColours,declarations,canvasSheets,sheetKind} from './support/css';
  * canvas and in the page it exports (render.ts reads all three), not the app's own screens: moving a
  * screen to src/ui never lowers them, and what a design may look like is not this system's to pin.
  */
-const pins:Record<string,{colours:number,sizes:number,set:string}>={
-  'agent/agent.css':{colours:0,sizes:2,set:'fcbaef50'},
-  'design/component-explorer.css':{colours:0,sizes:15,set:'e4439937'},
-  'design/studio.css':{colours:0,sizes:11,set:'1590246b'},
-  'editor/pointer-editor.css':{colours:0,sizes:2,set:'83ba3aab'},
-  'reference.css':{colours:0,sizes:7,set:'0d8ba2d0'},
-  'style.css':{colours:0,sizes:18,set:'da9bb4be'},
-  'workspace/vault.css':{colours:0,sizes:0,set:'0e7d07ee'},
+const pins:Record<string,{sizes:number,set:string}>={
+  'agent/agent.css':{sizes:2,set:'fcbaef50'},
+  'design/component-explorer.css':{sizes:15,set:'e4439937'},
+  'design/studio.css':{sizes:11,set:'1590246b'},
+  'editor/pointer-editor.css':{sizes:2,set:'83ba3aab'},
+  'reference.css':{sizes:7,set:'0d8ba2d0'},
+  'style.css':{sizes:18,set:'da9bb4be'},
+  'workspace/vault.css':{sizes:0,set:'0e7d07ee'},
 };
 
 const namedRe=new RegExp(`(?<![\\w-])(${namedColours.join('|')})(?![\\w-])`,'gi');
@@ -107,26 +110,25 @@ export function setOf(css:string){
 }
 
 /** What is wrong with one older sheet against its pin, as lines to report. */
-function drift(file:string,css:string,pin:{colours:number,sizes:number,set:string}){
+function drift(file:string,css:string,pin:{sizes:number,set:string}){
   const report:string[]=[];
-  const now={colours:colours(css).size,sizes:sizes(css).size},set=setOf(css);
-  for(const key of ['colours','sizes'] as const){
-    if(now[key]>pin[key])report.push(file+': '+now[key]+' distinct '+key+', more than the '+pin[key]+' pinned. Use the src/ui tokens instead.');
-    if(now[key]<pin[key])report.push(file+': '+now[key]+' distinct '+key+', fewer than the '+pin[key]+' pinned. Lower the pin to '+now[key]+', with set \''+set+'\', in tests/ui-ratchet.test.ts.');
-  }
-  if(!report.length&&set!==pin.set)report.push(file+': the same counts, but a colour or size was swapped for a new one (set '+set+', pinned '+pin.set+'). Use the src/ui tokens instead.');
+  const raw=[...colours(css)],now=sizes(css).size,set=setOf(css);
+  if(raw.length)report.push(file+': '+raw.join(', ')+'. An older sheet holds no colour of its own: use the src/ui tokens.');
+  if(now>pin.sizes)report.push(file+': '+now+' distinct sizes, more than the '+pin.sizes+' pinned. Use the src/ui tokens instead.');
+  if(now<pin.sizes)report.push(file+': '+now+' distinct sizes, fewer than the '+pin.sizes+' pinned. Lower the pin to '+now+', with set \''+set+'\', in tests/ui-ratchet.test.ts.');
+  if(!report.length&&set!==pin.set)report.push(file+': the same count, but a size was swapped for a new one (set '+set+', pinned '+pin.set+'). Use the src/ui tokens instead.');
   return report;
 }
 
-test('the ratchet sees a colour swapped for a new one, not only a count that grows',()=>{
-  const before='.a{color:#111;background:#222;font-size:12px}',after='.a{color:#111;background:#333;font-size:12px}';
-  const pin={colours:2,sizes:1,set:setOf(before)};
+test('the ratchet refuses any colour, and sees a size swapped for a new one, not only a count that grows',()=>{
+  const before='.a{color:var(--ui-text-1);font-size:12px}';
+  const pin={sizes:1,set:setOf(before)};
   assert.deepEqual(drift('x.css',before,pin),[]);
-  assert.equal(drift('x.css',after,pin).length,1);
-  assert.equal(drift('x.css','.a{color:#111;background:#222;font-size:13px}',pin).length,1,'a size swapped too');
+  assert.equal(drift('x.css','.a{color:#111;font-size:12px}',pin).length,1,'one raw colour is one too many');
+  assert.equal(drift('x.css','.a{color:var(--ui-text-1);font-size:13px}',pin).length,1,'a size swapped');
 });
 
-test('no older stylesheet gains a colour or a font size, and one that loses one lowers its pin',()=>{
+test('no older stylesheet holds a colour or gains a font size, and one that loses a size lowers its pin',()=>{
   const report:string[]=[];
   for(const file of legacy){
     const pin=pins[file];
@@ -148,10 +150,57 @@ export function foreignColourVariables(css:string){
   return [...found];
 }
 
-/* 0.3-L4 ④: an older sheet whose colours have all come to the tokens stays there. No raw colour (the pin is 0) and no colour variable but --ui-. */
-test('an older sheet at no colours paints only with the system tokens',()=>{
+/* 0.3-L4 ④, then 0.3-L5 for every older sheet: no raw colour and no colour variable but --ui-. */
+test('every older sheet paints only with the system tokens',()=>{
   assert.deepEqual(foreignColourVariables('.a{color:var(--muted);background:var(--ui-bg-panel);border:1px solid var(--border);width:var(--w)}'),['color: --muted','border: --border']);
-  const zero=Object.entries(pins).filter(([,p])=>p.colours===0).map(([f])=>f);
-  assert.ok(zero.includes('agent/agent.css'));
-  assert.deepEqual(zero.flatMap(f=>foreignColourVariables(readFileSync(new URL(f,src),'utf8')).map(x=>f+': '+x)),[]);
+  assert.deepEqual(legacy.flatMap(f=>foreignColourVariables(readFileSync(new URL(f,src),'utf8')).map(x=>f+': '+x)),[]);
+});
+
+/**
+ * 0.3-L5: the app's own markup writes no colour either. A raw colour in a .ts file is the person's design, the brand's
+ * artwork, an example in a message, or arithmetic on colours, never the app's chrome. Each file that holds one is pinned to
+ * the very colours it holds and how many times (fix 1 #12, fix 2: a new one, or one more of an allowed one, fails as a new file does), and why. src/ui/tokens.ts is the
+ * source of every token and is checked by tests/ui-tokens.test.ts instead.
+ */
+const holdsColours:Record<string,{why:string,colours:Record<string,number>}>={
+  'agent/bridge.ts':{why:'an example hex in an error an agent reads',colours:{'#344e41':1}},
+  'agent/commands.mjs':{why:'an example hex in a command description an agent reads',colours:{'#344e41':1}},
+  'design/component-theme.ts':{why:'each design system\'s own accent, for the person\'s components',colours:{'#18181b':1,'#1976d2':1,'#344e41':1}},
+  'design/contrast.ts':{why:'black or white text chosen against a design\'s colour',colours:{'#000000':2,'#ffffff':2}},
+  'design/logo.ts':{why:'the brand lockup\'s golden apple, artwork',colours:{'#b48a32':1}},
+  'design/omd.ts':{why:'an example token in a comment',colours:{'#5546ff':1}},
+  'design/presets.ts':{why:'design-system presets for the person\'s pages',colours:{'#101319':1,'#17263e':1,'#252330':1,'#28231d':2,'#285578':1,'#9b8aff':1,'#a83c50':1,'#f5f5fa':1,'#f7f3eb':1,'#fbf8f5':1,'#fcfaf7':1}},
+  'design/studio.ts':{why:'the brand kit\'s colour swatches, shown as the brand\'s data',colours:{'#292820':1,'#3a4531':1,'#d7b449':1,'#ebeee4':1,'#f7f5ef':1}},
+  'design/tokens.ts':{why:'the person\'s design tokens and their defaults',colours:{'#187345':1,'#a76600':1,'#ba3030':1,'#d9d4c8':1,'#dfe3eb':2}},
+  'free-page.ts':{why:'the white document a free page is framed in',colours:{'#fff':1}},
+  'library-render.ts':{why:'a design system\'s components as the person\'s page draws them',colours:{'#191919':1,'#344e41':1,'#d4d4d8':1,'#dc2626':2,'#f4f4f5':1,'#ffffff':1}},
+  'main.ts':{why:'two theme-draft accents for the person\'s design',colours:{'#176448':1,'#2255cc':3}},
+  'model.ts':{why:'the design systems a board can use',colours:{'#18181b':2,'#191919':1,'#191f28':1,'#1976d2':1,'#1b1b1f':1,'#202020':1,'#212124':2,'#282828':2,'#292d27':1,'#3182f6':1,'#344e41':1,'#faf8f3':1,'#ff6f0f':2,'#ffffff':7}},
+  'page-export.ts':{why:'the white ground of an exported picture or video page',colours:{'#fff':1}},
+  'reference.ts':{why:'the white a reference picture is flattened onto before it is read',colours:{'#ffffff':1}},
+  'workspace/workspaces.ts':{why:'the colours a person can pick for a workspace avatar',colours:{'#3a4531':2,'#3f5348':1,'#44515c':1,'#5a4e3c':1,'#5c4a3a':1,'#6b4548':1}},
+};
+/** Every raw colour written in code, with how many times: hex of three, four, six or eight digits, a colour function, and a named colour anywhere in a colour property's value. */
+export function codeColours(text:string){
+  const count:Record<string,number>={},add=(c:string)=>{count[c]=(count[c]??0)+1;};
+  for(const m of text.matchAll(/(?<![&\w])#([0-9a-f]{3,8})\b/gi))if([3,4,6,8].includes(m[1].length))add('#'+m[1].toLowerCase());
+  for(const m of text.matchAll(/\b(?:rgba?|hsla?|hwb|lab|lch|oklch|oklab)\([^)]*\)/gi))add(m[0].toLowerCase().replace(/\s+/g,''));
+  const declaration=new RegExp('(?:color|background(?:-color)?|border(?:-[a-z]+)?|fill|stroke|outline(?:-color)?|stop-color|caret-color|accent-color|fillStyle|strokeStyle)\\s*[:=]\\s*["\']?([^;"\'`}\\n]*)','gi'),word=new RegExp('(?<![-\\w])('+namedColours.join('|')+')(?![-\\w])','gi');
+  for(const m of text.matchAll(declaration))for(const w of m[1].matchAll(word))if(!/^(currentcolor|transparent|inherit)$/i.test(w[1]))add(w[1].toLowerCase());
+  return Object.fromEntries(Object.entries(count).sort(([a],[b])=>a<b?-1:a>b?1:0));
+}
+test('the colour reader in code sees four-digit hex and named colours, and not an entity or an id',()=>{
+  assert.deepEqual(codeColours('a{color:#abcd}b{background: rebeccapurple}c{fill="Red"} &#039; #app #root rgb(1 2 3 / .5) d{color:var(--ui-white)}'),{'#abcd':1,rebeccapurple:1,red:1,'rgb(123/.5)':1});
+});
+/* 0.3-L5 fix 2 (#12, #21): a colour used once more where it is already allowed, or a named colour later in a declaration, changes what is read. */
+test('the colour reader counts each colour and reads named colours anywhere in a declaration',()=>{
+  const main=readFileSync(new URL('main.ts',src),'utf8');
+  assert.notDeepEqual(codeColours(main+"x.style.cssText='color:#2255cc;border:1px solid red';"),codeColours(main));
+  assert.deepEqual(codeColours('a{color:#abc}b{color:#ABC;border:1px solid red;outline:2px dashed Navy}'),{'#abc':2,navy:1,red:1});
+});
+test('a raw colour in the app\'s code is only where it draws the person\'s design, the brand or an example, and only the colours pinned there',()=>{
+  const code=readdirSync(src,{recursive:true}).map(String).filter(f=>/\.(ts|tsx|mjs)$/.test(f)&&!/^(generated|vendor)\//.test(f)&&f!=='ui/tokens.ts').sort();
+  const found=Object.fromEntries(code.map(f=>[f,codeColours(readFileSync(new URL(f,src),'utf8'))]).filter(([,c])=>Object.keys(c).length));
+  assert.deepEqual(found,Object.fromEntries(Object.entries(holdsColours).map(([f,p])=>[f,p.colours])));
+  for(const [f,p] of Object.entries(holdsColours))assert.ok(p.why.length>20,f+' says why');
 });

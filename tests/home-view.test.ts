@@ -15,7 +15,7 @@ function library(){
 }
 
 test('sidebar shows a count for every filter, not only recent',()=>{
-  const html=workspaceHome(library(),'recent','','',false,'en','grid');
+  const html=workspaceHome(library(),'recent','','','system','en','grid');
   const count=(f:string)=>html.match(new RegExp(`data-filter="${f}"[^>]*>[\\s\\S]*?<small[^>]*>(\\d+)</small>`))?.[1];
   assert.equal(count('recent'),'2');assert.equal(count('pinned'),'1');assert.equal(count('archived'),'1');
 });
@@ -37,7 +37,7 @@ test('list view renders rows with the same actions and the toggle reflects the a
   assert.equal((list.match(/class="folio-row ui-home-row"/g)||[]).length,2);
   assert.doesNotMatch(list,/folio-preview-label/);
   assert.match(list,/ui-row-thumb/);assert.match(list,/data-action="hub-open"/);assert.match(list,/data-action="hub-archive"[^>]*>.*?<span>보관<\/span>/);
-  const home=workspaceHome(lib,'recent','','',false,'ko','list');
+  const home=workspaceHome(lib,'recent','','','system','ko','list');
   assert.match(home,/data-view="list" aria-pressed="true"/);assert.match(home,/data-view="grid" aria-pressed="false"/);
   assert.match(home,/class="folio-grid ui-home-grid folio-grid-list" id="project-grid" role="list"/);
   const archived=projectCards(lib,'archived','','ko','list');
@@ -58,11 +58,12 @@ test('returning Home counts only shown pages on the card and list in both langua
   const {commit}=board as typeof board & {commit:Function};
   function counts(en:string,ko:string){
     for(const view of ['grid','list'] as const)for(const language of ['en','ko'] as const){
-      const html=workspaceHome(library,'recent','','',false,language,view);
+      const html=workspaceHome(library,'recent','','','system',language,view);
       assert.ok(html.includes('>'+ (language==='ko'?ko:en)+' · '),language+' '+view);
+      assert.doesNotMatch(html,/[.!?] · /,'a finished sentence is not followed by a dot and a fragment');
     }
   }
-  counts('No pages yet.','아직 페이지가 없어요.');
+  counts('No pages','페이지 없음');
   commit(()=>project.pages.push({id:'article',name:'Article',kind:'html',html:'<p>Article</p>',blocks:[]}),person,'edit.page-add');
   counts('1 page','1 페이지');
   commit(()=>board.revealStarter(project,project.activePageId),person,'edit.page-view-edit');

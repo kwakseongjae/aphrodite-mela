@@ -106,12 +106,12 @@ test('initials take the first character of the first two words',()=>{
 
 test('avatar style and content escape values that would break out of HTML',()=>{
   const color=ws({id:'c',name:'<img src=x>',avatar:{kind:'color',value:'#a83c50'}});
-  assert.equal(avatarStyle(color),`background:${esc('#a83c50')};color:#fff`);
+  assert.equal(avatarStyle(color),`background:${esc('#a83c50')};color:var(--ui-white)`);
   assert.equal(avatarContent(color),esc('<S'));
   const quoted=ws({id:'q',name:'"Hi there'});
   assert.equal(avatarContent(quoted),esc('"T'));
   const emoji=ws({id:'e',name:'Safe',avatar:{kind:'emoji',value:'<>'}});
-  assert.equal(avatarStyle(emoji),'background:#f0efe8');
+  assert.equal(avatarStyle(emoji),'background:var(--ui-bg-sunken)');
   assert.equal(avatarContent(emoji),esc('<>'));
   const jab=ws({id:'j',name:'Safe',avatar:{kind:'emoji',value:'x"'}});
   assert.doesNotMatch(avatarContent(jab),/"/);
