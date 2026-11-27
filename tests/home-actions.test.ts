@@ -41,12 +41,12 @@ export function reachable(html:string){
 
 export const states:Record<string,()=>string>={
   // 0.3-G2b: what the warning over the boards offered is in the dialog its mark opens, which is drawn here with it.
-  projects:()=>workspaceHome(lib,'recent','',troubleMarkHtml(said,false),'system','en','grid',true,book,'open',true,'Claude Code')+troubleDialog(said,'home',false).body,
-  none:()=>workspaceHome(empty,'recent','','','system','en','grid',true,book),
-  searchEmpty:()=>workspaceHome(lib,'recent','zzz','','system','en','grid',true,book),
-  archive:()=>workspaceHome(lib,'archived','','','system','en','grid',true,book),
-  list:()=>workspaceHome(lib,'recent','','','system','en','list',true,book),
-  collapsed:()=>workspaceHome(lib,'recent','','','dark','ko','grid',false,book,'collapsed'),
+  projects:()=>workspaceHome(lib,'recent','',troubleMarkHtml(said,false),'system','en','grid',undefined,book,'open',true,'Claude Code')+troubleDialog(said,'home',false).body,
+  none:()=>workspaceHome(empty,'recent','','','system','en','grid',undefined,book),
+  searchEmpty:()=>workspaceHome(lib,'recent','zzz','','system','en','grid',undefined,book),
+  archive:()=>workspaceHome(lib,'archived','','','system','en','grid',undefined,book),
+  list:()=>workspaceHome(lib,'recent','','','system','en','list',undefined,book),
+  collapsed:()=>workspaceHome(lib,'recent','','','dark','ko','grid',{badge:'unsaved',native:false},book,'collapsed'),
   noBook:()=>workspaceHome(lib,'pinned','','','system','en','grid'),
   workspaceForm:()=>workspaceFormHtml('en',book.workspaces[0],{canDelete:true,projectCount:2}),
   workspaceFormImage:()=>workspaceFormHtml('ko',{id:'pic',name:'Pic',avatar:{kind:'image',value:'data:image/png;base64,AA'},createdAt:''},{canDelete:false,projectCount:0}),

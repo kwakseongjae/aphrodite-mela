@@ -274,3 +274,31 @@ test('page-made Space events cannot start pan mode or release the person’s Spa
   await page.keyboard.down('Space');await send('keyup');assert.equal(await pan.count(),1);
   await page.keyboard.up('Space');assert.equal(await pan.count(),0);
 });
+
+test('home storage shows the same pending, saved and failed state on first paint, receipt and redraw',async()=>{
+  const {page}=rig,meta=page.locator('[data-storage-state]'),warning=page.locator('.ui-home-storage .ui-dot-warn');
+  await scene('disk');await scene('edit');await scene('home');
+  const states=[
+    {text:/Saving to disk…|디스크에 저장 중…/,warn:0},
+    {text:/Saved to disk|디스크에 저장됨/,warn:0},
+    {text:/Unsaved · export a backup|저장되지 않음 · 백업을 내보내세요/,warn:1},
+  ];
+  for(const [index,state] of states.entries()){
+    if(index===1)await page.evaluate('finishWrite(7)');
+    if(index===2){await scene('saveHome');await page.evaluate("failWrite(new Error('disk full'))");}
+    for(const redraw of [false,true]){
+      if(redraw)await scene('redraw');
+      assert.match((await meta.textContent())!,state.text);
+      assert.equal(await warning.count(),state.warn);
+    }
+  }
+});
+
+test('a failed browser storage write shows an unsaved badge through redraw',async()=>{
+  const {page}=rig;
+  await page.evaluate(()=>{Storage.prototype.setItem=()=>{throw new DOMException('full','QuotaExceededError');};});
+  await scene('edit');
+  const badge=page.locator('[data-save-badge]');
+  assert.equal(await badge.getAttribute('data-save-badge'),'unsaved');
+  await scene('redraw');assert.equal(await badge.getAttribute('data-save-badge'),'unsaved');
+});

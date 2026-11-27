@@ -136,8 +136,8 @@ test('a save that keeps failing opens its dialog once, however many edits follow
 test('a mark stays where it can be seen when the panel it sits in is folded',async()=>{
   const {workspaceHome}=await import('../src/workspace/home');
   const mark=troubleMarkHtml(full,true),lib={version:1 as const,entries:[]};
-  const open=workspaceHome(lib,'recent','',mark,'system','ko','grid',true,undefined,'open');
-  const folded=workspaceHome(lib,'recent','',mark,'system','ko','grid',true,undefined,'collapsed');
+  const open=workspaceHome(lib,'recent','',mark,'system','ko','grid',undefined,undefined,'open');
+  const folded=workspaceHome(lib,'recent','',mark,'system','ko','grid',undefined,undefined,'collapsed');
   const outsideSide=(html:string)=>html.replace(/<aside[\s\S]*?<\/aside>/,'');
   assert.equal((open.match(/data-action="notice-open"/g)??[]).length,1);
   assert.doesNotMatch(outsideSide(open),/notice-open/,'with the side list open it is in the list, by the agent switch');

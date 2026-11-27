@@ -22,12 +22,14 @@ export async function keyboardBrowser(){
       page:()=>openPageView(project.activePageId),
       disk:()=>{window.__TAURI_INTERNALS__={invoke:async cmd=>{
         if(cmd==='workspace_read')return {revision:0,path:'/old',data:null};
-        if(cmd==='workspace_write')return new Promise(yes=>window.finishWrite=yes);
+        if(cmd==='workspace_write')return new Promise((yes,no)=>{window.finishWrite=yes;window.failWrite=no;});
         throw Error(cmd);
       }};attachDiskQueue(0);},
       empty:()=>reloadFromDiskNow(),
       edit:()=>{project.name='Queued';persist();},
       refuse:()=>{project.reference='x'.repeat(20_000_000);persist();},
+      home:()=>{screen='home';render();},
+      saveHome:()=>saveLibrary(library),
       redraw:()=>render(),
       approved:()=>isApproved(project),
     }});

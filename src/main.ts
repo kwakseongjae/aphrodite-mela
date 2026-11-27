@@ -80,7 +80,7 @@ import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carri
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
-import {workspaceHome,projectCards,type HubView} from './workspace/home';
+import {homeStorageContents,workspaceHome,projectCards,type HubView} from './workspace/home';
 import {renameDialogHtml,deleteDialogHtml,workspaceDeleteDialogHtml,storageDialogHtml} from './workspace/home-dialogs';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
@@ -1068,7 +1068,7 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,marksHtml(),theme,uiLanguage,hubView,saves.saved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,marksHtml(),theme,uiLanguage,hubView,saves,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
   // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
@@ -2765,10 +2765,8 @@ function saveChanged(){
 }
 function paintSaveState(){
   syncStateAttributes();
-  const home=homeCopy[uiLanguage];
-  document.querySelectorAll('[data-storage-state]').forEach(el=>{
-    el.textContent=saves.native?control(saves.saved?'Saved to disk':saves.badge==='saving'?'Saving to disk…':'Unsaved · export a backup'):(saves.saved?home.storageSaved:home.storageUnsaved);
-  });
+  const storage=app.querySelector('.ui-home-storage');
+  if(storage)storage.innerHTML=homeStorageContents(saves,uiLanguage);
   document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{el.replaceWith(document.createRange().createContextualFragment(saveBadge(saves.badge)));});
   hydrateIconsIn(app);
 }
