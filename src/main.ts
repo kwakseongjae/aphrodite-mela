@@ -409,6 +409,9 @@ function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connecte
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now(),allowed:allowedAgents};}
+function countConnectedChange(change:Change|null){
+  if(change?.author.kind==='agent'&&callerMode(change.author.name)==='connected')bumpConnect(change.author.name);
+}
 /** Updates the connected banner in place, so a write does not cost a full render. */
 function bumpConnect(by:string){
   connectWrites++;connectWriter=by;
@@ -719,7 +722,7 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
   const before = begin(project,edits),pageBefore=project.activePageId;
   change();placeNewFrames(project);ensureSpace(project);
   const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
-  if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:saves.saved,persistence:saves.saved?'acknowledged':saves.error?'failed':nativeDesktop?'queued':'failed'},d); }
+  if (recorded) { countConnectedChange(recorded);persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:saves.saved,persistence:saves.saved?'acknowledged':saves.error?'failed':nativeDesktop?'queued':'failed'},d); }
   // A new board's hidden page shown with nothing to record (src/editor/starter.ts) is saved shown.
   else if(before.starter!==project.starter)persist();
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
@@ -755,7 +758,7 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined,expect?:string)
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
   if(!done)return;
-  project=done.project;persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:saves.saved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  project=done.project;countConnectedChange(done.change);persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:saves.saved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);store.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);store.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 /**
@@ -2142,7 +2145,11 @@ document.addEventListener('submit', async e => {
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
   else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=newBoard(name);saveLibrary(()=>upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
-      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(()=>upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+      if(entry&&d){
+        const renamed=parseProject(JSON.stringify(entry.project));
+        const recorded=changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});
+        saveLibrary(()=>upsertProject(library,renamed));countConnectedChange(recorded);closeModal();render();
+      }}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
 /** Palette keys move the selection only when the palette owns the press. */
 function paletteNavigate(key:'ArrowDown'|'ArrowUp'){
@@ -2537,9 +2544,7 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         // A batch that is not well formed is the sender's to fix: 400, all the way out (0.3-R fix 2 #6).
         if('error' in parsed)return {error:parsed.error,status:400};
-        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{if(closer.busy())return {error:'Aphrodite is saving to close or restart, so nothing was placed. Try again once it is open.',status:423};const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
-        if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
-        return result;
+        return await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{if(closer.busy())return {error:'Aphrodite is saving to close or restart, so nothing was placed. Try again once it is open.',status:423};const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
       }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
@@ -2547,7 +2552,6 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   await new Promise(r=>setTimeout(r,60));
   // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
   const refusedStep=stepRefusals.get(d);if(refusedStep)return {error:refusedStep,status:403};
-  if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
 /* The same executor, in the page: the headless gates and a browser build reach it here. It arrives as

@@ -436,3 +436,34 @@ test('forgetting the agent who wrote clears its logo beside the other allowed ag
   await page.locator('[data-action="agent-forget"][data-name="claude-code"]').click();
   assert.deepEqual(await connectedMark(),{allowed:'Codex',count:'1',logo:null});
 });
+
+test('setting the current title leaves the connected mark at zero with no writer',async()=>{
+  await scene('mark');
+  const reply=await rig.page.evaluate<{ok:boolean;seq:number}>('scene.titleEdit()');
+  assert.equal(reply.ok,true);
+  assert.equal(reply.seq,0);
+  assert.deepEqual(await connectedMark(),{allowed:'any agent',count:'0',logo:null});
+});
+
+test('batches, system changes and undo count once per recorded change',async()=>{
+  const {page}=rig;
+  await scene('mark');
+  const run=async(kind:string,payload:object,count:number)=>{
+    const reply=await page.evaluate<{error?:string}>(`window.aphroditeAgent.run(${JSON.stringify(kind)},${JSON.stringify(payload)},'claude-code')`);
+    assert.equal(reply.error,undefined);
+    assert.equal(await page.evaluate("window.aphroditeAgent.run('state').then(r=>r.seq)"),count);
+    assert.equal((await connectedMark()).count,String(count));
+  };
+  const refused=await page.evaluate<{status:number;error:string}>(`window.aphroditeAgent.run('apply',{
+    reason:'Rename the selected block',base_revision:'r2:1:2:3',ops:[{op:'update',block_id:'selection',fields:{title:'New title'}}]
+  },'claude-code')`);
+  assert.equal(refused.status,400);
+  assert.match(refused.error,/selection/);
+  assert.deepEqual(await connectedMark(),{allowed:'any agent',count:'0',logo:null});
+  const batch={ops:[{op:'add',component_kind:'cta'}],reason:'Add a call to action'};
+  await run('apply',batch,1);
+  await run('system',{id:'mono',reason:'Use the mono system'},2);
+  await run('system',{id:'mono',reason:'Keep the mono system'},2);
+  await run('act',{action:'undo'},3);
+  await run('act',{action:'redo'},4);
+});
