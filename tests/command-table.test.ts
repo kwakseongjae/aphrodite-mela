@@ -73,7 +73,7 @@ test('what only the person may do is reachable only from the screen, by the pers
   }
   assert.equal(gradeOfKind(HUMAN_ONLY_KIND),'human','approving is a human row');
   assert.equal(gradeOfKind(DOOR_KIND),'human','answering for the door is a human row');
-  for(const verb of ['connect','repoint','remove']){
+  for(const verb of ['ask','preview','connect','repoint','remove']){
     const row=commandById['human.tool-'+verb];
     assert.ok(row,verb);
     assert.equal(row.grade,'human');
@@ -85,8 +85,8 @@ test('what only the person may do is reachable only from the screen, by the pers
   for(const name of ['ask-allow','ask-decline','agent-connect-toggle','agent-disconnect','agent-forget'])assert.ok(commandById['human.door'].controls.some(c=>c.kind==='action'&&c.name===name),name);
 });
 
-test('an agent action and an MCP interface click reaching a tool registration are person-only',()=>{
-  for(const verb of ['connect','repoint','remove']){
+test('Recheck Opus 8 and Astra 8 protect ask and active preview through direct action, click and palette',()=>{
+  for(const verb of ['ask','preview','connect','repoint','remove']){
     const row=commandById['human.tool-'+verb];
     // Stand in for the settings control until the screen binds its own action.
     const name='fixture-tool-'+verb;

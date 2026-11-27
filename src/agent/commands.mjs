@@ -982,6 +982,8 @@ export const commands = [
 
   // The connection settings will bind these for all four clients.
   ...[
+    ['ask', 'Check a tool connection', '도구 연결 확인'],
+    ['preview', 'Preview a tool connection', '도구 연결 미리보기'],
     ['connect', 'Connect a tool', '도구 연결'],
     ['repoint', 'Update a tool connection', '도구 연결 경로 변경'],
     ['remove', 'Remove a tool connection', '도구 연결 해제'],
