@@ -149,9 +149,14 @@ check('a sample project is open and the door is open to agents', async () => {
   await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 900, deviceScaleFactor: 1, mobile: false});
   await personClicks('welcome-sample');
   await waitFor(() => evaluate('!!document.querySelector(".space-frame.active [data-block-id]")'), 'the sample canvas');
+  await personClicks('agent-connect');
   await personPresses('agent-connect-toggle');
   await sleep(250);
   await closeDialogs();
+  await waitFor(() => evaluate(`document.querySelector('.tour-card [data-action="tour-skip"]')?.checkVisibility()`), 'the visible tour Skip button');
+  await personClicks('tour-skip');
+  assert.equal(await evaluate(`document.querySelector('.tour-card') === null`), true, 'Skip removed the tour card');
+  assert.equal(await evaluate(`document.querySelector('#app').dataset.onboarding`), 'done', 'Skip finished onboarding');
   assert.equal(await evaluate(`document.querySelector('.connect-mark') !== null`), true, 'agents may edit alongside the person');
   await sleep(5_200); // the person's press holds the screen for five seconds
 });
