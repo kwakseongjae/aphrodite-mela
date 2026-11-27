@@ -5,6 +5,7 @@ mod connect;
 mod disk;
 mod fonts;
 mod image_library;
+mod import;
 mod look;
 mod opened;
 mod page_wall;
@@ -39,6 +40,7 @@ fn main() {
         .manage(agent::AgentBridge::default())
         .manage(opened::OpenedState(Default::default()))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(import::plugin())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -97,6 +99,11 @@ fn main() {
             board::board_media_release,
             board::board_media_path,
             board::free_page_write,
+            import::html_import_pick,
+            import::html_import_take,
+            import::html_import_read,
+            import::html_import_media,
+            import::html_import_finish,
             opened::opened_take,
             opened::opened_file_read
         ])
@@ -111,7 +118,10 @@ fn main() {
             // A board file opened from Finder, or an aphrodite:// link pressed elsewhere (src-tauri/src/opened.rs).
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                opened::opened(app, urls);
+                let others = urls.into_iter().filter(|url| {
+                    !import::route_file(url, |path| import::hand_over(app, path))
+                }).collect();
+                opened::opened(app, others);
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);

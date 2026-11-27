@@ -1202,6 +1202,18 @@ export const commands = [
     controls: [field('data-frame-preset'), gesture('frame-move'), action('tidy-frames')],
   },
   {
+    // The engine has no screen control until the file, folder and paste interactions are wired.
+    id: 'edit.import-html',
+    label: {en: 'Import HTML', ko: 'HTML 가져오기'},
+    grade: 'edit',
+    input: NOTHING,
+    ...plain,
+    ledger: sources('board:import-html'),
+    author: 'person-only',
+    surfaces: UI,
+    controls: [],
+  },
+  {
     /* 0.3-P2: a picture or a video the person drops from the Finder or pastes; an agent's arrives with
        media_add, inside edit.apply. */
     id: 'edit.media',

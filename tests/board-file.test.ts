@@ -170,7 +170,7 @@ test('a file whose bytes are not its name, or not a picture or a video, is left 
   assert.deepEqual(got.left, [{file: PIC, why: 'its bytes are not the ones its name was made from'}]);
   assert.equal(s.kept.size, 0);
   const text = await readBoardFile(zipSync({'board.json': json, 'pages/0002.html': strToU8(p.pages[1].html!), [`media/${PIC}.png`]: strToU8('hello')}), store().host);
-  assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture or video its name says'}]);
+  assert.deepEqual(text.left, [{file: PIC, why: 'it is not the picture, video, font or sound its name says'}]);
 });
 
 /* ---- 0.3-P3-fix1 #5 ---- */
@@ -460,6 +460,13 @@ test('an aphrodite:// link names a board and a page and nothing else', () => {
   assert.deepEqual(readOpenLink(openLink('b-1')), {board: 'b-1'});
 });
 
+test('native drops stay disabled until their Tauri asset scope is confined', () => {
+  const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  assert.ok(conf.app.windows.every((w: {dragDropEnabled?: boolean}) => w.dragDropEnabled === false));
+  const main = readFileSync(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8');
+  assert.doesNotMatch(main, /DragDropEvent::Drop/);
+});
+
 test('macOS opens board files and aphrodite:// links with the app, which asks for nothing more', () => {
   const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
   // tauri.conf.json cannot read src-tauri/board-file.json, so it is held to it here, word for word.
@@ -499,4 +506,37 @@ test('the board file is named in one place, and nothing else spells its extensio
   if (tracked) { for (const rel of tracked) if (!rel.split('/').some(part => skip.has(part)) && existsSync(join(root, rel))) look(rel); }
   else for (const dir of dirs) walk(join(root, dir));
   assert.deepEqual(found, []);
+});
+
+test('a received board only places sounds whose signatures the asset responder recognizes', async () => {
+  for (const second of [0xfa, 0xe3, 0xe2, 0xfb, 0xf3, 0xf2]) {
+    const bytes = Uint8Array.from([0xff, second, ...Buffer.from('<p>sample</p>')]);
+    const hash = sha(bytes), p = board(), source = store();
+    p.pages[1].html = '<audio src="media:' + hash + '"></audio>';
+    await source.host.put(new Blob([bytes]));
+    await source.host.put(new Blob([PNG]));
+    const archive = await writeBoardFile(p, {...source.host, stat: async s => s === hash ? {mime: 'audio/mpeg', bytes: bytes.length} : source.host.stat(s)});
+    const destination = store(), received = await readBoardFile(archive.bytes, destination.host);
+    await received.place();
+    const allowed = [0xfb, 0xf3, 0xf2].includes(second);
+    assert.equal(received.left.some(f => f.file === hash), !allowed);
+    assert.equal(destination.kept.has(hash), allowed);
+  }
+});
+
+test('a board file carries an existing MP4 under its original hash and restores its bytes', async () => {
+  const p = board(), s = store();
+  const video = new Uint8Array(readFileSync(new URL('./fixtures/import-html/siblings/film.mp4', import.meta.url)));
+  const hash = sha(video);
+  s.kept.set(PIC, PNG);
+  s.kept.set(hash, video);
+  p.pages[1].html += `<video src="media:${hash}"></video>`;
+  const host = {...s.host, stat: async (key: string) => key === hash ? {mime: 'video/mp4', bytes: video.length} : s.host.stat(key)};
+  const {bytes} = await writeBoardFile(p, host);
+  const path = `media/${hash}.mp4`;
+  assert.deepEqual(readZip(bytes, host.maxBytes).read(path), video);
+  const receiver = store(), incoming = await readBoardFile(bytes, receiver.host);
+  assert.deepEqual(incoming.left, []);
+  await incoming.place();
+  assert.deepEqual(receiver.kept.get(hash), video);
 });
