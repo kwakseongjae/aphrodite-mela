@@ -397,14 +397,17 @@ function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
 /** An agent's step refused for moving the approval, kept with that command's own Dispatch: a command running beside it never answers with it. */
 const stepRefusals=new WeakMap<Dispatch,string>();
-let lease:Holder|null=null;let connectWrites=0;let askState:AskState=null;let pointerHeld=false;
+let lease:Holder|null=null;let connectWrites=0;
+/** The agent whose change the connected mark last counted: its logo, on every copy of the mark however it is drawn. */
+let connectWriter='';
+let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now(),allowed:allowedAgents};}
 /** Updates the connected banner in place, so a write does not cost a full render. */
 function bumpConnect(by:string){
-  connectWrites++;
+  connectWrites++;connectWriter=by;
   // Every copy of the mark, the page seen on its own's too.
   const counts=document.querySelectorAll('[data-connect-writes]');counts.forEach(c=>{c.textContent=String(connectWrites);});
   document.querySelectorAll<HTMLElement>('[data-connect-mark]').forEach(mark=>{mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);});
@@ -888,8 +891,7 @@ function refreshBanners(){
 function connectMarkNow(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
-  const holder=lease&&lease.label!==HUMAN?lease.label:'';
-  return connectMarkHtml({holderMark:holder?callerMarkHtml(holder,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
+  return connectMarkHtml({holderMark:connectWriter?callerMarkHtml(connectWriter,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
 }
 /** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
 /* Unsaved work comes first, so its backup choices are always one press away; the folder that went missing is kept apart from the last write. */
@@ -1381,7 +1383,7 @@ function answerAsk(allow:boolean){
   if(!shown||!askIs(shown)){if(shown)closeAsk();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
   const by=shown.by;
   askState={...askState!,answered:allow?'allowed':'declined',at:allow?askState!.at:Date.now()};
-  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
+  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;connectWriter='';}
   closeAsk();
   refreshBanners();
   toast(allow?`${callerText(by)} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
@@ -1952,9 +1954,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'delete-page': if (project.pages.length > 1) { const done=commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); undoable(ui('The page was removed.','페이지를 지웠어요.'),done); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
-    case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
+    case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;connectWriter='';}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode){connectWrites=0;connectWriter='';}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
+    case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;connectWriter='';askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('About Aphrodite','Aphrodite 정보'), ui('Check the design direction together before generating long code.','긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.'), `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }

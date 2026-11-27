@@ -436,3 +436,23 @@ test('a placed mark popover keeps its whole content on its surface, on Home as i
   }
   assert.match(value(all,[el(['ui-home-marks']),el(['ui-notice-mark','notice-mark-connect','connect-mark']),pop(false)],'bottom')??'',/100%/,'unplaced on Home, it still opens upward');
 });
+
+/* The connected mark's logo is the agent whose change it last counted, kept with the count: a mark drawn afresh (the page
+   seen on its own, opened by the person's press, which takes the screen back) shows the same logo as one a write updated in
+   place, and with no change counted yet there is none, on every view alike. */
+test('every connected mark shows the logo of the agent whose change it counted, however it was drawn',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  const painted:string[]=[];
+  const screen:Record<string,unknown>={agentMode:()=>'connected',agentEndpoint:undefined,nativeDesktop:false,ui:(en:string)=>en,HUMAN:'human',lease:null,connectWrites:0,connectWriter:'',
+    callerMarkHtml:(who:string)=>'<logo '+who+'>',allowedText:()=>'any agent',uiLanguage:'en',connectMarkHtml:(s:{holderMark:string})=>'mark['+s.holderMark+']',
+    document:{querySelectorAll:(q:string)=>q==='[data-connect-writes]'?[{}]:q==='[data-connect-mark]'?[{set innerHTML(v:string){painted.push(v);}}]:[]},hydrateIconsIn:noop,render:noop,String};
+  editorCalls(['function bumpConnect(','function connectMarkNow('],screen);
+  const mark=screen.connectMarkNow as ()=>string;
+  assert.equal(mark(),'mark[]','nothing counted yet: no logo');
+  (screen.bumpConnect as (by:string)=>void)('claude-code');
+  assert.deepEqual(painted,['<logo claude-code>'],'the marks on screen take the logo in place');
+  screen.lease={label:'human',since:0};
+  assert.equal(mark(),'mark[<logo claude-code>]','drawn afresh after the person took the screen back, it shows the same logo');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.equal((main.match(/(?<!let )connectWrites=0;/g)??[]).length,(main.match(/connectWrites=0;connectWriter='';/g)??[]).length,'the logo is forgotten wherever the count is');
+});
