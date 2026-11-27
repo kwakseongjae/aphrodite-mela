@@ -10,9 +10,10 @@ export function layerMove(blocks:Block[],id:string,targetId:string,after=false):
 }
 /**
  * Pointer events work in WKWebView without OS file-drag interception. Commit only on release. `commit`
- * is handed the event that finished the move, so the editor can tell whose hands it was.
+ * is handed the event that finished the move, so the editor can tell whose hands it was; what it returns
+ * when the move landed is handed back with the line that says so, so that line can offer to take back that move.
  */
-export function mountLayerReorder(root:HTMLElement,blocks:Block[],commit:(c:EditorCommand,e:Event)=>boolean,announce:(message:string)=>void,ko=false){
+export function mountLayerReorder<C>(root:HTMLElement,blocks:Block[],commit:(c:EditorCommand,e:Event)=>C,announce:(message:string,done?:C)=>void,ko=false){
  let active:{id:string;pointer:number;x:number;y:number;moved:boolean;command:EditorCommand|null}|undefined;
  const reset=()=>{root.querySelectorAll('.layer-drop-before,.layer-drop-after').forEach(el=>el.classList.remove('layer-drop-before','layer-drop-after'));};
  root.addEventListener('pointerdown',e=>{
@@ -35,8 +36,8 @@ export function mountLayerReorder(root:HTMLElement,blocks:Block[],commit:(c:Edit
   update(e);if(!active||active.pointer!==e.pointerId)return;const completed=active;active=undefined;reset();
   if(root.hasPointerCapture(e.pointerId))root.releasePointerCapture(e.pointerId);
   if(!completed.moved)return;
-  const changed=completed.command&&commit(completed.command,e);
-  announce(changed?(ko?'레이어 순서 변경 · 실행 취소 가능':'Layer order changed · Undo available'):(ko?'이동할 수 없거나 같은 위치입니다.':'Move rejected or unchanged.'));
+  const done=completed.command?commit(completed.command,e):undefined;
+  if(done)announce(ko?'레이어 순서를 바꿨어요.':'The layer order was changed.',done);else announce(ko?'이동할 수 없거나 같은 위치입니다.':'Move rejected or unchanged.');
  });
  const cancel=()=>{if(active&&root.hasPointerCapture(active.pointer))root.releasePointerCapture(active.pointer);active=undefined;reset();};
  root.addEventListener('pointercancel',cancel);root.addEventListener('lostpointercapture',cancel);

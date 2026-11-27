@@ -56,6 +56,22 @@ async function oneStep(s:Screen,read:(p:Project)=>unknown,run:()=>unknown){
 const board=()=>{const p=initialProject();ensureSpace(p);return p;};
 const hero=(p:Project)=>currentPage(p).blocks.find(b=>b.kind==='hero')!;
 
+test('changing the layer order offers Undo for that move',async()=>{
+  const p=board(),s=editor(p,['function layerCommit(','function commandDone('],{applyEditorCommand,app:{querySelector:()=>null}});
+  const blocks=currentPage(p).blocks,top=blocks.filter(b=>!b.parentId);
+  const command=layerMove(blocks,top[0].id,top[1].id,true)!;assert.ok(command);
+  const layerCommit=s.layerCommit as (c:unknown,e:unknown)=>unknown,commandDone=s.commandDone as (m:string,c?:unknown)=>void;
+  await oneStep(s,q=>currentPage(q).blocks.map(b=>b.id),()=>commandDone('The layer order was changed.',layerCommit(command,{isTrusted:true})));
+});
+
+test('moving or resizing on the canvas offers Undo for that gesture',async()=>{
+  const p=board(),s=editor(p,['function layoutCommit(','function commandDone('],{applyEditorCommand});
+  const b=hero(p),layoutCommit=s.layoutCommit as (c:unknown,e:unknown)=>unknown,commandDone=s.commandDone as (m:string,c?:unknown)=>void;
+  await oneStep(s,q=>hero(q).layout,()=>commandDone('The size was changed to 640 × 420 px.',layoutCommit({type:'resize',id:b.id,layout:{...b.layout,widthPx:640,height:420}},{isTrusted:true})));
+  commandDone('No change.',layoutCommit({type:'resize',id:b.id,layout:{widthPx:1}},{isTrusted:true}));
+  assert.equal(shown(s).undo,false,'a gesture that changed nothing says so, with no Undo');
+});
+
 test('removing a component offers Undo for the removal',async()=>{
   const p=board(),s=editor(p);s.selected=hero(p).id;
   await oneStep(s,q=>currentPage(q).blocks.map(b=>b.id),()=>s.action(press('delete-block'),person(),true));

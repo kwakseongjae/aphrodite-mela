@@ -4,9 +4,10 @@ import {localDelta,resizeBox,clamp,type Box,type Handle} from './geometry';
 import type {EditorCommand} from './commands';
 import {nearestGuide,edgeVelocity} from './assists';
 import './pointer-editor.css';
-/** `commit` is handed the event that finished the gesture, so the editor can tell whose hands it was. */
-type Options={canvas:HTMLElement;blocks:Block[];selected:string;select:(id:string)=>void;commit:(c:EditorCommand,e:Event)=>boolean;announce:(s:string)=>void;report?:(event:{outcome:'cancelled'|'no-op'|'rejected';gesture:string})=>void};
-export function mountPointerEditor(o:Options):()=>void {
+/** `commit` is handed the event that finished the gesture, so the editor can tell whose hands it was; what it returns when the gesture
+ *  landed is handed back with the line that says so, so that line can offer to take back that gesture. */
+type Options<C>={canvas:HTMLElement;blocks:Block[];selected:string;select:(id:string)=>void;commit:(c:EditorCommand,e:Event)=>C;announce:(s:string,done?:C)=>void;ko?:boolean;report?:(event:{outcome:'cancelled'|'no-op'|'rejected';gesture:string})=>void};
+export function mountPointerEditor<C>(o:Options<C>):()=>void {
   const abort=new AbortController(),signal=abort.signal,canvas=o.canvas;
   canvas.classList.add('editor-design');
   const overlay=document.createElement('div');overlay.className='editor-selection';overlay.hidden=true;
@@ -121,7 +122,8 @@ export function mountPointerEditor(o:Options):()=>void {
       }
       if(handle!=='move'){
         const layout={...block!.layout,widthPx:next.width,height:next.height};if(free){layout.x=next.x;layout.y=next.y;}
-        if(commitKeepingViewport({type:'resize',id:block!.id,layout},ev))o.announce(`크기 저장됨 · ${next.width} × ${next.height}px`);else o.announce('변경 사항 없음 · 기존 크기 유지');
+        const done=commitKeepingViewport({type:'resize',id:block!.id,layout},ev);
+        if(done)o.announce(o.ko?`크기를 ${next.width} × ${next.height}px로 바꿨어요.`:`The size was changed to ${next.width} × ${next.height} px.`,done);else o.announce('변경 사항 없음 · 기존 크기 유지');
       }else{
         const r=canvas.getBoundingClientRect();
         if(last.x<r.left||last.x>r.right||last.y<r.top||last.y>r.bottom){o.report?.({outcome:'rejected',gesture:'move'});position();say('캔버스 밖입니다 · 이동 취소',true);return;}
@@ -132,7 +134,8 @@ export function mountPointerEditor(o:Options):()=>void {
           const container=canvas.querySelector<HTMLElement>(`[data-block-id="${parent.id}"] .layout-frame`)!;const pr=container.getBoundingClientRect();
           x=clamp(Math.round((moveLeft-pr.left)/scale),0,1500);y=clamp(Math.round((moveTop-pr.top)/scale),0,1500);
         }
-        if(commitKeepingViewport({type:'move',id:block!.id,parentId,beforeId:t?.kind==='frame'?undefined:t?.id,x,y},ev))o.announce('컴포넌트 이동됨 · Undo로 복구');else o.announce('이동할 수 없습니다 · 기존 위치 유지');
+        const done=commitKeepingViewport({type:'move',id:block!.id,parentId,beforeId:t?.kind==='frame'?undefined:t?.id,x,y},ev);
+        if(done)o.announce(o.ko?'컴포넌트를 옮겼어요.':'The component was moved.',done);else o.announce('이동할 수 없습니다 · 기존 위치 유지');
       }
     }
     overlay.addEventListener('pointermove',ev=>{if(ev.pointerId===e.pointerId){last={x:ev.clientX,y:ev.clientY};alt=ev.altKey;}},{signal:gs});

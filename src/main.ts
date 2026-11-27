@@ -19,7 +19,7 @@ import {mountNativePreview} from './design/native-preview';
 import {themeProposal,applyThemeProposal} from './design/theme-proposal';
 import { canParent, validLayout } from './layout';
 import {mountPointerEditor} from './editor/pointer-editor';
-import {applyEditorCommand} from './editor/commands';
+import {applyEditorCommand,type EditorCommand} from './editor/commands';
 import {mountLayerReorder} from './editor/layer-reorder';
 import {rerenderPreservingScroll} from './editor/scroll-continuity';
 import {collectionRows} from './design/collection';
@@ -1048,10 +1048,16 @@ function render() {
   decorateInspector(shownPage(project));
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,store,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
-  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,layerCommit,commandDone,uiLanguage==='ko');
   mountPointer(canvas as HTMLElement,page);
 }
-function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:layoutCommit,announce:commandDone,ko:uiLanguage==='ko',report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+/** A layer dragged to a new place in the list, as whoever moved it: the change recorded, or null when it changed nothing. */
+function layerCommit(command:EditorCommand,e:Event){const d=who(e);if(!d)return null;let changed=false;const moved=commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed?moved:null;}
+/** A component moved or resized by its handles on the canvas, as whoever moved it: the change recorded, or null when it changed nothing. */
+function layoutCommit(command:EditorCommand,e:Event){const d=who(e);if(!d)return null;let changed=false;const moved=commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed?moved:null;}
+/** What a move in the layer list or on the canvas says: with Undo for the change it made, or the reason nothing changed. */
+function commandDone(message:string,moved?:Change|null){if(moved)undoable(message,moved);else toast(message);}
 function inspectorPanelHtml(){const page=shownPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:visiblePages(project).find(p=>p.id===delegation!.scope.frameId)?.name??'—',channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml(page);}
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
