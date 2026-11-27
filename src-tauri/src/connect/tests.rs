@@ -1274,3 +1274,48 @@ fn recheck_astra_2_settings_identity_is_checked_again_on_the_open_descriptor() {
     assert!(matches!(result, Err(Code::InvalidPath)));
     assert_eq!(checks.get(), 2);
 }
+
+#[test]
+fn recheck_opus_9_passive_external_mounts_distinguish_physical_disks_and_images() {
+    let exe = Path::new("/Volumes/Work/A.app/Contents/MacOS/A");
+    for (image, expected) in [
+        (
+            volume::classify(Some("Portable SSD"), Some("USB")),
+            Location::Installed,
+        ),
+        (
+            volume::classify(Some("Disk Image"), Some("Virtual Interface")),
+            Location::DiskImage,
+        ),
+        (volume::classify(None, None), Location::Unknown),
+    ] {
+        assert_eq!(
+            classify_mount(
+                exe,
+                Path::new("/Volumes/Work"),
+                false,
+                Location::Unknown,
+                || image
+            ),
+            expected
+        );
+    }
+}
+
+#[test]
+fn recheck_astra_10_file_snippets_need_only_the_sidecar() {
+    let exe = Path::new("/Applications/A.app/Contents/MacOS/aphrodite-mcp");
+    for tool in WRITTEN {
+        let snippet = commands::snippet_with(
+            tool,
+            Some(Action::Connect),
+            || Ok(exe.into()),
+            || Err(Code::InvalidPath),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(snippet).unwrap()["text"],
+            tool.file_snippet(exe.to_str().unwrap())
+        );
+    }
+}

@@ -6,6 +6,7 @@ mod commands;
 mod edit;
 mod files;
 mod spawn;
+mod volume;
 pub use commands::*;
 #[cfg(test)]
 mod tests;
@@ -727,6 +728,17 @@ fn mount_location(
     read_only: bool,
     image_info: impl FnOnce() -> Option<plist::Value>,
 ) -> Location {
+    classify_mount(exe, mount, read_only, Location::NotInApplications, || {
+        image_info().and_then(|info| mounted_image(mount, device, &info))
+    })
+}
+fn classify_mount(
+    exe: &Path,
+    mount: &Path,
+    read_only: bool,
+    unknown: Location,
+    image: impl FnOnce() -> Option<bool>,
+) -> Location {
     if mount
         .components()
         .any(|c| c.as_os_str() == OsStr::new("AppTranslocation"))
@@ -737,10 +749,10 @@ fn mount_location(
         return Location::ReadOnly;
     }
     if mount != Path::new("/") && mount != Path::new("/System/Volumes/Data") {
-        match image_info().and_then(|info| mounted_image(mount, device, &info)) {
+        match image() {
             Some(true) => return Location::DiskImage,
             Some(false) => (),
-            None => return Location::NotInApplications,
+            None => return unknown,
         }
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
@@ -800,26 +812,24 @@ fn location(exe: &Path, inspect_images: bool) -> Location {
     let mount = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
     ));
-    let result = mount_location(
-        exe,
-        mount,
-        OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
-        stat.f_flags & libc::MNT_RDONLY as u32 != 0,
-        || {
-            if !inspect_images {
-                return None;
+    let device =
+        OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes());
+    let read_only = stat.f_flags & libc::MNT_RDONLY as u32 != 0;
+    if !inspect_images {
+        return classify_mount(exe, mount, read_only, Location::Unknown, || {
+            if stat.f_flags & libc::MNT_LOCAL as u32 == 0 {
+                Some(false)
+            } else {
+                volume::is_image(device)
             }
-            image_inventory(
-                std::process::Command::new("/usr/bin/hdiutil")
-                    .env_clear()
-                    .args(["info", "-plist"]),
-                std::time::Duration::from_secs(2),
-            )
-        },
-    );
-    if !inspect_images && result == Location::NotInApplications {
-        Location::Unknown
-    } else {
-        result
+        });
     }
+    mount_location(exe, mount, device, read_only, || {
+        image_inventory(
+            std::process::Command::new("/usr/bin/hdiutil")
+                .env_clear()
+                .args(["info", "-plist"]),
+            std::time::Duration::from_secs(2),
+        )
+    })
 }

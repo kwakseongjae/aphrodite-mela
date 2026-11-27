@@ -529,12 +529,10 @@ fn save_record(
     result
 }
 
-pub(super) fn execute(
+pub(super) fn verified_program<'a>(
     e: &Engine,
-    action: Action,
-    fingerprint: &str,
-    confirm: bool,
-) -> Result<CommandResult, CommandResult> {
+    fingerprint: &'a str,
+) -> super::Result<(Program, &'a str)> {
     e.profile()?;
     let (binding, digest) = fingerprint.split_once('.').ok_or(Code::Changed)?;
     let program = Program::find(e).ok_or(Code::Changed)?;
@@ -543,8 +541,18 @@ pub(super) fn execute(
         || digest.len() != 64
         || !digest.bytes().all(|b| b.is_ascii_hexdigit())
     {
-        return Err(Code::Changed.into());
+        return Err(Code::Changed);
     }
+    Ok((program, digest))
+}
+
+pub(super) fn execute(
+    e: &Engine,
+    action: Action,
+    fingerprint: &str,
+    confirm: bool,
+) -> Result<CommandResult, CommandResult> {
+    let (program, digest) = verified_program(e, fingerprint)?;
     let store = Store::lock(e)?;
     let mut state = State::inspect(e, program, &store)?;
     if state.fingerprint(e, action)? != digest {

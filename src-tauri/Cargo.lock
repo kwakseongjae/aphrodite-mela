@@ -60,6 +60,7 @@ dependencies = [
  "base64 0.22.1",
  "block2",
  "cap-std",
+ "core-foundation 0.10.1",
  "fs2",
  "jsonc-parser",
  "libc",

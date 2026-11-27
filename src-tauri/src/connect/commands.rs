@@ -141,7 +141,25 @@ pub async fn connect_preview(
     })
     .await
 }
+pub(super) fn execute_at(
+    mut engine: Engine,
+    tool: Tool,
+    action: Action,
+    fingerprint: &str,
+    confirm: bool,
+    probe: impl FnOnce() -> Location,
+) -> Result<Proposal> {
+    if tool == Tool::ClaudeCode {
+        if let Err(code) = claude::verified_program(&engine, fingerprint) {
+            return Ok(Proposal::Outcome(code.into()));
+        }
+    }
+    engine.location = probe();
+    engine.execute(tool, action, fingerprint, confirm)
+}
+
 pub(super) async fn mutation(
+    probe: impl FnOnce() -> Location + Send + 'static,
     engine: impl FnOnce() -> Result<Engine> + Send + 'static,
     tool: Tool,
     action: Action,
@@ -149,7 +167,7 @@ pub(super) async fn mutation(
     confirm: bool,
 ) -> Result<Proposal> {
     crate::disk::write(move || {
-        Ok(engine().and_then(|e| e.execute(tool, action, &fingerprint, confirm)))
+        Ok(engine().and_then(|e| execute_at(e, tool, action, &fingerprint, confirm, probe)))
     })
     .await
     .map_err(|err| {
@@ -168,7 +186,8 @@ pub async fn connect_apply(
     confirm_replacement: Option<bool>,
 ) -> Result<Proposal> {
     mutation(
-        move || runtime(app, true),
+        || env::current_exe().map_or(Location::Unknown, |exe| location(&exe, true)),
+        move || runtime(app, false),
         tool,
         Action::Connect,
         fingerprint,
@@ -184,7 +203,8 @@ pub async fn connect_remove(
     confirm_removal: Option<bool>,
 ) -> Result<Proposal> {
     mutation(
-        move || runtime(app, true),
+        || env::current_exe().map_or(Location::Unknown, |exe| location(&exe, true)),
+        move || runtime(app, false),
         tool,
         Action::Remove,
         fingerprint,
@@ -197,19 +217,34 @@ pub struct Snippet {
     tool: Tool,
     text: String,
 }
+pub(super) fn snippet_with(
+    tool: Tool,
+    action: Option<Action>,
+    sidecar_path: impl FnOnce() -> Result<PathBuf>,
+    engine: impl FnOnce() -> Result<Engine>,
+) -> Result<Snippet> {
+    let text = if tool == Tool::ClaudeCode {
+        claude::snippet(&engine()?, action.unwrap_or(Action::Connect))?
+    } else {
+        tool.file_snippet(sidecar_path()?.to_str().ok_or(Code::InvalidPath)?)
+    };
+    Ok(Snippet { tool, text })
+}
+
 #[tauri::command]
 pub async fn connect_snippet(
     app: tauri::AppHandle,
     tool: Tool,
     action: Option<Action>,
 ) -> Result<Snippet> {
-    run(app, false, move |e| {
-        let text = if tool == Tool::ClaudeCode {
-            claude::snippet(&e, action.unwrap_or(Action::Connect))?
-        } else {
-            tool.file_snippet(e.executable())
-        };
-        Ok(Snippet { tool, text })
+    tauri::async_runtime::spawn_blocking(move || {
+        snippet_with(
+            tool,
+            action,
+            || sidecar(&env::current_exe().map_err(|_| Code::InvalidPath)?),
+            || runtime(app, false),
+        )
     })
     .await
+    .map_err(|_| Code::WorkerFailed)?
 }

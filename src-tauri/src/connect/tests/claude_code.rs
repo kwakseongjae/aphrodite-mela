@@ -845,6 +845,7 @@ fn astra_5_close_and_restart_wait_for_an_accepted_registration() {
     let (entered, started) = mpsc::channel();
     let (release, stalled) = mpsc::channel();
     let mut change = Box::pin(commands::mutation(
+        || Location::Installed,
         move || {
             entered.send(()).unwrap();
             stalled.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1476,4 +1477,20 @@ fn recheck_astra_11_copied_undo_clears_terminal_profile_selectors_in_three_shell
             assert!(output.status.success());
         }
     }
+}
+
+#[test]
+fn recheck_astra_10_changed_cli_refuses_before_external_volume_inventory() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    fs::write(f.e().cli_dirs[0].join("playback"), "#!/bin/sh\nexit 8\n").unwrap();
+    let result = commands::execute_at(
+        f.0.engine,
+        CLAUDE,
+        Action::Connect,
+        preview["fingerprint"].as_str().unwrap(),
+        false,
+        || panic!("inventory started"),
+    );
+    assert_eq!(wire(result)["code"], "changed");
 }
