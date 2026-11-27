@@ -485,8 +485,15 @@ function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[d
 let toasts:Toast[]=[];let toastId=0;
 const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
 function paintToasts(){
+  const pressed=document.activeElement?.closest<HTMLElement>('[data-toast] button');
+  const chip=pressed?.closest<HTMLElement>('[data-toast]');
   toastRoot.innerHTML=toastHtml(toasts,{undo:undoToken(),ko:uiLanguage==='ko'});
   toastRoot.dataset.screen=screen;
+  if(chip){
+    const kept=toastRoot.querySelector<HTMLElement>(`[data-toast="${CSS.escape(chip.dataset.toast!)}"] ${pressed?.matches('.toast-undo')?'.toast-undo':'.toast-dismiss'}`);
+    if(kept&&!fatalUp())kept.focus();
+    else if(!restoreFocus())focusModal();
+  }
   clearTimeout(toastTimer);
   const wait=nextExpiry(toasts,Date.now());
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
@@ -1949,7 +1956,7 @@ document.addEventListener('click', e => {
   const control = target.closest<HTMLElement>('[data-action]');
   // A toast's Undo is pressed and the toast goes with it; the line itself only puts the toast away.
   // One drawn before a later change would take that change back instead, so it only goes.
-  if(chip){const focused=chip.contains(document.activeElement);toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(focused&&!restoreFocus())focusModal();if(!control||!chip.contains(control))return;}
+  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(!control||!chip.contains(control))return;}
   // Undo takes back the change its toast reports: history() saves what is being typed and compares that change with the last one just before the step.
   if (control?.hasAttribute('data-palette')) closeModal();
   if (control) { e.preventDefault(); void action(control, dispatchOf(e), pressOrigin(e).isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
@@ -2521,7 +2528,7 @@ installPress({
   escape:({kind,root})=>{
     if(kind==='sheet')dismissSheet(root);
     else if(kind==='ask')answerAsk(false);
-    else if(kind==='toast'){toasts=dismissToast(toasts,Number(root.dataset.toast));paintToasts();if(!restoreFocus())focusModal();}
+    else if(kind==='toast'){toasts=dismissToast(toasts,Number(root.dataset.toast));paintToasts();}
     else if(kind==='page')closePageView();
     else if(kind==='popover'){
       if(root instanceof HTMLDetailsElement){root.open=false;root.querySelector('summary')?.focus();}

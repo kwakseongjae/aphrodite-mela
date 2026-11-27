@@ -121,3 +121,11 @@ test('the real badge agrees on first paint, receipt and redraw after an empty re
   await scene('refuse');assert.equal(await badge(),'unsaved');
   await page.evaluate('finishWrite(1)');await scene('redraw');assert.equal(await badge(),'unsaved');
 });
+
+test('a focused toast returns focus to the palette when it expires',async()=>{
+  const {page}=rig;await page.clock.install();await scene('palette');
+  const search=page.locator('#command-search');await search.focus();await scene('toast');
+  await page.locator('#toast button').last().focus();await page.clock.fastForward(11_000);
+  assert.equal(await page.locator('#toast button').count(),0);
+  assert.ok(await search.evaluate(el=>el===document.activeElement));
+});
