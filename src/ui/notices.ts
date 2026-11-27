@@ -79,7 +79,9 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
       )
         + '<div class="ui-notice-choices">'
         + choice({action: 'disk-reload', icon: 'folder-open', name: T('Look for the folder again', '폴더 다시 찾기'), why: T('Press this once the folder is back where it was, or once the drive it was on is plugged in.', '폴더를 제자리에 돌려놓았거나, 폴더가 있던 디스크를 다시 꽂았다면 눌러 주세요.')})
-        + choice({action: 'disk-start-fresh', icon: 'plus', name: T('Start fresh', '새로 시작하기'), why: o.windowBoards === undefined
+        + choice({action: 'disk-start-fresh', icon: 'plus', name: T('Start fresh', '새로 시작하기'), why: t.replaced
+          ? T('This saves what this window holds in the folder this window made in that place. The app does not delete the old folder. You are asked once more.', '이 창에 있는 것을 이 창이 그 자리에 만든 폴더에 저장해요. 예전 폴더는 앱이 지우지 않아요. 누르면 한 번 더 물어요.')
+          : o.windowBoards === undefined
           ? T('This saves what this window holds in a new folder in that place. The app does not delete the old folder. You are asked once more.', '이 창에 있는 것을 그 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요. 누르면 한 번 더 물어요.')
           : T('This saves what this window holds (' + o.windowBoards + ' board' + (o.windowBoards === 1 ? '' : 's') + ') in a new folder in that place. The app does not delete the old folder. You are asked once more.', '이 창에 있는 것(보드 ' + o.windowBoards + '개)을 그 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요. 누르면 한 번 더 물어요.')})
         + '</div>' + foot(reopen, later, true),

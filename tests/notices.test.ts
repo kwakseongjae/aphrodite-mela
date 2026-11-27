@@ -467,3 +467,34 @@ test('nothing opens, focuses or runs behind the render-failed sheet, and ⌘C st
   assert.equal(prevented,1,'a plain key aimed outside the sheet is held back');
   void focused;
 });
+
+/* Astra recheck 10: Start fresh forgets the missing folder only once what the window holds has landed on disk; a write that
+   cannot be queued or fails keeps the folder's record and says nothing of a fresh start. Once this window has made a folder
+   in that place, the question says it saves there, not in a new folder. */
+test('starting fresh keeps the missing folder until the save lands, and names the folder it saves into',async()=>{
+  const {editorActions}=await import('./support/editor-calls');
+  const {initialProject}=await import('../src/model');
+  const {personAt}=await import('../src/agent/dispatch');
+  const run=async(o:Record<string,unknown>)=>{
+    const said:string[]=[],asked:string[]=[];
+    const screen:Record<string,unknown>={...editorActions(initialProject()),vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,library:{entries:[{},{}]},diskQueue:{},
+      confirm:(q:string)=>{asked.push(q);return true;},modalRoot:{querySelector:()=>null,children:[]},closeModal:()=>{},render:()=>{},toast:(m:string)=>{said.push(m);},ui:(en:string)=>en,
+      queueLibrary:()=>true,flushDisk:async()=>{},...o};
+    editorCalls(['async function action('],screen);
+    await (screen.action as Function)({dataset:{action:'disk-start-fresh'}},personAt({isTrusted:true}),true);
+    return {screen,said,asked};
+  };
+  const refused=await run({queueLibrary:()=>false});
+  assert.ok(refused.screen.vanished,'nothing was queued: the folder is still the one missing');
+  assert.deepEqual(refused.said,[],'and no fresh start is announced');
+  const failed=await run({flushDisk:()=>Promise.reject(new Error('No space left on device (os error 28)'))});
+  assert.ok(failed.screen.vanished,'the write failed: still missing');
+  assert.deepEqual(failed.said,[]);
+  const landed=await run({});
+  assert.equal(landed.screen.vanished,undefined,'it landed: the window now saves where it is');
+  assert.match(landed.said.join(' '),/Started fresh/);
+  assert.match(landed.asked[0],/in a new folder at \/old/);
+  const again=await run({replacedStore:true});
+  assert.match(again.asked[0],/the folder this window made at \/old/,'a folder this window made is named as that, not a new one');
+  assert.doesNotMatch(again.asked[0],/new folder/);
+});

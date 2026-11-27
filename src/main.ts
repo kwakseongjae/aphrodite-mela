@@ -1839,12 +1839,19 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'disk-start-fresh': {
       if(!vanished)break;
       const old=vanished.path;
-      if(!confirm(ui(
+      // Once this window has made a folder in that place, starting fresh saves into it: it is not a new one.
+      if(!confirm(replacedStore?ui(
+        `Start fresh? What this window holds (${library.entries.length} board(s)) is saved in the folder this window made at ${old}. The app does not delete the old folder.`,
+        `새로 시작할까요? 이 창에 있는 것(보드 ${library.entries.length}개)을 이 창이 ${old} 자리에 만든 폴더에 저장해요. 예전 폴더는 앱이 지우지 않아요.`,
+      ):ui(
         `Start fresh? What this window holds (${library.entries.length} board(s)) is saved in a new folder at ${old}. The app does not delete the old folder.`,
         `새로 시작할까요? 이 창에 있는 것(보드 ${library.entries.length}개)을 ${old} 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요.`,
       )))break;
-      vanished=undefined;replacedStore=false;if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
-      if(diskQueue&&queueLibrary(library))await flushDisk();
+      if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
+      // The missing folder is forgotten only once what the window holds has landed: a write not queued, or one that fails, keeps it.
+      if(!diskQueue||!queueLibrary(library))break;
+      if(!await flushDisk().then(()=>true,()=>false))break;
+      vanished=undefined;replacedStore=false;
       render();
       toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
       break;
