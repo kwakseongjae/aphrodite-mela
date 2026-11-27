@@ -246,3 +246,21 @@ test('the dock group opened by keyboard keeps focus across its redraw and Escape
   assert.equal(await page.locator('.dock-menu').count(),0);
   assert.ok(await group.evaluate(el=>el===document.activeElement));
 });
+
+test('Space pans over a focused editor button and never approves the board',async()=>{
+  const {page}=rig;await page.locator('[data-action="approve"]').focus();
+  await page.keyboard.down('Space');
+  assert.equal(await page.locator('#canvas-scroll.pan-ready').count(),1);
+  await page.keyboard.up('Space');
+  assert.equal(await page.locator('#canvas-scroll.pan-ready').count(),0);
+  assert.equal(await scene('approved'),false);
+});
+
+test('Space dismisses the focused toast without panning',async()=>{
+  const {page}=rig;await scene('toast');
+  const dismiss=page.locator('#toast button').last();await dismiss.focus();
+  await page.keyboard.down('Space');
+  assert.equal(await page.locator('#canvas-scroll.pan-ready').count(),0);
+  await page.keyboard.up('Space');
+  assert.equal(await page.locator('#toast button').count(),0);
+});

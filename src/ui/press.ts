@@ -68,6 +68,7 @@ function keyName(e:KeyboardEvent){
 function stop(e:Event){e.preventDefault();e.stopImmediatePropagation();}
 
 function buttonFor(surface:Surface,key:string){
+  if(key===' '&&surface.kind==='editor'&&document.getElementById('app')?.dataset.screen==='editor')return null;
   const on=document.activeElement;
   if(!(on instanceof HTMLElement)||!surface.root.contains(on)||!visible(on))return null;
   if(on.matches('button,summary,[role="button"],input:is([type="submit"],[type="button"],[type="reset"],[type="checkbox"],[type="radio"])')||
