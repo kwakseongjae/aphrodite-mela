@@ -33,8 +33,8 @@ function editor(project:Project,starts:string[]=[],extra:Record<string,unknown>=
 const press=(action:string,data:Record<string,string>={})=>({dataset:{action,...data}});
 /** The toast a person sees last, and whether it is drawn with Undo now. */
 function shown(s:Screen){const t=s.toasts.at(-1);assert.ok(t,'a toast was shown');return {message:t.message,undo:/data-action="undo"/.test(toastHtml([t],{undo:s.undoToken()}))};}
-/** Undo on that toast, as the page presses it: the change it names is checked again, then the shortcut's one step. */
-async function pressUndo(s:Screen){const t=s.toasts.at(-1)!;if(!t.undo||t.undo!==s.undoToken())return false;await s.action(press('undo',{undoFor:t.undo}),person(),true);return true;}
+/** Undo on that toast, pressed as the page presses it: the change it names goes along, and the step itself checks it. True when a step was taken. */
+async function pressUndo(s:Screen){const t=s.toasts.at(-1)!;if(!t.undo)return false;const steps=s.edits.undo.length;await s.action(press('undo',{undoFor:t.undo}),person(),true);return s.edits.undo.length<steps;}
 /** The person changed something just before, so Undo has a change of theirs to leave alone. */
 function earlier(s:Screen){s.commit(()=>{s.project.name='Named a moment ago';},person(),'edit.project-rename');}
 /** One change, end to end: its toast offers Undo and is a whole sentence, and Undo takes back that change only. */
@@ -129,3 +129,18 @@ test('another change landing takes the Undo off a toast',async()=>{
   assert.equal(/data-action="undo"/.test(toastHtml(s.toasts,{undo:s.undoToken()})),false,'its Undo would take back the later change, so it goes');
   assert.equal(await pressUndo(s),false);
 });
+
+/* Astra recheck 2: the click is checked, then action() waits on the update and archive handlers before the step. An edit
+   that lands in that wait is the last change by the time the step runs, so the step itself compares the toast's change. */
+test('an edit landing while Undo waits to run is not what Undo takes back',async()=>{
+  const p=board(),other=systems.find(x=>x.id!==p.system.id)!,s=editor(p,[],{systems,canonicalSystem});
+  await s.action(press('choose-system',{system:other.id}),person(),true);
+  const token=s.toasts.at(-1)!.undo!;assert.ok(token);
+  s.updates={handle:async()=>{s.commit(()=>{s.project.name='Renamed while Undo waited';},person(),'edit.project-rename');return false;}};
+  const steps=s.edits.undo.length;
+  await s.action(press('undo',{undoFor:token}),person(),true);
+  assert.equal(s.project.name,'Renamed while Undo waited','the edit that landed in the wait stays');
+  assert.equal(s.project.system.id,other.id,'and so does the change the toast named, as it is no longer the last');
+  assert.equal(s.edits.undo.length,steps+1,'no step was taken');
+});
+

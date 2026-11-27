@@ -190,7 +190,8 @@ test('a toast offers Undo only for the change it reports, and checks it again af
   assert.match(main,/function commit\([^]*?\n  return recorded;\n\}/,'commit hands back what it recorded');
   assert.equal((main.match(/undoable\(/g)??[]).length-1,(main.match(/undoable\([^;]*,(done|moved)\)/g)??[]).length,'every Undo toast names the change it reports');
   assert.match(main,/function persist\(\) \{ if\(screen!=='editor'\)return;\n[^\n]*\n  if\(toasts\.some\(t=>t\.undo\)\)paintToasts\(\);/,'another change or a step takes a stale Undo off its toast');
-  assert.match(main,/if\(control\?\.dataset\.undoFor\)\{saveTyping\(\);if\(control\.dataset\.undoFor!==undoToken\(\)\)/,'typing is saved before the check, not after it');
+  assert.match(main,/function history\([^)]*expect\?:string\) \{\n[^\n]*\n[^\n]*\n  saveTyping\(\);\n  if\(expect!==undefined&&expect!==undoToken\(\)\)/,'typing is saved before the check, and the check is the step\'s own');
+  assert.match(main,/case 'undo': history\('undo',d,el\.dataset\.undoFor\);/,'the toast\'s change goes to the step');
 });
 
 /* Astra high 4 and 5: reloading counts as saved only when something was read, the folder that went missing and the last

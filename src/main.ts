@@ -670,10 +670,12 @@ function saveTyping(){const typing=document.activeElement;if(typing instanceof H
 function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusal(d)?d:undefined;}
 watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
-function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
+/** `expect` is the change a toast's Undo names: compared here, after typing is saved and just before the step, so a change that landed in between is never the one taken back. */
+function history(direction: 'undo' | 'redo',d:Dispatch|undefined,expect?:string) {
   // A board being left takes no step (0.3-P3-fix4).
   if(leaving||screen!=='editor'||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
+  if(expect!==undefined&&expect!==undoToken()){paintToasts();return;}
   const before=project;let done;
   try{done=stepForScreen(project,direction,edits,d.author);}
   catch(error){
@@ -1582,7 +1584,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
     case 'moa-recipe': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;const done=commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');undoable(ui('The Moa sample was added as a page of its own. Edit any node, and try it in Preview. Your other pages are kept.','Moa 견본을 새 페이지로 추가했어요. 노드를 하나씩 고치고 미리보기에서 눌러 볼 수 있어요. 다른 페이지는 그대로예요.'),done);break;}
     case 'pointer-lab': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}const done=commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');undoable(ui('The pointer lab was added as a page of its own. Your other pages are kept.','포인터 실험 페이지를 새로 추가했어요. 다른 페이지는 그대로예요.'),done);break;}
-    case 'undo': history('undo',d); break;
+    case 'undo': history('undo',d,el.dataset.undoFor); break;
     case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page-view': openPageView(el.dataset.id!); break;
@@ -1862,8 +1864,7 @@ document.addEventListener('click', e => {
   // A toast's Undo is pressed and the toast goes with it; the line itself only puts the toast away.
   // One drawn before a later change would take that change back instead, so it only goes.
   if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(!control||!chip.contains(control))return;}
-  // Undo takes back the change its toast reports: what is being typed is saved first, and if that or anything else became the last change, nothing is undone.
-  if(control?.dataset.undoFor){saveTyping();if(control.dataset.undoFor!==undoToken())return;}
+  // Undo takes back the change its toast reports: history() saves what is being typed and compares that change with the last one just before the step.
   if (control?.hasAttribute('data-palette')) closeModal();
   if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
