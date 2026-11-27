@@ -76,7 +76,7 @@ test('after a page the batch makes, its ops need no page_id, but the selection i
   assert.ok('batch' in made);
   const later = parseBatch({reason: 'r', base_revision: 'r2:1:2:3', ops: [{op: 'page', name: 'New'}, {op: 'update', block_id: 'selection', fields: {title: 'x'}}]});
   assert.ok('error' in later && /selection/.test(later.error));
-  assert.match(main, /if\('error' in parsed\)return \{error:parsed\.error,status:400\};\n\s*const result=await applyBatch\(/);
+  assert.match(main, /if\('error' in parsed\)return \{error:parsed\.error,status:400\};[^]{0,160}?return await applyBatch\(/);
   assert.match(readFileSync(new URL('../src-tauri/src/agent.rs', import.meta.url), 'utf8'), /\(400 \| 403 \| 409 \| 423, _\) => asked as u16/);
   const apply = JSON.stringify(mcpTools().find(t => t.name === 'aphrodite_apply_edits'));
   for (const example of apply.match(/\{\\"reason\\"[^']*?\]\}/g) ?? []) if (example.includes('base_revision')) assert.doesNotMatch(example, /\\"selection\\"/, example.slice(0, 120));
@@ -84,7 +84,7 @@ test('after a page the batch makes, its ops need no page_id, but the selection i
 
 /* 16: a browser tab closed with work not saved asks first. */
 test('the browser build warns before a tab with unsaved work is closed', () => {
-  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{(?:saveTyping\(\);)?if\(!lastSaved\|\|leaving\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
+  assert.match(main, /window\.addEventListener\('beforeunload',e=>\{(?:saveTyping\(\);)?if\(saves\.hasUnsavedChanges\)\{e\.preventDefault\(\);e\.returnValue='';\}\}\);/);
 });
 
 /* 18: an export that held a library picture back says to put it on the board again. A person doing that is enough: it

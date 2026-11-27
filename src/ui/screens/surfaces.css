@@ -37,13 +37,18 @@
 .ui-toast-stack { position: fixed; left: 50%; bottom: var(--ui-space-5); transform: translateX(-50%); z-index: 100; display: grid; justify-items: center; gap: var(--ui-space-2); max-width: calc(var(--ui-control-lg) * 13); pointer-events: none; font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); word-break: keep-all; }
 .ui-toast-stack[data-screen="editor"] { bottom: calc(var(--ui-space-7) * 2); }
 .ui-toast-stack > .ui-toast { appearance: none; margin: 0; border: 0; font: inherit; text-align: left; cursor: default; pointer-events: auto; max-width: 100%; height: auto; min-height: var(--ui-control-lg); padding: var(--ui-space-2) var(--ui-space-4); animation: ui-toast-in var(--ui-dur) var(--ui-ease); }
+.ui-toast-stack > .ui-toast.ui-toast-undo { padding-right: var(--ui-space-2); }
 .ui-toast-text { min-width: 0; }
+.ui-toast > .ui-toast-text { appearance: none; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: default; }
+.ui-toast > .ui-toast-text:focus-visible { outline: var(--ui-ring) solid var(--ui-focus); outline-offset: var(--ui-ring); }
+.ui-toast > .toast-undo { flex-shrink: 0; height: var(--ui-control-sm); font-weight: var(--ui-w-semibold); }
 .ui-toast-count { font-family: var(--ui-font-mono); font-size: var(--ui-text-11); opacity: 0.7; }
 @keyframes ui-toast-in { from { opacity: 0; transform: translateY(var(--ui-space-2)); } }
 
 /* The update card, bottom left (src/update-notice.ts, src/editor/updates.ts). */
 .ui-update-layer { position: fixed; left: var(--ui-space-4); bottom: var(--ui-space-4); z-index: 45; max-width: calc(100vw - var(--ui-space-6)); font-family: var(--ui-font-sans); font-size: var(--ui-text-13); line-height: var(--ui-lh-13); color: var(--ui-text-1); word-break: keep-all; }
-.ui-card.ui-update { position: relative; width: calc(var(--ui-control-lg) * 7 + var(--ui-space-4)); max-width: 100%; padding: var(--ui-space-4); box-shadow: var(--ui-shadow-window); }
+/* The card (src/ui/notices.ts noticeCardHtml): one, in the lower left, until the person decides. The new version is the one it tells. */
+.ui-card.ui-notice-card { position: relative; width: calc(var(--ui-control-lg) * 7 + var(--ui-space-4)); max-width: 100%; padding: var(--ui-space-4); box-shadow: var(--ui-shadow-window); }
 .ui-update > .update-close { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); }
 .ui-update-version { display: block; margin-top: var(--ui-space-1); font-size: var(--ui-text-28); line-height: var(--ui-lh-28); letter-spacing: var(--ui-track-28); font-weight: var(--ui-w-semibold); font-variant-numeric: tabular-nums; }
 .ui-update-line { margin: var(--ui-space-2) 0 var(--ui-space-3); color: var(--ui-text-2); }

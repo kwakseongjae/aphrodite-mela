@@ -3,6 +3,7 @@
  * version exists it says so in a small card in the bottom-left corner. Install puts that version in
  * place and then asks whether to restart. Declining a version is remembered, so the offer asks once.
  */
+import {noticeCardHtml} from './ui/notices';
 export type UpdateInfo={current:string;latest?:string;newer:boolean;name?:string;url?:string;size?:number;stableDownload?:boolean;notes?:string;summary?:string[]};
 export type NoticeState='offer'|'working'|'installing'|'restart'|'ready'|'failed';
 
@@ -103,12 +104,10 @@ export function updateNoticeHtml(info:UpdateInfo,state:NoticeState,lang:'en'|'ko
       +`<button class="ui-menu-item" role="menuitem" data-action="update-dismiss">${t('Skip this version','이 버전 건너뛰기')}</button>`
       +`<button class="ui-menu-item" role="menuitem" data-action="update-never">${t('Stop checking','업데이트 확인 끄기')}</button>`
       +`</div></details>`;
-  return `<div class="update-card ui-card ui-update" role="status" aria-live="polite" data-state="${state}">`
-    +(working?'':`<button class="ui-icon-btn update-close" data-action="${askRestart?'update-later':'update-dismiss'}" aria-label="${askRestart?t('Later','나중에'):t('Not now','나중에')}" title="${askRestart?t('Later','나중에'):t('Not now','나중에')}">${icon('x','ui-icon')}</button>`)
+  return noticeCardHtml('update-card ui-update',state,(working?'':`<button class="ui-icon-btn update-close" data-action="${askRestart?'update-later':'update-dismiss'}" aria-label="${askRestart?t('Later','나중에'):t('Not now','나중에')}" title="${askRestart?t('Later','나중에'):t('Not now','나중에')}">${icon('x','ui-icon')}</button>`)
     +`<span class="ui-caps ui-update-eyebrow">${eyebrow}</span>`
     +`<strong class="ui-update-version">${version}</strong>`
     +`<p class="ui-update-line">${line}</p>${bar}${summary}`
-    +(action||menu?`<div class="ui-update-actions">${action}${menu}</div>`:'')
-    +`</div>`;
+    +(action||menu?`<div class="ui-update-actions">${action}${menu}</div>`:''));
 }
 

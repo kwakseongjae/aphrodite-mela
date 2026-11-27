@@ -16,7 +16,7 @@ export const playbook = [
   '',
   '## Reading is always open. Changing is not.',
   'Reading needs nothing. Changing needs the person to have opened the door, in one of two ways:',
-  '- **Connected mode** — they keep working, you edit alongside them, a banner counts your changes and ⌘Z takes any back. Once they allow your name it is remembered, across restarts, until they disconnect it.',
+  '- **Connected mode** — they keep working, you edit alongside them, a mark counts your changes and ⌘Z takes any back. Once they allow your name it is remembered, across restarts, until they disconnect it.',
   '- **Agent mode** — they hand over the whole screen and are locked out until they end it.',
   '',
   'If a change comes back refused with `writing is off`, call `aphrodite_request_connection`: a request with your name goes on their screen, and they allow or decline with one click. You cannot open it yourself; ask once and wait.',

@@ -66,12 +66,10 @@ export function enhanceSelect(select:HTMLSelectElement):void{
     refresh(select);
   });
   details.addEventListener('keydown',e=>{
-    if((e.key==='Enter'||e.key===' ')&&(e.target as HTMLElement).tagName==='SUMMARY'){e.preventDefault();e.stopPropagation();details.open=!details.open;return;}
     const items=[...details.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not([disabled])')];
     const i=items.indexOf(document.activeElement as HTMLButtonElement);
     if(e.key==='ArrowDown'){e.preventDefault();(items[i+1]??items[0])?.focus();}
     else if(e.key==='ArrowUp'){e.preventDefault();(items[i-1]??items.at(-1))?.focus();}
-    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();details.open=false;details.querySelector<HTMLElement>('summary')?.focus();}
   });
   select.addEventListener('change',()=>refresh(select));
 }

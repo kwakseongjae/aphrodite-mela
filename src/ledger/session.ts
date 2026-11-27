@@ -48,11 +48,11 @@ function mendDesign(project: Project): void {
 }
 const writesApproval = (ops: PatchOp[]) => ops.some(op => op.op === 'set' && op.on === 'project' && op.field === 'approvedFingerprint');
 
-export type History = {undo: UndoEntry[]; redo: UndoEntry[]; last?: Project; shownStarter?: {id: string; through: number}};
+export type History = {generation: number; undo: UndoEntry[]; redo: UndoEntry[]; last?: Project; shownStarter?: {id: string; through: number}};
 
 /** Given the project as it opens, takes it as the baseline: what changes outside `commit()` from then on is recorded. */
 export function newHistory(project?: Project): History {
-  return project ? {undo: [], redo: [], last: clone(project)} : {undo: [], redo: []};
+  return project ? {generation: 0, undo: [], redo: [], last: clone(project)} : {generation: 0, undo: [], redo: []};
 }
 
 const clone = (p: Project): Project => JSON.parse(JSON.stringify(designOf(p))) as Project;
@@ -75,6 +75,7 @@ function reconcile(project: Project, history: History): Project {
     if (drift.length) {
       record(ledgerOf(project), history.last, designOf(project), {author: UNKNOWN, source: 'untracked', ...(cleared ? {reason: noted(undefined)} : {})}, drift);
       history.last = clone(project);
+      history.generation++;
       history.redo = [];
     }
   } else history.last = clone(project);
@@ -99,6 +100,7 @@ export function end(project: Project, before: Project, meta: {author: Author; so
   if (!done) { if (revealed) history.last = clone(project); return null; }
   // A clearing is the system's, not a write of the approval: undoing this change is content, for anyone (step).
   if (cleared) done.undo.cleared = true;
+  history.generation++;
   history.undo.push(done.undo);
   if (history.undo.length > UNDO_LIMIT) history.undo.shift();
   history.redo = [];
@@ -171,6 +173,7 @@ export function step(project: Project, direction: 'undo' | 'redo', history: Hist
   }
   const ledger = ledgerOf(project);
   const done = record(ledger, current, next, {author, source: direction, ...(cleared ? {reason: noted(undefined)} : {}), ...(direction === 'undo' ? {undoes: entry.seq} : {redoes: entry.seq})});
+  history.generation++;
   from.pop();
   (direction === 'undo' ? history.redo : history.undo).push(entry);
   next.ledger = ledger;

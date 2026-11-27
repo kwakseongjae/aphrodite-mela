@@ -6,7 +6,7 @@
  * finishes after its time is up no longer closes the window; the answer does. A close is under way (busy) from its request
  * until it is over or answered, and no longer: agents' writes are turned away for that time only (0.3-R fix 4 #2).
  */
-export type CloseAnswer='save-file'|'discard'|'cancel';
+export type CloseAnswer='save-file'|'save-library'|'discard'|'cancel';
 export type WindowCloser={request(destroy:()=>Promise<void>):Promise<void>;busy():boolean};
 /** A save not finished in its time: it may still land, so it is asked about as still under way, not as failed (0.3-R fix 5 #2). */
 export class StillSaving extends Error {}
@@ -15,7 +15,7 @@ export class WindowRefused extends Error {}
 /** How long a close waits for the save before it asks. */
 export const SAVE_LIMIT=10_000;
 /** `goLimit`: how long the window is given to go once asked; past it the close is over and said as refused (0.3-R fix 7 #2). */
-export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void|boolean>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:()=>Promise<boolean>,limit=SAVE_LIMIT,goLimit=SAVE_LIMIT):WindowCloser{
+export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>boolean)=>Promise<void|boolean>,ask:(error:unknown)=>Promise<CloseAnswer>,keep:(choice:'save-file'|'save-library')=>Promise<boolean>,limit=SAVE_LIMIT,goLimit=SAVE_LIMIT):WindowCloser{
   let run:Promise<void>|undefined;
   return{
     request(destroy){if(run)return run;
@@ -42,7 +42,7 @@ export function windowCloser(close:(destroy:()=>Promise<void>,answered?:()=>bool
             if(answer==='cancel')return;
             if(answer==='discard'){await go();return;}
             // A file that could not be kept is asked about again, inside this question (0.3-R fix 2 #15).
-            let kept=false;try{kept=await keep();}catch(error){why=error;continue;}
+            let kept=false;try{kept=await keep(answer);}catch(error){why=error;continue;}
             if(kept){await go();return;}
             why=new Error('the board was not saved as a file');
           }

@@ -1,7 +1,8 @@
 import { createIcons, createElement } from 'lucide';
-/** Last-resort crash surface: a blank webview hides everything, so uncaught errors are painted into the page. */
-window.addEventListener('error',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Aphrodite hit an error and stopped rendering.\n${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`;document.body.prepend(box);});
-window.addEventListener('unhandledrejection',e=>{const box=document.createElement('pre');box.className='fatal-error';box.setAttribute('role','alert');box.textContent=`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`;document.body.prepend(box);});
+import {message as nativeQuestion} from '@tauri-apps/plugin-dialog';
+/** Last-resort crash surface: a blank webview hides everything, so what stopped is said in one sheet over the page (src/ui/notices.ts). */
+window.addEventListener('error',e=>showFatal(`${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`));
+window.addEventListener('unhandledrejection',e=>showFatal(`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`));
  import { icons } from './icons';
 import { assemble, canonicalSystem, catalog, currentPage, agentRevision, approvalPrint, fingerprint, importDesignMarkdown, initialProject, isApproved, makeBlock, parseProject, systems, uid, type BlockKind, type Project,safeImage,MAX_PAGES} from './model';
 import { blockHtml, esc, pageHtml, themeVars, renderTree } from './render';
@@ -19,7 +20,7 @@ import {mountNativePreview} from './design/native-preview';
 import {themeProposal,applyThemeProposal} from './design/theme-proposal';
 import { canParent, validLayout } from './layout';
 import {mountPointerEditor} from './editor/pointer-editor';
-import {applyEditorCommand} from './editor/commands';
+import {applyEditorCommand,type EditorCommand} from './editor/commands';
 import {mountLayerReorder} from './editor/layer-reorder';
 import {rerenderPreservingScroll} from './editor/scroll-continuity';
 import {collectionRows} from './design/collection';
@@ -62,7 +63,9 @@ import {personOnlyRow} from './agent/commands.mjs';
 import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
-import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
+import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,settleUndo,type Toast} from './design/toasts';
+import {composingKey,focusOnSurface,installPress,pressOrigin,rememberFocus,restoreFocus,takeReturnFocus,topSurface} from './ui/press';
+import {troubleKind,troubleDialog,backupFormat,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
@@ -70,14 +73,14 @@ import {filesNamed,isFreePage,loadFreePage,renderDocument,linkOut,FRAME_ALLOW,me
 import {morph,frameKey} from './editor/board';
 import {isStarterPage,visiblePages,hasSectionPage,newBoard,shownPage,firstShown,placeFrame,placeNewFrames,revealStarter,fullBoard} from './editor/starter';
 import {callerMarkHtml} from './agent/caller-mark';
-import {saveBadgeHtml,saveState,type SaveState} from './editor/save-badge';
+import {saveBadgeHtml,type SaveState} from './editor/save-badge';
 import {exportBodyHtml} from './editor/export-view';
 import {exportPage,pageSource,pageDownload,type ExportChoice,base64} from './page-export';
 import {readBoardFile,boardFileBytes,writeBoardFile,outgoing,outgoingCount,carriedNow,heldFromAgent,contentId,readOpenLink,openLink,isBoardFileName,MAX_BOARD_FILE,BOARD_FILE,type OpenLink,type ReadBoard} from './board-file';
 import {changesSince,designOf,LEDGER_RESERVE,type Change} from './ledger/ledger';
 import {guideFor,considerAsk,ASK_COOLDOWN_MS,ALLOWED_KEY,LEGACY_CONNECT_KEY,type AskState} from './agent/guide';
 import {describeCaller} from './agent/callers';
-import {workspaceHome,projectCards,type HubView} from './workspace/home';
+import {homeStorageContents,workspaceHome,projectCards,type HubView} from './workspace/home';
 import {renameDialogHtml,deleteDialogHtml,workspaceDeleteDialogHtml,storageDialogHtml} from './workspace/home-dialogs';
 import {homeCopy} from './workspace/home-copy';
 import {sampleCategories,samplesIn,sampleSrc,sampleImages,type SampleCategory} from './design/sample-images';
@@ -99,7 +102,7 @@ import {parseAgentCommand,isHumanHatch,bridgeExamples,reachedAction,actionUnder,
 import {agentDispatch,dispatchOf,isAgentSurface,refusal,send,sourceFor,typedInto,watchTyping,NOBODY,type AgentSurface,type Dispatch} from './agent/dispatch';
 import {listen as tauriListen} from '@tauri-apps/api/event';
 import {readOnboarding,writeOnboarding,welcomeHtml,sampleProject,tourSteps,tourCardHtml} from './workspace/onboarding';
-import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor,vanishedHtml,type Breadcrumb} from './workspace/breadcrumb';
+import {readBreadcrumb,writeBreadcrumb,storeVanished,crumbFor} from './workspace/breadcrumb';
 import {ensureSpace,frameWidth,framePresets,tidyFrames,moveFrame,zoomAt,panBy,fitCamera,unionBox,stepZoom,readCamera,writeCamera,openingCamera,cameraLabel,isFramePreset,clampWidth,screenToWorld,FRAME_GAP,type Camera,type FramePreset,type FrameLayout} from './editor/space';
 import {devPanelHtml,devPanelCopyPayload} from './editor/dev-panel';
 import {startDelegation,endDelegation,isBlockedWhileDelegated,delegationBannerHtml,delegationSummary,type Delegation,agentPanelHtml} from './agent/delegation';
@@ -117,14 +120,12 @@ import {brandLockup} from './design/logo';
 import {vaultHtml,type Vault} from './workspace/vault';
 import './workspace/vault.css';
 let vaultProjectId='',vaultState:Vault|undefined,vaultReading:{name:string;text?:string;image?:string}|undefined;
-import {DurableQueue} from './workspace/durable';
+import {WindowSaves} from './workspace/save-state';
 import {bringIn} from './workspace/bring-in';
 import {windowCloser,closeRequests,SAVE_LIMIT,StillSaving,WindowRefused,type CloseAnswer} from './workspace/closing';
-let diskQueue:DurableQueue|undefined,storagePath='Browser local storage',storageIssue='';
-/* Set when the disk is empty but a breadcrumb says we filled it. While this is set nothing is
-   written to disk: stamping a fresh empty store over the situation is exactly what we are here to
-   stop, and it would erase the only evidence that anything was ever there. */
-let vanished:Breadcrumb|undefined;
+let storagePath='Browser local storage';
+const saves=new WindowSaves(text=>writeLibraryText(store,text),saveChanged,
+  (revision,boards)=>writeBreadcrumb(store,crumbFor(storagePath,revision,boards,new Date())));
 const nativeDesktop=isTauri();
 document.documentElement.classList.toggle('native-desktop',nativeDesktop);
 /** Free pages and media on the board: how frames get their documents here (src/free-page.ts decides), and the board layer that keeps them (src/editor/board.ts). */
@@ -210,7 +211,7 @@ function openPageView(id:string,hop=false){
   const page=project.pages.find(p=>p.id===id);if(!page||screen!=='editor')return;
   leavePage();pageView={project:project.id,page:id,key:pageViewKey(page)};pageViewEntered=false;if(!hop){pageViewStopped=false;pageViewHops.reset();}
   const kind=page.kind==='html'?ui('Page','페이지'):page.media?(page.media.mime.startsWith('video/')?ui('Video','영상'):ui('Picture','그림')):ui('Section page','섹션 페이지');
-  pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar ui-pagebar"><button type="button" class="page-view-back ui-icon-btn" data-action="page-view-close" aria-label="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left','ui-icon')}</button><span class="ui-pagebar-from">${esc(project.name)}</span><span class="ui-pagebar-slash">/</span><strong class="page-view-title ui-pagebar-title">${esc(page.name)}</strong><span class="page-view-kind ui-pagebar-size">${kind}</span><span class="ui-pagebar-push"></span><button type="button" class="page-view-edit ui-btn ui-btn-primary ui-btn-md" data-action="page-view-edit">${icon('mouse-pointer-2','ui-icon ui-icon-sm')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
+  pageViewRoot.innerHTML=`<div class="page-view" data-page-view="${esc(id)}" role="dialog" aria-modal="true" aria-label="${esc(page.name)}"><header class="page-view-bar ui-pagebar"><button type="button" class="page-view-back ui-icon-btn" data-action="page-view-close" aria-label="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}" title="${ui('Back to the board (Esc)','보드로 돌아가기 (Esc)')}">${icon('chevron-left','ui-icon')}</button><span class="ui-pagebar-from">${esc(project.name)}</span><span class="ui-pagebar-slash">/</span><strong class="page-view-title ui-pagebar-title">${esc(page.name)}</strong><span class="page-view-kind ui-pagebar-size">${kind}</span><span class="ui-pagebar-push"></span><span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span><button type="button" class="page-view-edit ui-btn ui-btn-primary ui-btn-md" data-action="page-view-edit">${icon('mouse-pointer-2','ui-icon ui-icon-sm')}<span>${ui('Edit in the app','앱에서 편집')}</span></button></header><div class="page-view-body" data-page-view-body>${page.kind||page.media?'':`<iframe class="page-view-frame" title="${esc(page.name)}" sandbox="allow-scripts"></iframe>`}</div></div>`;
   hydrateIconsIn(pageViewRoot);syncStateAttributes();
   const body=pageViewRoot.querySelector<HTMLElement>('[data-page-view-body]')!;
   if(isFreePage(page))void freePageFrame(page,'page-view-frame',made=>{body.append(made);}).then(frame=>{if(!frame){if(body.isConnected)body.innerHTML=unframedHtml(page);return;}if(!frame.isConnected)return;return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);}).catch(error=>toast(ui('A page could not be drawn: ','페이지를 그리지 못했습니다: ')+String(error)));
@@ -291,7 +292,7 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   if(!kept.length)return;
   if(project.pages.length+kept.length>MAX_PAGES){toast(fullBoard(project,uiLanguage==='ko'));return;}
   // What the library holds is known before a file is kept (0.3-R fix 2 #20).
-  const ahead=preflightBatch(project,{ops:kept.map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
+  const ahead=preflightBatch(project,{ops:kept.map(file=>({op:'media_add' as const,name:file.name||ui('Media','미디어')}))},selected,r=>libraryRefusal(library,project,r.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));
   if(ahead){toast(ahead.error);return;}
   const ops:Op[]=[],media:Record<number,PageMedia>={},places:Record<number,{x:number;y:number}>={};let last:FrameLayout|undefined;
   for(const file of kept){
@@ -314,7 +315,7 @@ async function putMedia(files:File[],at:{x:number;y:number},d:Dispatch,source:'m
   let refused:string|undefined;
   const place=()=>{
     const result=runBatch(project,{ops},selected,media,places);
-    refused=result.ok?libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
+    refused=result.ok?libraryRefusal(library,project,result.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars):result.error;
     if(result.ok&&!refused){project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};carriedNow(project,Object.values(media).map(m=>m.src.slice('media:'.length)));}
   };
   commit(place,d,'edit.media',{source:source==='media:drop'?'media:drop':'media:paste'});
@@ -346,12 +347,11 @@ let vibeFormDraft:FormData|null=null;
 
 let theme:ThemeChoice='system';try{theme=readTheme(store);}catch{}
 applyTheme(document.documentElement,theme);
-let startupError = '';
 let library:Library={version:1,entries:[]};
 let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=store.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
 const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
-try { library=readLibrary(store);if(readTidied(library)&&!nativeDesktop)try{writeLibraryText(store,JSON.stringify(library));}catch{/* written with the next save */}if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { startupError = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+try { library=readLibrary(store);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { saves.unread = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
 /** The block the inspector's fields were last drawn for. */
 let inspectedId:string|undefined;
@@ -383,8 +383,6 @@ let device: 'desktop' | 'mobile' = 'desktop';
 let query = '';
 /** Undo, redo and the ledger's view of the last committed state (src/ledger/session.ts). */
 let edits = newHistory();
-let lastSaved = true;
-let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
@@ -394,28 +392,44 @@ let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDe
    `*` is the switch, open to any agent. connectMode is only "anyone is let in". */
 let allowedAgents:string[]=[];try{allowedAgents=readAllowed(store.getItem(ALLOWED_KEY));store.removeItem(LEGACY_CONNECT_KEY);}catch{}
 let connectMode=allowedAgents.length>0;
-function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)store.setItem(ALLOWED_KEY,JSON.stringify(next));else store.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
+function setAllowed(next:string[]){
+  allowedAgents=next;connectMode=next.length>0;
+  if(!connectMode)resetConnectMark();
+  else if(connectWriter&&!mayWrite(connectWriter,next))connectWriter='';
+  try{if(next.length)store.setItem(ALLOWED_KEY,JSON.stringify(next));else store.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}
+}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
 /** An agent's step refused for moving the approval, kept with that command's own Dispatch: a command running beside it never answers with it. */
 const stepRefusals=new WeakMap<Dispatch,string>();
-let lease:Holder|null=null;let connectWrites=0;let askState:AskState=null;let pointerHeld=false;
+let lease:Holder|null=null;let connectWrites=0;
+/** The agent whose change the connected mark last counted: its logo, on every copy of the mark however it is drawn. */
+let connectWriter='';
+/** A command can finish recording after disconnect. Only dispatches admitted during this count can add to it. */
+let connectedCommands=new WeakSet<Dispatch>();
+function resetConnectMark(){
+  connectWrites=0;connectWriter='';
+  connectedCommands=new WeakSet();
+}
+let askState:AskState=null;let pointerHeld=false;
 function agentMode():Mode{return agentLocked()?'delegated':connectMode?'connected':'design';}
 /** The door as one caller meets it: open to another agent is still closed to this one. */
 function callerMode(who:string):Mode{const mode=agentMode();return mode==='connected'&&!mayWrite(who,allowedAgents)?'design':mode;}
 function currentAuthority():Authority{return {mode:agentMode(),holder:lease,now:Date.now(),allowed:allowedAgents};}
+function countConnectedChange(change:Change|null,d:Dispatch){
+  if(change&&connectedCommands.has(d)&&callerMode(change.author.name)==='connected')bumpConnect(change.author.name);
+}
 /** Updates the connected banner in place, so a write does not cost a full render. */
 function bumpConnect(by:string){
-  connectWrites++;
-  const count=app.querySelector('[data-connect-writes]');const who=app.querySelector('[data-connect-who]');
-  if(count)count.textContent=String(connectWrites);
-  if(who)who.textContent=callerText(by);
-  const mark=app.querySelector('[data-connect-mark]');if(mark){mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);}
-  if(!count)render();
+  connectWrites++;connectWriter=by;
+  // Every copy of the mark, the page seen on its own's too.
+  const counts=document.querySelectorAll('[data-connect-writes]');counts.forEach(c=>{c.textContent=String(connectWrites);});
+  document.querySelectorAll<HTMLElement>('[data-connect-mark]').forEach(mark=>{mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);});
+  if(!counts.length)render();
 }
 let tokensOpen=false;
 const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:ui('Line','선'),muted:ui('Muted','보조'),danger:ui('Danger','위험'),success:ui('Success','성공'),warning:ui('Warning','주의')})[name];
-let onboarding=readOnboarding(store);let tourIndex=-1,tourPlan:string[]=[];const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
+let onboarding=readOnboarding(store);let tourIndex=-1,tourPlan:string[]=[];let tourTimer:number|undefined;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(store.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{store.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
 let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
@@ -435,13 +449,69 @@ const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}
 const button = (action: string, name: string, label: string, cls = '', rest = '') => `<button class="${cls}" data-action="${action}" ${rest}>${icon(name)}<span>${control(label)}</span></button>`;
 const iconButton = (action: string, name: string, label: string, rest = '') => `<button class="icon-button" data-action="${action}" aria-label="${control(label)}" title="${control(label)}" ${rest}>${icon(name)}</button>`;
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
+/** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
+function fatalUp(){return !!document.querySelector('.fatal-scrim');}
+function dismissSheet(sheet:{remove():void}){
+  sheet.remove();offerAsk();
+  if(!restoreFocus(takeReturnFocus('sheet')))focusModal();
+  offerTrouble();
+}
+function showFatal(detail:string){
+  let ko=document.documentElement.lang==='ko',board=false;
+  try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}
+  if(!fatalUp())rememberFocus('sheet');
+  document.querySelector('.fatal-scrim')?.remove();
+  document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));
+  const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;
+  const status=sheet.querySelector<HTMLElement>('[data-fatal-status]')!;
+  const raw=sheet.querySelector<HTMLElement>('[data-fatal-error]')!;
+  try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}
+  let attempt=0;
+  sheet.addEventListener('click',async e=>{
+    const button=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');
+    if(!button)return;
+    e.stopPropagation();e.preventDefault();
+    if(!pressOrigin(e).isTrusted)return;
+    const act=button.dataset.action!;
+    if(act==='fatal-redraw'||act==='fatal-close'){fatalPress(act,sheet);return;}
+    const at=++attempt;
+    status.textContent='';status.hidden=true;
+    try{await action(button,dispatchOf(e),true);}
+    catch(error){
+      if(at!==attempt)return;
+      if(act==='fatal-copy')status.textContent=ko?'복사하지 못했어요. 글을 선택해서 복사해 주세요.':'Could not copy. Select the text and copy it.';
+      else{
+        status.textContent=ko?'파일로 저장하지 못했어요.':'The file could not be saved.';
+        raw.textContent='\n\n'+String(error);
+      }
+      status.hidden=false;
+    }
+  });
+  sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();
+}
+/**
+ * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
+ * other buttons go to their actions, which answer them before reading anything of the app's state. Draw again takes the
+ * sheet away only once the screen was drawn; if drawing throws again, the sheet stays and says what stopped it now.
+ */
+function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
+  if(action==='fatal-close'){dismissSheet(sheet);return;}
+  try{render();dismissSheet(sheet);}catch(error){const said=sheet.querySelector('[data-fatal-cause]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
+}
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
 let toasts:Toast[]=[];let toastId=0;
 const toastRoot=document.querySelector<HTMLDivElement>('#toast')!;
 function paintToasts(){
-  toastRoot.innerHTML=toastHtml(toasts);
+  const pressed=document.activeElement?.closest<HTMLElement>('[data-toast] button');
+  const chip=pressed?.closest<HTMLElement>('[data-toast]');
+  toastRoot.innerHTML=toastHtml(toasts,{undo:undoToken(),ko:uiLanguage==='ko'});
   toastRoot.dataset.screen=screen;
+  if(chip){
+    const kept=toastRoot.querySelector<HTMLElement>(`[data-toast="${CSS.escape(chip.dataset.toast!)}"] ${pressed?.matches('.toast-undo')?'.toast-undo':'.toast-dismiss'}`);
+    if(kept&&!fatalUp())kept.focus();
+    else if(!restoreFocus())focusModal();
+  }
   clearTimeout(toastTimer);
   const wait=nextExpiry(toasts,Date.now());
   if(wait)toastTimer=window.setTimeout(()=>{toasts=expireToasts(toasts,Date.now());paintToasts();},wait+30);
@@ -450,22 +520,41 @@ function paintToasts(){
 function toast(message:string){if(askOpen())return;notice(message);}
 /** A line shown even over the request to edit: what the person must not miss, a window that could not save before closing. */
 function notice(message:string){toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId);paintToasts();}
-function saveLibrary(next:Library){if(startupError)throw new Error(startupError);
-  // The browser build's check makes one library write fail where it is stored, nothing stored (0.3-P3-fix3 #9).
-  if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
- const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(store,raw);}library=next;rememberSaved(next,raw.length);}
+/** The change on top of the undo stack, as a toast names it: a toast for that change offers Undo, one for any earlier change does not. */
+function undoToken(){const top=screen==='editor'?edits.undo.at(-1):undefined;return top?`${editSession}:${edits.generation}:${project.id}:${top.seq}`:'';}
+/** A finished change the shortcut can take back: the toast carries Undo for the change it reports, the one recorded for it, while that is still the last (data-action="undo").
+ *  An agent's change, pressed through the screen or not, is reported without one: the person did not make it. */
+function undoable(message:string,change:Change|null){if(askOpen())return;const own=change?.author.kind==='person'?`${editSession}:${edits.generation}:${project.id}:${change.seq}`:'';toasts=pushToast(expireToasts(toasts,Date.now()),boardWords(message),Date.now(),++toastId,{undo:own&&own===undoToken()?own:undefined});paintToasts();}
+function saveLibrary(next:Library|(()=>Library),edit=true){
+  let prepared:Library;
+  saves.save(()=>{
+    if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
+    const boards=typeof next==='function'?next():next;
+    if(screen==='editor'){
+      const entry=boards.entries.find(e=>e.project.id===project.id);
+      prepared=upsertProject(boards,project,undefined,entry?.workspaceId??workspaces.activeId);
+    }else prepared=boards;
+    const text=libraryText(prepared);
+    rememberSaved(prepared,text.length);
+    return {text,boards:prepared.entries.length};
+  },edit);
+  library=prepared!;
+}
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
-function persist() { if(screen!=='editor')return; try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.')); } }
-/**
- * The library into the disk's line, held to what the desktop can save (libraryText): one it cannot, half of a surrogate pair
- * in a project carried over from the browser's store say, is said to the person and nothing is queued, so the line is not
- * held up behind a write that will be refused (0.3-R fix 1 #10).
- */
-function queueLibrary(next:Library):boolean{
-  try{diskQueue!.enqueue(libraryText(next));return true;}
+/** The window's boards as they are now: the open board as it is on screen, though the disk or the check before it refused it. */
+function liveLibrary():Library{if(screen!=='editor')return library;const at=library.entries.findIndex(e=>e.project.id===project.id),now=new Date().toISOString();
+  return {...library,entries:at>=0?library.entries.map((e,i)=>i===at?{...e,project}:e):[{project,createdAt:now,updatedAt:now,pinned:false,archived:false,workspaceId:workspaces.activeId},...library.entries]};}
+function persist(edit=true) { if(screen!=='editor')return;
+  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();}
+  try{saveLibrary(library,edit);}
+  catch{if(!saves.unread&&saves.native&&troubleOpened())return;
+    toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.'));}
+}
+function queueLibrary(next:Library,edit=true):boolean{
+  try{saveLibrary(next,edit);return true;}
   catch(error){notice(ui(`The boards could not be written to disk: ${error instanceof Error?error.message:String(error)} Save a backup file, then fix or remove that board.`,`보드를 디스크에 쓰지 못했습니다: ${error instanceof Error?error.message:String(error)} 백업 파일로 저장한 뒤 그 보드를 고치거나 지워 주세요.`));return false;}
 }
-async function flushDisk(){if(diskQueue)await diskQueue.flush();}
+async function flushDisk(){await saves.flush();}
 async function showVault(refresh=true){
   if(!nativeDesktop){toast('파일 보관함은 데스크탑 앱에서 사용할 수 있습니다.');return;}
   await guardSwitch();const entry=library.entries.find(e=>e.project.id===vaultProjectId);if(!entry)throw new Error('프로젝트를 찾지 못했습니다.');
@@ -491,7 +580,7 @@ function turn<T>(go:()=>T|Promise<T>):Promise<T>{
   return leaves(async()=>{
     leaving++;app.inert=true;
     try{return await go();}
-    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))focusAfterLeaving.focus();focusAfterLeaving=undefined;}}
+    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))restoreFocus(focusAfterLeaving);focusAfterLeaving=undefined;}}
   });
 }
 /** A refusal the person must not miss after a wait: said as a notice, even over the request to edit (0.3-R fix 5 #4). */
@@ -503,7 +592,7 @@ function leave<T>(go:()=>T|Promise<T>):Promise<T>{
     // Each wait for the save is bounded, as a close's is (0.3-R fix 3 #8): a leaving whose write does not end gives up and goes nowhere, and the editor takes input again.
     const slow=()=>new Unmissable(ui(`The save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds, so the board stays open.`,`저장이 ${Math.round(SAVE_LIMIT/1000)}초 안에 끝나지 않아 보드를 그대로 둡니다.`));
     saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();
-    if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(!lastSaved)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
+    if(screen==='editor'&&saves.hasUnsavedChanges){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(saves.hasUnsavedChanges)throw new Unmissable(ui('There is work that could not be saved. Save the project to a file first.','저장하지 못한 작업이 있습니다. 먼저 Save project로 내보내주세요.'));}
     return await go();
   });
 }
@@ -531,22 +620,22 @@ function nativeClose(timeoutMs:number){
   const release=()=>{void ready.then(ok=>ok?invoke('disk_end_close',{ticket}):undefined).catch(()=>{});};
   return {ready,release};
 }
-function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&!lastSaved){persist();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(!lastSaved)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
+function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){return turn(async()=>{if(answered())return;const slow=()=>new StillSaving(`the save did not finish in ${Math.round(SAVE_LIMIT/1000)} seconds`);const deadline=Date.now()+SAVE_LIMIT;saveTyping();if(!await within(flushDisk(),SAVE_LIMIT))throw slow();if(heldWrites&&!await within(heldWrites,SAVE_LIMIT))throw slow();if(screen==='editor'&&saves.hasUnsavedChanges){persist(false);if(!await within(flushDisk(),SAVE_LIMIT))throw slow();}if(saves.hasUnsavedChanges)throw new Error('the last write did not land');const remaining=Math.max(0,deadline-Date.now()),gate=nativeClose(remaining);try{if(!await bounded(gate.ready,remaining,slow))throw slow();if(answered())return;if(saves.hasUnsavedChanges)throw new Error('the last write did not land');await bounded(destroy(),SAVE_LIMIT,()=>new WindowRefused(ui(`The window did not close in ${Math.round(SAVE_LIMIT/1000)} seconds.`,`창이 ${Math.round(SAVE_LIMIT/1000)}초 안에 닫히지 않았습니다.`)));return true;}finally{gate.release();}});}
 /**
  * What the person is asked when a close could not save (0.3-R ⑤): in the desktop's own dialog, keep the board as a file and
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
  * screen cannot answer it for them: it is the system's, not the page's.
  */
 async function askClose(error:unknown):Promise<CloseAnswer>{
+  const fileChoice=saves.noCopy?'save-library':'save-file';
   // A save that has not finished is said as still under way, not as failed: it may yet land (0.3-R fix 5 #2).
   const pending=error instanceof StillSaving,said=pending?ui(`The board is still being saved: ${String(error.message)}. It may still finish.`,`보드를 아직 저장하는 중입니다: ${SAVE_LIMIT/1000}초 안에 끝나지 않았습니다. 곧 끝날 수도 있습니다.`):ui(`This board could not be saved before closing: ${String(error)}.`,`종료 전에 이 보드를 저장하지 못했습니다: ${String(error)}.`);
   if(nativeDesktop){
-    const save=ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
-    const {message}=await import('@tauri-apps/plugin-dialog');
-    const got=await message(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
-    return got===save||got==='Yes'?'save-file':got===discard||got==='No'?'discard':'cancel';
+    const save=fileChoice==='save-library'?everyBoardLabel():ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
+    const got=await nativeQuestion(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
+    return got===save||got==='Yes'?fileChoice:got===discard||got==='No'?'discard':'cancel';
   }
-  if(confirm(`${said}\n\n${ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return 'save-file';
+  if(confirm(`${said}\n\n${fileChoice==='save-library'?everyBoardLabel():ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return fileChoice;
   return confirm(ui('Close without saving?','저장하지 않고 닫을까요?'))?'discard':'cancel';
 }
 /**
@@ -554,7 +643,17 @@ async function askClose(error:unknown):Promise<CloseAnswer>{
  * Keeping the board as a file writes it elsewhere than the store, so it still works: the open board in the editor, and
  * off it, with no board open, every project as Home's backup saves them.
  */
-const closer=windowCloser(closeWindow,askClose,async()=>{if(screen!=='editor')return await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');saveTyping();return await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');},3*SAVE_LIMIT+5_000);
+function everyBoardLabel(){return ui('Save every board as a backup file','모든 보드를 백업 파일로 저장');}
+function backupLibrary(){return saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');}
+async function keepOnClose(choice:'save-file'|'save-library'){
+  saveTyping();
+  const generation=saves.generation;
+  const kept=screen!=='editor'||choice==='save-library'||saves.noCopy
+    ?await backupLibrary()
+    :await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');
+  return kept&&generation===saves.generation;
+}
+const closer=windowCloser(closeWindow,askClose,choice=>keepOnClose(choice),3*SAVE_LIMIT+5_000);
 async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
@@ -569,7 +668,7 @@ async function openBoardFileNow(bytes:Uint8Array){
   // Its files are placed only once it is known to fit, and before its turn, so copying them never holds the editor (0.3-R fix 6 #2).
   // If the library then cannot take it, the files placed stay, named by no board (0.3-P3-fix4: taking them back could take one
   // another board has come to rely on).
-  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
   await read.place();
   const notes=await leave(()=>placeReadBoard(read));
@@ -578,9 +677,9 @@ async function openBoardFileNow(bytes:Uint8Array){
 }
 /** Its files placed and the board in the library; what to say about what did not come with it. */
 async function placeReadBoard(read:ReadBoard):Promise<string[]>{
-  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
+  const refused=libraryRefusal(library,{...read.project,pages:[]},read.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'});
   if(refused)throw new Error(refused);
-  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(upsertProject(library,read.project,undefined,workspaces.activeId));await bounded(flushDisk());}
+  try{if(failImportWrite==='armed'){await new Promise(r=>setTimeout(r,1_500));failImportWrite='now';}saveLibrary(()=>upsertProject(library,read.project,undefined,workspaces.activeId));await bounded(flushDisk());}
   // Only this board comes out again: whatever else changed in the library meanwhile stays.
   catch(error){try{saveLibrary({...library,entries:library.entries.filter(e=>e.project.id!==read.project.id)});await bounded(flushDisk());}catch{/* the not-saved warning says so */}throw error instanceof Unmissable?error:new Unmissable(error instanceof Error?error.message:String(error));}
   // Placing and the library write go on while another dialog is up (Fable, 0.3-P3-fix3 #7): nothing is closed, and the board shows only once that dialog is gone.
@@ -609,7 +708,7 @@ function showReadBoard(read:ReadBoard,notes:string[]){
 }
 /** Counts boards opened: a handler that waited writes only within the opening it began in (0.3-R fix 2 #5), not the same board opened again. */
 let editSession=0;
-function openProject(next:Project){editSession++;if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;lastSaved=true;screen='editor';closeModal();render();}
+function openProject(next:Project){editSession++;if(screen==='editor')saveTyping();project=parseProject(JSON.stringify(next));selected='';ensureSpace(project);edits=newHistory(project);referenceAnalysis=null;referenceDraft=null;candidatePages=[];analysisGeneration++;vibePending=null;vibeImage='';vibeFormDraft=null;insertParent=undefined;screen='editor';closeModal();render();}
 /**
  * Every edit passes through here. What changed is read off the project before and after (see
  * src/ledger/patch.ts), recorded in the ledger under `d` — who made it, through what, and why — and
@@ -630,10 +729,11 @@ function commit(change: () => void, d: Dispatch, row: string, {source, updateUI 
   const before = begin(project,edits),pageBefore=project.activePageId;
   change();placeNewFrames(project);ensureSpace(project);
   const recorded=end(project,before,{author:d.author,source:from,reason:d.reason},edits);
-  if (recorded) { persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:lastSaved,persistence:lastSaved?'acknowledged':storageIssue?'failed':nativeDesktop?'queued':'failed'},d); }
+  if (recorded) { countConnectedChange(recorded,d);persist();recordRun(from,{...changeReceipt(before,project),change:recorded.seq,projectSaved:saves.saved,persistence:saves.saved?'acknowledged':saves.error?'failed':nativeDesktop?'queued':'failed'},d); }
   // A new board's hidden page shown with nothing to record (src/editor/starter.ts) is saved shown.
   else if(before.starter!==project.starter)persist();
   if (updateUI) {if(pageBefore===project.activePageId)rerenderPreservingScroll(app,render);else render();}
+  return recorded;
 }
 /**
  * A field the person typed into and has not left is saved, as their own change, before anything draws
@@ -646,10 +746,12 @@ function saveTyping(){const typing=document.activeElement;if(typing instanceof H
 function who(e:Event):Dispatch|undefined{const d=dispatchOf(e);return d&&!refusal(d)?d:undefined;}
 watchTyping(window);
 /** `d` is whoever asked for the step: the person's own key or button, or an agent's command. Nobody named, no step. */
-function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
+/** `expect` is the change a toast's Undo names: compared here, after typing is saved and just before the step, so a change that landed in between is never the one taken back. */
+function history(direction: 'undo' | 'redo',d:Dispatch|undefined,expect?:string) {
   // A board being left takes no step (0.3-P3-fix4).
   if(leaving||screen!=='editor'||!d||refusal(d,direction==='undo'?'edit.undo':'edit.redo'))return;
   saveTyping();
+  if(expect!==undefined&&expect!==undoToken()){paintToasts();return;}
   const before=project;let done;
   try{done=stepForScreen(project,direction,edits,d.author);}
   catch(error){
@@ -658,11 +760,12 @@ function history(direction: 'undo' | 'redo',d:Dispatch|undefined) {
     // The design it would show could not be saved: nothing moved, and the step stays where it was.
     if(error instanceof StepDoesNotFit){toast(ui('That step would make the board too big to save, so nothing changed.','그 단계는 보드를 저장할 수 없을 만큼 크게 만들어, 아무것도 바꾸지 않았습니다.'));return;}
     // The step no longer fits the page (something changed it in a way the history cannot follow). Drop it rather than stall on it.
+    edits.generation++;
     (direction==='undo'?edits.undo:edits.redo).pop();
     toast(ui('That step no longer fits the page, so it was skipped.','그 단계는 지금 페이지와 맞지 않아 건너뛰었습니다.'));return;
   }
   if(!done)return;
-  project=done.project;persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:lastSaved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
+  project=done.project;countConnectedChange(done.change,d);persist();recordRun(direction,{...changeReceipt(before,project),...(done.change?{change:done.change.seq}:{}),projectSaved:saves.saved},d);if(before.activePageId===project.activePageId)rerenderPreservingScroll(app,render);else render();
 }
 function storeRun(){if(!assemblyRun)return;try{const data=JSON.stringify(assemblyRun);store.setItem(`aphrodite-assembly-run:${assemblyRun.id}`,data);store.setItem('aphrodite-assembly-latest',data);runStorageWarning='';}catch{runStorageWarning='실행 기록 저장 실패 · 새로고침 전에 Download run log를 사용하세요.';}}
 /**
@@ -702,10 +805,10 @@ function syncStateAttributes(){
   const page=screen==='editor'?currentPage(project):undefined;
   const block=page?.blocks.find(b=>b.id===selected);
   const state:Record<string,string>={
-    screen,language:uiLanguage,saved:String(lastSaved),storage:nativeDesktop?'disk':'browser',
+    screen,language:uiLanguage,saved:String(saves.saved),storage:nativeDesktop?'disk':'browser',
     /* So the folder-missing state is answerable without a screenshot: a gate, or an agent asked why
        the app looks empty, can read this instead of guessing from an empty project list. */
-    store:vanished?'missing':'ok',
+    store:saves.missing?'missing':'ok',
     project:screen==='editor'?project.name:'',page:page?.name??'',pageCount:String(project.pages.length),panelLeft:panels.left,panelRight:panels.right,onboarding:onboarding.welcomed?(onboarding.toured?'done':'tour-pending'):'welcome-pending',frame:page?.id??'',camera:screen==='editor'?`${Math.round(camera.x)},${Math.round(camera.y)},${camera.zoom.toFixed(2)}`:'',
     blockCount:String(page?.blocks.length??0),selectedId:block?.id??'',selectedKind:block?.kind??'',selectedProvider:block?.provider??(block?'own':''),
     system:screen==='editor'?project.system.name:'',accent:screen==='editor'?project.system.accent:'',
@@ -715,16 +818,17 @@ function syncStateAttributes(){
     undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
     pageView:pageView?.page??'',
   };
+  syncTour();
   if(pageView)placePageView();
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
-  if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage});
+  if(status&&page)status.innerHTML='<span class="status-dot"></span>'+stateLine({page:page.name,blocks:page.blocks.length,selectedKind:block?.kind,selectedName:catalog.find(c=>c.kind===block?.kind)?.name,system:project.system.name,approved:isApproved(project),viewport:device==='mobile'?'mobile':'desktop',saved:saves.saved,language:uiLanguage});
 }
 function paletteContext(){const page=currentPage(project);return {hasSelection:!!page.blocks.find(b=>b.id===selected),canUndo:edits.undo.length>0,canRedo:edits.redo.length>0,approved:isApproved(project),viewport:(device==='mobile'?'mobile':'desktop') as 'mobile'|'desktop',pages:visiblePages(project).map(p=>({id:p.id,name:p.name,active:p.id===project.activePageId})),sections:hasSectionPage(project),theme};}
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do here is in this list. Type to narrow it down.','이 화면에서 할 수 있는 일을 모두 모았습니다. 입력하면 걸러집니다.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
-  const input=modalRoot.querySelector<HTMLInputElement>('#command-search');input?.focus();input?.setSelectionRange(input.value.length,input.value.length);
+  const input=modalRoot.querySelector<HTMLInputElement>('#command-search');focusOnSurface(input);input?.setSelectionRange(input.value.length,input.value.length);
 }
 function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
 let delegation:Delegation|undefined;
@@ -774,25 +878,61 @@ if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: dark)').add
 // Another tab of the app picked, or its storage was cleared: this one shows the same, and keeps nothing of its own.
 window.addEventListener('storage',e=>{if(e.key!==themeKey&&e.key!==null)return;const next=readTheme({getItem:k=>store.getItem(k)});if(next!==theme)showTheme(next);});
 
-/** Everything that sits above the screen, in one slot, so changing one does not redraw the rest. */
-function bannersHtml(){return `${vanished?vanishedHtml(vanished,uiLanguage==='ko'):''}${storageIssue?diskWarningHtml():''}${agentBannerHtml()}${connectBannerHtml()}`;}
+/** What sits above the screen: agent mode's strip, the one strip left, until it goes with agent mode. Everything else is a toast, the card, a dialog or a mark (src/ui/notices.ts). */
+function bannersHtml(){return agentBannerHtml();}
+/** The marks beside Preview and Export, and in home's side list: saving stopped, and who is connected. */
+function marksHtml(){return troubleMarkHtml(troubleNow(),uiLanguage==='ko')+connectMarkNow();}
+/** The connected mark's popover, placed in the window under its mark rather than inside a panel that may clip it. */
+/** An open mark's popover is placed again when the window changes size, so it stays in the window. */
+window.addEventListener('resize',()=>document.querySelectorAll<HTMLDetailsElement>('details.connect-mark[open]').forEach(placeMarkPopover));
+function placeMarkPopover(d:HTMLDetailsElement){const pop=d.querySelector<HTMLElement>('.notice-pop'),at=d.querySelector('summary')?.getBoundingClientRect();if(!pop||!at)return;pop.classList.add('is-placed');const w=pop.offsetWidth,h=pop.offsetHeight,gap=4;const below=at.bottom+gap+h<=innerHeight;pop.style.top=`${Math.max(gap,below?at.bottom+gap:at.top-gap-h)}px`;pop.style.left=`${Math.min(Math.max(gap,at.right-w),innerWidth-w-gap)}px`;}
+document.addEventListener('toggle',e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.matches('.notice-mark-connect')||!d.open)return;placeMarkPopover(d);},true);
+/** What each slot was last painted with: a save that changes nothing there does not take the focus out of an open mark. */
+const marksPainted=new WeakMap<Element,string>();
+/** Repaints only the marks, keeping the connected one open if it was. */
+function paintMarks(){const next=marksHtml();document.querySelectorAll<HTMLElement>('[data-notice-marks]').forEach(el=>{if(marksPainted.get(el)===next)return;marksPainted.set(el,next);const open=!!el.querySelector('details[open]');el.innerHTML=next;if(open)el.querySelector('details')?.setAttribute('open','');hydrateIconsIn(el);});}
 /** Repaints only that slot. A connection opening must not reload every picture on the page. */
 function refreshBanners(){
   const slot=document.querySelector('#banners');
   if(!slot){render();return;}
-  slot.innerHTML=bannersHtml();if(pageView)placePageView();
+  slot.innerHTML=bannersHtml();if(pageView)placePageView();paintMarks();
   const left=allowedText(),copy=homeCopy[uiLanguage];
   document.querySelectorAll<HTMLElement>('.folio-toggle').forEach(b=>{b.setAttribute('aria-checked',String(connectMode));b.title=connectMode?(left?`${copy.agentOn} · ${left}`:copy.agentOn):copy.agentOff;const note=b.querySelector('.folio-toggle-left');if(!left)note?.remove();else if(note)note.textContent=left;else b.querySelector('.folio-switch')?.insertAdjacentHTML('beforebegin',`<small class="folio-toggle-left">${left}</small>`);});
   hydrateIcons();syncStateAttributes();
 }
 
-/** Connected mode's banner: a line, not a shield. The person keeps the screen; this says who else is on it. */
-function connectBannerHtml(){
+/** Connected mode's mark: small, not a shield. The person keeps the screen; this says who else is on it, and holds their Disconnect. */
+function connectMarkNow(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
-  const holder=lease&&lease.label!==HUMAN?lease.label:'',left=allowedText()?`${ui('allowed','허용')} ${esc(allowedText())}`:'';
-  return `<div class="connect-banner ui-strip" role="status"><span class="ui-dot ui-dot-ok"></span><strong class="ui-strip-strong">${ui('Connected','연결됨')}</strong><span class="connect-sep">·</span><code>${esc(channel)}</code><span class="connect-sep">·</span><span>${ui('agent','에이전트')} <span class="connect-mark" data-connect-mark>${holder?callerMarkHtml(holder,true):''}</span><b data-connect-who>${esc(holder?callerText(holder):ui('waiting','대기 중'))}</b></span><span class="connect-sep">·</span><span class="ui-strip-changes"><b data-connect-writes>${connectWrites}</b> ${ui('changes','개 변경')}</span>${left?`<span class="connect-sep">·</span><span>${left}</span>`:''}<span class="connect-fill ui-strip-push"></span><span class="connect-note">${ui('You keep the screen · ⌘Z undoes an agent edit','화면은 그대로 쓰시면 됩니다 · 에이전트 편집도 ⌘Z로 되돌립니다')}</span><button type="button" class="ui-btn ui-btn-quiet" data-action="agent-disconnect">${icon('unplug','ui-icon ui-icon-sm')}${ui('Disconnect','연결 끊기')}</button></div>`;
+  return connectMarkHtml({holderMark:connectWriter?callerMarkHtml(connectWriter,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
 }
+/** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
+/* Unsaved work comes first, so its backup choices are always one press away; the folder that went missing is kept apart from the last write. */
+function troubleNow():Trouble|undefined{
+  if(saves.native&&saves.error&&!saves.unread)return {kind:troubleKind(saves.error),detail:boardWords(saves.error),retries:saves.retries};
+  if(saves.noCopy)return {kind:'empty',path:storagePath};
+  if(saves.missing)return {kind:'vanished',path:saves.missing.path,boards:saves.missing.entries,replaced:saves.replaced};
+  if(saves.unread)return {kind:'unread',detail:boardWords(saves.unread)};
+}
+let troubleSeen='';
+function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'||t.kind==='empty'?t.path:t.detail);}
+/** The person is typing into a field of the window (not a dialog's): a dialog that opened on its own would take the keys from them. */
+function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
+/** The backup's text opens again through Import board: it is under the file limit and the importer itself takes it. The importer reads the text only. */
+function reimportable(text:string){if(new TextEncoder().encode(text).length>20_000_000)return false;try{importedProject(text,library);return true;}catch{return false;}}
+function refreshBackupFormat(text?:string){
+  const line=modalRoot.querySelector('[data-backup-format]');
+  if(!line)return;
+  try{line.textContent=reimportable(text??JSON.stringify(project,null,2))?' '+backupFormat(uiLanguage==='ko'):'';}
+  catch{line.textContent='';}
+}
+function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':pageView?'page':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);refreshBackupFormat();}
+/** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
+function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing()||fatalUp())return false;openTrouble(t);return true;}
+/** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
+function offerTrouble(){setTimeout(()=>{if(troubleNow())troubleOpened();},0);}
+document.addEventListener('focusout',()=>offerTrouble());
 function agentBannerHtml(){
   if(!agentLocked()||!delegation)return '';
   const frame=delegation.scope.frameId?project.pages.find(p=>p.id===delegation!.scope.frameId)?.name:undefined;
@@ -883,6 +1023,8 @@ function toggleHomeSidebar(){
   const home=document.querySelector<HTMLElement>('.folio-home');
   if(!home){render();return;}
   home.dataset.sidebar=homeSidebar;
+  // The marks keep the corner: out of the folded list, back by the agent switch when it opens (src/workspace/home.ts).
+  const marks=home.querySelector<HTMLElement>('.ui-home-marks');if(marks){marks.classList.toggle('ui-home-marks-float',homeSidebar==='collapsed');if(homeSidebar==='collapsed')home.prepend(marks);else home.querySelector('.ui-home-foot')?.prepend(marks);}
   const t=homeCopy[uiLanguage];
   const existing=home.querySelector<HTMLElement>('.folio-side-tab');
   if(homeSidebar==='collapsed'){
@@ -943,7 +1085,7 @@ function render() {
      check is cheap and self-limiting: once it is here, `libraryRuntimeReady` is true for good. */
   if(!libraryRuntimeReady()&&needsLibraryRuntime(project))void loadLibraryRuntime().then(()=>render());
   document.documentElement.lang=uiLanguage;
-  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,boardWords(startupError||storageIssue),theme,uiLanguage,hubView,lastSaved,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
+  if(screen==='home'){closePageView();app.innerHTML=`<div id="banners">${bannersHtml()}</div>${workspaceHome(library,hubFilter,hubQuery,marksHtml(),theme,uiLanguage,hubView,saves,workspaces,homeSidebar,connectMode,allowedText())}`;hydrateIcons();syncStateAttributes();return;}
   const page = currentPage(project), approved = isApproved(project);
   // A board is one project's: what the person had gone into, and the frames kept by page id, stay with it (a copy has the same ids).
   // A page wall that did not answer is asked again when a board is opened (src/free-page.ts WALL_ASKS); one that read back no answers at once.
@@ -962,7 +1104,7 @@ function render() {
       <button type="button" class="panel-collapse ui-icon-btn" data-action="panel-collapse" data-side="left" aria-label="${ui('Collapse the library','라이브러리 접기')}" title="${ui('Collapse','접기')}">${icon('panel-left-close','ui-icon ui-icon-sm')}</button>
       <div class="panel-head ui-side-head">
         <a class="panel-home" href="#" data-action="home" aria-label="${ui('All boards','전체 보드')}" title="${ui('All boards','전체 보드')}"><img src="/brand/apple-mark.png" width="22" height="22" alt="" draggable="false"></a>
-        <div class="ui-side-title"><button class="panel-project ui-side-name" data-action="project" title="${esc(project.name)}"><span>${esc(project.name)}</span>${icon('chevron-down','ui-icon ui-icon-xs')}</button>${saveBadge(saveState({saved:lastSaved,failed:!!storageIssue,native:nativeDesktop}))}</div>
+        <div class="ui-side-title"><button class="panel-project ui-side-name" data-action="project" title="${esc(project.name)}"><span>${esc(project.name)}</span>${icon('chevron-down','ui-icon ui-icon-xs')}</button>${saveBadge(saves.badge)}</div>
       </div>
       <div class="panel-search-row">
         <button type="button" class="panel-search ui-search" data-action="commands" aria-label="${ui('Search commands, components and frames (⌘K)','명령·컴포넌트·프레임 검색 (⌘K)')}">${icon('search','ui-icon ui-icon-sm')}<span class="ui-search-text">${ui('Search commands, components, frames…','명령·컴포넌트·프레임 검색…')}</span><kbd class="ui-kbd">⌘K</kbd></button>
@@ -979,12 +1121,12 @@ function render() {
       <div class="canvas-scroll space ui-floor" id="canvas-scroll" data-keep="space" data-tool="${dockTool}"><div class="space-world" id="space-world" data-keep="world">${project.pages.map(p=>{const f=project.space!.frames[p.id];const active=p.id===page.id;const w=frameWidth(f);const free=isFreePage(p),media=p.kind==='media'?p.media:undefined,item=free||!!media;return `<section class="space-frame ${active?'active':''} ${p.proposal?'proposal':''} ${enteredPage===p.id?'entered':''}" data-page-id="${esc(p.id)}"${isStarterPage(project,p)?' hidden':''} data-keep="frame:${esc(p.id)}" style="left:${f.x}px;top:${f.y}px;width:${w}px"><header class="frame-head ui-frame-head"><button type="button" class="frame-name" data-action="page" data-id="${esc(p.id)}" data-frame-handle="${esc(p.id)}" title="${ui('Click to edit · Drag to move the frame','클릭해 편집 · 드래그해 프레임 이동')}">${media?icon(media.mime.startsWith('video/')?'play':'image'):free?icon('file-code-2'):presetIcon[f.preset]}<span class="ui-frame-name">${esc(p.name)}</span>${p.proposal?`<em class="frame-proposal ui-pill ui-pill-agent">${ui('Proposal','제안')} · ${esc(p.proposal.label)}</em>`:''}${isApproved(project)&&active?`<em class="frame-approved ui-pill ui-pill-ok">${ui('Approved','승인됨')}</em>`:''}</button><span class="frame-meta"><span class="ui-frame-size">${w} × ${item?f.height??FREE_PAGE_HEIGHT:'Auto'}</span>${active?`<button type="button" class="frame-open ui-icon-btn" data-action="page-view" data-id="${esc(p.id)}" aria-label="${ui('See this page on its own','이 페이지만 보기')}" title="${ui('See this page on its own','이 페이지만 보기')}">${icon('eye')}</button>`:''}${active&&!media?`<select class="frame-preset" data-frame-preset="${esc(p.id)}" aria-label="${ui('Frame size','프레임 크기')}">${framePresets.map(o=>`<option value="${o.id}" ${o.id===f.preset?'selected':''}>${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select>`:''}</span>${p.proposal?`<span class="frame-proposal-actions"><button type="button" class="ui-btn ui-btn-primary" data-action="proposal-accept" data-id="${esc(p.id)}">${ui('Use this','이 방향으로')}</button><button type="button" class="ui-btn ui-btn-secondary" data-action="proposal-keep" data-id="${esc(p.id)}">${ui('Keep as page','페이지로 유지')}</button><button type="button" class="ui-btn ui-btn-quiet" data-action="proposal-discard" data-id="${esc(p.id)}">${ui('Discard','버리기')}</button></span>`:''}</header>${free?freePageItem(p,f):media?mediaItem(p,media,f):''}${active?`<div class="design-page" id="design-canvas" style="${esc(themeVars(project))}"${item?' hidden':''}><button class="canvas-add" data-action="add-section">${icon('plus')}<span>${page.blocks.length ? ui('Add a section','섹션 추가') : ui('Start with a component from the library','라이브러리에서 컴포넌트를 추가하세요')}</span></button></div>`:item?'':`<div class="design-page design-page-inert" style="${esc(themeVars(project))}">${renderTree(p.blocks,project)}</div>`}</section>`;}).join('')}</div></div>
 
       ${shown.length?'':`<div class="board-empty ui-empty" role="note">${icon('upload','ui-icon ui-icon-lg')}<p class="ui-empty-title">${ui('This board is empty.','아직 빈 보드예요.')}</p><p class="ui-empty-text">${ui('Drop pictures or videos here, or let an agent put pages on it.','그림이나 영상을 여기에 끌어다 놓거나, 에이전트가 페이지를 올리게 하세요.')}</p><div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="agent-connect">${icon('bot','ui-icon ui-icon-sm')}${ui('How to connect an agent','에이전트 연결 방법 보기')}</button></div></div>`}
-      ${boardOnly?`<div class="board-actions"><button class="ui-btn ui-btn-secondary ui-btn-md" data-action="preview"${shown.length?'':` disabled title="${esc(nothingToPreview(uiLanguage==='ko'))}"`}>${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>`:''}
+      ${boardOnly?`<div class="board-actions"><span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span><button class="ui-btn ui-btn-secondary ui-btn-md" data-action="preview"${shown.length?'':` disabled title="${esc(nothingToPreview(uiLanguage==='ko'))}"`}>${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>`:panels.right==='collapsed'?`<div class="board-actions board-marks"><span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span></div>`:''}
       ${dockHtml({mode:editorMode,language:uiLanguage,activeTool:dockTool,delegated:editorMode==='agent',zoom,openGroup:dockGroupOpen,sections,empty:!shown.length})}
       <details class="help-fab"${helpOpen?' open':''}><summary class="ui-fab" aria-label="${ui('Help','도움말')}" title="${ui('Help','도움말')}">?</summary>${helpMenuHtml(uiLanguage,undefined,undefined,theme)}</details>
     </main>
-    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top"><button class="inspector-action ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="inspector-action primary ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>${inspectorPanelHtml()}</aside>
-  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:lastSaved,language:uiLanguage})}</span>`);
+    <aside class="inspector" aria-label="Design inspector"><div class="inspector-grip" role="separator" aria-orientation="vertical" aria-label="${ui('Resize the inspector','인스펙터 너비 조절')}"></div><div class="inspector-top">${boardOnly||panels.right==='collapsed'?'':`<span class="ui-notice-marks" data-notice-marks>${marksHtml()}</span>`}<button class="inspector-action ui-btn ui-btn-secondary ui-btn-md" data-action="preview">${icon('play','ui-icon ui-icon-sm')}<span>${control('Preview')}</span></button><button class="inspector-action primary ui-btn ui-btn-primary ui-btn-md" data-action="export">${icon('arrow-up-right','ui-icon ui-icon-sm')}<span>${control('Export')}</span></button></div>${inspectorPanelHtml()}</aside>
+  </div><span id="editor-state" class="sr-state" role="status" aria-live="polite">${stateLine({page:page.name,blocks:page.blocks.length,selectedKind:page.blocks.find(b=>b.id===selected)?.kind,selectedName:page.blocks.find(b=>b.id===selected)?catalog.find(c=>c.kind===page.blocks.find(b=>b.id===selected)!.kind)?.name:undefined,system:project.system.name,approved,viewport:device==='mobile'?'mobile':'desktop',saved:saves.saved,language:uiLanguage})}</span>`);
   const canvas=app.querySelector('#design-canvas')!;
   app.querySelector('.workflow')?.insertAdjacentHTML('afterend',`<section class="assembly-bar" aria-label="Agent assembly context">${assemblyBar()}</section>`);
   if(device==='desktop'&&page.blocks.some(b=>b.variant==='app-shell'))canvas.classList.add('moa-desktop');
@@ -992,14 +1134,20 @@ function render() {
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
   mountSpace();mountBoard();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
-  if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
+  if(tourActive()&&!tourRoot.hidden)positionTour();
   decorateInspector(shownPage(project));
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,store,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
-  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed;},toast,uiLanguage==='ko');
+  const layers=app.querySelector<HTMLElement>('.layer-list');if(layers)mountLayerReorder(layers,page.blocks,layerCommit,commandDone,uiLanguage==='ko');
   mountPointer(canvas as HTMLElement,page);
 }
-function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:(command,e)=>{const d=who(e);if(!d)return false;let changed=false;commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed;},announce:toast,report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+function mountPointer(canvas:HTMLElement,page:Page){disposePointerEditor?.();disposePointerEditor=mountPointerEditor({canvas,blocks:page.blocks,selected,select:id=>{if(selected!==id)selectBlock(id);},commit:layoutCommit,announce:commandDone,ko:uiLanguage==='ko',report:event=>recordRun(`pointer:${event.outcome}`,{gesture:event.gesture})});}
+/** A layer dragged to a new place in the list, as whoever moved it: the change recorded, or null when it changed nothing. */
+function layerCommit(command:EditorCommand,e:Event){const d=who(e);if(!d)return null;let changed=false;const moved=commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);if(changed)selected=command.id;},d,'edit.move',{source:'layer:move'});app.querySelector<HTMLElement>(`[data-layer-id="${selected}"]`)?.focus();return changed?moved:null;}
+/** A component moved or resized by its handles on the canvas, as whoever moved it: the change recorded, or null when it changed nothing. */
+function layoutCommit(command:EditorCommand,e:Event){const d=who(e);if(!d)return null;let changed=false;const moved=commit(()=>{changed=applyEditorCommand(currentPage(project).blocks,command);},d,'edit.layout',{source:`pointer:${command.type}`});return changed?moved:null;}
+/** What a move in the layer list or on the canvas says: with Undo for the change it made, or the reason nothing changed. */
+function commandDone(message:string,moved?:Change|null){if(moved)undoable(message,moved);else toast(message);}
 function inspectorPanelHtml(){const page=shownPage(project);return editorMode==='agent'&&delegation?agentPanelHtml(delegation,assemblyRun?.events??[],uiLanguage,{frameName:visiblePages(project).find(p=>p.id===delegation!.scope.frameId)?.name??'—',channel:agentChannelText()}):editorMode==='dev'?devPanelHtml(project,page.blocks.find(b=>b.id===selected),uiLanguage):inspectorHtml(page);}
 /**
  * Selecting is not editing, so it does not draw the page again. A full render() replaced the whole
@@ -1160,34 +1308,50 @@ function inspectorHtml(page:Page) {
   <div class="review-card"><img class="paper-review-art" src="/brand/cutouts/${isApproved(project)?'paper-dove':'review'}.png" alt="" width="96" height="96"><span class="review-symbol">${icon(isApproved(project) ? 'circle-check' : 'scan-eye')}</span><strong>${isApproved(project) ? ui('Direction, decided.','방향이 정해졌습니다.') : ui('Like where this is going?','이 방향으로 갈까요?')}</strong><p>${isApproved(project) ? '확인한 화면을 코드 작업으로 이어가세요.' : '화면을 확인하고 디자인 방향을 확정하세요.'}</p>${button('approve', isApproved(project) ? 'arrow-up-right' : 'check', isApproved(project) ? 'Ready to export' : 'Approve direction', isApproved(project) ? 'primary-button' : 'approve-button', `data-shown="${esc(shownState())}"`)}</div>`;
 }
 function focusModal(){
+  if(fatalUp())return;
+  if(askOpen()){focusOnSurface(modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]'));return;}
   const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
   if(!modal||!body)return;
+  // A dialog that opened without a press names what it starts on: the choice that loses nothing (src/ui/notices.ts).
   const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
+  const named=controls.find(el=>el.dataset.firstFocus!==undefined);if(named){focusOnSurface(named);return;}
   const first=controls.some(el=>el.dataset.action==='open-link'||el.dataset.action==='agent-connect-toggle'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
     controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
-  (first??modal).focus();
+  focusOnSurface(first??modal);
 }
 /** A dialog in the system's frame: confirm (420) for a yes-or-no, the usual 560, and wide (960) for two columns side by side. `lead` sits above the title. */
 function showModal(title: string, subtitle: string, body: string, wide: boolean|'confirm' = false, lead = '') {
   comparisonObserver?.disconnect(); comparisonObserver = null;
-  if (!modalRoot.children.length) modalReturnFocus = document.activeElement as HTMLElement;
+  if (!modalRoot.children.length) rememberFocus('dialog');
   /* A request to edit stays on top of any dialog the person did not open just now — a button's
      continuation after an await, a script's click — which goes under it and shows once it is answered.
      The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
   const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
-  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
-  if(ask)modalRoot.append(ask);
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
+  const markup = `<div class="modal-backdrop ui-scrim"${ask?' inert':''}><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
+  if(ask){
+    // Keep the request and its focused control mounted. The covered dialog cannot take focus.
+    ask.previousElementSibling?.remove();
+    ask.insertAdjacentHTML('beforebegin',markup);
+  }else modalRoot.innerHTML=markup;
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; if(leaving)focusAfterLeaving=modalReturnFocus;else modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; const opener=takeReturnFocus('dialog');if(leaving)focusAfterLeaving=opener;else restoreFocus(opener);   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
+  offerTrouble();
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();focusModal();syncStateAttributes();}}
+function closeAsk(){
+  const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');
+  if(!ask)return;
+  if(modalRoot.children.length<2){closeModal();return;}
+  ask.remove();
+  modalRoot.lastElementChild?.removeAttribute('inert');
+  focusModal();syncStateAttributes();
+}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */
@@ -1198,7 +1362,7 @@ let askSeq=0;
  * over another dialog the person is using (it shows when that one closes), and not in the middle of a
  * press, where making the page inert would cancel the person's drag.
  */
-function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by,askState.id);}
+function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld||fatalUp())return;askModal(askState.by,askState.id);}
 /** A program's name as a person knows it ("Codex", not "codex-mcp-client"); the switch reads as any agent. */
 function callerText(raw:string){return raw===ANYONE?ui('any agent','모든 에이전트'):describeCaller(raw).name;}
 /**
@@ -1221,7 +1385,7 @@ function askModal(by:string,id:string){
   modalRoot.querySelector('.modal')?.classList.add('ask-modal');
   // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
   toasts=[];paintToasts();
-  modalRoot.querySelector<HTMLElement>('[data-action="ask-allow"]')?.focus();
+  focusModal();
 }
 /**
  * The person's answer to the dialog on screen. Only their own input reaches here (doorActions in
@@ -1233,7 +1397,7 @@ function answerAsk(allow:boolean){
   if(!shown||!askIs(shown)){if(shown)closeAsk();toast(ui('That request is no longer open.','그 요청은 이미 끝났습니다.'));return;}
   const by=shown.by;
   askState={...askState!,answered:allow?'allowed':'declined',at:allow?askState!.at:Date.now()};
-  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;connectWrites=0;}
+  if(allow){setAllowed(allowAgent(allowedAgents,by));lease=null;resetConnectMark();}
   closeAsk();
   refreshBanners();
   toast(allow?`${callerText(by)} ${ui('may now edit alongside you.','이(가) 함께 편집할 수 있습니다.')}`:ui('Declined. They can ask again later.','거절했습니다. 나중에 다시 요청할 수 있습니다.'));
@@ -1301,10 +1465,11 @@ function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provid
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
   if(!canParent([...blocks,b],b.id,b.parentId)){recordRun('catalog:rejected',{reason:'invalid-depth',parentId:b.parentId});toast('이 프레임에는 더 깊게 중첩할 수 없습니다. 삽입 대상을 바꾸세요.');return;}
   if(!choice&&supportsProvider(project.system.id,kind))b.provider=project.system.id;
-  const parentName=nodePath(blocks,b.parentId);
-  commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
+  const parentName=b.parentId?nodePath(blocks,b.parentId).replace(/^Page root \/ /,''):ui('the page','페이지');
+  const done=commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
   document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  toast(`${catalog.find(c => c.kind === kind)!.name} ${ui('added →','추가됨 →')} ${parentName}`);
+  const name=catalog.find(c => c.kind === kind)!.name;
+  undoable(ui(`${name} was added to ${parentName}.`,`${name} 컴포넌트를 ${parentName}에 추가했어요.`),done);
 }
 function bindDragAndDrop() {
  app.querySelector('.catalog-shelf')?.remove();
@@ -1372,7 +1537,7 @@ function bindDragAndDrop() {
   const canvas = app.querySelector<HTMLElement>('#design-canvas')!;
   if(canvas.dataset.nativeDropBound)return;canvas.dataset.nativeDropBound='true';
   canvas.addEventListener('drop',e=>{const raw=e.dataTransfer?.getData(catalogMime);if(!raw)return;e.preventDefault();e.stopImmediatePropagation();canvas.classList.remove('drop-active');canvas.querySelectorAll('.drop-before').forEach(el=>el.classList.remove('drop-before'));const choice=parseCatalogChoice(raw);if(!choice){toast(ui('Invalid catalog selection','유효하지 않은 카탈로그 선택입니다'));return;}const before=(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId;const d=who(e);if(d)addBlock(choice.kind,d,before,choice);});
-  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;const d=who(e);if(!d)return;commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;},d,'edit.move');toast(ui('Component moved · Undo available','컴포넌트를 옮겼습니다 · 실행 취소 가능'));});
+  canvas.addEventListener('drop',e=>{const id=e.dataTransfer?.getData('application/aphrodite-move');if(!id)return;e.preventDefault();e.stopImmediatePropagation();const blocks=currentPage(project).blocks;const moving=blocks.find(b=>b.id===id);const target=blocks.find(b=>b.id===(e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId);if(!moving||moving===target)return;const parent=target?.kind==='frame'?target.id:target?.parentId;if(!canParent(blocks,id,parent))return;const d=who(e);if(!d)return;const moved=commit(()=>{moving.parentId=parent;blocks.splice(blocks.indexOf(moving),1);const index=target?blocks.indexOf(target):-1;blocks.splice(index<0?blocks.length:index,0,moving);selected=id;},d,'edit.move');undoable(ui('The component was moved.','컴포넌트를 옮겼어요.'),moved);});
   canvas.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('drop-active'); const wrap = (e.target as HTMLElement).closest('.block-wrap'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); wrap?.classList.add('drop-before'); });
   canvas.addEventListener('dragleave', e => { if (!canvas.contains(e.relatedTarget as Node)) { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
   canvas.addEventListener('drop', e => { e.preventDefault(); const kind = e.dataTransfer?.getData('application/aphrodite-component') as BlockKind; const before = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')?.dataset.blockId; const d = who(e); if (catalog.some(c => c.kind === kind)) { if (d) addBlock(kind, d, before); } else { canvas.classList.remove('drop-active'); canvas.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before')); } });
@@ -1420,13 +1585,27 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   if(humanOnlyBlocked(el.dataset.action,{trusted,agentHoldsScreen:editorMode==='agent'})){toast(editorMode==='agent'?ui('Approval stays with you: leave Agent mode first.','승인은 사람의 몫입니다. 먼저 에이전트 모드를 끝내세요.'):ui('Approving a direction is yours to do: press Approve direction yourself.','방향 승인은 사람의 몫입니다. 직접 눌러 승인하세요.'));return;}
   // Who may edit is decided the same way: allowing, declining, the switch and disconnecting run only from the person's own input.
   if(isDoorAction(el.dataset.action)&&!trusted){toast(ui('Who may edit is yours to decide: press it yourself.','편집 허용은 사람이 정합니다. 직접 눌러 주세요.'));return;}
-  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
+  // The sheet over a screen that could not be drawn is answered before anything below reads the app's state, which may be what broke,
+  // and before the lock an agent holding the screen puts on the window: the sheet is the person's whatever holds the screen.
+  if(act==='fatal-copy'||act==='fatal-backup'||act==='fatal-backup-all'){switch(act){
+    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));break;}
+    case 'fatal-backup': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');break;}
+    case 'fatal-backup-all': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');break;}
+  }return;}
+  if(editorMode==='agent'&&delegation&&isBlockedWhileDelegated(delegation,el.dataset.action??'',{id:el.dataset.id})&&el.dataset.action!=='delegation-return'){toast(ui('Locked while an agent holds the screen. Take control back first.','에이전트가 화면을 잡고 있는 동안 잠긴 동작입니다. 먼저 제어를 회수하세요.'));return;}
   // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
   if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
+  switch(act){
+    case 'ask-allow': case 'ask-decline':
+      if(modalRoot.contains(el)&&topSurface().root.contains(el))answerAsk(act==='ask-allow');
+      return;
+  }
+  const backup=act==='disk-backup'?{name:fileName(project,'aphrodite.json'),text:JSON.stringify(project,null,2)}:undefined;
+  if(backup)refreshBackupFormat(backup.text);
   const here=sameBoard();
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
@@ -1505,10 +1684,10 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       break;
     }
     case 'hub-archive': {const id=el.dataset.id!;const entry=library.entries.find(e=>e.project.id===id);if(!entry)break;const card=el.closest<HTMLElement>('[data-project-id]');if(card&&!reducedMotion()){card.classList.add('folio-card-leave');await new Promise(r=>setTimeout(r,210));}saveLibrary({...library,entries:library.entries.map(e=>e.project.id===id?{...e,archived:!e.archived}:e)});hubRefresh();toast(`‘${entry.project.name}’ · ${entry.archived?homeCopy[uiLanguage].restoredToast:homeCopy[uiLanguage].archivedToast}`);break;}
-    case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy,undefined,entry.workspaceId??workspaces.activeId));hubRefresh();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
+    case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(()=>upsertProject(library,copy,undefined,entry.workspaceId??workspaces.activeId));hubRefresh();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Rename','이름 바꾸기'),ui('The board\'s contents stay as they are.','보드 내용은 그대로 보존됩니다.'),renameDialogHtml(uiLanguage,entry.project));break;}
     case 'storage-info': showModal(ui('Storage','저장 위치'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),storageDialogHtml(uiLanguage,storagePath));break;
-    case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
+    case 'hub-backup': await backupLibrary();break;
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):store.getItem(LIBRARY_KEY)??store.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
     case 'insert-root': insertParent=undefined;recordRun('target:root',{},d);refreshAssemblyBar();break;
@@ -1518,9 +1697,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'assembly-review': if(assemblyRun?.projectId!==project.id){toast('실행을 시작한 보드로 돌아가세요.');break;}recordRun('review:requested',{approved:false},d);if(assemblyRun&&assemblyRun.status!=='ended'){assemblyRun.status='review-requested';storeRun();}refreshAssemblyBar();agentModal();break;
     case 'assembly-end': recordRun('run:ended',{},d);if(assemblyRun){assemblyRun.status='ended';assemblyRun.endedAt=new Date().toISOString();storeRun();}refreshAssemblyBar();agentModal();break;
     case 'fit-app': zoom=Math.max(25,Math.min(100,Math.floor(((app.querySelector('.canvas-scroll')?.clientWidth??768)-48)/1440*100)));device='desktop';render();break;
-    case 'moa-recipe': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');toast('Moa 앱 · 개별 노드 편집 / Preview에서 작업 상호작용 · 기존 페이지 보존');break;
-    case 'pointer-lab': if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');toast('Pointer lab · 기존 페이지는 보존됩니다');break;
-    case 'undo': history('undo',d); break;
+    case 'moa-recipe': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}zoom=45;const done=commit(()=>{const page=moaPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks[0].id;},d,'edit.page-sample');undoable(ui('The Moa sample was added as a page of its own. Edit any node, and try it in Preview. Your other pages are kept.','Moa 견본을 새 페이지로 추가했어요. 노드를 하나씩 고치고 미리보기에서 눌러 볼 수 있어요. 다른 페이지는 그대로예요.'),done);break;}
+    case 'pointer-lab': {if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));break;}const done=commit(()=>{const page=pointerLabPage();project.pages.push(page);project.activePageId=page.id;selected=page.blocks.find(b=>b.kind==='cards')!.id;},d,'edit.page-sample');undoable(ui('The pointer lab was added as a page of its own. Your other pages are kept.','포인터 실험 페이지를 새로 추가했어요. 다른 페이지는 그대로예요.'),done);break;}
+    case 'undo': history('undo',d,el.dataset.undoFor); break;
     case 'redo': history('redo',d); break;
     case 'tab': tab = el.dataset.tab as typeof tab; if(tab==='archive')await archive.load(); render(); if(tab==='archive'){const host=app.querySelector('.library-content');if(host)archive.hydratePosters(host);} break;
     case 'page-view': openPageView(el.dataset.id!); break;
@@ -1529,8 +1708,13 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId||project.starter===id)commit(() => { revealStarter(project,id); if(id!==project.activePageId){project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? '';} }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
-    case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
-    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(upsertProject(library,sample,undefined,workspaces.activeId));await bounded(flushDisk());openProject(sample);});break;}
+    case 'dock-group': {
+      const group=el.dataset.group??'',focused=el===document.activeElement;
+      dockGroupOpen=dockGroupOpen===group?'':group;render();
+      if(focused)focusOnSurface(app.querySelector<HTMLElement>(`[data-action="dock-group"][data-group="${CSS.escape(group)}"]`));
+      break;
+    }
+    case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(()=>upsertProject(library,sample,undefined,workspaces.activeId));await bounded(flushDisk());openProject(sample);});break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
     case 'welcome-show': welcomeModal();break;
@@ -1541,20 +1725,20 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'panel-pin': {const side=el.dataset.side==='right'?'right':'left';panels[side]='open';savePanels();render();break;}
     case 'panel-toggle': {const side=el.dataset.side==='right'?'right':'left';panels[side]=panels[side]==='open'?'collapsed':'open';savePanels();render();break;}
     case 'panels-all': {const next:PanelState=panels.left==='open'||panels.right==='open'?'collapsed':'open';panels={left:next,right:next};savePanels();render();break;}
-    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();toast(ui('Three proposals placed below the frame · choose from a frame label','프레임 아래에 3안을 펼쳤습니다 · 프레임 라벨에서 고르세요'));break;}
-    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);toast(ui('Proposal applied to the source frame · Undo available','제안을 원본 프레임에 적용했습니다 · 실행 취소 가능'));break;}
-    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);toast(ui('Kept as its own page','별도 페이지로 유지했습니다'));break;}
-    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);toast(ui('Proposal discarded · Undo available','제안을 버렸습니다 · 실행 취소 가능'));break;}
+    case 'propose-directions': {if(!candidatePages.length)break;if(project.pages.length+candidatePages.length>30){toast(fullBoard(project,uiLanguage==='ko'));break;}const from=project.activePageId;const placed=candidatePages;const done=commit(()=>{ensureSpace(project);placeProposals(project,from,placed.map((p,i)=>({page:p,label:directions[i]?.name??`Direction ${i+1}`})),'reference-direction');},d,'edit.direction');recordRun('proposal:placed',{from,count:placed.length,kind:'reference-direction'},d);candidatePages=[];closeModal();fitAll();undoable(ui(`${placed.length} proposals were placed below the frame. Choose one from its frame label.`,`프레임 아래에 ${placed.length}안을 놓았어요. 프레임 이름표에서 하나를 골라 보세요.`),done);break;}
+    case 'proposal-accept': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;const done=commit(()=>{resolveProposal(project,id,'replace');selected='';},d,'edit.proposal');recordRun('proposal:accepted',{pageId:id,from,mode:'replace'},d);fitFrame(from);undoable(ui('The proposal replaced its source frame.','제안을 원본 프레임에 적용했어요.'),done);break;}
+    case 'proposal-keep': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const done=commit(()=>{resolveProposal(project,id,'keep');},d,'edit.proposal');recordRun('proposal:kept',{pageId:id},d);fitFrame(id);undoable(ui('The proposal was kept as a page of its own.','제안을 별도 페이지로 남겼어요.'),done);break;}
+    case 'proposal-discard': {const id=el.dataset.id!;const p=project.pages.find(x=>x.id===id);if(!p?.proposal)break;const from=p.proposal.fromPageId;const done=commit(()=>{project.pages=project.pages.filter(x=>x.id!==id);if(project.space)delete project.space.frames[id];if(project.activePageId===id){project.activePageId=project.pages.some(x=>x.id===from)?from:firstShown(project).id;selected='';}},d,'edit.proposal');recordRun('proposal:discarded',{pageId:id},d);undoable(ui('The proposal was discarded.','제안을 버렸어요.'),done);break;}
     case 'zoom-fit': fitAll();break;
     case 'zoom-frame': fitFrame(project.activePageId);break;
     case 'zoom-100': zoomCenter(1);break;
     case 'zoom-in': zoomCenter(stepZoom(camera.zoom,1));break;
     case 'zoom-out': zoomCenter(stepZoom(camera.zoom,-1));break;
-    case 'tidy-frames': commit(()=>{project.space=tidyFrames(project.space!,visiblePages(project).map(p=>p.id));},d,'edit.frame');recordRun('frame:tidied',{frames:project.pages.length},d);fitAll();toast(ui('Frames tidied into a row','프레임을 한 줄로 정렬했습니다'));break;
+    case 'tidy-frames': {const done=commit(()=>{project.space=tidyFrames(project.space!,visiblePages(project).map(p=>p.id));},d,'edit.frame');recordRun('frame:tidied',{frames:project.pages.length},d);fitAll();undoable(ui('The frames were tidied into a row.','프레임을 한 줄로 정리했어요.'),done);break;}
     case 'new-frame': showModal(ui('New frame','새 프레임'),ui('A frame is a page: desktop, tablet, mobile or a custom width. It inherits the design system.','프레임은 곧 페이지입니다. 데스크톱·태블릿·모바일·사용자 지정 너비 중 고르세요. 디자인 시스템을 그대로 이어받습니다.'),`<form id="frame-form"><label class="form-label">${ui('Frame name','프레임 이름')}<input name="name" required maxlength="60" placeholder="${ui('Home, Onboarding, Checkout…','홈, 온보딩, 결제…')}"></label><label class="form-label">${ui('Size','크기')}<select name="preset">${framePresets.map(o=>`<option value="${o.id}">${uiLanguage==='ko'?o.ko:o.en}</option>`).join('')}</select></label><label class="form-label">${ui('Custom width (px)','사용자 지정 너비 (px)')}<input name="width" type="number" min="240" max="3200" value="1200"></label><button class="primary-button full-width" type="submit">${icon('frame')}${ui('Create frame','프레임 만들기')}</button></form>`);break;
 
     case 'systems': designBridgeModal(); break;
-    case 'choose-system': commit(() => { project.system = canonicalSystem({ ...systems.find(s => s.id === el.dataset.system)! }); }, d, 'edit.system'); closeModal(); toast(ui('Design system applied to every page','모든 페이지에 디자인 시스템을 적용했습니다')); break;
+    case 'choose-system': {const done=commit(() => { project.system = canonicalSystem({ ...systems.find(s => s.id === el.dataset.system)! }); }, d, 'edit.system'); closeModal(); undoable(ui('The design system was applied to every page.','모든 페이지에 디자인 시스템을 적용했어요.'),done); break;}
     case 'brief': briefModal(); break;
     case 'brief-preset': modalRoot.querySelector<HTMLTextAreaElement>('[name="brief"]')!.value = el.dataset.value!; break;
     case 'autofill': vibeFormDraft=null;autofillModal(); break;
@@ -1566,7 +1750,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       const response=await fetch('/design-sources/'+id+'.md');if(!response.ok)throw new Error('Bundled reference not available');
       const system=await verifyReference(id,await response.text());
       if(!here())break;if(before!==fingerprint(project))throw new Error('Project changed. Select the reference again.');
-      commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();toast('원문·SHA-256·제품 토큰을 보존했습니다. 전체 DS 적용은 아닙니다.');break;
+      const done=commit(()=>{project.system=canonicalSystem(system);},d,'edit.system',{source:'design:apply-source'});closeModal();undoable(ui('The reference\'s tokens were applied, with its original text and SHA-256 kept. It is not applied as a whole design system.','레퍼런스의 토큰을 적용하고 원문과 SHA-256을 함께 보존했어요. 디자인 시스템 전체를 적용한 것은 아니에요.'),done);break;
     }
     case 'omd-issue': {
       const id=el.dataset.source!,source=referenceSources.find(s=>s.id===id);
@@ -1585,9 +1769,9 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'apply-vibe': {
       if(!vibePending||vibePending.board!==project.id||vibePending.revision!==fingerprint(project))throw new Error('미리보기 이후 프로젝트가 바뀌었습니다. 다시 Preview하세요.');
       const plan=vibePending.plan;
-      commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
+      const done=commit(()=>{const page=currentPage(project);applyVibe(page.blocks,plan);if(plan.language)project.contentLanguage=plan.language;page.vibeReceipt={packId:plan.packId,changedFields:plan.changes.length,source:'local-authored-demo',imageSource:plan.changes.some(c=>c.field==='image'&&c.after.startsWith('data:'))?'user-upload':plan.changes.some(c=>c.field==='image')?'bundled-generated':'none',modelCalled:false};},d,'edit.vibe',{source:'vibe:apply'});
       recordRun('vibe:receipt',{packId:plan.packId,changedFields:plan.changes.map(c=>({nodeId:c.id,field:c.field})),unsupported:plan.unsupported,missingAssets:plan.missingAssets,missingImageSlots:plan.missingImageSlots,imagesRequested:plan.imagesRequested,source:'local-authored-demo',modelCalled:false},d);
-      vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();toast(plan.changes.length+'개 필드 적용 · Undo로 전체 복원');break;
+      vibePending=null;vibeImage='';vibeFormDraft=null;closeModal();undoable(ui(`${plan.changes.length} field${plan.changes.length===1?' was':'s were'} filled in.`,`${plan.changes.length}개 필드를 채웠어요.`),done);break;
     }
     case 'add': addBlock(el.dataset.kind as BlockKind,d); break;
     case 'component-explorer': explorerModal();break;
@@ -1609,7 +1793,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'shelf-remove': if(project.shelf){project.shelf=project.shelf.filter((_,i)=>i!==Number(el.dataset.index));persist();await flushDisk();render();}break;
     case 'theme-review': themeReview(true);break;
     case 'proposal-blue': case 'proposal-green': themeDraft=themeProposal(project,act==='proposal-blue'?'#2255cc':'#176448',themeDraft?.candidate.system.font??project.system.font);themeReview();break;
-    case 'proposal-apply': if(themeDraft){const draft=themeDraft;commit(()=>applyThemeProposal(project,draft),d,'edit.system',{source:'theme:draft-applied'});closeModal();themeDraft=null;toast(ui('Theme draft applied. Direction approval still required.','테마 초안 적용. 디자인 방향 승인은 별도입니다.'));}break;
+    case 'proposal-apply': if(themeDraft){const draft=themeDraft;const done=commit(()=>applyThemeProposal(project,draft),d,'edit.system',{source:'theme:draft-applied'});closeModal();themeDraft=null;undoable(ui('The theme draft was applied. Approving the direction is still a step of its own.','테마 초안을 적용했어요. 방향 승인은 따로 해야 해요.'),done);}break;
     case 'proposal-full': if(themeDraft){showModal(ui('Proposed screen','제안 화면'),ui('Not applied yet. Scroll to review the whole page.','아직 적용하지 않았습니다. 스크롤해서 페이지 전체를 확인하세요.'),`<iframe class="preview-frame" title="Proposed screen only" sandbox="allow-scripts"></iframe><button class="secondary-button" data-action="proposal-back">${ui('Back to comparison','비교로 돌아가기')}</button>`,true);mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,themeDraft.candidate,currentPage(themeDraft.candidate));}break;
     case 'proposal-back': themeReview();break;
     case 'proposal-export': if(themeDraft)await saveFile('aphrodite-theme-draft.zip',await exportBundle(themeDraft.candidate),'application/zip');break;
@@ -1617,15 +1801,15 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'add-section': case 'assemble-focus': tab = 'components'; render(); document.querySelector<HTMLInputElement>('#component-search')?.focus(); break;
     case 'move-up': case 'move-down': if (b) commit(() => { const from = blocks.indexOf(b), to = from + (act === 'move-up' ? -1 : 1); if (to >= 0 && to < blocks.length) [blocks[from], blocks[to]] = [blocks[to], blocks[from]]; }, d, 'edit.move'); break;
     case 'duplicate-block': if (blocks.length >= 100) { toast('페이지당 최대 100개 컴포넌트를 지원합니다.'); break; } if (b) commit(() => { const copy = { ...b, id: uid() }; blocks.splice(blocks.indexOf(b) + 1, 0, copy); selected = copy.id; }, d, 'edit.duplicate'); break;
-    case 'delete-block': if (b) { commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }, d, 'edit.delete'); toast(ui('Component removed · Children preserved · Undo to restore','컴포넌트를 삭제했습니다 · 자식은 유지됩니다 · 실행 취소로 복원')); } break;
+    case 'delete-block': if (b) { const done=commit(() => { blocks.forEach(child=>{if(child.parentId===b.id)child.parentId=b.parentId;});blocks.splice(blocks.indexOf(b), 1); selected = ''; }, d, 'edit.delete'); undoable(ui('The component was removed. What was inside it stays.','컴포넌트를 지웠어요. 안에 있던 것은 그대로 남아요.'),done); } break;
     case 'asset-category': {assetCategory=el.dataset.category as SampleCategory|'all'|'local';if(assetCategory==='local')await loadLocalLibrary();refreshLibraryPanel();break;}
     case 'apply-local': {const id=el.dataset.id!;const src=localRef(id);
       // The person putting a library picture on the board lets it go out with the board, one it came without included (0.3-R fix 2 #18): saved
       // even when the board already showed it, so doing what the export's notice says is enough.
       const freed=()=>{if(d.author.kind==='person'&&carriedNow(project,[src])){persist();return true;}return false;};
-      if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');freed();toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');freed();toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else if(localRefsIn(project).includes(id)&&freed())toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+      if(b&&['hero','products'].includes(b.kind)){const done=commit(()=>{b.image=src;},d,'edit.image');freed();undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done);}else if(!project.reference){const done=commit(()=>{project.reference=src;},d,'edit.reference');freed();undoable(ui('It was set as the reference.','레퍼런스로 정했어요.'),done);}else if(localRefsIn(project).includes(id)&&freed())toast(ui('It goes out with the board now','이제 보드와 함께 나갑니다'));else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
     case 'font-picker': fontQuery='';await loadFonts();fontPickerModal();break;
-    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();toast(family?`${family}`:ui('Back to the design system font','디자인 시스템 기본 서체로'));break;}
+    case 'font-choose': {const family=sanitizeFamily(el.dataset.family??'');const done=commit(()=>{if(family)project.system.headingFamily=family;else delete project.system.headingFamily;},d,'edit.tokens');closeModal();undoable(family?ui(`Headings are now set in ${family}.`,`제목에 ${family} 서체를 적용했어요.`):ui('Headings are back on the design system font.','제목 서체를 디자인 시스템 기본 서체로 바꿨어요.'),done);break;}
     case 'font-install': {
       const font=freeFonts.find(f=>f.id===el.dataset.id);if(!font)break;
       fontBusy=font.id;fontPickerModal();
@@ -1660,15 +1844,15 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       await loadLocalLibrary(true);assetCategory='local';refreshLibraryPanel();
       toast(ui('Added to your library','라이브러리에 추가했습니다'));
     });break;
-    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){commit(()=>{b.image=src;},d,'edit.image');toast(ui('Image applied','이미지를 적용했습니다'));}else if(!project.reference){commit(()=>{project.reference=src;},d,'edit.reference');toast(ui('Set as the reference','레퍼런스로 설정했습니다'));}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
-    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }, d, 'edit.image'); toast(ui('Image applied','이미지를 적용했습니다')); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
+    case 'apply-sample': {const id=el.dataset.sample!;const src=sampleSrc(id);if(b&&['hero','products'].includes(b.kind)){const done=commit(()=>{b.image=src;},d,'edit.image');undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done);}else if(!project.reference){const done=commit(()=>{project.reference=src;},d,'edit.reference');undoable(ui('It was set as the reference.','레퍼런스로 정했어요.'),done);}else toast(ui('Select a Hero or Collection component first.','먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'));break;}
+    case 'apply-asset': if (b && ['hero', 'products'].includes(b.kind)) { const done=commit(() => { b.image = `/assets/${el.dataset.asset}.jpg`; }, d, 'edit.image'); undoable(ui('The image was put on the component.','이미지를 컴포넌트에 넣었어요.'),done); } else toast('먼저 Hero 또는 Collection 컴포넌트를 선택해주세요.'); break;
     case 'collection-image': case 'collection-image-clear': case 'collection-image-demo': {
       if(b?.kind!=='products')break;const index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=Math.min(30,b.text.split('\n').length))break;
       const projectId=project.id,blockId=b.id;
       const assign=(image:string)=>{if(!here())return;const node=currentPage(project).blocks.find(n=>n.id===blockId);if(project.id!==projectId||node?.kind!=='products')return;commit(()=>{const images=[...(node.itemImages??[])];while(images.length<=index)images.push(node.image);images[index]=image;node.itemImages=images;},d,'edit.image',{source:'collection:image'});};
       if(act==='collection-image-clear')assign('');else if(act==='collection-image-demo')assign('/assets/lighting-hero.png');else pickFile('image/png,image/jpeg,image/webp',async file=>assign(await readImage(file)));break;
     }
-    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { b.image = image; }, d, 'edit.image'); toast(ui('Image updated','이미지를 업데이트했습니다')); }); break;
+    case 'block-image': if (b) pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; const done=commit(() => { b.image = image; }, d, 'edit.image'); undoable(ui('The image was replaced.','이미지를 바꿨어요.'),done); }); break;
     case 'reference': referenceModal(); break;
     case 'demo-reference': { const response = await fetch('/assets/demo-reference.jpg'); if (!response.ok) throw new Error('샘플을 읽지 못했습니다.'); const data = await readImage(new File([await response.blob()], 'reference.jpg', { type: 'image/jpeg' })); if (!here()) break; commit(() => { project.reference = data; }, d, 'edit.reference'); referenceModal(); break; }
     case 'analyze-reference': {
@@ -1699,8 +1883,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'choose-direction': {
       if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; }
       const candidate = candidatePages[Number(el.dataset.index)]; if (!candidate) break;
-      commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
-      candidatePages = []; closeModal(); toast(ui('Direction added · Edit any component · Undo available','방향을 추가했습니다 · 컴포넌트를 편집하세요 · 실행 취소 가능')); break;
+      const done=commit(() => { const page = structuredClone(candidate); project.pages.push(page); project.activePageId = page.id; selected = page.blocks.find(b => b.kind === 'hero')!.id; }, d, 'edit.direction');
+      candidatePages = []; closeModal(); undoable(ui('The direction was added. Pick any component to edit it.','방향을 추가했어요. 컴포넌트를 골라 고쳐 보세요.'),done); break;
     }
     case 'upload-reference': pickFile('image/png,image/jpeg,image/webp', async file => { const image = await readImage(file); if (!here()) return; commit(() => { project.reference = image; }, d, 'edit.reference'); referenceModal(); }); break;
     case 'remove-reference': commit(() => { delete project.reference; }, d, 'edit.reference'); referenceModal(); break;
@@ -1712,16 +1896,16 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
         const read = importDesignGraph(JSON.parse(text));
         if (!read.report.read) throw new Error(ui('No tokens were found in that file.','이 파일에서 토큰을 찾지 못했습니다.'));
         const system = graphSystem(project.system, read, read.report.name ?? file.name.replace(/\.json$/i, ''), ui('Imported from a design-system graph','디자인 시스템 그래프에서 가져옴'));
-        commit(() => { project.system = system; }, d, 'edit.system');
+        const done=commit(() => { project.system = system; }, d, 'edit.system');
         closeModal();
         // What the board kept is what is said: a colour name it cannot store is counted as not kept.
-        toast(importSummary({...read.report, carried: Object.keys(system.carried ?? {}).length}, uiLanguage === 'ko'));
+        undoable(importSummary({...read.report, carried: Object.keys(system.carried ?? {}).length}, uiLanguage === 'ko'),done);
         return;
       }
       const s = canonicalSystem(importDesignMarkdown(text, file.name, project.system));
-      commit(() => { project.system = s; }, d, 'edit.system');
+      const done=commit(() => { project.system = s; }, d, 'edit.system');
       closeModal();
-      toast(ui('Colour tokens imported. The original DESIGN.md is kept.','색상 토큰을 가져왔습니다. 원본 DESIGN.md도 보존됩니다.'));
+      undoable(ui('The colour tokens were imported, and the original DESIGN.md is kept.','색상 토큰을 가져왔어요. 원본 DESIGN.md도 그대로 보존해요.'),done);
     }); break;
     case 'design-md': showModal('DESIGN.md', ui('The tokens and component contract of this work. Checking against the full OmD spec is not connected yet.','현재 작업의 토큰과 컴포넌트 계약입니다. OmD 전체 규격 검증은 아직 연결되지 않았습니다.'), `<pre class="export-code">${esc(designMarkdown(project))}</pre>${button('save-design', 'download', 'Save DESIGN.md', 'primary-button')}`, true); break;
     case 'save-design': if (await saveFile('DESIGN.md', designMarkdown(project), 'text/markdown')) toast(ui('DESIGN.md saved','DESIGN.md를 저장했습니다')); break;
@@ -1747,38 +1931,46 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'preview': { if(!visiblePages(project).length){toast(nothingToPreview(uiLanguage==='ko'));break;} recordRun('preview:opened',{device,interactionCapture:false},d); const page = shownPage(project), free = isFreePage(page); showModal(ui('Preview','미리보기'), device === 'mobile' ? ui(`${esc(page.name)} at the 375px mobile width.`,`${esc(page.name)} 페이지를 375px 모바일 너비로 봅니다.`) : ui(`${esc(page.name)} at a responsive desktop width.`,`${esc(page.name)} 페이지를 반응형 데스크톱 너비로 봅니다.`), free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
-    case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
-    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(); break;
-    /* The only destructive door in the vanished-store notice. It does not delete anything — the old
+    case 'disk-backup': if(backup&&await saveFile(backup.name,backup.text,'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
+    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(el.dataset.discardGeneration===undefined?undefined:Number(el.dataset.discardGeneration)); break;
+    case 'notice-open': if(!modalRoot.children.length&&!fatalUp())openTrouble(); break;
+    case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
+    case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;{const sheet=document.querySelector('.fatal-scrim');if(sheet)dismissSheet(sheet);} break;
+    /* Starting fresh explicitly accepts a replacement folder. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
        breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */
     case 'disk-start-fresh': {
-      if(!vanished)break;
-      const old=vanished.path;
-      if(!confirm(ui(
-        `Start fresh? A new empty workspace will be saved. Your old folder is not deleted — it stays at ${old}.`,
-        `새로 시작할까요? 빈 작업 공간을 새로 저장합니다. 예전 폴더는 지우지 않습니다 — ${old} 에 그대로 있습니다.`,
+      if(!saves.missing)break;
+      const old=saves.missing.path;
+      // Once this window has made a folder in that place, starting fresh saves into it: it is not a new one.
+      if(!confirm(saves.replaced?ui(
+        `Start fresh? What this window holds (${library.entries.length} board(s)) is saved in the folder this window made at ${old}. The app does not delete the old folder.`,
+        `새로 시작할까요? 이 창에 있는 것(보드 ${library.entries.length}개)을 이 창이 ${old} 자리에 만든 폴더에 저장해요. 예전 폴더는 앱이 지우지 않아요.`,
+      ):ui(
+        `Start fresh? What this window holds (${library.entries.length} board(s)) is saved in a new folder at ${old}. The app does not delete the old folder.`,
+        `새로 시작할까요? 이 창에 있는 것(보드 ${library.entries.length}개)을 ${old} 자리에 새 폴더로 저장해요. 예전 폴더는 앱이 지우지 않아요.`,
       )))break;
-      vanished=undefined;
-      if(diskQueue&&queueLibrary(library))await flushDisk();
+      if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
+      // The missing folder is forgotten only once what the window holds has landed: a write not queued, or one that fails, keeps it.
+      saveTyping();
+      if(!saves.native||!queueLibrary(library,false))break;
+      if(!await saves.acceptReplacement())break;
       render();
       toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
       break;
     }
     case 'save-project': if (await saveFile(fileName(project, 'aphrodite.json'), JSON.stringify(project, null, 2), 'application/json')) toast(ui('Board saved as a file','보드를 파일로 저장했습니다')); break;
-    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(upsertProject(library,loaded,undefined,workspaces.activeId));await bounded(flushDisk());openProject(loaded);});toast(ui('Board imported unapproved · 기존 보드는 보존됩니다.','보드를 승인되지 않은 상태로 가져왔습니다 · 기존 보드는 보존됩니다.')); }); break;
+    case 'import-project': if(refusal(d,'outside.import'))break;await guardSwitch();pickFile(`.json,.${BOARD_FILE.extension},application/json`, async file => { if(isBoardFileName(file.name)){await opening(async()=>openBoardFileNow(await boardFileBytes(file)));return;} if (file.size > 20_000_000) throw new Error('프로젝트는 20MB 이하여야 합니다.'); const text=await file.text();await leave(async()=>{const loaded = importedProject(text,library);saveLibrary(()=>upsertProject(library,loaded,undefined,workspaces.activeId));await bounded(flushDisk());openProject(loaded);});toast(ui('Board imported unapproved · 기존 보드는 보존됩니다.','보드를 승인되지 않은 상태로 가져왔습니다 · 기존 보드는 보존됩니다.')); }); break;
     case 'new-project': await guardSwitch();showModal(ui('New board','새 보드'), ui('Your other boards stay in the library. You can open them again any time.','기존 보드는 보관함에 그대로 남습니다. 언제든 다시 열 수 있습니다.'), `<form id="new-project-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" placeholder="${ui('Your next idea','다음 아이디어')}" value="Untitled board"></label><button class="primary-button full-width" type="submit">${ui('Create board','보드 만들기')}</button></form>`); break;
     case 'add-page': showModal(ui('New page','새 페이지'), ui('It takes the board\'s design system as it is.','보드의 디자인 시스템을 그대로 이어받습니다.'), `<form id="page-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" placeholder="${ui('About, Collection, Contact...','소개, 컬렉션, 연락처…')}"></label><button class="primary-button full-width" type="submit">${ui('Create page','페이지 만들기')}</button></form>`); break;
     case 'page-menu': showModal(ui('Page','페이지'), ui('Rename the page, or duplicate it to start the next screen.','페이지 이름을 바꾸거나 복제해 다음 화면의 시작점으로 쓰세요.'), `<form id="page-rename-form"><label class="form-label">${ui('Page name','페이지 이름')}<input name="name" required maxlength="60" value="${esc(currentPage(project).name)}"></label><button class="primary-button" type="submit">${ui('Rename page','페이지 이름 변경')}</button></form><div class="project-menu-actions">${button('duplicate-page', 'copy', 'Duplicate page', 'secondary-button')}${button('delete-page', 'trash-2', 'Delete page', 'secondary-button', project.pages.length === 1 ? 'disabled' : '')}</div>`); break;
     case 'duplicate-page': if (project.pages.length >= 30) { toast(fullBoard(project,uiLanguage==='ko')); break; } commit(() => { const page = { ...currentPage(project), id: uid(), name: `${currentPage(project).name} copy`.slice(0, 100), blocks: cloneBlocks(blocks) }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d, 'edit.page-duplicate'); closeModal(); break;
-    case 'delete-page': if (project.pages.length > 1) { commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); toast(ui('Page removed · Undo to restore','페이지를 삭제했습니다 · 실행 취소로 복원')); } break;
+    case 'delete-page': if (project.pages.length > 1) { const done=commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); undoable(ui('The page was removed.','페이지를 지웠어요.'),done); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'ask-allow': answerAsk(true);break;
-    case 'ask-decline': answerAsk(false);break;
-    case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
-    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
-    case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
+    case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode)lease=null;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
+    case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
+    case 'agent-disconnect': setAllowed([]);lease=null;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
     case 'about': showModal(ui('About Aphrodite','Aphrodite 정보'), ui('Check the design direction together before generating long code.','긴 코드 생성 전에, 디자인 방향부터 함께 확인하세요.'), `<div class="about-mark">a<span>✳</span></div><p class="about-copy">${ui('Codex assembles. You choose the direction.','Codex가 조립합니다. 방향은 당신이 정합니다.')}</p><div class="modal-note">Tauri 기반 로컬 프로토타입 · ${catalog.length}가지 컴포넌트 · 공식 라이브러리 어댑터 · ${systems.length}가지 스타일 · 에이전트 조립 컨텍스트·로컬 실행 기록 · HTML / 프롬프트 / DESIGN.md 내보내기. 앱 내부 모델 실행, 이미지 생성, OmD 전체 하네스 검증은 후속 범위입니다.</div>${button('agent', 'sparkles', 'See the computer-use workflow', 'secondary-button full-width')}`); break;
   }
 }
@@ -1792,10 +1984,13 @@ document.addEventListener('click', e => {
   if(link&&nativeDesktop){e.preventDefault();void invoke('open_external',{url:link.href}).catch(()=>toast(ui('Could not open that link.','링크를 열지 못했습니다.')));return;}
   if (target.classList.contains('modal-backdrop')) { if(askOpen()){if(e.isTrusted)answerAsk(false);return;} closeModal(); return; }
   const chip=target.closest<HTMLElement>('[data-toast]');
-  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();return;}
   const control = target.closest<HTMLElement>('[data-action]');
+  // A toast's Undo is pressed and the toast goes with it; the line itself only puts the toast away.
+  // One drawn before a later change would take that change back instead, so it only goes.
+  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(!control||!chip.contains(control))return;}
+  // Undo takes back the change its toast reports: history() saves what is being typed and compares that change with the last one just before the step.
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, dispatchOf(e), pressOrigin(e).isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
@@ -1915,7 +2110,7 @@ document.addEventListener('submit', async e => {
     toast(id?ui('Workspace updated','작업 공간을 업데이트했습니다'):`‘${name}’ · ${ui('workspace created','작업 공간을 만들었습니다')}`);
     return;
   }
-  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);toast(ui('Frame created · press A to add components','프레임을 만들었습니다 · A로 컴포넌트를 추가하세요'));return;}
+  if(form.id==='frame-form'){if(!d)return;if(project.pages.length>=30){toast(fullBoard(project,uiLanguage==='ko'));return;}const preset=(isFramePreset(data.get('preset'))?data.get('preset'):'desktop') as FramePreset;const width=clampWidth(Number(data.get('width')||1200));const frameName=String(data.get('name')??'').trim().slice(0,60)||ui('Frame','프레임');const done=commit(()=>{ensureSpace(project);const created={id:uid(),name:frameName,blocks:[]};project.pages.push(created);project.space!.frames[created.id]=placeFrame(project,preset,width);project.activePageId=created.id;selected='';},d,'edit.page-add');recordRun('frame:created',{pageId:project.activePageId,preset});closeModal();fitFrame(project.activePageId);undoable(ui('The frame was made. Press A to add components.','프레임을 만들었어요. A를 눌러 컴포넌트를 추가해 보세요.'),done);return;}
   if(form.id==='agent-mode-form'){startAgentMode(clip(String(data.get('operator')??''),100),clip(String(data.get('intent')??''),1200),{deletePages:data.get('deletePages')==='on',changeSystem:data.get('changeSystem')==='on',export:data.get('export')==='on',...(data.get('frame')?{frameId:String(data.get('frame'))}:{})});return;}
   if(form.id==='catalog-filter-form'){explorerFilter=normalizeCatalogFilter(String(data.get('query')??''),String(data.get('provider')??'all'));explorerModal();modalRoot.querySelector<HTMLElement>('[aria-label="Search catalog"]')?.focus();return;}
   if(form.id==='language-settings-form'){
@@ -1947,28 +2142,50 @@ document.addEventListener('submit', async e => {
   }
   if (form.id === 'brief-form') {
     const brief = String(data.get('brief')).trim(); if (!brief) return;
-    commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }, d!, 'edit.brief'); closeModal(); toast(ui('Draft assembled · Auto fill로 분위기를 확인해보세요.','초안을 조립했습니다 · Get Vibe로 분위기를 확인해보세요.'));
+    const done=commit(() => { project.name = name; project.brief = brief; const page = { id: uid(), name: `Draft ${project.pages.length + 1}`, blocks: assemble(brief).map(k => makeBlock(k)) }; project.pages.push(page); project.activePageId = page.id; selected = page.blocks[1]?.id ?? ''; }, d!, 'edit.brief'); closeModal(); undoable(ui('The draft was assembled. Try Get Vibe to see its mood.','초안을 조립했어요. Get Vibe로 분위기를 확인해 보세요.'),done);
   } else if (form.id === 'fill-form') {
     if (!data.has('copy') && !data.has('images')) { toast('채울 콘텐츠를 한 가지 이상 선택해주세요.'); return; }
     let changed = 0;
-    commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }, d!, 'edit.vibe'); closeModal(); toast(changed ? ui('Filled with local sample content · Undo available','로컬 샘플 콘텐츠로 채웠습니다 · 실행 취소 가능') : '모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
+    const done=commit(() => { for (const b of currentPage(project).blocks) { const sample = makeBlock(b.kind, true); if (data.has('copy') && (!b.filled || data.has('replace'))) { b.title = sample.title; b.text = sample.text; b.label = sample.label; b.filled = true; changed++; } if (data.has('images') && sample.image && (!b.image || data.has('replace'))) { b.image = sample.image; changed++; } } }, d!, 'edit.vibe'); closeModal(); if(changed)undoable(ui('The page was filled with sample content.','샘플 내용으로 채웠어요.'),done);else toast('모두 채워져 있습니다. 교체하려면 Replace existing content를 선택해주세요.');
   } else if (form.id === 'rename-form') { commit(() => { project.name = name; }, d!, 'edit.project-rename'); closeModal(); }
   else if (form.id === 'page-rename-form') { commit(() => { currentPage(project).name = name; }, d!, 'edit.page-rename'); closeModal(); }
   else if (form.id === 'page-form') { commit(() => { const page = { id: uid(), name, blocks: [] }; project.pages.push(page); project.activePageId = page.id; selected = ''; }, d!, 'edit.page-add'); closeModal(); }
-  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=newBoard(name);saveLibrary(upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
+  else if (form.id === 'new-project-form' || form.id==='hub-rename-form') {try{if(form.id==='new-project-form'){await leave(async()=>{const next=newBoard(name);saveLibrary(()=>upsertProject(library,next,undefined,workspaces.activeId));await bounded(flushDisk());openProject(next);});}else{await guardSwitch();const entry=library.entries.find(e=>e.project.id===data.get('projectId'));
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
-      if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
+      if(entry&&d){
+        const renamed=parseProject(JSON.stringify(entry.project));
+        const recorded=changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});
+        saveLibrary(()=>upsertProject(library,renamed));countConnectedChange(recorded,d);closeModal();render();
+      }}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
-/** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
-let paletteKeyHandled=false;
-/** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
-function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>send(item,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
-document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
+/** Palette keys move the selection only when the palette owns the press. */
+function paletteNavigate(key:'ArrowDown'|'ArrowUp'){
+  const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]:not(:disabled)'));
+  if(!items.length)return;
+  const focused=items.indexOf(document.activeElement as HTMLButtonElement);
+  const current=focused>=0?focused:items.findIndex(item=>item.classList.contains('is-active'));
+  const next=(current+(key==='ArrowDown'?1:-1)+items.length)%items.length;
+  items.forEach((item,i)=>{item.classList.toggle('is-active',i===next);item.setAttribute('aria-selected',String(i===next));});
+  items[next].scrollIntoView({block:'nearest'});items[next].focus();
+}
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
 function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 function tourActive(){return tourIndex>=0;}
+// A dialog covers an existing tour and postpones the first-run timer until the board is exposed again.
+function syncTour(){
+  const exposed=screen==='editor'&&!modalRoot.children.length&&!pageView;
+  if(tourActive()){
+    const resuming=exposed&&tourRoot.hidden;
+    tourRoot.hidden=!exposed;
+    if(resuming)positionTour();
+  }
+  if(exposed&&onboarding.welcomed&&!onboarding.toured&&!tourActive()){
+    tourTimer??=window.setTimeout(()=>{tourTimer=undefined;startTour();},400);
+  }else if(tourTimer!==undefined){
+    clearTimeout(tourTimer);tourTimer=undefined;
+  }
+}
 function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();tourPlan=tourSteps(uiLanguage,hasSectionPage(project)).filter(step=>tourTargetBox(step.target)).map(step=>step.id);positionTour();recordRun('tour:started');}
 function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 /** A step's target and its box, while it is on screen and not cut off by the panel it sits in. */
@@ -2056,7 +2273,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
   const held:Batch=heldBatch(batch,project);
   // A batch that will be refused anyway, or an agent the door no longer lets in, copies no file (0.3-R).
   if(withFiles){
-    const ahead=preflightBatch(project,held,selected,r=>libraryRefusal(library,project,r.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
+    const ahead=preflightBatch(project,held,selected,r=>libraryRefusal(library,project,r.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},r.designChars));if(ahead){const where=ahead.index<0?ahead.part:`${ahead.part}[${ahead.index}]`;return {error:`${where}: ${ahead.error}`,failed_at:ahead.index,part:ahead.part,applied:0};}
     const shut=stillAllowed();if(shut)return {...shut,applied:0};
     // A file the board came without goes back only by the person's hand (0.3-R fix 3 #7): a library picture is asked by its id before anything is copied.
     for(const [i,op] of batch.ops.entries())if(op.op==='media_add'&&op.library_id){const no=heldFromAgent(project,`local:${op.library_id}`);if(no)return {error:`ops[${i}]: ${no}`,failed_at:i,part:'ops',status:403,applied:0};}
@@ -2092,7 +2309,7 @@ async function applyBatch(batch:Batch,d:Dispatch,surface:AgentSurface,stillAllow
       const result=runBatch(project,held,selected,media);
       if(!result.ok){failure=result;return;}
       // Saving is the last thing a change does, so it is measured first, in the unit the store counts: past what it holds, nothing lands.
-      const refused=libraryRefusal(library,project,result.project,diskQueue?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
+      const refused=libraryRefusal(library,project,result.project,saves.native?{limit:LIBRARY_LIMIT_BYTES,unit:'bytes'}:{limit:BROWSER_LIBRARY_ESTIMATE,unit:'chars'},result.designChars);
       if(refused){failure={ok:false,index:-1,part:batch.ops.length?'ops':'patch',error:refused};return;}
       created=result.created;
       project={...result.project,...(project.ledger?{ledger:project.ledger}:{})};
@@ -2193,8 +2410,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
     if(outcome.status==='asked'){askState={by:who,at:Date.now(),answered:'pending',id:`ask-${++askSeq}-${Date.now().toString(36)}`};offerAsk();if(!askOpen())toast(`${callerText(who)} ${ui('is asking to edit alongside you.','이(가) 함께 편집하기를 요청합니다.')}`);}
     return {ok:true,status:outcome.status,message:outcome.message,mode:callerMode(who)};
   }
-  // The reason and revision the parser checked; `apply` checks its own (parseBatch) and makes its Dispatch there.
+  // A batch supplies its reason and revision below, once parseBatch has checked them.
   const d=agentDispatch(who,surface,c.kind==='edit'||c.kind==='system'?{reason:c.reason,baseRevision:c.baseRevision}:c.kind==='act'||c.kind==='command'?{reason:c.reason}:{});
+  if(agentMode()==='connected')connectedCommands.add(d);
   if(screen!=='editor'&&(c.kind==='apply'||c.kind==='edit'||c.kind==='system'||c.kind==='export'||c.kind==='command')){
     return {error:HOME_CANVAS_HINT,screen:'home',visible:false};
   }
@@ -2334,9 +2552,9 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
         const parsed=parseBatch({ops:c.ops,patch:c.patch,page_id:c.pageId,reason:c.reason,base_revision:c.baseRevision});
         // A batch that is not well formed is the sender's to fix: 400, all the way out (0.3-R fix 2 #6).
         if('error' in parsed)return {error:parsed.error,status:400};
-        const result=await applyBatch(parsed.batch,agentDispatch(who,surface,{reason:parsed.batch.reason,baseRevision:parsed.batch.baseRevision}),surface,()=>{if(closer.busy())return {error:'Aphrodite is saving to close or restart, so nothing was placed. Try again once it is open.',status:423};const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
-        if(!('error' in result)&&agentMode()==='connected')bumpConnect(who);
-        return result;
+        d.reason=parsed.batch.reason;
+        d.baseRevision=parsed.batch.baseRevision;
+        return await applyBatch(parsed.batch,d,surface,()=>{if(closer.busy())return {error:'Aphrodite is saving to close or restart, so nothing was placed. Try again once it is open.',status:423};const again=judge(gateFor(c,reachedAction(c,agentLook)),who,currentAuthority());return again.allow?undefined:{error:again.error,status:again.status};});
       }
       case 'end':endAgentMode('ended');editorMode='design';render();toast(ui('The agent ended Agent mode.','에이전트가 에이전트 모드를 끝냈습니다.'));return {ok:true,ended:true};
     }
@@ -2344,7 +2562,6 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
   await new Promise(r=>setTimeout(r,60));
   // An undo or redo that would have moved the approval (see history()); a `click` lands during the wait above.
   const refusedStep=stepRefusals.get(d);if(refusedStep)return {error:refusedStep,status:403};
-  if(agentMode()==='connected')bumpConnect(who);
   return agentState();
 }
 /* The same executor, in the page: the headless gates and a browser build reach it here. It arrives as
@@ -2354,14 +2571,29 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
    before this lands, or a request arriving in between is emitted into nothing and waits out the
    whole timeout — which is what an agent calling the moment it saw the endpoint file used to get. */
 const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller,'loopback');try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
+installPress({
+  paletteArrow:paletteNavigate,
+  releaseSpace:()=>{if(spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}},
+  escape:({kind,root})=>{
+    if(kind==='sheet')dismissSheet(root);
+    else if(kind==='ask')answerAsk(false);
+    else if(kind==='toast'){toasts=dismissToast(toasts,Number(root.dataset.toast));paintToasts();}
+    else if(kind==='page')closePageView();
+    else if(kind==='popover'){
+      if(root.classList.contains('tour-card'))endTour();
+      else if(root instanceof HTMLDetailsElement){root.open=false;root.querySelector('summary')?.focus();}
+      else{const group=dockGroupOpen;dockGroupOpen='';render();focusOnSurface(app.querySelector<HTMLElement>(`[data-action="dock-group"][data-group="${CSS.escape(group)}"]`));}
+    }else closeModal();
+  },
+});
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{
     if(e.isTrusted&&connectMode&&lease&&lease.label!==HUMAN){lease={label:HUMAN,since:Date.now()};}
     if(!agentLocked()||!e.isTrusted)return;
     const target=e.target as HTMLElement|null;
-    if(target?.closest?.('.agent-banner'))return;
-    if(e instanceof KeyboardEvent&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
+    if(target?.closest?.('.agent-banner,.fatal-scrim'))return;
+    if(e instanceof KeyboardEvent&&!composingKey(e)&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
     e.stopImmediatePropagation();if(e.cancelable)e.preventDefault();
   },{capture:true,passive:false});
 }
@@ -2523,35 +2755,26 @@ function mountSpace(){
   },{signal});
 }
 document.addEventListener('keydown', e => {
-  // Enter allows and Esc is Not now, from the person's own keyboard only: a key an agent sends is dropped.
-  if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
-    if(!e.isTrusted){e.preventDefault();return;}
-    const on=document.activeElement as HTMLElement|null;
-    // Enter typed into a dialog that opened under the request is not an answer: the focus goes back to Allow.
-    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&!on.closest('.ask-modal')){e.preventDefault();modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();return;}
-    if(e.key==='Enter'&&on&&modalRoot.contains(on)&&on.matches('button')&&on.dataset.action!=='ask-allow')return;
-    e.preventDefault();answerAsk(e.key==='Enter');return;
-  }
+  if(fatalUp())return;
   // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
   // take no step (history() refuses too), and with no dialog and no page seen on its own its shortcuts do not run. A dialog
   // the person has open and the page seen on its own keep their keys: Escape, Tab, and Enter or Space on a button.
   if(leaving){const meta=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
     if(meta&&(e.code==='KeyK'||k==='k'||((e.code==='KeyZ'||k==='z')&&!modalRoot.contains(e.target as Node)))){e.preventDefault();return;}
     if(!modalRoot.children.length&&!pageView)return;}
-  if(pageView&&!modalRoot.children.length){if(e.key==='Escape'||e.code==='Escape')closePageView();return;}
+  if(pageView&&!modalRoot.children.length)return;
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
-  if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
-  if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
-  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.folio-theme[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
-  if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
-  if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
-  if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && (document.activeElement === first || document.activeElement === scope.querySelector('.modal'))) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
+  if (e.key === 'Escape' || e.code === 'Escape') {
+    closeModal();
+    return;
   }
+  if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
+  if (modalRoot.children.length||topSurface().kind==='toast')return;
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='editor'&&!modalRoot.children.length){
-    if(e.code==='Space'){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
+    // Space on a toast's button presses it: it pans the board only from the board.
+    if(e.code==='Space'){if(e.isTrusted&&!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }
@@ -2567,52 +2790,82 @@ installMenuSelects(document);
 if(assemblyRun&&assemblyRun.status!=='ended')recordRun('run:resumed',{viewport:{width:innerWidth,height:innerHeight},notice:'Navigation/HMR gap; not continuous timing evidence.'});
 /** The left panel's line on where the board is saved (src/editor/save-badge.ts). */
 function saveBadge(state:SaveState){return saveBadgeHtml(state,{native:nativeDesktop,ko:uiLanguage==='ko',title:control(state==='saved'?(nativeDesktop?'Saved to disk':'Saved locally'):state==='saving'?'Saving to disk…':'Unsaved')});}
-function diskWarningHtml(){return `<div class="disk-warning ui-strip ui-strip-warn" role="alert">${icon('circle-alert','ui-icon ui-icon-sm')}<span><strong>${ui('Not saved to disk.','디스크에 저장되지 않았습니다.')}</strong> ${esc(boardWords(storageIssue))}</span><span class="disk-warning-actions"><button class="ui-btn ui-btn-secondary" data-action="disk-backup">${ui('Save a backup file','백업 파일로 저장')}</button><button class="ui-btn ui-btn-secondary" data-action="disk-reload">${ui('Reload from disk','디스크에서 다시 불러오기')}</button></span></div>`;}
-function attachDiskQueue(revision:number){return new DurableQueue(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}),(saved,error)=>{lastSaved=saved;storageIssue=error?String(error):'';  /* Only a save that actually landed is worth remembering, and it is written where the data folder
-     is not — so that if that folder ever goes missing, something outlives it that can say so. */
-  if(saved&&!error)writeBreadcrumb(store,crumbFor(storagePath,diskQueue?.at()??revision,library.entries.length,new Date()));syncStateAttributes();document.querySelectorAll('[data-storage-state]').forEach(el=>{el.textContent=control(saved?'Saved to disk':error?'Unsaved · export a backup':'Saving to disk…');});document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{const next=document.createRange().createContextualFragment(saveBadge(saveState({saved,failed:!!error,native:true})));el.replaceWith(next);});hydrateIconsIn(app);if(screen==='home'){if(error)render();return;}const banner=document.querySelector('.disk-warning');if(error){if(!banner){app.insertAdjacentHTML('afterbegin',diskWarningHtml());hydrateIcons();}toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));}else banner?.remove();});}
-/** Discard in-memory edits and re-open the on-disk library with a fresh write queue. */
-async function reloadFromDisk(){
-  if(!nativeDesktop)return;
-  // In the line of leavings, so it does not change the board under one: it saves nothing, as it throws away what is unsaved.
-  return turn(()=>reloadFromDiskNow());
+function attachDiskQueue(revision:number){
+  saves.attach(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}));
 }
-async function reloadFromDiskNow(){
+function saveChanged(){
+  refreshBackupFormat();
+  paintSaveState();
+  paintMarks();
+  if(!troubleNow())troubleSeen='';
+  if(saves.native&&saves.error&&!saves.retries&&!troubleOpened())
+    toast(ui('Could not save to disk. Save a backup or reload from disk.','디스크 저장에 실패했습니다. 백업을 저장하거나 디스크에서 다시 불러오세요.'));
+}
+function paintSaveState(){
+  syncStateAttributes();
+  const storage=app.querySelector('.ui-home-storage');
+  if(storage)storage.innerHTML=homeStorageContents(saves,uiLanguage);
+  document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{el.replaceWith(document.createRange().createContextualFragment(saveBadge(saves.badge)));});
+  hydrateIconsIn(app);
+}
+function askReload(){const c=reloadConfirm(uiLanguage==='ko',saves.generation);showModal(c.title,c.subtitle,c.body,'confirm');}
+/** Discard in-memory edits and re-open the on-disk library with a fresh write queue. `asked` is the count of edits the person said yes at. */
+async function reloadFromDisk(asked?:number){
+  if(!nativeDesktop)return;
+  // Work this window could not save is thrown away by a reload: the person is asked once, starting on keeping it (src/ui/notices.ts).
+  if(!saves.saved&&asked===undefined){askReload();return;}
+  const at=asked??saves.generation;
+  // In the line of leavings, so it does not change the board under one: it saves nothing, as it throws away what is unsaved.
+  return turn(()=>reloadFromDiskNow(at));
+}
+async function reloadFromDiskNow(at=saves.generation){
+  // Pressed from a dialog: it closes, and the mark or a toast says how it went.
+  if(modalRoot.querySelector('.ui-notice-choices,[data-reload-confirm]'))closeModal();
+  // An edit made since the question (or since the press) would be thrown away unasked: ask again, here and once the read is back.
+  if(saves.writing&&saves.generation===at)await bounded(flushDisk().catch(()=>{}));
+  if(saves.generation!==at){askReload();return;}
   const stored=await bounded(invoke<{revision:number;data:string|null;path:string}>('workspace_read'));
+  if(saves.generation!==at){askReload();return;}
   storagePath=stored.path;
-  if(stored.data!==null)library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
-  diskQueue=attachDiskQueue(stored.revision);storageIssue='';startupError='';lastSaved=true;
-  /* Looking again is the first thing the notice offers, so it has to answer either way: the folder
-     is back and the banner goes, or it is still missing and we say that rather than appearing to
-     have done nothing. */
+  /* Looking again is the first thing the notice offers, so it has to answer either way. Nothing read changes nothing on
+     disk: the window keeps its work, its trouble and its queue. What it holds has no copy on disk now, so none of it is
+     counted as saved, and the dialog with its backup choices opens. */
   const stillGone=storeVanished(stored,readBreadcrumb(store));
-  if(vanished&&!stillGone){vanished=undefined;toast(ui('Found it. Your boards are back.','찾았습니다. 보드가 돌아왔습니다.'));}
-  else if(stillGone){vanished=stillGone;render();toast(ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'));return;}
-  if(stored.data!==null&&readTidied(library))queueLibrary(library);
+  if(stored.data===null){saves.emptyRead(stillGone,!!library.entries.length||screen==='editor');paintSaveState();paintMarks();if(saves.noCopy&&!askOpen()&&!fatalUp()){openTrouble();return;}toast(stillGone?ui('Still not there. The folder has not come back yet.','아직 없습니다. 폴더가 아직 돌아오지 않았습니다.'):ui('There is nothing saved on disk to read. What you did is still only in this window.','디스크에 읽을 저장본이 없어요. 한 일은 아직 이 창에만 있어요.'));return;}
+  library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});
+  const old=saves.missing;
+  attachDiskQueue(stored.revision);saves.installed();troubleSeen='';
+  // Read back from a folder this window made after the old one went missing: the old one is still missing.
+  // A readable path says nothing of which folder it is: what is said is only what was read.
+  if(old&&!saves.replaced){toast(ui('There is a folder in that place again, and its boards were read.','그 자리에 폴더가 다시 있어서, 그 안의 보드를 읽었어요.'));}
+  else if(saves.missing)toast(ui('Read again the folder this window made in the same place. The old folder has still not been found.','이 창이 같은 자리에 만든 새 폴더를 다시 읽었어요. 예전 폴더는 아직 찾지 못했어요.'));
   const entry=library.entries.find(e=>e.project.id===project.id);
   if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
-  render();toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
+  if(stored.data!==null&&readTidied(library))queueLibrary(library);
+  render();if(!saves.missing||!saves.replaced)toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
 }
 async function boot(){
+  if(!nativeDesktop&&readTidied(library))try{saveLibrary(library);}catch{/* retried with the next save */}
   if(nativeDesktop){
     app.innerHTML=`<p style="padding:48px">${ui('Opening your local workspace…','로컬 작업 공간을 여는 중…')}</p>`;
     try{
       const stored=await invoke<{revision:number;data:string|null;path:string}>('workspace_read');
       storagePath=stored.path;
       // Disk is authoritative. Only migrate the legacy browser store on first launch.
-      if(stored.data!==null){library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});startupError='';}
-      diskQueue=attachDiskQueue(stored.revision);
+      if(stored.data!==null){library=readLibrary({getItem:k=>k===LIBRARY_KEY?stored.data:null,setItem:()=>{}});saves.unread='';}
+      attachDiskQueue(stored.revision);
       /* An empty store is usually a first launch and sometimes a folder that moved. The breadcrumb
          is the only thing that can tell them apart, because `workspace_read` answers both the same
          way. When it says we had something here, hold off writing and say so. */
-      vanished=storeVanished(stored,readBreadcrumb(store));
+      if(stored.data===null)saves.emptyRead(storeVanished(stored,readBreadcrumb(store)),!!library.entries.length);
+      else saves.installed();
       // A read that dropped a stale approval, or gave an old one its new form, is written once now: the store holds what the screen shows.
-      if(stored.data!==null&&readTidied(library)&&!vanished)queueLibrary(library);
+      if(stored.data!==null&&readTidied(library)&&!saves.missing)queueLibrary(library);
       /* Opening a store tells us as much as saving to one does, and someone who reads their projects
          for a week without editing anything would otherwise leave no trace at all — the folder could
          then go missing with nothing left to say it had ever been there. */
       if(stored.data!==null)writeBreadcrumb(store,crumbFor(stored.path,stored.revision,library.entries.length,new Date()));
-      if(stored.data===null&&!startupError&&!vanished&&queueLibrary(library))await flushDisk();
+      if(stored.data===null&&!saves.unread&&!saves.missing&&queueLibrary(library))await flushDisk();
       if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project));
       // The channel is open from launch so an agent can read without a person clicking first.
       // Writing still needs Connected mode or Agent mode — see src/agent/authority.ts.
@@ -2626,9 +2879,9 @@ async function boot(){
          request it holds is prevented, or the window would go on its own. */
       // Every close is held and goes through the one closer, a saved board's too; what is being typed is saved first (closing.ts closeRequests).
       await getCurrentWindow().onCloseRequested(closeRequests(closer,()=>getCurrentWindow().destroy(),error=>notice(ui(`The window could not close: ${String(error)}`,`창을 닫지 못했습니다: ${String(error)}`)),saveTyping));
-    }catch(error){startupError=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
+    }catch(error){saves.unread=`파일 저장소를 열지 못했습니다. 원본은 보존됩니다. ${String(error)}`;}
   }
-  render();if(startupError)toast(startupError);
+  render();if(!troubleOpened()&&saves.unread)toast(saves.unread);
   void paintPaper();
   if(nativeDesktop){void loadLocalLibrary();void updates.check();}
   // What macOS opened is opened in the line of what comes in.
@@ -2642,9 +2895,9 @@ async function boot(){
     // And says how many leavings are under way, for a check that waits on one.
     (window as unknown as {aphroditeLeaving?:()=>number}).aphroditeLeaving=()=>leaving;
     // A tab closed with work not saved asks first, the browser's own way (0.3-R fix 2 #16); the three answers are the desktop's.
-    window.addEventListener('beforeunload',e=>{saveTyping();if(!lastSaved||leaving){e.preventDefault();e.returnValue='';}});
+    window.addEventListener('beforeunload',e=>{saveTyping();if(saves.hasUnsavedChanges){e.preventDefault();e.returnValue='';}});
     // And closes the window the way the desktop does, with a window that only counts that it went.
     (window as unknown as {aphroditeCloseWindow?:()=>void}).aphroditeCloseWindow=()=>{void closer.request(async()=>{const w=window as unknown as {__closed?:number};w.__closed=(w.__closed??0)+1;}).catch(error=>toast(String(error)));};}
-  if(screen==='home'&&!startupError&&!onboarding.welcomed)welcomeModal();
+  if(screen==='home'&&!saves.unread&&!troubleNow()&&!onboarding.welcomed)welcomeModal();
 }
 void boot();

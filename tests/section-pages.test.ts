@@ -131,7 +131,7 @@ test('the check is the person\'s: an agent\'s section action still goes to the o
 });
 
 test('choosing Moa from the palette on an empty board adds its own page in one change',async()=>{
-  const project=fresh(),screen={...editorActions(project),moaPage,zoom:100,toast:noop};
+  const project=fresh(),screen={...editorActions(project),moaPage,zoom:100,toast:noop,undoable:noop,ui:(en:string)=>en};
   editorCalls(['function commit(','async function action('],screen);
   const rows=commandTable({hasSelection:false,canUndo:false,canRedo:false,approved:false,viewport:'desktop',sections:hasSectionPage(project)});
   const hit=filterCommands(rows,'Moa','en')[0];

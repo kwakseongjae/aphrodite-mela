@@ -14,7 +14,7 @@ const caseOf = (name: string) => { const at = main.indexOf(`case '${name}':`); a
 test('reloading from disk is the person\'s alone: an agent\'s command is refused, and the handler asks who pressed before it reads the disk', () => {
   assert.equal(personOnlyRow('disk-reload'), 'outside.disk-reload');
   assert.equal(commandById['outside.disk-reload'].author, 'person-only');
-  assert.match(caseOf('disk-reload'), /case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(\);/);
+  assert.match(caseOf('disk-reload'), /case 'disk-reload': if\(refusal\(d,'outside\.disk-reload'\)\)break;await reloadFromDisk\(/);
 });
 
 /* 4: what an approve button was drawn over names the board, and the review card follows the canvas when an edit redraws only
@@ -111,7 +111,7 @@ test('opening a board from a card is Home\'s, and opens it in the workspace it i
 test('every handler that waits before it writes asks whether its board is still open, the board\'s id and not only its design', () => {
   // fix 2 #5 narrows it to the opening the handler began in.
   assert.match(main, /function sameBoard\(\):\(\)=>boolean\{const id=project\.id,session=editSession;return \(\)=>\{if\(screen==='editor'&&project\.id===id&&editSession===session\)return true;/);
-  for (const name of ['block-image', 'upload-reference']) assert.match(caseOf(name), /await readImage\(file\); if \(!here\(\)\) return; commit\(/, name);
+  for (const name of ['block-image', 'upload-reference']) assert.match(caseOf(name), /await readImage\(file\); if \(!here\(\)\) return; (const done=)?commit\(/, name);
   const omd = main.slice(main.indexOf("case 'apply-omd':"), main.indexOf("case 'omd-issue':"));
   assert.ok(omd.indexOf('if(!here())break;') > omd.indexOf('await verifyReference('), 'apply-omd, after its fetch');
   const md = main.slice(main.indexOf("case 'import-md':"), main.indexOf("case 'import-md':") + 400);
@@ -169,10 +169,9 @@ test('a patch of two clearings and nothing else is refused, not taken as an empt
 
 /* 10: every write into the disk's line is held to what the desktop can save. */
 test('every library put in the disk\'s line goes through libraryText', () => {
-  const calls = [...main.matchAll(/enqueue\(([^)]*)\)/g)].map(m => m[1]);
-  assert.ok(calls.length >= 2);
-  for (const arg of calls) assert.ok(arg === 'raw' || arg.startsWith('libraryText('), `enqueue(${arg})`);
-  assert.match(main, /const raw=libraryText\(next\);if\(diskQueue\)\{diskQueue\.enqueue\(raw\);\}/);
+  assert.doesNotMatch(main,/\.enqueue\(/,'the editor cannot bypass the save state');
+  assert.equal([...main.matchAll(/saves\.save\(/g)].length,1,'one snapshot builder for every writer');
+  assert.match(main, /const text=libraryText\(prepared\)/);
   assert.doesNotMatch(main, /enqueue\(JSON\.stringify/);
 });
 

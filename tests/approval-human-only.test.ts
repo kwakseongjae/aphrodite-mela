@@ -171,7 +171,7 @@ test('the gate reads a click off the live screen the way the click handler does'
 });
 
 test('the click listener tells action() whether a person clicked, and who pressed',()=>{
-  assert.match(main,/void action\(control,\s*dispatchOf\(e\),\s*e\.isTrusted\)/);
+  assert.match(main,/void action\(control,\s*dispatchOf\(e\),\s*pressOrigin\(e\)\.isTrusted\)/);
 });
 
 test('action() refuses a human-only action no person started',()=>{
@@ -224,7 +224,7 @@ test('undo and redo name who asked: the key handler by the event, action() befor
   const start=main.indexOf('async function action(');
   const asked=main.indexOf('const d=given??NOBODY;',start);
   assert.ok(asked>start&&asked<main.indexOf('await ',start),'read before an agent\'s click returns');
-  assert.match(main,/case 'undo': history\('undo',d\); break;\n\s*case 'redo': history\('redo',d\); break;/);
+  assert.match(main,/case 'undo': history\('undo',d,el\.dataset\.undoFor\); break;\n\s*case 'redo': history\('redo',d\); break;/);
 });
 
 test('the MCP interface tool and every bridge route funnel into runAgentCommand',()=>{
@@ -256,8 +256,8 @@ test('on Home an agent reads no revision and no references kept for the board le
 });
 
 test('a library whose read tidied an approval is written back once, and a store that refuses that write does not stop the app', () => {
-  assert.match(main, /if\(readTidied\(library\)&&!nativeDesktop\)try\{writeLibraryText\(store,JSON\.stringify\(library\)\);\}catch\{/);
+  assert.match(main, /if\(!nativeDesktop&&readTidied\(library\)\)try\{saveLibrary\(library\);\}catch\{/);
   // 0.3-R fix 1 #10: through queueLibrary, held to what the desktop can save.
-  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)&&!vanished\)queueLibrary\(library\);/, 'the desktop at start');
+  assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)&&!saves\.missing\)queueLibrary\(library\);/, 'the desktop at start');
   assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)\)queueLibrary\(library\);/, 'and when it reads the disk again');
 });

@@ -1,0 +1,171 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {setImmediate as tick} from 'node:timers/promises';
+import {MAX_PROJECT} from '../src/model';
+import {libraryText} from '../src/workspace/library';
+import {editorCalls} from './support/editor-calls';
+import {windowWithDisk,deferred} from './support/save-window';
+
+test('each step reports saved only for the acknowledged live edit',async()=>{
+  for(const steps of ['A B ok ok','A refuse ok','A refuse B ok fail','A B ok refuse fail','A fail B','A ok B refuse ok','A ok A ok','A B A ok ok ok']){
+    const {s,edit,writes}=windowWithDisk();
+    let acknowledged=s.saves.generation,index=0;
+    const snapshots:{generation:number;name:string}[]=[];
+    for(const step of steps.split(' ')){
+      if(step==='ok'||step==='fail'){
+        const w=writes[index],snapshot=snapshots[index++];assert.ok(w);
+        assert.equal(JSON.parse(w.text).entries[0].project.name,snapshot.name);
+        if(step==='ok'){acknowledged=snapshot.generation;w.done.resolve(index);}else w.done.reject(new Error('disk full'));
+      }else{
+        const before=s.saves.generation;
+        edit(step==='refuse'?'bad\uD800':step);
+        assert.ok(s.saves.generation>before);
+        if(step!=='refuse')snapshots.push({name:step,generation:s.saves.generation});
+      }
+      await tick();
+      assert.equal(s.saves.saved,acknowledged===s.saves.generation,steps+' after '+step);
+    }
+  }
+});
+test('quit after a refused B and a late acknowledgement of A keeps the window open',async()=>{
+  const {s,writes,edit}=windowWithDisk();
+  edit('A');await tick();s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
+  writes[0].done.resolve(1);await tick();
+  let closed=false;await assert.rejects(s.closeWindow(async()=>{closed=true;}));
+  assert.equal(closed,false);
+});
+test('a pending component image that exceeds the board limit invalidates the discard answer and a read in flight',async()=>{
+  for(const during of [false,true]){
+    const {s,reads,questions,press,edit}=windowWithDisk();
+    const image=deferred<string>();await press('block-image');const importing=s.finishImage(image.promise);
+    edit('bad\uD800');await s.reloadFromDisk();assert.equal(questions.length,1);
+    const confirm={discardGeneration:s.confirmGeneration};assert.ok(confirm.discardGeneration);
+    const reading=during?press('disk-reload',confirm):undefined;await tick();
+    image.resolve('data:image/png;base64,'+'A'.repeat(MAX_PROJECT));await importing;
+    if(during){reads[0].resolve({path:'/old',data:libraryText(s.library),revision:1});await reading;}
+    else {const answer=press('disk-reload',confirm);await tick();reads[0]?.resolve({path:'/old',data:libraryText(s.library),revision:1});await answer;}
+    assert.equal(questions.length,2,'ask again after the refused import');
+    assert.equal(reads.length,during?1:0);
+  }
+});
+test('Start fresh never writes the old board in place of a refused live edit',async()=>{
+  const {s,edit,press,writes,said}=windowWithDisk('missing');s.project.reference='x'.repeat(MAX_PROJECT);edit('B');
+  const start=press('disk-start-fresh');await tick();writes[0]?.done.resolve(1);await start;
+  assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));assert.equal(writes.length,0);
+});
+test('one Start fresh waits for every newer write and announces the live replacement once',async()=>{
+  const {s,edit,press,writes,questions,said}=windowWithDisk('missing');
+  const start=press('disk-start-fresh');await tick();
+  assert.match(questions[0],/in a new folder at \/old/);
+  for(const [i,name] of ['B','C'].entries()){
+    edit(name);writes[i].done.resolve(i+1);await tick();
+    assert.ok(s.saves.missing);
+    assert.deepEqual(said,[]);
+    assert.equal(JSON.parse(writes[i+1].text).entries[0].project.name,name);
+  }
+  writes[2].done.resolve(3);await start;
+  assert.equal(s.saves.missing,undefined);
+  assert.deepEqual(said,['Started fresh. The old folder was left alone.']);
+  assert.equal(questions.length,1);
+});
+test('a newer refused or failed save during Start fresh keeps the reminder',async()=>{
+  for(const refused of [false,true]){
+    const {s,edit,press,writes,said}=windowWithDisk('missing');
+    const start=press('disk-start-fresh');await tick();
+    edit(refused?'bad\uD800':'B');writes[0].done.resolve(1);await tick();
+    if(!refused)writes[1].done.reject(new Error('disk full'));
+    await start;
+    assert.ok(s.saves.missing);assert.equal(s.saves.saved,false);
+    assert.ok(!said.some(m=>m.includes('Started fresh')));
+  }
+});
+test('quit after an empty read and failed retry exports the same live boards as Save every board',async()=>{
+  const {s,writes,reads,press,edit,files,questions}=windowWithDisk('missing');
+  edit('replacement');await tick();writes[0].done.resolve(1);await s.saves.flush();assert.equal(s.saves.replaced,true);
+  const reading=s.reloadFromDisk();reads[0].resolve({data:null,path:'/old',revision:0});await reading;
+  s.project.name='live';await press('hub-backup');
+  const {windowCloser}=await import('../src/workspace/closing');
+  Object.assign(s,{windowCloser,StillSaving:class extends Error{}});
+  editorCalls(['async function askClose(','async function keepOnClose('],s);
+  s.nativeQuestion=async(_said:string,o:{buttons:{yes:string}})=>{questions.push(o.buttons.yes);return o.buttons.yes;};
+  editorCalls(['const closer=windowCloser'],s);
+  const {runInNewContext}=await import('node:vm');
+  let closed=false;s.destroy=async()=>{closed=true;};
+  const closing=runInNewContext('closer.request(destroy)',s);await tick();writes[1].done.reject(new Error('disk full'));await closing;
+  assert.equal(closed,true);const boards=(file:string)=>JSON.parse(file).entries.map((e:{project:unknown})=>e.project);assert.deepEqual(boards(files[1]),boards(files[0]));assert.match(questions.at(-1)!,/Save every board as a backup file/);
+});
+test('the format sentence follows the live backup and an edit during dispatch cannot change the checked bytes',async()=>{
+  const {s,edit,files,press}=windowWithDisk();
+  const {importedProject}=await import('../src/workspace/library');
+  const {troubleDialog}=await import('../src/ui/notices');
+  const line={textContent:''};
+  Object.assign(s,{TextEncoder,importedProject,pageView:undefined,
+    troubleKey:()=>'',icon:()=>'',troubleDialog,modalRoot:{querySelector:()=>line},showModal:(_t:string,_sub:string,body:string)=>{line.textContent=body;}});
+  editorCalls(['function reimportable(','function openTrouble('],s);
+  s.library.entries=Array.from({length:200},(_,i)=>({...s.library.entries[0],project:{...s.project,id:i?'board-'+i:s.project.id}}));
+  s.openTrouble({kind:'failed',detail:'size',retries:true});
+  assert.match(line.textContent,/It is in the format Import board reads/);
+  edit('broken\uD800');assert.doesNotMatch(line.textContent,/format Import board reads/);
+  edit('good again');assert.match(line.textContent,/format Import board reads/);
+  const pressed=press('disk-backup');edit('later\uD800');await pressed;
+  assert.doesNotThrow(()=>importedProject(files[0],s.library));assert.equal(JSON.parse(files[0]).name,'good again');
+});
+test('a library-only write cannot acknowledge an older copy of the refused open board',async()=>{
+  const {s,edit,writes}=windowWithDisk();
+  s.project.reference='x'.repeat(MAX_PROJECT);edit('too large');
+  assert.throws(()=>s.saveLibrary({...s.library,entries:s.library.entries.map((e:{pinned:boolean})=>({...e,pinned:true}))}));
+  await tick();assert.equal(writes.length,0);assert.equal(s.saves.saved,false);
+});
+test('the all-board quit choice keeps its scope when a late write lands while the question is open',async()=>{
+  const {s,reads,writes,edit,files}=windowWithDisk();
+  const read=s.reloadFromDisk();reads[0].resolve({data:null,revision:0,path:'/old'});await read;
+  edit('late');await tick();
+  Object.assign(s,{nativeDesktop:false,StillSaving:class extends Error{},confirm:()=>{writes[0].done.resolve(1);return true;}});
+  editorCalls(['async function askClose(','async function keepOnClose('],s);
+  const choice=await s.askClose(new s.StillSaving());await s.saves.flush();assert.equal(s.saves.noCopy,false);
+  await s.keepOnClose(choice);assert.equal(JSON.parse(files[0]).entries?.length,2);
+});
+test('discard reads after earlier writes settle and asks again if a refused edit lands in that wait',async()=>{
+  for(const newer of [false,true]){
+    const {s,edit,writes,reads,questions}=windowWithDisk();
+    edit('A');await tick();await s.reloadFromDisk();
+    const answer=s.reloadFromDisk(Number(s.confirmGeneration));await tick();
+    assert.equal(reads.length,0,'the read must see the outcome of the in-flight write');
+    if(newer)edit('later\uD800');
+    writes[0].done.resolve(1);await tick();
+    if(!newer)reads[0].resolve({revision:1,path:'/old',data:writes[0].text});
+    await answer;assert.equal(questions.length,newer?2:1);
+  }
+});
+
+test('each landed write records its own breadcrumb in an ordinary window',async()=>{
+  const {s,edit,writes}=windowWithDisk();
+  const {readBreadcrumb}=await import('../src/workspace/breadcrumb');
+  assert.equal(s.saves.missing,undefined);
+  edit('first');
+  s.library.entries=s.library.entries.slice(0,1);
+  edit('second');
+  await tick();
+  assert.equal(readBreadcrumb(s.store),undefined);
+  for(const [i,revision,entries] of [[0,7,2],[1,11,1]]){
+    writes[i].done.resolve(revision);await tick();
+    const crumb=readBreadcrumb(s.store);
+    assert.ok(crumb);
+    assert.deepEqual([crumb.path,crumb.revision,crumb.entries],['/old',revision,entries]);
+  }
+});
+
+test('closing an unread store asks only when there is work without a receipt',async()=>{
+  for(const screen of ['home','editor']){
+    const {s,edit,writes}=windowWithDisk();
+    s.screen=screen;s.saves.unread='unreadable store';
+    let closed=0;const destroy=async()=>{closed++;};
+    await s.closeWindow(destroy);
+    assert.equal(closed,1);
+    assert.equal(writes.length,0);
+    assert.equal(s.saves.badge,'unsaved');
+    s.screen='editor';edit('work after the read failed');
+    await assert.rejects(s.closeWindow(destroy),/last write did not land/);
+    assert.equal(closed,1);
+  }
+});

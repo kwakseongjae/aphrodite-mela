@@ -20,7 +20,7 @@ test('a frame link opens the hidden page for viewing and only Edit in the app re
   const screen={...editorActions(project),who:personAt,boardSection:()=>section,enteredPage:'',
     document:{addEventListener:listen,querySelectorAll:()=>[frame]},addEventListener:listen,fitFrame:(id:string)=>fits.push(id),
     askOpen:()=>false,closeModal:()=>{previewOpen=false;},pageView:undefined,pageViewRoot,pageViewKey:()=>'',pageViewEntered:false,
-    pageViewStopped:false,pageViewHops:hopLimit(2),ui:(en:string)=>en,esc,icon:noop,hydrateIconsIn:noop,syncStateAttributes:noop,
+    pageViewStopped:false,pageViewHops:hopLimit(2),ui:(en:string)=>en,esc,icon:noop,hydrateIconsIn:noop,syncStateAttributes:noop,marksHtml:()=>'',
     isStarterPage,isFreePage,freePageFrame:()=>Promise.resolve({isConnected:false}),mountPagePreview:noop,
     persist:()=>saves.push(JSON.stringify(project)),toast:(s:string)=>notices.push(s)};
   editorCalls(['function commit(','function enterPage(','function leavePage(','function openPageView(','function closePageView(',

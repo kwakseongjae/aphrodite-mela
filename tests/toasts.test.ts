@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,TOAST_LIFE,TOAST_MAX,type Toast} from '../src/design/toasts';
+import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,toastLife,settleUndo,TOAST_LIFE,TOAST_LIFE_MAX,TOAST_MAX,type Toast} from '../src/design/toasts';
 
 const NOW=1_700_000_000_000;
 const build=(...messages:string[])=>messages.reduce((list,m,i)=>pushToast(list,m,NOW+i,i+1),[] as Toast[]);
@@ -54,4 +54,41 @@ test('a message is escaped rather than pasted into the page',()=>{
   assert.match(html,/&lt;img/);
   assert.match(toastHtml(build('삭제','삭제')),/×2/);
   assert.match(html,/data-toast="1"/);
+});
+
+test('a longer line stays longer, so it can be read to the end, and none stays for good',()=>{
+  const short='삭제했습니다',long='보드를 디스크에 쓰지 못했습니다. 백업 파일로 저장한 뒤 그 보드를 고치거나 지워 주세요. 이 창은 그대로 둡니다.';
+  assert.equal(toastLife(short),TOAST_LIFE,'a short line keeps the time it always had');
+  assert.ok(toastLife(long)>TOAST_LIFE);
+  assert.ok(toastLife('가'.repeat(2000))<=TOAST_LIFE_MAX);
+  const list=pushToast([],long,NOW,1);
+  assert.equal(expireToasts(list,NOW+TOAST_LIFE+1).length,1,'it is still there when a short one would have gone');
+  assert.equal(nextExpiry(list,NOW),toastLife(long));
+});
+
+test('a change that can be undone carries Undo, the same single step as the shortcut, while it is still the last change',()=>{
+  const list=pushToast([],'컴포넌트를 삭제했습니다',NOW,1,{undo:'p1:7'});
+  assert.equal(list[0].undo,'p1:7');
+  const live=toastHtml(list,{undo:'p1:7',ko:true});
+  assert.deepEqual([...live.matchAll(/data-action="([^"]+)"/g)].map(m=>m[1]),['undo'],'the button is the undo the shortcut runs');
+  assert.match(live,/>되돌리기</);
+  assert.doesNotMatch(toastHtml(list,{undo:'p1:8',ko:true}),/data-action/,'once another change lands, pressing it would undo that one instead, so it goes');
+  assert.doesNotMatch(toastHtml(list),/data-action/);
+  assert.doesNotMatch(live,/<button[^>]*data-toast=/,'a button is never put inside a button');
+  assert.match(live,/<button type="button" class="ui-toast-text toast-dismiss"[^>]*>컴포넌트를 삭제했습니다<\/button>[^]*<button[^>]*data-action="undo"/,'putting it away and Undo are two buttons side by side, both reached by the keyboard');
+  assert.match(toastHtml(list),/<button type="button" class="ui-toast-text toast-dismiss"/,'a toast without Undo is put away from the keyboard too');
+  assert.match(live,/data-undo-for="p1:7"/,'and it names its change, so a press that comes after another change does nothing');
+  assert.ok(toastLife('컴포넌트를 삭제했습니다',true)>toastLife('컴포넌트를 삭제했습니다'),'and stays a little longer, to be reached');
+});
+
+test('a repeated line takes the newest Undo or none, and a settled list keeps only the last change\'s',()=>{
+  let list=pushToast([],'Moved.',NOW,1,{undo:'s:b:1'});
+  list=pushToast(list,'Moved.',NOW+1,2);
+  assert.equal(list.length,1);assert.equal(list[0].count,2);
+  assert.equal(list[0].undo,undefined,'the newest move recorded nothing, so the line offers nothing');
+  list=pushToast(list,'Moved.',NOW+2,3,{undo:'s:b:2'});
+  assert.equal(list[0].undo,'s:b:2','and the newest change is the one it offers');
+  const two=pushToast(list,'Renamed.',NOW+3,4,{undo:'s:b:3'});
+  assert.deepEqual(settleUndo(two,'s:b:3').map(t=>t.undo),[undefined,'s:b:3']);
+  assert.deepEqual(settleUndo(two,'s:b:2').map(t=>t.undo),['s:b:2',undefined]);
 });

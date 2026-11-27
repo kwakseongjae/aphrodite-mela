@@ -105,6 +105,8 @@ test('the tools say the same as the playbook: apply_edits leads with html, list_
 
 test('the playbook tells an agent its name is remembered once allowed',()=>{
   assert.match(playbook,/remembered, across restarts, until they disconnect it/);
+  assert.match(playbook,/a mark counts your changes/,'being connected is a mark that counts the changes (0.3-G2b)');
+  assert.doesNotMatch(playbook,/banner/,'no strip runs across the top while connected any more');
 });
 
 /* 0.3-2: the tool list is generated from the command table, so it cannot name a tool that is gone

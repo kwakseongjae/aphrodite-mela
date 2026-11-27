@@ -972,6 +972,17 @@ const commandsForScheme = scheme => [
     controls: [action('editor-mode', {mode: 'agent'}), form('agent-mode-form'), action('delegation-return'), action('assembly-end')],
   },
   {
+    /* The sheet over a screen that could not be drawn stays until the person has read it: only they draw again or put it away. */
+    id: 'human.render-failed',
+    label: {en: 'Draw the screen again, or put away what said it stopped', ko: '멈춘 화면 다시 그리기, 알림 닫기'},
+    grade: 'human',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('fatal-redraw'), action('fatal-close')],
+  },
+  {
     id: 'human.start-fresh',
     label: {en: 'Start a fresh workspace when the old folder is gone', ko: '예전 폴더가 없을 때 새로 시작'},
     grade: 'human',
@@ -1376,6 +1387,28 @@ const commandsForScheme = scheme => [
     controls: [action('copy-prompt'), action('copy-storage-path'), action('dev-copy')],
   },
   {
+    /* What a screen that could not be drawn said, copied for a report: the person's, read before it is taken anywhere (0.3-G2b fix 1). */
+    id: 'outside.copy-diagnostics',
+    label: {en: 'Copy what stopped the screen, for a report', ko: '화면이 멈춘 까닭을 알리려고 복사'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('fatal-copy')],
+  },
+  {
+    /* The boards saved as files from the sheet over a screen that could not be drawn: the person's, answered by the sheet itself (0.3-G2b fix 3). */
+    id: 'outside.render-failed-backup',
+    label: {en: 'Save the boards as files from the sheet over a screen that stopped', ko: '멈춘 화면 위의 장에서 보드를 파일로 저장'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('fatal-backup'), action('fatal-backup-all')],
+  },
+  {
     id: 'outside.project-new',
     label: {en: 'Make, open, import or duplicate a project, or open a board someone sent', ko: '프로젝트 만들기·열기·가져오기·복제, 받은 보드 열기'},
     grade: 'outside',
@@ -1528,7 +1561,7 @@ const commandsForScheme = scheme => [
   ]),
   chrome('chrome.dialogs', 'Open or close a dialog', '창 열기·닫기', [
     action('commands'), field('command-search'), action('close-modal'), action('about'), action('brand-kit'), action('storage-info'), action('agent'),
-    action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'),
+    action('agent-connect'), action('design-md'), action('project'), action('omd-issue'), action('preview'), action('notice-open'),
   ]),
   chrome('chrome.page-view', 'See a page on its own, or go back to the board', '페이지만 보기·보드로 돌아가기', [
     action('page-view'), action('page-view-close'),

@@ -303,4 +303,30 @@ check('a hidden page shown by Edit in the app with nothing in its place is saved
   assert.equal(await saved(), null, 'and saved without it once the person has gone to the page');
 });
 
+/* 0.3-G2b fix 1 (Astra low 12): the dialog for stored boards that cannot be read, the real way: it opens on its own once,
+   Later leaves its mark, and the mark opens it again. */
+check('stored boards that cannot be read open their dialog once, Later leaves a mark, and the mark opens it again', async () => {
+  const kept = await evaluate(`localStorage.getItem('aphrodite-project-library-v1')`);
+  const dialogOpen = () => evaluate(`!!document.querySelector('#modal-root .ui-notice-choices')`);
+  try {
+    await evaluate(`localStorage.setItem('aphrodite-project-library-v1', '{not json'), true`);
+    await evaluate('location.reload(), true');
+    await sleep(2_500);
+    assert.equal(await dialogOpen(), true, 'it opened on its own');
+    assert.equal(await evaluate(`document.activeElement?.dataset.action`), 'hub-recovery', 'starting on keeping the stored files');
+    await pressIn('#modal-root [data-action="close-modal"].ui-btn-md');
+    assert.equal(await dialogOpen(), false, 'Later put it away');
+    assert.equal(await evaluate(`!!document.querySelector('.notice-mark-trouble')`), true, 'and left its mark');
+    await pressIn('.notice-mark-trouble');
+    assert.equal(await dialogOpen(), true, 'the mark opens it again');
+    await pressIn('#modal-root [data-action="close-modal"].ui-btn-md');
+  } finally {
+    // A store that held nothing is left holding nothing, not the text "null".
+    await evaluate(kept === null ? `localStorage.removeItem('aphrodite-project-library-v1'), true` : `localStorage.setItem('aphrodite-project-library-v1', ${JSON.stringify(kept)}), true`);
+    await evaluate('location.reload(), true');
+    await sleep(2_500);
+  }
+  assert.equal(await evaluate(`!!document.querySelector('.notice-mark-trouble')`), false, 'read again, nothing is wrong');
+});
+
 await runChecks(checks, close);
