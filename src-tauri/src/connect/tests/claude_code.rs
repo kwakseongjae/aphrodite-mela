@@ -1865,3 +1865,25 @@ fn fix3_n6_a_recognized_project_scope_is_still_refused() {
         assert_eq!(f.proposal(action)["code"], "cli_scope_unknown");
     }
 }
+
+#[test]
+fn fix3_n8_swapping_the_previewed_file_at_the_last_check_refuses_before_get() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    let original = fs::metadata(&program).unwrap().ino();
+    // Both files can run the playback. A start by file ID would succeed after the swap.
+    fs::hard_link(&program, f.e().home.join("original")).unwrap();
+    let replacement = f.e().home.join("replacement");
+    fs::copy(&program, &replacement).unwrap();
+    let preview = f.proposal(Action::Connect);
+    let count = f.calls().len();
+    let selected = program.clone();
+    spawn::BEFORE_VERIFY.set(Some(Box::new(move || {
+        fs::rename(replacement, selected).unwrap();
+    })));
+    let result = f.apply(Action::Connect, &preview, false);
+    assert_ne!(fs::metadata(program).unwrap().ino(), original);
+    assert_eq!(f.calls().len(), count, "a lookup started after the swap");
+    assert_eq!(result["code"], "changed");
+}

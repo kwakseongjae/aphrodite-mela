@@ -41,6 +41,11 @@ impl Drop for Attributes {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static BEFORE_VERIFY: std::cell::Cell<Option<Box<dyn FnOnce()>>> = const { std::cell::Cell::new(None) };
+}
+
 pub(super) struct Child(libc::pid_t);
 impl Child {
     pub fn start(
@@ -98,6 +103,10 @@ impl Child {
                 &mut attr.0,
                 (libc::POSIX_SPAWN_SETPGROUP | libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as i16,
             ))?;
+            #[cfg(test)]
+            if let Some(hook) = BEFORE_VERIFY.take() {
+                hook();
+            }
             verify()?;
             check(libc::posix_spawn(
                 &mut pid,
