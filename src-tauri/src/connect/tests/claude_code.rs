@@ -1322,3 +1322,29 @@ fn recheck_astra_5_interrupted_rollback_preserves_the_previous_add() {
     );
     assert_eq!(f.status()["owned"], true);
 }
+
+#[test]
+fn recheck_astra_6_profile_alias_shares_the_journal_and_lock_even_before_creation() {
+    use fs2::FileExt;
+    let mut f = Fixture::new();
+    let real = f.e().home.join("profiles");
+    fs::create_dir(&real).unwrap();
+    let alias = f.e().home.join("alias");
+    symlink(&real, &alias).unwrap();
+    f.0.engine.claude_config_dir = Some(real.join("new"));
+    pending_receipt(&f, "/previous/sidecar");
+    let _ = f.proposal(Action::Connect);
+    let lock = fs::File::open(record_path(&f).with_extension("lock")).unwrap();
+    lock.lock_exclusive().unwrap();
+    f.0.engine.claude_config_dir = Some(alias.join("new"));
+    assert_eq!(
+        json!(f.e().status(CLAUDE).unwrap())["unfinishedRepoint"],
+        true
+    );
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_busy");
+    drop(lock);
+    assert!(f.proposal(Action::Connect)["commands"][0]["line"]
+        .as_str()
+        .unwrap()
+        .contains("alias/new"));
+}

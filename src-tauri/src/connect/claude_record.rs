@@ -1,5 +1,5 @@
 //! Aphrodite's own per-profile state. Readers see either generation of an atomic rename.
-use super::{cli_process::controlled, files, hash, Code, Engine, Result, Tool};
+use super::{cli_process::controlled, files, hash, Code, Engine, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -29,11 +29,36 @@ impl Record {
     }
 }
 
-fn record_path(e: &Engine) -> PathBuf {
-    let key = hash(e.path(Tool::ClaudeCode).as_os_str().as_encoded_bytes());
-    e.app_data
+fn record_path(e: &Engine) -> Result<PathBuf> {
+    let dir = e.claude_config_dir.as_ref().unwrap_or(&e.home);
+    let mut ancestor = dir.as_path();
+    let base = loop {
+        match ancestor.canonicalize() {
+            Ok(base) => break base,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                ancestor = ancestor.parent().ok_or(Code::InvalidPath)?;
+            }
+            Err(_) => return Err(Code::InvalidPath),
+        }
+    };
+    let mut profile = base;
+    for part in dir
+        .strip_prefix(ancestor)
+        .map_err(|_| Code::InvalidPath)?
+        .components()
+    {
+        match part {
+            std::path::Component::Normal(name) => profile.push(name),
+            std::path::Component::ParentDir => {
+                profile.pop();
+            }
+            _ => (),
+        }
+    }
+    let key = hash(profile.join(".claude.json").as_os_str().as_encoded_bytes());
+    Ok(e.app_data
         .join("connect")
-        .join(format!("claude-{key}.json"))
+        .join(format!("claude-{key}.json")))
 }
 
 fn private_file(meta: &fs::Metadata) -> bool {
@@ -78,7 +103,7 @@ pub(super) struct Store {
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
-        let path = record_path(e);
+        let path = record_path(e)?;
         let dir = path.parent().ok_or(Code::InvalidPath)?;
         // Create only below an existing controlled ancestor. Never follow a pre-existing symlink.
         let ancestor = dir
@@ -137,7 +162,7 @@ impl Store {
         Ok(value)
     }
     pub fn peek(e: &Engine) -> Result<Record> {
-        Self::read_path(&record_path(e))
+        Self::read_path(&record_path(e)?)
     }
     pub fn read(&self) -> Result<Record> {
         Self::read_path(&self.path)
