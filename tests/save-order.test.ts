@@ -75,3 +75,19 @@ test('redrawing the badge after an empty read or refusal never says a write is p
     assert.equal(runInNewContext(expr,s),'unsaved');
   }
 });
+test('the format sentence follows the live backup and an edit during dispatch cannot change the checked bytes',async()=>{
+  const {s,edit,files,press}=windowWithDisk();
+  const {importedProject}=await import('../src/workspace/library');
+  const {troubleDialog}=await import('../src/ui/notices');
+  const line={textContent:''};
+  Object.assign(s,{TextEncoder,importedProject,pageView:undefined,reimportable:(text:string)=>{try{importedProject(text,s.library);return true;}catch{return false;}},
+    troubleKey:()=>'',icon:()=>'',troubleDialog,modalRoot:{querySelector:()=>line},showModal:(_t:string,_sub:string,body:string)=>{line.textContent=body;}});
+  editorCalls(['function openTrouble('],s);
+  s.library.entries=Array.from({length:200},(_,i)=>({...s.library.entries[0],project:{...s.project,id:i?'board-'+i:s.project.id}}));
+  s.openTrouble({kind:'failed',detail:'size',retries:true});
+  assert.match(line.textContent,/It is in the format Import board reads/);
+  edit('broken\uD800');assert.doesNotMatch(line.textContent,/format Import board reads/);
+  edit('good again');assert.match(line.textContent,/format Import board reads/);
+  const pressed=press('disk-backup');edit('later\uD800');await pressed;
+  assert.doesNotThrow(()=>importedProject(files[0],s.library));assert.equal(JSON.parse(files[0]).name,'good again');
+});

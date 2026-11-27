@@ -75,7 +75,7 @@ test('a dialog says only what the code knows about the files it offers, and offe
   const ko=troubleDialog(full,'editor',true).body;
   assert.match(ko,/별도 파일이라 들어 있지 않아요/,'what a backup leaves out is said');
   assert.doesNotMatch(ko,/가져오기로 다시 열 수/,'re-import is promised only when the file is one the importer takes');
-  assert.match(troubleDialog(full,'editor',true,{reimport:true}).body,/보드 가져오기로 다시 열 수 있어요\(승인은 다시 해야 해요\)/);
+  assert.match(troubleDialog(full,'editor',true,{reimport:true}).body,/보드 가져오기가 읽는 형식의 파일이에요\(승인은 다시 해야 해요\)/);
   assert.match(ko,/보드 가져오기로 여는 파일은 아니에요/,'every board as one file is a file to keep, not one Import board opens');
   assert.ok(!actionsOf(troubleDialog(unread,'home',false,{native:false}).body).includes('disk-reload'),'the browser build reads no disk, so it offers no reload');
   assert.match(troubleDialog(vanished,'home',true).subtitle,/^앱은 아무것도 지우지 않았어요/,'it says what the app knows: it deleted nothing');
@@ -209,7 +209,7 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
   let opened=0;let active:{matches:(s:string)=>boolean}|null={matches:()=>true};
   const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false},askOpen:()=>false,document:{get activeElement(){return active;}},HTMLElement:Object,
     troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',
-    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder,reimportable:()=>false,pageView:undefined,fatalUp:()=>false};
+    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder,refreshBackupFormat:()=>{},reimportable:()=>false,pageView:undefined,fatalUp:()=>false};
   editorCalls(['function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const shown=screen.troubleOpened as ()=>boolean;
   assert.equal(shown(),false,'the person is typing: it waits');
@@ -326,7 +326,7 @@ test('a backup is said to open again only when the importer takes its text, and 
   const broken={...p,name:'half \uD800 pair'};
   assert.equal(reimportable(JSON.stringify(broken,null,2)),false,'the importer refuses it, so the dialog does not promise it');
   const main=readFileSync('src/main.ts','utf8');
-  assert.match(main,/reimport:screen==='editor'&&reimportable\(JSON\.stringify\(project,null,2\)\)/);
+
   for(const ko of [false,true]){
     const d=troubleDialog(full,'editor',ko,{reimport:true});
     assert.doesNotMatch(d.body,/Pictures and videos placed on (it|boards) are not in|보드에 놓인 그림·영상 파일은 들어 있지 않/,'not every picture is left out');
@@ -433,4 +433,11 @@ test('in the browser build a refused save is a toast, not a dialog',async()=>{
   s.troubleOpened=()=>{opened++;return true;};
   edit('browser');assert.equal(s.saves.saved,false);assert.equal(opened,0);assert.equal(s.troubleNow(),undefined);
   assert.match(said.join(' '),/Could not save on this device/);
+});
+test('only the refused-save reload description explains the discard without repeating the retry',()=>{
+  for(const ko of [false,true]){
+    const sentence=ko?'디스크에 저장된 마지막 상태로 돌아가요. 저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요.':'This goes back to what was last saved on disk. Unsaved changes are thrown away, and you are asked first.';
+    assert.ok(troubleDialog({...failed,retries:true},'editor',ko).body.includes(sentence));
+    assert.ok(!troubleDialog(failed,'editor',ko).body.includes(sentence));
+  }
 });

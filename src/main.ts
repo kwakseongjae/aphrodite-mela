@@ -64,7 +64,7 @@ import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,settleUndo,type Toast} from './design/toasts';
 import {askKey} from './editor/ask-keys';
-import {troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
+import {troubleKind,troubleDialog,backupFormat,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
 import {preflightBatch,runBatch,importMedia,heldBatch,type BatchResult} from './agent/apply';
@@ -856,7 +856,13 @@ function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'||t.kind===
 function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
 /** The backup's text opens again through Import board: it is under the file limit and the importer itself takes it. The importer reads the text only. */
 function reimportable(text:string){if(new TextEncoder().encode(text).length>20_000_000)return false;try{importedProject(text,library);return true;}catch{return false;}}
-function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':pageView?'page':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&reimportable(JSON.stringify(project,null,2))});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
+function refreshBackupFormat(text?:string){
+  const line=modalRoot.querySelector('[data-backup-format]');
+  if(!line)return;
+  try{line.textContent=reimportable(text??JSON.stringify(project,null,2))?' '+backupFormat(uiLanguage==='ko'):'';}
+  catch{line.textContent='';}
+}
+function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':pageView?'page':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);refreshBackupFormat();}
 /** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
 function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing()||fatalUp())return false;openTrouble(t);return true;}
 /** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
@@ -1516,6 +1522,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
   if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
+  const backup=act==='disk-backup'?{name:fileName(project,'aphrodite.json'),text:JSON.stringify(project,null,2)}:undefined;
+  if(backup)refreshBackupFormat(backup.text);
   const here=sameBoard();
   const blocks = currentPage(project).blocks, b = blocks.find(b => b.id === selected);
   /* The archive answers for its own actions. It needs two things it cannot reach on its own: the
@@ -1836,7 +1844,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'preview': { if(!visiblePages(project).length){toast(nothingToPreview(uiLanguage==='ko'));break;} recordRun('preview:opened',{device,interactionCapture:false},d); const page = shownPage(project), free = isFreePage(page); showModal(ui('Preview','미리보기'), device === 'mobile' ? ui(`${esc(page.name)} at the 375px mobile width.`,`${esc(page.name)} 페이지를 375px 모바일 너비로 봅니다.`) : ui(`${esc(page.name)} at a responsive desktop width.`,`${esc(page.name)} 페이지를 반응형 데스크톱 너비로 봅니다.`), free ? `<div class="preview-frame ${device} preview-free" data-preview-free></div>` : `<iframe class="preview-frame ${device}" title="${ui('Live design preview','실시간 디자인 미리보기')}" sandbox="allow-scripts"></iframe>`, true); if(free){const slot=modalRoot.querySelector<HTMLElement>('[data-preview-free]')!;slot.closest('.modal')?.classList.add('preview-modal');void freePageFrame(page,`preview-frame ${device}`,made=>{made.title=ui('Live design preview','실시간 디자인 미리보기');slot.replaceWith(made);}).then(frame=>{if(!frame){slot.innerHTML=unframedHtml(page);return;}if(frame.isConnected)return loadFreePage(frame,page,frameKey(page.id,page.html),frameHost);});} else mountPagePreview(modalRoot.querySelector<HTMLIFrameElement>('iframe')!,project,page); } break;
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
-    case 'disk-backup': if(await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
+    case 'disk-backup': if(backup&&await saveFile(backup.name,backup.text,'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(modalRoot.querySelector('[data-reload-confirm]')?reloadAsked:undefined); break;
     case 'notice-open': if(!modalRoot.children.length&&!fatalUp())openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
@@ -2684,6 +2692,7 @@ function attachDiskQueue(revision:number){
   saves.attach(revision,(data,expected)=>invoke<number>('workspace_write',{data,expected}));
 }
 function saveChanged(){
+  refreshBackupFormat();
   paintSaveState();
   paintMarks();
   if(!troubleNow())troubleSeen='';
