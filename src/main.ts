@@ -476,6 +476,9 @@ function saveLibrary(next:Library){edited++;if(startupError)throw new Error(star
   if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
  const raw=libraryText(next);if(diskQueue){diskQueue.enqueue(raw);}else{writeLibraryText(store,raw);}library=next;rememberSaved(next,raw.length);}
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
+/** The window's boards as they are now: the open board as it is on screen, though the disk or the check before it refused it. */
+function liveLibrary():Library{if(screen!=='editor')return library;const at=library.entries.findIndex(e=>e.project.id===project.id),now=new Date().toISOString();
+  return {...library,entries:at>=0?library.entries.map((e,i)=>i===at?{...e,project}:e):[{project,createdAt:now,updatedAt:now,pinned:false,archived:false,workspaceId:workspaces.activeId},...library.entries]};}
 function persist() { if(screen!=='editor')return;
   // Every change and every step goes through here: an Undo drawn for a change that is no longer the last is taken off its toast.
   if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; if(!diskQueue&&saveRetries){saveTrouble='';saveRetries=false;paintMarks();} } catch(error) { lastSaved = false;
@@ -1577,7 +1580,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'hub-duplicate': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry){const copy=cloneProject(entry.project);saveLibrary(upsertProject(library,copy,undefined,entry.workspaceId??workspaces.activeId));hubRefresh();const fresh=document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(copy.id)}"]`);fresh?.classList.add('folio-card-enter');fresh?.scrollIntoView({block:'nearest'});toast(`${homeCopy[uiLanguage].duplicated} ‘${copy.name}’`);}break;}
     case 'hub-rename': {const entry=library.entries.find(e=>e.project.id===el.dataset.id);if(entry)showModal(ui('Rename','이름 바꾸기'),ui('The board\'s contents stay as they are.','보드 내용은 그대로 보존됩니다.'),renameDialogHtml(uiLanguage,entry.project));break;}
     case 'storage-info': showModal(ui('Storage','저장 위치'),ui('Everything stays on this Mac. No account, no cloud.','모든 것이 이 Mac에만 저장됩니다. 계정도, 클라우드도 없습니다.'),storageDialogHtml(uiLanguage,storagePath));break;
-    case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(library,null,2),'application/json');break;
+    case 'hub-backup': await saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');break;
     case 'hub-recovery': await saveFile('aphrodite-recovery.json',nativeDesktop?JSON.stringify(await invoke('workspace_recovery'),null,2):store.getItem(LIBRARY_KEY)??store.getItem(LEGACY_KEY)??'{}','application/json');break;
     case 'pin-frame': if(b?.kind==='frame'){insertParent=b.id;recordRun('target:pinned',{nodeId:b.id},d);refreshAssemblyBar();toast('삽입 대상 고정됨 · 자식을 추가해도 유지됩니다.');}break;
     case 'insert-root': insertParent=undefined;recordRun('target:root',{},d);refreshAssemblyBar();break;

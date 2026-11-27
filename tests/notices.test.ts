@@ -374,3 +374,20 @@ test('an edit made after the question, or while the disk is read, is not thrown 
   assert.deepEqual((during.screen.library as {entries:{project:{id:string}}[]}).entries.map(e=>e.project.id),['window'],'and the window keeps it');
   assert.equal(during.screen.diskQueue,'failed queue');
 });
+
+/* Astra recheck 6: an edit the disk refused before it was queued changed the open board but not the window's list of boards.
+   Save every board keeps the board as it is on screen, so the file holds the change the dialog says it holds. */
+test('every board saved as a backup holds the open board as it is on screen, the refused change included',async()=>{
+  const {editorActions}=await import('./support/editor-calls');
+  const {initialProject}=await import('../src/model');
+  const p=initialProject(),kept={...p,name:'Before the refused change'};
+  const saved:string[]=[];
+  const screen:Record<string,unknown>={...editorActions(p),library:{version:1,entries:[{project:kept,updatedAt:'',createdAt:'',pinned:false,archived:false}]},workspaces:{activeId:'w'},
+    saveFile:async(_n:string,text:string)=>{saved.push(text);return true;},toast:()=>{},ui:(en:string)=>en};
+  editorCalls(['function liveLibrary(','async function action('],screen);
+  p.name='After the refused change';
+  const {personAt}=await import('../src/agent/dispatch');
+  await (screen.action as Function)({dataset:{action:'hub-backup'}},personAt({isTrusted:true}),true);
+  const file=JSON.parse(saved[0]);
+  assert.deepEqual(file.entries.map((e:{project:{name:string}})=>e.project.name),['After the refused change']);
+});
