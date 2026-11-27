@@ -34,7 +34,7 @@ export async function keyboardBrowser(){
       approved:()=>isApproved(project),
     }});
   `;
-  const output=await build({stdin:{contents:main+fixture,resolveDir:resolve('src'),loader:'ts'},bundle:true,write:false,outfile:'editor.js',format:'iife',
+  const output=await build({stdin:{contents:"import './ui/tokens.css';import './ui/components.css';\n"+main+fixture,resolveDir:resolve('src'),loader:'ts'},bundle:true,write:false,outfile:'editor.js',format:'iife',
     define:{__APP_VERSION__:'"test"',__BOARD_SCHEME__:'"aphrodite"','process.env.NODE_ENV':'"production"'},
     external:['/assets/*','/fonts/*','/brand/*'],plugins:[{name:'raw-text',setup(build){
       build.onLoad({filter:/.*/},async args=>args.suffix==='?raw'?{contents:await readFile(args.path,'utf8'),loader:'text'}:undefined);
@@ -48,7 +48,7 @@ export async function keyboardBrowser(){
     await page.route('**/*',route=>{
       const url=new URL(route.request().url()),file=output.outputFiles.find(f=>f.path.endsWith(url.pathname));
       if(file&&url.pathname!=='/')return route.fulfill({body:file.text,contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript'});
-      if(url.pathname==='/')return route.fulfill({body:'<meta charset="utf-8"><link rel="stylesheet" href="/editor.css"><div id="app"></div><div id="modal-root"></div><div id="toast"></div><script src="/editor.js"></script>',contentType:'text/html'});
+      if(url.pathname==='/')return route.fulfill({body:'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/editor.css"><div id="app"></div><div id="modal-root"></div><div id="toast" class="ui-toast-stack"></div><script src="/editor.js"></script>',contentType:'text/html'});
       return route.fulfill({status:404,body:''});
     });
     return {page,browser};

@@ -412,7 +412,7 @@ function bumpConnect(by:string){
 }
 let tokensOpen=false;
 const semanticLabel=(name:SemanticToken)=>({surface:ui('Surface','표면'),line:ui('Line','선'),muted:ui('Muted','보조'),danger:ui('Danger','위험'),success:ui('Success','성공'),warning:ui('Warning','주의')})[name];
-let onboarding=readOnboarding(store);let tourIndex=-1,tourPlan:string[]=[];const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
+let onboarding=readOnboarding(store);let tourIndex=-1,tourPlan:string[]=[];let tourTimer:number|undefined;const tourRoot=document.createElement('div');tourRoot.className='tour-layer';tourRoot.hidden=true;document.body.append(tourRoot);
 type PanelState='open'|'collapsed';let panels:{left:PanelState;right:PanelState}=(()=>{try{const raw=JSON.parse(store.getItem('aphrodite-panels-v1')||'{}');return {left:raw.left==='collapsed'?'collapsed':'open',right:raw.right==='collapsed'?'collapsed':'open'};}catch{return {left:'open',right:'open'};}})();
 function savePanels(){try{store.setItem('aphrodite-panels-v1',JSON.stringify(panels));}catch{}}
 let cameraProjectId='';let cameraFitPending=false;let spaceHeld=false;let spaceAbort:AbortController|undefined;let cameraWriteTimer=0;
@@ -801,6 +801,7 @@ function syncStateAttributes(){
     undo:String(edits.undo.length),redo:String(edits.redo.length),mode:editorMode,
     pageView:pageView?.page??'',
   };
+  syncTour();
   if(pageView)placePageView();
   for(const [k,v] of Object.entries(state))app.setAttribute(`data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}`,v);
   const status=document.querySelector('#editor-state');
@@ -1117,7 +1118,7 @@ function render() {
   canvas.innerHTML=renderTree(page.blocks,project,undefined,(b,content)=>`<div class="block-wrap ${selected===b.id?'selected':''}" data-block-id="${esc(b.id)}" data-kind="${b.kind}" tabindex="0" role="group" aria-label="${esc(b.title)} ${b.kind} block"><div class="block-selection-label" data-move-id="${b.id}">${icon('grip-vertical')}${esc(b.kind)} · ${b.provider??'own'}</div>${b.kind==='frame'?`<span class="editor-frame-name">${esc(b.title)}</span>`:''}${content}</div>`)+add;
   mountSpace();mountBoard();mountPanels();mountInspectorResize();
   hydrateLocalImages(app,resolveLocal);
-  if(tourActive())positionTour();else if(onboarding.welcomed&&!onboarding.toured&&!modalRoot.children.length)setTimeout(()=>{if(screen==='editor'&&!tourActive()&&!onboarding.toured)startTour();},400);
+  if(tourActive()&&!tourRoot.hidden)positionTour();
   decorateInspector(shownPage(project));
   if(page.blocks.some(b=>b.variant==='app-shell'))app.querySelector('.viewport-controls')?.insertAdjacentHTML('beforeend',`<button class="plain-button" data-action="fit-app">${ui('Fit app','앱에 맞추기')}</button>`);
   hydrateIcons(); bindDragAndDrop(); bindInspectorCollapse(app,store,{show:ui('Show panel','패널 펼치기'),hide:ui('Hide panel','패널 접기')}); syncStateAttributes();
@@ -2151,6 +2152,20 @@ function paletteNavigate(key:'ArrowDown'|'ArrowUp'){
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
 function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 function tourActive(){return tourIndex>=0;}
+// A dialog covers an existing tour and postpones the first-run timer until the board is exposed again.
+function syncTour(){
+  const exposed=screen==='editor'&&!modalRoot.children.length&&!pageView;
+  if(tourActive()){
+    const resuming=exposed&&tourRoot.hidden;
+    tourRoot.hidden=!exposed;
+    if(resuming)positionTour();
+  }
+  if(exposed&&onboarding.welcomed&&!onboarding.toured&&!tourActive()){
+    tourTimer??=window.setTimeout(()=>{tourTimer=undefined;startTour();},400);
+  }else if(tourTimer!==undefined){
+    clearTimeout(tourTimer);tourTimer=undefined;
+  }
+}
 function startTour(){if(screen!=='editor')return;tourIndex=0;tourRoot.hidden=false;fitAll();tourPlan=tourSteps(uiLanguage,hasSectionPage(project)).filter(step=>tourTargetBox(step.target)).map(step=>step.id);positionTour();recordRun('tour:started');}
 function endTour(){document.querySelectorAll('.tour-target').forEach(el=>el.classList.remove('tour-target'));tourIndex=-1;tourRoot.hidden=true;tourRoot.innerHTML='';delete app.dataset.tour;onboarding={...onboarding,toured:true};writeOnboarding(store,onboarding);syncStateAttributes();}
 /** A step's target and its box, while it is on screen and not cut off by the panel it sits in. */
@@ -2545,7 +2560,8 @@ installPress({
     else if(kind==='toast'){toasts=dismissToast(toasts,Number(root.dataset.toast));paintToasts();}
     else if(kind==='page')closePageView();
     else if(kind==='popover'){
-      if(root instanceof HTMLDetailsElement){root.open=false;root.querySelector('summary')?.focus();}
+      if(root.classList.contains('tour-card'))endTour();
+      else if(root instanceof HTMLDetailsElement){root.open=false;root.querySelector('summary')?.focus();}
       else{const group=dockGroupOpen;dockGroupOpen='';render();focusOnSurface(app.querySelector<HTMLElement>(`[data-action="dock-group"][data-group="${CSS.escape(group)}"]`));}
     }else closeModal();
   },
@@ -2728,7 +2744,7 @@ document.addEventListener('keydown', e => {
     if(!modalRoot.children.length&&!pageView)return;}
   if(pageView&&!modalRoot.children.length)return;
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
-  if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
+  if ((e.key === 'Escape' || e.code === 'Escape') && (tourActive()||tourTimer!==undefined)) { endTour(); return; }
   if (e.key === 'Escape' || e.code === 'Escape') { closeModal();return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if (modalRoot.children.length||topSurface().kind==='toast')return;

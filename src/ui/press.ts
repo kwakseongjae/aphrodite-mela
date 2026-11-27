@@ -2,7 +2,7 @@
 import {dispatchOf,send} from '../agent/dispatch';
 
 const controls='button,input:not([type="hidden"]),textarea,select,a[href],summary,[tabindex],[contenteditable="true"]';
-const popovers='details[open]:is(.connect-mark,.menu-select,.help-fab,.folio-ws,.folio-more,.folio-lang,.folio-theme,.folio-help,.top-lang),.dock-slot:has(.dock-menu)';
+const popovers='details[open]:is(.connect-mark,.menu-select,.help-fab,.folio-ws,.folio-more,.folio-lang,.folio-theme,.folio-help,.top-lang),.dock-slot:has(.dock-menu),.tour-card';
 type Kind='sheet'|'dialog'|'ask'|'palette'|'popover'|'toast'|'page'|'editor';
 type Surface={kind:Kind;root:HTMLElement};
 type Origin={root:HTMLElement;focus:Element|null;control:HTMLElement|null;cancelled?:boolean};
