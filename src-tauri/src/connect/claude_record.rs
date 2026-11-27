@@ -68,7 +68,7 @@ fn private_file(meta: &fs::Metadata) -> bool {
         && meta.mode() & 0o777 == 0o600
 }
 
-fn open_lock(path: &Path) -> Result<File> {
+fn open_lock(path: &Path, settings: &[PathBuf]) -> Result<File> {
     let mut options = OpenOptions::new();
     options
         .read(true)
@@ -78,6 +78,8 @@ fn open_lock(path: &Path) -> Result<File> {
     if !path.try_exists().map_err(|_| Code::Io)? {
         match options.clone().create_new(true).open(path) {
             Ok(file) => {
+                let m = file.metadata().map_err(|_| Code::Io)?;
+                files::exclude_settings((m.dev(), m.ino()), settings)?;
                 files::make_private(&file)?;
                 return Ok(file);
             }
@@ -89,17 +91,20 @@ fn open_lock(path: &Path) -> Result<File> {
     if !private_file(&before) || !controlled(path) {
         return Err(Code::InvalidPath);
     }
+    files::exclude_settings((before.dev(), before.ino()), settings)?;
     let file = options.open(path).map_err(|_| Code::Io)?;
     let after = file.metadata().map_err(|_| Code::Io)?;
     if !private_file(&after) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {
         return Err(Code::Changed);
     }
+    files::exclude_settings((after.dev(), after.ino()), settings)?;
     Ok(file)
 }
 
 pub(super) struct Store {
     path: PathBuf,
     lock: File,
+    settings: Vec<PathBuf>,
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
@@ -121,11 +126,18 @@ impl Store {
         if !controlled(dir) {
             return Err(Code::InvalidPath);
         }
-        let lock = open_lock(&path.with_extension("lock"))?;
+        let settings = e.claude_settings();
+        let lock = open_lock(&path.with_extension("lock"), &settings)?;
         let deadline = Instant::now() + Duration::from_millis(750);
         loop {
             match fs2::FileExt::try_lock_exclusive(&lock) {
-                Ok(()) => return Ok(Self { path, lock }),
+                Ok(()) => {
+                    return Ok(Self {
+                        path,
+                        lock,
+                        settings,
+                    })
+                }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if Instant::now() >= deadline {
                         return Err(Code::CliBusy);
@@ -136,7 +148,7 @@ impl Store {
             }
         }
     }
-    fn read_path(path: &Path) -> Result<Record> {
+    fn read_path(path: &Path, settings: &[PathBuf]) -> Result<Record> {
         let before = match fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Record::default()),
@@ -145,6 +157,7 @@ impl Store {
         if !controlled(path) || !private_file(&before) {
             return Err(Code::InvalidPath);
         }
+        files::exclude_settings((before.dev(), before.ino()), settings)?;
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -154,6 +167,10 @@ impl Store {
         if !private_file(&after) || (before.dev(), before.ino()) != (after.dev(), after.ino()) {
             return Err(Code::Changed);
         }
+        files::exclude_settings((after.dev(), after.ino()), settings)?;
+        if after.len() > 64 * 1024 {
+            return Err(Code::RecordFailed);
+        }
         let value: Record =
             serde_json::from_reader(file.take(64 * 1024)).map_err(|_| Code::RecordFailed)?;
         if !value.valid() {
@@ -162,10 +179,10 @@ impl Store {
         Ok(value)
     }
     pub fn peek(e: &Engine) -> Result<Record> {
-        Self::read_path(&record_path(e)?)
+        Self::read_path(&record_path(e)?, &e.claude_settings())
     }
     pub fn read(&self) -> Result<Record> {
-        let mut record = Self::read_path(&self.path)?;
+        let mut record = Self::read_path(&self.path, &self.settings)?;
         if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != 0 {
             record.registered = None;
         }
@@ -175,7 +192,9 @@ impl Store {
     // read-only. A nonempty lock suspends the old ownership claim across restarts.
     pub fn revoke(&self, revoked: bool) -> Result<()> {
         let len = u64::from(revoked);
-        if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != len {
+        let m = self.lock.metadata().map_err(|_| Code::RecordFailed)?;
+        if m.len() != len {
+            files::exclude_settings((m.dev(), m.ino()), &self.settings)?;
             self.lock
                 .set_len(len)
                 .and_then(|()| self.lock.sync_all())
@@ -184,7 +203,10 @@ impl Store {
         Ok(())
     }
     pub fn save(&self, record: &Record) -> Result<()> {
-        if Self::read_path(&self.path).as_ref() == Ok(record) {
+        if let Ok(m) = fs::symlink_metadata(&self.path) {
+            files::exclude_settings((m.dev(), m.ino()), &self.settings)?;
+        }
+        if Self::read_path(&self.path, &self.settings).as_ref() == Ok(record) {
             return self.revoke(false);
         }
         let dir = self.path.parent().ok_or(Code::InvalidPath)?;

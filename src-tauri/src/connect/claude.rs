@@ -96,7 +96,11 @@ fn entry(stdout: &[u8]) -> Result<Entry, Code> {
             break;
         }
         if let Some((key, value)) = line.strip_prefix("  ").and_then(|s| s.split_once(':')) {
-            if !key.is_empty() && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+            if key.starts_with(|c: char| c.is_ascii_alphabetic())
+                && key
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b" -_.".contains(&c))
+            {
                 fields.push((key, value.trim().to_owned()));
                 continue;
             }
@@ -218,9 +222,18 @@ impl State {
                 && self
                     .record
                     .registered
-                    .as_deref()
-                    .is_some_and(|p| v.points_at(p) == Some(true))
+                    .as_ref()
+                    .is_some_and(|path| v.command.as_ref() == Some(path))
         })
+    }
+    fn known_sidecar(&self, e: &Engine) -> bool {
+        let Some(entry) = &self.entry else {
+            return false;
+        };
+        std::iter::once(e.executable())
+            .chain(self.record.registered.as_deref())
+            .chain(self.record.pending.as_ref().map(|p| p.previous.as_str()))
+            .any(|path| entry.points_at(path) == Some(true))
     }
 }
 
@@ -380,7 +393,6 @@ impl State {
             e.location,
             &self.program,
             &self.record,
-            self.record_error,
             self.entry.as_ref().map(|v| &v.digest),
         ))
         .map(hash)
@@ -390,7 +402,7 @@ impl State {
         let lines = Lines::new(e, Some(&self.program))?;
         let exists = self.entry.is_some();
         let owned = self.owned();
-        let here = self.points_here(e) == Some(true);
+        let current_receipt = self.record.registered.as_deref() == Some(e.executable());
         if self.entry.as_ref().is_some_and(|v| !v.user_scope) {
             return Err(Code::CliScopeUnknown.into());
         }
@@ -399,19 +411,19 @@ impl State {
             if !exists && self.record.pending.is_none() {
                 return Err(Code::NoEntry.into());
             }
-            if foreign && !here {
+            if foreign && !self.known_sidecar(e) {
                 return Err(Code::ForeignEntry.into());
             }
         }
         let mut commands = vec![];
-        let noop = action == Action::Connect && owned && here;
+        let noop = action == Action::Connect && owned && current_receipt;
         if exists && !noop {
             commands.push(lines.for_action(Action::Remove, e.executable()));
         }
         if action == Action::Connect && !noop {
             commands.push(lines.for_action(Action::Connect, e.executable()));
         }
-        let previous = if action == Action::Connect && owned && !here {
+        let previous = if action == Action::Connect && owned && !current_receipt {
             self.record.registered.as_deref()
         } else if action == Action::Connect && !noop {
             self.record

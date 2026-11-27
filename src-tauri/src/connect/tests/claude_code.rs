@@ -1253,7 +1253,7 @@ fn recheck_astra_3_health_and_future_fields_do_not_establish_ownership() {
     let stanza = fs::read_to_string(&path).unwrap();
     fs::write(
         &path,
-        stanza.replace("✔ Connected", "Future format\n  Timeout: 30"),
+        stanza.replace("✔ Connected", "Future format\n  Future Field: 30"),
     )
     .unwrap();
     let s = f.status();
@@ -1493,4 +1493,49 @@ fn recheck_astra_10_changed_cli_refuses_before_external_volume_inventory() {
         || panic!("inventory started"),
     );
     assert_eq!(wire(result)["code"], "changed");
+}
+
+#[test]
+fn recheck_astra_1_a_normalized_match_to_a_recorded_old_path_needs_confirmation() {
+    let mut f = Fixture::new();
+    f.0.engine.exe = "/Art  Studio/sidecar".into();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/New/sidecar".into();
+    f.state("/Art Studio/sidecar", "");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["confirmationRequired"], true);
+    assert_eq!(f.apply(Action::Remove, &preview, true)["code"], "removed");
+}
+
+#[test]
+fn recheck_astra_7_an_absent_entry_can_connect_after_a_failed_receipt_deletion() {
+    let f = Fixture::new();
+    install_receipt(&f, &json!({"registered":"/old/sidecar"}).to_string(), 0o600);
+    f.e().ask_claude().unwrap(); // creates the profile lock
+    install_receipt(&f, &json!({"registered":"/old/sidecar"}).to_string(), 0o600);
+    let path = record_path(&f);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
+    let preview = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &preview, false);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["recordError"], "registered_record_missing");
+}
+
+#[test]
+fn recheck_astra_2_private_lock_and_record_cannot_be_settings_symlink_targets() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let path = record_path(&f);
+    let settings = f.e().path(CLAUDE);
+    symlink(&path, &settings).unwrap();
+    let s = f.status();
+    assert_eq!(s["owned"], false);
+    assert_eq!(s["error"], "invalid_path");
+    fs::remove_file(&settings).unwrap();
+    symlink(path.with_extension("lock"), &settings).unwrap();
+    let s = f.proposal(Action::Connect);
+    assert_eq!(s["code"], "invalid_path");
 }
