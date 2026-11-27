@@ -403,11 +403,11 @@ fn a_file_first_created_by_another_process_wins_even_at_the_final_rename() {
     let e = &h.engine;
     let dir = root(&e.home).unwrap();
     let name = Path::new("config.toml");
-    let f = FileState::read(&dir, name).unwrap();
+    let f = FileState::read(&dir, name, &[]).unwrap();
     let pending = f.temp(&dir, "our bytes", None).unwrap();
     dir.write(name, "their bytes").unwrap();
     assert!(pending
-        .publish_checked(name.as_os_str(), &f, false, || Ok(()))
+        .publish_checked(name.as_os_str(), &f, false, &[], || Ok(()))
         .is_err());
     assert_eq!(dir.read_to_string(name).unwrap(), "their bytes");
 }
@@ -706,11 +706,11 @@ fn astra_2_the_displaced_save_is_checked_for_connect_and_remove() {
     let name = Path::new("local.json");
     for delete in [false, true] {
         dir.write(name, "first").unwrap();
-        let expected = FileState::read(&dir, name).unwrap();
+        let expected = FileState::read(&dir, name, &[]).unwrap();
         let staged = expected.temp(&dir, "second", None).unwrap();
         dir.write(name, "editor").unwrap();
         assert!(matches!(
-            staged.publish_checked(name.as_os_str(), &expected, delete, || Ok(())),
+            staged.publish_checked(name.as_os_str(), &expected, delete, &[], || Ok(())),
             Err(Code::Changed)
         ));
         assert_eq!(dir.read(name).unwrap(), b"editor");
@@ -741,7 +741,7 @@ fn opus_8_unsupported_xattrs_leave_status_readable_and_apply_copy_only() {
     let path = h.file(Tool::Cursor, "{}");
     let root = files::root(&h.engine.home).unwrap();
     let rel = path.strip_prefix(&h.engine.home).unwrap();
-    let mut f = FileState::read(&root, rel).unwrap();
+    let mut f = FileState::read(&root, rel, &[]).unwrap();
     f.xattrs = supported;
     assert!(matches!(
         h.engine
@@ -847,10 +847,10 @@ fn astra_2_a_second_editor_save_remains_at_the_live_name_during_conflict_recover
     let dir = files::root(&h.engine.home).unwrap();
     let name = Path::new("local.json");
     dir.write(name, "first").unwrap();
-    let original = FileState::read(&dir, name).unwrap();
+    let original = FileState::read(&dir, name, &[]).unwrap();
     let staged = original.temp(&dir, "connected", None).unwrap();
     let checked = Cell::new(false);
-    let result = staged.publish_checked(name.as_os_str(), &original, false, || {
+    let result = staged.publish_checked(name.as_os_str(), &original, false, &[], || {
         if !checked.replace(true) {
             return Ok(());
         }
@@ -1214,4 +1214,63 @@ fn astra_7_file_tools_refuse_multiply_linked_configurations_before_reading() {
         ));
         fs::remove_file(file).unwrap();
     }
+}
+
+#[test]
+fn recheck_astra_2_single_link_settings_aliases_are_refused_before_read_or_backup() {
+    for tool in [Tool::Cursor, Tool::ClaudeDesktop, Tool::Codex] {
+        for (custom, name) in [
+            (false, ".claude.json"),
+            (false, ".claude/.config.json"),
+            (true, ".config.json"),
+            (true, ".claude.json"),
+            (true, ".claude-custom-oauth.json"),
+        ] {
+            let mut h = Home::new();
+            let profile = if custom {
+                let dir = h.engine.home.join("custom");
+                h.engine.claude_config_dir = Some(dir.clone());
+                dir
+            } else {
+                h.engine.home.clone()
+            };
+            let settings = profile.join(name);
+            fs::create_dir_all(settings.parent().unwrap()).unwrap();
+            let shared = h.engine.home.join("dotfiles-shared");
+            // A read would return invalid_config, so invalid_path distinguishes the guard.
+            fs::write(&shared, [0xff]).unwrap();
+            symlink(&shared, &settings).unwrap();
+            let target = h.engine.path(tool);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            symlink(&shared, &target).unwrap();
+            assert_eq!(
+                h.engine.status(tool).unwrap().error,
+                Some(Code::InvalidPath),
+                "{name}"
+            );
+            assert!(matches!(
+                h.engine.preview(tool, Action::Connect, 0),
+                Err(Code::InvalidPath)
+            ));
+        }
+    }
+}
+
+#[test]
+fn recheck_astra_2_settings_identity_is_checked_again_on_the_open_descriptor() {
+    let h = Home::new();
+    let target = h.file(Tool::Cursor, "invalid");
+    let settings = h.engine.path(Tool::ClaudeCode);
+    let root = files::root(&h.engine.home).unwrap();
+    let checks = std::cell::Cell::new(0);
+    let result =
+        FileState::read_checked(&root, target.strip_prefix(&h.engine.home).unwrap(), |id| {
+            checks.set(checks.get() + 1);
+            if checks.get() == 2 {
+                symlink(&target, &settings).unwrap();
+            }
+            files::exclude_settings(id, &h.engine.claude_settings())
+        });
+    assert!(matches!(result, Err(Code::InvalidPath)));
+    assert_eq!(checks.get(), 2);
 }

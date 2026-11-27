@@ -302,8 +302,26 @@ pub struct FileState {
     pub receipt: Option<Receipt>,
     file: Option<File>,
 }
+pub(super) fn exclude_settings(identity: (u64, u64), settings: &[PathBuf]) -> Result<()> {
+    for path in settings {
+        match std::fs::metadata(path) {
+            Ok(m) if (m.dev(), m.ino()) == identity => return Err(Code::InvalidPath),
+            Ok(_) => (),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Err(err) => return Err(io_code(err)),
+        }
+    }
+    Ok(())
+}
 impl FileState {
-    pub fn read(root: &Dir, relative: &Path) -> Result<Self> {
+    pub fn read(root: &Dir, relative: &Path, settings: &[PathBuf]) -> Result<Self> {
+        Self::read_checked(root, relative, |id| exclude_settings(id, settings))
+    }
+    pub(super) fn read_checked(
+        root: &Dir,
+        relative: &Path,
+        check: impl Fn((u64, u64)) -> Result<()>,
+    ) -> Result<Self> {
         let meta = match root.symlink_metadata(relative) {
             Ok(meta) => meta,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -323,6 +341,7 @@ impl FileState {
             return Err(Code::InvalidPath);
         }
         let identity = (meta.dev(), meta.ino());
+        check(identity)?;
         let mut opts = OpenOptions::new();
         opts.read(true)
             .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
@@ -334,6 +353,7 @@ impl FileState {
         if (meta.dev(), meta.ino()) != identity {
             return Err(Code::Changed);
         }
+        check((meta.dev(), meta.ino()))?;
         let mut source = String::new();
         file.read_to_string(&mut source)
             .map_err(|_| Code::InvalidConfig)?;
@@ -440,11 +460,12 @@ impl FileState {
 
 // Move a name aside exclusively before deleting it. If a later editor save occupies the
 // name, return that save. If yet another writer wins recovery, keep both files on disk.
-fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
+fn retire(dir: &Dir, name: &OsStr, expected: &FileState, settings: &[PathBuf]) -> Result<()> {
     use rustix::fs::RenameFlags;
     let recovery = format!(".aphrodite-{}.recovery", uuid::Uuid::new_v4());
     rename(dir, name, recovery.as_ref(), RenameFlags::NOREPLACE)?;
-    if FileState::read(dir, Path::new(&recovery)).is_ok_and(|now| expected.matches(&now)) {
+    if FileState::read(dir, Path::new(&recovery), settings).is_ok_and(|now| expected.matches(&now))
+    {
         return dir.remove_file(recovery).map_err(io_code);
     }
     rename(dir, recovery.as_ref(), name, RenameFlags::NOREPLACE)?;
@@ -452,20 +473,26 @@ fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
 }
 // Swap back only while the live name still holds our candidate. If another writer
 // won the rollback race, retain the displaced generation under the recovery name.
-fn rollback(dir: &Dir, live: &OsStr, displaced: &str, ours: &FileState) -> Result<()> {
+fn rollback(
+    dir: &Dir,
+    live: &OsStr,
+    displaced: &str,
+    ours: &FileState,
+    settings: &[PathBuf],
+) -> Result<()> {
     use rustix::fs::RenameFlags;
-    if !FileState::read(dir, Path::new(live)).is_ok_and(|now| ours.matches(&now)) {
+    if !FileState::read(dir, Path::new(live), settings).is_ok_and(|now| ours.matches(&now)) {
         return Ok(());
     }
-    let previous = FileState::read(dir, Path::new(displaced)).ok();
+    let previous = FileState::read(dir, Path::new(displaced), settings).ok();
     rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
-    if FileState::read(dir, Path::new(displaced)).is_ok_and(|now| ours.matches(&now)) {
+    if FileState::read(dir, Path::new(displaced), settings).is_ok_and(|now| ours.matches(&now)) {
         return dir.remove_file(displaced).map_err(io_code);
     }
     // A newer live save was exchanged between our check and the rollback syscall.
     // Put it back if the generation we just restored still occupies the live name.
     if previous.is_some_and(|prev| {
-        FileState::read(dir, Path::new(live)).is_ok_and(|now| prev.matches(&now))
+        FileState::read(dir, Path::new(live), settings).is_ok_and(|now| prev.matches(&now))
     }) {
         rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
     }
@@ -477,16 +504,17 @@ impl Staged<'_> {
         name: &OsStr,
         expected: &FileState,
         delete: bool,
+        settings: &[PathBuf],
         reachable: impl Fn() -> Result<()>,
     ) -> Result<()> {
         use rustix::fs::RenameFlags;
-        let ours = FileState::read(self.dir, Path::new(&self.name))?;
+        let ours = FileState::read(self.dir, Path::new(&self.name), settings)?;
         reachable()?;
         if expected.text.is_none() {
             rename(self.dir, self.name.as_ref(), name, RenameFlags::NOREPLACE)?;
             self.name.clear();
             if reachable().is_err() {
-                retire(self.dir, name, &ours)?;
+                retire(self.dir, name, &ours, settings)?;
                 return Err(Code::Changed);
             }
             return Ok(());
@@ -494,15 +522,15 @@ impl Staged<'_> {
         rename(self.dir, self.name.as_ref(), name, RenameFlags::EXCHANGE)?;
         // Drop must never unlink the displaced file until we have identified it.
         let displaced = std::mem::take(&mut self.name);
-        let correct = FileState::read(self.dir, Path::new(&displaced))
+        let correct = FileState::read(self.dir, Path::new(&displaced), settings)
             .is_ok_and(|now| expected.matches(&now));
         if !correct || reachable().is_err() {
-            rollback(self.dir, name, &displaced, &ours)?;
+            rollback(self.dir, name, &displaced, &ours, settings)?;
             return Err(Code::Changed);
         }
         if delete {
-            if let Err(code) = retire(self.dir, name, &ours) {
-                rollback(self.dir, name, &displaced, &ours)?;
+            if let Err(code) = retire(self.dir, name, &ours, settings) {
+                rollback(self.dir, name, &displaced, &ours, settings)?;
                 return Err(code);
             }
         }

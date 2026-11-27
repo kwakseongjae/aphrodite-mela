@@ -223,6 +223,24 @@ impl Engine {
                 .join("Library/Application Support/Claude/claude_desktop_config.json"),
         }
     }
+    fn claude_settings(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for dir in std::iter::once(&self.home).chain(self.claude_config_dir.iter()) {
+            for name in [
+                ".claude.json",
+                ".claude-custom-oauth.json",
+                ".claude-local-oauth.json",
+                ".claude-staging-oauth.json",
+            ] {
+                paths.push(dir.join(name));
+            }
+        }
+        paths.push(self.home.join(".claude/.config.json"));
+        if let Some(dir) = &self.claude_config_dir {
+            paths.push(dir.join(".config.json"));
+        }
+        paths
+    }
     fn profile(&self) -> Result<Option<&str>> {
         self.claude_config_dir
             .as_ref()
@@ -302,7 +320,7 @@ impl Engine {
             let root = files::root(&self.home)?;
             let relative = files::resolve(&root, &self.home, &path)?;
             files::parent(&root, &relative)?;
-            let f = FileState::read(&root, &relative)?;
+            let f = FileState::read(&root, &relative, &self.claude_settings())?;
             let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
             Ok((
                 f.text.is_some(),
@@ -547,7 +565,7 @@ impl Engine {
             tool,
             action,
             stamp,
-            &FileState::read(&root, &rel)?,
+            &FileState::read(&root, &rel, &self.claude_settings())?,
         )
     }
     fn commit(
@@ -569,7 +587,8 @@ impl Engine {
         lock.lock_exclusive().map_err(|_| Code::Io)?;
         let path = self.path(tool);
         let rel = files::resolve(&root, &self.home, &path)?;
-        let file = FileState::read(&root, &rel)?;
+        let settings = self.claude_settings();
+        let file = FileState::read(&root, &rel, &settings)?;
         let preview = self.plan(&root, &rel, tool, action, stamp, &file)?;
         if preview.fingerprint != fingerprint {
             return Err(Code::Changed);
@@ -623,7 +642,7 @@ impl Engine {
         let temp = file.temp(&dir, &candidate, receipt.as_ref())?;
         let unchanged = || -> Result<()> {
             reachable()?;
-            let now = FileState::read(&dir, Path::new(name))?;
+            let now = FileState::read(&dir, Path::new(name), &settings)?;
             if now.protection != file.protection
                 || now.revision != file.revision
                 || now.mode != file.mode
@@ -642,7 +661,9 @@ impl Engine {
         }
         let result = unchanged().and_then(|()| {
             files::set_history(&dir, name, receipt.as_ref())?;
-            if let Err(code) = temp.publish_checked(name, &file, preview.deletes_file, reachable) {
+            if let Err(code) =
+                temp.publish_checked(name, &file, preview.deletes_file, &settings, reachable)
+            {
                 files::set_history(&dir, name, history.as_ref())?;
                 return Err(code);
             }

@@ -74,6 +74,9 @@ fn safe_to_inspect(e: &Engine, path: &Path, meta: &fs::Metadata) -> bool {
     }) {
         return false;
     }
+    if super::files::exclude_settings((meta.dev(), meta.ino()), &e.claude_settings()).is_err() {
+        return false;
+    }
     if meta.nlink() == 1 {
         return true;
     }
