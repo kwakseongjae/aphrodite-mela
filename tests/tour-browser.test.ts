@@ -110,6 +110,25 @@ test('the first tour leaves the directions dialog and its proposal button expose
   assert.equal(await card.isVisible(),false);
 });
 
+for(const focus of ['component search','tour Skip']){
+  test('only the person’s Escape ends a visible tour with focus on '+focus,async()=>{
+    const {page}=rig;
+    await page.locator('[data-action="welcome-sample"]').click();
+    await page.evaluate('scene.mark()');
+    const card=page.locator('.tour-card');
+    await card.waitFor();
+    const control=focus==='tour Skip'?card.locator('[data-action="tour-skip"]'):page.locator('#component-search');
+    await control.focus();
+    assert.ok(await control.evaluate(el=>el===document.activeElement));
+    const reply=await page.evaluate<{error?:string}>("window.aphroditeAgent.run('key',{key:'Escape'})");
+    assert.equal(reply.error,undefined);
+    await assertFirstTourVisible();
+    await page.keyboard.press('Escape');
+    assert.equal(await card.count(),0);
+    assert.equal(await page.locator('#app').getAttribute('data-onboarding'),'done');
+  });
+}
+
 test('Space on the focused tour Skip button finishes the tour',async()=>{
   const {page}=rig;
   await page.locator('[data-action="welcome-sample"]').click();

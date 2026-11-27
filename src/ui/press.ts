@@ -19,7 +19,7 @@ function visible(el:HTMLElement){
   return getComputedStyle(el).visibility==='visible';
 }
 
-export function topSurface(key?:string):Surface{
+export function topSurface(includeUnfocusedPopover=false):Surface{
   const sheet=document.querySelector<HTMLElement>('.fatal-scrim');
   if(sheet)return {kind:'sheet',root:sheet};
   const toast=document.activeElement?.closest<HTMLElement>('[data-toast]');
@@ -27,8 +27,8 @@ export function topSurface(key?:string):Surface{
   const modal=document.querySelector<HTMLElement>('#modal-root > :last-child .modal');
   const page=document.querySelector<HTMLElement>('#page-view-root .page-view');
   const root=modal??page??document.body;
-  // Escape can dismiss a mouse-opened menu even on platforms where the click leaves focus elsewhere.
-  if(key==='Escape'){
+  // A person's fresh Escape can dismiss a mouse-opened menu even when the click left focus elsewhere.
+  if(includeUnfocusedPopover){
     const open=[...root.querySelectorAll<HTMLElement>(popovers)].reverse().find(visible);
     if(open)return {kind:'popover',root:open};
   }else{
@@ -139,7 +139,7 @@ export function installPress(actions:Actions){
   function route(e:KeyboardEvent){
     // The delegated-input gate has already run. Leave the IME its native default and skip app shortcuts.
     if(composingKey(e)){e.stopImmediatePropagation();return;}
-    const key=keyName(e),down=e.type==='keydown',surface=topSurface(key);
+    const key=keyName(e),down=e.type==='keydown',surface=topSurface(key==='Escape'&&fresh.has(e));
     const inside=surface.root.contains(document.activeElement);
     if(key==='Enter'||key===' '){
       const control=buttonFor(surface,key);
@@ -162,7 +162,8 @@ export function installPress(actions:Actions){
       // The editor also uses Escape to cancel an active pointer gesture.
       if(surface.kind==='editor')return;
       stop(e);
-      const agentMayDismiss=surface.kind!=='ask'&&surface.kind!=='sheet'&&dispatchOf(e)?.author.kind==='agent';
+      const agentMayDismiss=surface.kind!=='ask'&&surface.kind!=='sheet'&&!surface.root.matches('.tour-card')&&
+        dispatchOf(e)?.author.kind==='agent';
       if(down&&(fresh.has(e)||agentMayDismiss)&&(surface.kind!=='ask'||inside))actions.escape(surface,e);
       return;
     }

@@ -100,6 +100,27 @@ test('Escape closes the open connection popover and returns to its summary',asyn
   assert.equal(await page.locator('.connect-mark[open]').count(),0);assert.ok(await summary.evaluate(el=>el===document.activeElement));
 });
 
+for(const focusInside of [false,true]){
+  test('a connected agent pressing Escape '+(focusInside?'closes the focused mark':'leaves the unfocused mark open for the person'),async()=>{
+    const {page}=rig;
+    await scene('mark');
+    await page.locator('.connect-mark > summary').click();
+    const open=page.locator('.connect-mark[open]');
+    const focus=focusInside?open.locator('button'):page.locator('#component-search');
+    await focus.focus();
+    assert.ok(await focus.evaluate(el=>el===document.activeElement));
+    assert.ok(await open.isVisible());
+    const reply=await page.evaluate<{error?:string}>("window.aphroditeAgent.run('key',{key:'Escape'})");
+    assert.equal(reply.error,undefined);
+    if(!focusInside){
+      assert.ok(await open.isVisible());
+      assert.ok(await focus.evaluate(el=>el===document.activeElement));
+      await page.keyboard.press('Escape');
+    }
+    assert.equal(await open.count(),0);
+  });
+}
+
 for(const menu of ['connected mark','dock group','editor help','folio-ws','folio-lang','folio-theme','folio-help','folio-more']){
   test('Escape closes the dialog first, then the unfocused '+menu,async()=>{
     const {page}=rig,home=menu.startsWith('folio-');
