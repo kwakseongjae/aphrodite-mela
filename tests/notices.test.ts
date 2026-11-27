@@ -230,7 +230,7 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
 test('Draw again keeps the sheet until the screen is drawn, and the sheet answers its own buttons',async()=>{
   const {editorCalls}=await import('./support/editor-calls');
   let removed=0,drawn=0;const pre={textContent:'first'};
-  const sheet={remove:()=>{removed++;},querySelector:(s:string)=>s==='[data-fatal-detail]'?pre:null};
+  const sheet={remove:()=>{removed++;},querySelector:(s:string)=>s==='[data-fatal-cause]'?pre:null};
   const screen:Record<string,unknown>={render:()=>{drawn++;if(drawn===1)throw new TypeError('still broken');},String,Error};
   screen.dismissSheet=(sheet:{remove:()=>void})=>sheet.remove();
   editorCalls(['function fatalPress('],screen);
@@ -241,7 +241,7 @@ test('Draw again keeps the sheet until the screen is drawn, and the sheet answer
   press('fatal-redraw',sheet);
   assert.equal(removed,1,'drawn, it goes');
   const main=readFileSync('src/main.ts','utf8');
-  assert.match(main,/sheet\.addEventListener\('click',e=>\{const b=\(e\.target as HTMLElement\)\.closest<HTMLElement>\('button\[data-action\]'\);if\(!b\)return;e\.stopPropagation\(\);e\.preventDefault\(\);if\(!pressOrigin\(e\)\.isTrusted\)return;/,'its own handler, a real press only');
+  assert.match(main,/sheet\.addEventListener\('click',async e=>\{[^]*?if\(!pressOrigin\(e\)\.isTrusted\)return;/,'its own handler, a real press only');
   assert.doesNotMatch(renderFailedHtml('x',{ko:true,board:true}),/그대로 있어요/,'it claims nothing it cannot know when the app stopped');
 });
 

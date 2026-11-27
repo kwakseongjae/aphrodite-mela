@@ -439,7 +439,39 @@ function dismissSheet(sheet:{remove():void}){
   if(!restoreFocus(takeReturnFocus('sheet')))focusModal();
   offerTrouble();
 }
-function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}if(!fatalUp())rememberFocus('sheet');document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!pressOrigin(e).isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
+function showFatal(detail:string){
+  let ko=document.documentElement.lang==='ko',board=false;
+  try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}
+  if(!fatalUp())rememberFocus('sheet');
+  document.querySelector('.fatal-scrim')?.remove();
+  document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));
+  const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;
+  const status=sheet.querySelector<HTMLElement>('[data-fatal-status]')!;
+  const raw=sheet.querySelector<HTMLElement>('[data-fatal-error]')!;
+  try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}
+  let attempt=0;
+  sheet.addEventListener('click',async e=>{
+    const button=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');
+    if(!button)return;
+    e.stopPropagation();e.preventDefault();
+    if(!pressOrigin(e).isTrusted)return;
+    const act=button.dataset.action!;
+    if(act==='fatal-redraw'||act==='fatal-close'){fatalPress(act,sheet);return;}
+    const at=++attempt;
+    status.textContent='';status.hidden=true;
+    try{await action(button,dispatchOf(e),true);}
+    catch(error){
+      if(at!==attempt)return;
+      if(act==='fatal-copy')status.textContent=ko?'복사하지 못했습니다. 글을 선택해 복사하세요.':'Could not copy. Select the text and copy it.';
+      else{
+        status.textContent=ko?'파일로 저장하지 못했어요.':'The file could not be saved.';
+        raw.textContent='\n\n'+String(error);
+      }
+      status.hidden=false;
+    }
+  });
+  sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();
+}
 /**
  * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
  * other buttons go to their actions, which answer them before reading anything of the app's state. Draw again takes the
@@ -447,7 +479,7 @@ function showFatal(detail:string){let ko=document.documentElement.lang==='ko',bo
  */
 function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
   if(action==='fatal-close'){dismissSheet(sheet);return;}
-  try{render();dismissSheet(sheet);}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
+  try{render();dismissSheet(sheet);}catch(error){const said=sheet.querySelector('[data-fatal-cause]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
 }
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
@@ -1518,7 +1550,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   // The sheet over a screen that could not be drawn is answered before anything below reads the app's state, which may be what broke,
   // and before the lock an agent holding the screen puts on the window: the sheet is the person's whatever holds the screen.
   if(act==='fatal-copy'||act==='fatal-backup'||act==='fatal-backup-all'){switch(act){
-    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{const pre=document.querySelector('[data-fatal-detail]');if(pre)pre.textContent+='\n\n'+ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.');}break;}
+    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));break;}
     case 'fatal-backup': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');break;}
     case 'fatal-backup-all': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');break;}
   }return;}

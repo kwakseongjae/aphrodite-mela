@@ -208,8 +208,9 @@ export function renderFailedHtml(detail: string, o: {ko: boolean; board: boolean
     + '<div class="fatal-actions"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="fatal-redraw">' + icon('rotate-cw', 'ui-icon ui-icon-sm') + T('Draw again', '다시 그리기') + '</button>'
     + (o.board ? '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="fatal-backup">' + icon('download', 'ui-icon ui-icon-sm') + T('Save this board as a file', '보드를 파일로 저장') + '</button>' : '')
     + '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="fatal-backup-all">' + icon('archive', 'ui-icon ui-icon-sm') + T('Save every board', '모든 보드 저장') + '</button></div>'
-    + '<details class="ui-notice-details"><summary>' + T('Details for a report', '알릴 때 붙일 자세한 내용') + '</summary><pre class="ui-mono" data-fatal-detail>' + esc(detail) + '</pre>'
+    + '<details class="ui-notice-details"><summary>' + T('Details for a report', '알릴 때 붙일 자세한 내용') + '</summary><pre class="ui-mono" data-fatal-detail><span data-fatal-cause>' + esc(detail) + '</span><span data-fatal-error></span></pre>'
     + '<button type="button" class="ui-btn ui-btn-quiet" data-action="fatal-copy">' + icon('copy', 'ui-icon ui-icon-sm') + T('Copy', '복사') + '</button></details>'
+    + '<p class="ui-modal-text" role="status" data-fatal-status hidden></p>'
     + '<button type="button" class="ui-icon-btn fatal-close" data-action="fatal-close" aria-label="' + T('Close', '닫기') + '">' + icon('x', 'ui-icon') + '</button>'
     + '</div></section></div>';
 }

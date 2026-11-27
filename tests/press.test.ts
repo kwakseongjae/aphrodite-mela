@@ -80,3 +80,19 @@ test('untrusted key events cannot answer a request, and changing focus cancels a
   await page.locator('[data-action="ask-decline"]').focus();await allow.focus();await page.keyboard.up('Enter');
   assert.equal(await allow.count(),1);await page.keyboard.press('Enter');assert.equal(await allow.count(),0);
 });
+test('the sheet replaces failure feedback and Copy contains only the diagnostics',async()=>{
+  const {page}=rig;await scene('sheet');await page.locator('.fatal-scrim summary').click();
+  await page.evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('clipboard refused')}}});
+    window.__TAURI_INTERNALS__={invoke:async(cmd)=>{if(cmd==='plugin:dialog|save')return '/backup';throw Error('disk refused')}};
+  `);
+  const copy=page.locator('[data-action="fatal-copy"]'),status=page.locator('[data-fatal-status]');
+  await copy.click();await copy.click();assert.equal(await status.count(),1);
+  assert.match((await status.textContent())!,/Could not copy|복사하지 못했습니다/);
+  await page.locator('[data-action="fatal-backup"]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-fatal-detail]')?.textContent?.includes('disk refused'));
+  assert.match((await status.textContent())!,/The file could not be saved\.|파일로 저장하지 못했어요\./);
+  await page.evaluate(`navigator.clipboard.writeText=async text=>window.copied=text`);await copy.click();
+  const copied=await page.evaluate('window.copied');
+  assert.match(copied,/test diagnostic/);assert.match(copied,/disk refused/);
+  assert.doesNotMatch(copied,/Could not copy|복사하지 못했습니다|could not be saved|저장하지 못했어요/);
+});
