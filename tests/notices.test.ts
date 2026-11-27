@@ -72,7 +72,7 @@ test('stored boards that could not be read offer their files untouched first, an
 
 test('a dialog says only what the code knows about the files it offers, and offers nothing the build cannot do',()=>{
   const ko=troubleDialog(full,'editor',true).body;
-  assert.match(ko,/그림·영상 파일은 들어 있지 않아요/,'what a backup leaves out is said');
+  assert.match(ko,/별도 파일이라 들어 있지 않아요/,'what a backup leaves out is said');
   assert.doesNotMatch(ko,/가져오기로 다시 열 수/,'re-import is promised only when the file is one the importer takes');
   assert.match(troubleDialog(full,'editor',true,{reimport:true}).body,/보드 가져오기로 다시 열 수 있어요\(승인은 다시 해야 해요\)/);
   assert.match(ko,/보드 가져오기로 여는 파일은 아니에요/,'every board as one file is a file to keep, not one Import board opens');
@@ -129,7 +129,7 @@ test('a save that keeps failing opens its dialog once, however many edits follow
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:()=>{marks++;},
-    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,
+    toast:(m:string)=>{toasts.push(m);},ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,
     vanished:undefined,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
   editorCalls(['let troubleSeen','let saveTrouble','let replacedStore','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
@@ -241,7 +241,7 @@ test('a trouble put off for a dialog or for typing is shown once they are done, 
   let opened=0;let active:{matches:(s:string)=>boolean}|null={matches:()=>true};
   const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false},askOpen:()=>false,document:{get activeElement(){return active;}},HTMLElement:Object,
     troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),showModal:()=>{opened++;},troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',
-    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder};
+    screen:'editor',uiLanguage:'ko',nativeDesktop:true,library:{entries:[]},project:{},TextEncoder,reimportable:()=>false,fatalUp:()=>false};
   editorCalls(['function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   const shown=screen.troubleOpened as ()=>boolean;
   assert.equal(shown(),false,'the person is typing: it waits');
@@ -316,7 +316,7 @@ test('a write that lands while the folder is missing is remembered even when a l
   const screen:Record<string,unknown>={DurableQueue,invoke:()=>++calls===1?Promise.resolve(5):Promise.reject(new Error('No space left on device (os error 28)')),
     writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
     document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:noop,troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:noop,
-    toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,
+    toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,
     vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,startupError:'',lastSaved:true,storageIssue:'',screen:'editor',noDiskCopy:false,saveRetries:false};
   editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function paintSaveState(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
   screen.vanished={path:'/old',revision:9,entries:6,at:''};
@@ -336,7 +336,7 @@ test('a save refused before the disk comes before the missing folder, and says t
   const screen:Record<string,unknown>={screen:'editor',toasts:[],undoToken:()=>'',settleUndo:(l:unknown)=>l,paintToasts:noop,library:{entries:[]},project:{id:'b'},workspaces:{activeId:'w'},
     upsertProject:()=>({}),saveLibrary:()=>{throw new Error('the board is larger than a saved board may be');},diskQueue:{},lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,
     vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,troubleSeen:'',paintMarks:noop,troubleKind,boardWords:(s:string)=>s,
-    modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(t:{kind:string;retries?:boolean})=>{opened=t;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
+    modalRoot:{children:[]},askOpen:()=>false,reimportable:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(t:{kind:string;retries?:boolean})=>{opened=t;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
   editorCalls(['function persist(','function troubleNow(','function troubleOpened('],screen);
   (screen.persist as ()=>void)();
   assert.equal(screen.lastSaved,false);
@@ -390,4 +390,25 @@ test('every board saved as a backup holds the open board as it is on screen, the
   await (screen.action as Function)({dataset:{action:'hub-backup'}},personAt({isTrusted:true}),true);
   const file=JSON.parse(saved[0]);
   assert.deepEqual(file.entries.map((e:{project:{name:string}})=>e.project.name),['After the refused change']);
+});
+
+/* Astra recheck 7: "Import board opens it again" is said only of a file the importer takes, found by running the importer on
+   the very text the backup writes; and what a backup leaves out is the files kept apart from the board, not every picture. */
+test('a backup is said to open again only when the importer takes its text, and it names what it leaves out',async()=>{
+  const {importedProject}=await import('../src/workspace/library');
+  const {initialProject}=await import('../src/model');
+  const screen:Record<string,unknown>={importedProject,library:{version:1,entries:[]},TextEncoder};
+  editorCalls(['function reimportable('],screen);
+  const reimportable=screen.reimportable as (text:string)=>boolean;
+  const p=initialProject();
+  assert.equal(reimportable(JSON.stringify(p,null,2)),true);
+  const broken={...p,name:'half \uD800 pair'};
+  assert.equal(reimportable(JSON.stringify(broken,null,2)),false,'the importer refuses it, so the dialog does not promise it');
+  const main=readFileSync('src/main.ts','utf8');
+  assert.match(main,/reimport:screen==='editor'&&reimportable\(JSON\.stringify\(project,null,2\)\)/);
+  for(const ko of [false,true]){
+    const d=troubleDialog(full,'editor',ko,{reimport:true});
+    assert.doesNotMatch(d.body,/Pictures and videos placed on (it|boards) are not in|보드에 놓인 그림·영상 파일은 들어 있지 않/,'not every picture is left out');
+    assert.match(d.body,ko?/따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일/:/placed on the board by themselves, and pictures from the image library, are separate files/);
+  }
 });

@@ -86,8 +86,8 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
     };
   }
   const recovery = choice({action: 'hub-recovery', icon: 'hard-drive', name: T('Save the files on disk as they are', '디스크에 있는 파일을 그대로 저장'), why: native
-      ? T('This copies the list of boards saved on disk and the save before it, untouched, into one file. Pictures and videos placed on boards are not in it.', '디스크에 저장된 보드 목록과 그 직전 저장본을 손대지 않고 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.')
-      : T('This copies the boards this browser keeps, untouched, into one file. Pictures and videos placed on boards are not in it.', '이 브라우저가 보관한 보드를 손대지 않고 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.'), first: t.kind === 'unread'});
+      ? T('This copies the list of boards saved on disk and the save before it, untouched, into one file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '디스크에 저장된 보드 목록과 그 직전 저장본을 손대지 않고 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.')
+      : T('This copies the boards this browser keeps, untouched, into one file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '이 브라우저가 보관한 보드를 손대지 않고 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.'), first: t.kind === 'unread'});
   const reload = choice({action: 'disk-reload', icon: 'rotate-cw', name: T('Reload from disk', '디스크에서 다시 불러오기'),
     why: t.kind === 'full'
       ? T('Once there is room again, this opens what is saved on disk, and the next change tries saving again. Changes that were not saved are thrown away, and you are asked first.', '공간을 비운 뒤에 누르면 디스크에 저장된 것을 다시 열고, 다음 변경부터 다시 저장해 봐요. 저장하지 못한 변경은 버려지고, 그 전에 한 번 더 물어요.')
@@ -124,10 +124,10 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
   // Refused before it reached the disk (a board too big to save, say): nothing has stopped, and the next change tries again.
   if (t.retries) head[1] = T('The next change tries saving again. Until one is saved, what you did since is only in this window.', '다음 변경 때 다시 저장해 봐요. 저장되기 전까지 그동안 한 일은 이 창에만 있어요.');
   const keep = where === 'editor'
-    ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file. Pictures and videos placed on it are not in the file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.')
+    ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요.')
       + (o.reimport ? ' ' + T('Import board opens it again, unapproved.', '보드 가져오기로 다시 열 수 있어요(승인은 다시 해야 해요).') : ''), first: true})
     : '';
-  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, with the changes the disk did not take, as one file to keep. Pictures and videos placed on boards are not in it, and it is not a file Import board opens.', '이 창의 모든 보드를, 디스크가 받지 못한 변경까지 파일 하나로 받아 둬요. 보드에 놓인 그림·영상 파일은 들어 있지 않고, 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'});
+  const all = choice({action: 'hub-backup', icon: 'archive', name: T('Save every board as a backup file', '모든 보드를 백업 파일로 저장'), why: T('This saves every board in this window, with the changes the disk did not take, as one file to keep. Pictures and videos placed on the board by themselves, and pictures from the image library, are separate files and are not in it. It is not a file Import board opens.', '이 창의 모든 보드를, 디스크가 받지 못한 변경까지 파일 하나로 받아 둬요. 보드에 따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일이라 들어 있지 않아요. 보드 가져오기로 여는 파일은 아니에요.'), first: where !== 'editor'});
   return {
     title: head[0],
     subtitle: head[1],

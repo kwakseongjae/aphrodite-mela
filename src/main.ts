@@ -847,7 +847,9 @@ let saveRetries=false;
 function troubleKey(t:Trouble){return t.kind+':'+(t.kind==='vanished'||t.kind==='empty'?t.path:t.detail);}
 /** The person is typing into a field of the window (not a dialog's): a dialog that opened on its own would take the keys from them. */
 function typing(){const on=document.activeElement;return on instanceof HTMLElement&&on.matches('input,textarea,select,[contenteditable="true"]')&&!modalRoot.contains(on);}
-function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&new TextEncoder().encode(JSON.stringify(project,null,2)).length<=20_000_000});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
+/** The backup's text opens again through Import board: it is under the file limit and the importer itself takes it. The importer reads the text only. */
+function reimportable(text:string){if(new TextEncoder().encode(text).length>20_000_000)return false;try{importedProject(text,library);return true;}catch{return false;}}
+function openTrouble(t=troubleNow()){if(!t)return;troubleSeen=troubleKey(t);const d=troubleDialog(t,screen==='home'?'home':'editor',uiLanguage==='ko',{native:nativeDesktop,windowBoards:library.entries.length,reimport:screen==='editor'&&reimportable(JSON.stringify(project,null,2))});showModal(d.title,d.subtitle,d.body,false,`<span class="ui-notice-lead" aria-hidden="true">${icon('circle-alert','ui-icon')}</span>`);}
 /** The dialog opens without a press once for each trouble, and never over a dialog the person is in or a request to edit: the mark stays to open it. False when it could not be shown. */
 function troubleOpened():boolean{const t=troubleNow();if(!t){troubleSeen='';return false;}if(troubleKey(t)===troubleSeen)return true;if(modalRoot.children.length||askOpen()||typing())return false;openTrouble(t);return true;}
 /** A trouble that waited for a dialog, the request to edit or the person's typing gets its turn once they are done. */
