@@ -1258,3 +1258,67 @@ fn recheck_astra_3_health_and_future_fields_do_not_establish_ownership() {
     assert_eq!(s["entryExists"], true);
     assert_eq!(s["pointsHere"], Value::Null);
 }
+
+fn install_receipt(f: &Fixture, value: &str, mode: u32) {
+    let path = record_path(f);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, value).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+fn recheck_opus_5_damaged_or_newer_receipts_allow_the_next_connect() {
+    for (value, mode) in [
+        ("damaged", 0o600),
+        ("{}", 0o644),
+        (r#"{"future":7}"#, 0o600),
+    ] {
+        let f = Fixture::new();
+        install_receipt(&f, value, mode);
+        let preview = f.proposal(Action::Connect);
+        assert!(preview["commands"].is_array(), "{preview}");
+        assert_eq!(
+            f.apply(Action::Connect, &preview, false)["code"],
+            "registered"
+        );
+        assert_eq!(f.status()["owned"], true);
+        let valid = json!({"registered": f.e().executable(), "future":7});
+        install_receipt(&f, &valid.to_string(), 0o600);
+        assert_eq!(f.status()["owned"], true);
+    }
+}
+
+fn pending_receipt(f: &Fixture, previous: &str) {
+    let record =
+        json!({"registered":null, "pending":{"previous":previous,"target":f.e().executable()}});
+    install_receipt(f, &record.to_string(), 0o600);
+}
+
+#[test]
+fn recheck_opus_6_remove_clears_an_absent_unfinished_repoint() {
+    let f = Fixture::new();
+    pending_receipt(&f, "/previous/sidecar");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["commands"], json!([]));
+    assert_eq!(f.apply(Action::Remove, &preview, false)["code"], "removed");
+    assert_eq!(f.status()["unfinishedRepoint"], false);
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}
+
+#[test]
+fn recheck_astra_5_interrupted_rollback_preserves_the_previous_add() {
+    let f = Fixture::new();
+    let old = "/previous/sidecar";
+    pending_receipt(&f, old);
+    f.state(old, "");
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["onAddFailure"]["argv"][9], old);
+    assert_eq!(preview["cannotRestoreReplacement"], false);
+    assert_eq!(preview["confirmationRequired"], true);
+    f.override_reply("add", json!({"exit":17, "once":true}));
+    assert_eq!(
+        f.apply(Action::Connect, &preview, true)["code"],
+        "repoint_restored"
+    );
+    assert_eq!(f.status()["owned"], true);
+}

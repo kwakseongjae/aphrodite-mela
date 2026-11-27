@@ -387,14 +387,8 @@ impl State {
             return Err(Code::CliScopeUnknown.into());
         }
         let foreign = exists && !owned;
-        if let Some(code) = self.record_error {
-            // A press can repair a malformed receipt for a recognized current entry.
-            if !(code == Code::RecordFailed && action == Action::Connect && owned && here) {
-                return Err(code.into());
-            }
-        }
         if action == Action::Remove {
-            if !exists {
+            if !exists && self.record.pending.is_none() {
                 return Err(Code::NoEntry.into());
             }
             if foreign && !here {
@@ -411,8 +405,16 @@ impl State {
         }
         let previous = if action == Action::Connect && owned && !here {
             self.record.registered.as_deref()
-        } else if action == Action::Connect && !exists {
-            self.record.pending.as_ref().map(|p| p.previous.as_str())
+        } else if action == Action::Connect && !noop {
+            self.record
+                .pending
+                .as_ref()
+                .filter(|p| {
+                    self.entry
+                        .as_ref()
+                        .is_none_or(|v| v.plain_stdio && v.points_at(&p.previous) == Some(true))
+                })
+                .map(|p| p.previous.as_str())
         } else {
             None
         };
@@ -423,7 +425,7 @@ impl State {
             action,
             commands,
             on_add_failure: previous.map(|p| lines.for_action(Action::Connect, p)),
-            cannot_restore_replacement: action == Action::Connect && foreign,
+            cannot_restore_replacement: action == Action::Connect && foreign && previous.is_none(),
             will_repoint,
             replacement_required: action == Action::Connect && foreign,
             confirmation_required: foreign,
@@ -542,21 +544,17 @@ pub(super) fn execute(
         return Err(Code::ConfirmationRequired.into());
     }
     let Some(first) = plan.commands.first() else {
-        let result = Code::AlreadyConnected.into();
-        return Ok(
-            if state.record.registered.as_deref() == Some(e.executable())
-                && state.record.pending.is_none()
-            {
-                result
-            } else {
-                save_record(&store, Some(e.executable()), result)
-            },
-        );
+        return Ok(match action {
+            Action::Remove => save_record(&store, None, Code::Removed.into()),
+            Action::Connect => {
+                save_record(&store, Some(e.executable()), Code::AlreadyConnected.into())
+            }
+        });
     };
 
     if state.entry.is_some() {
-        if plan.on_add_failure.is_some() {
-            let previous = state.record.registered.clone().ok_or(Code::RecordFailed)?;
+        if let Some(recovery) = &plan.on_add_failure {
+            let previous = recovery.argv.last().ok_or(Code::RecordFailed)?.clone();
             state.record.pending = Some(Repoint {
                 previous,
                 target: e.executable().to_owned(),

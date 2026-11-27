@@ -11,13 +11,11 @@ use std::{
 };
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct Record {
     pub registered: Option<String>,
     pub pending: Option<Repoint>,
 }
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct Repoint {
     pub previous: String,
     pub target: String,
