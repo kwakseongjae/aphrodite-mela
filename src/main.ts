@@ -481,9 +481,10 @@ function liveLibrary():Library{if(screen!=='editor')return library;const at=libr
   return {...library,entries:at>=0?library.entries.map((e,i)=>i===at?{...e,project}:e):[{project,createdAt:now,updatedAt:now,pinned:false,archived:false,workspaceId:workspaces.activeId},...library.entries]};}
 function persist() { if(screen!=='editor')return;
   // Every change and every step goes through here: an Undo drawn for a change that is no longer the last is taken off its toast.
-  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; if(!diskQueue&&saveRetries){saveTrouble='';saveRetries=false;if(!troubleNow())troubleSeen='';paintMarks();} } catch(error) { lastSaved = false;
-    // A save refused before it reaches the disk ranks as any failed save: its dialog, with the backup choices, comes before a missing folder.
-    if(!startupError){saveTrouble=error instanceof Error?error.message:String(error);saveRetries=true;paintMarks();if(troubleOpened())return;}
+  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch(error) { lastSaved = false;
+    // On the desktop, a save refused before it reaches the disk's line ranks as any failed save: its dialog, with the backup
+    // choices, comes before a missing folder, and the next save that lands clears it. The browser build keeps its line below.
+    if(!startupError&&diskQueue){saveTrouble=error instanceof Error?error.message:String(error);saveRetries=true;paintMarks();if(troubleOpened())return;}
     toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.')); } }
 /**
  * The library into the disk's line, held to what the desktop can save (libraryText): one it cannot, half of a surrogate pair

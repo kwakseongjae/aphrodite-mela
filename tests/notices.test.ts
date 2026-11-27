@@ -524,18 +524,17 @@ test('the dialogs scope what they claim, and Space and a resized window leave th
   assert.match(main,/window\.addEventListener\('resize',\(\)=>document\.querySelectorAll<HTMLDetailsElement>\('details\.connect-mark\[open\]'\)\.forEach\(placeMarkPopover\)\);/);
 });
 
-/* In the browser build a save refused once and then taken clears its trouble and what was seen of it, so the same refusal
-   later opens its dialog again. */
-test('a refused save that is later taken clears what was seen of it',async()=>{
+/* The browser build has no disk line or missing folder: a refused save there says so in its toast and opens no dialog over
+   the person's work. */
+test('in the browser build a refused save is a toast, not a dialog',async()=>{
   const {editorCalls,noop}=await import('./support/editor-calls');
-  let fail=true;
+  const said:string[]=[];let opened=0;
   const screen:Record<string,unknown>={screen:'editor',toasts:[],undoToken:()=>'',settleUndo:(l:unknown)=>l,paintToasts:noop,library:{entries:[]},project:{id:'b'},workspaces:{activeId:'w'},
-    upsertProject:()=>({}),saveLibrary:()=>{if(fail)throw new Error('the board is larger than a saved board may be');},diskQueue:undefined,lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,noDiskCopy:false,
-    vanished:undefined,replacedStore:false,troubleSeen:'',paintMarks:noop,troubleKind,boardWords:(s:string)=>s,storagePath:'',
-    modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(x:{kind:string})=>{screen.troubleSeen=x.kind;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
-  editorCalls(['function persist(','function troubleNow(','function troubleOpened('],screen);
+    upsertProject:()=>({}),saveLibrary:()=>{throw new Error('quota');},diskQueue:undefined,lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,paintMarks:noop,
+    troubleOpened:()=>{opened++;return true;},toast:(m:string)=>{said.push(m);},ui:(en:string)=>en};
+  editorCalls(['function persist('],screen);
   (screen.persist as ()=>void)();
-  assert.equal(screen.troubleSeen,'failed');
-  fail=false;(screen.persist as ()=>void)();
-  assert.equal(screen.saveTrouble,'');assert.equal(screen.troubleSeen,'','seen no more, so it opens again next time');
+  assert.equal(screen.lastSaved,false);
+  assert.equal(screen.saveTrouble,'');assert.equal(opened,0);
+  assert.match(said.join(' '),/Could not save on this device/);
 });
