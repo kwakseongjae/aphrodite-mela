@@ -152,7 +152,7 @@ pub(super) struct Store {
     _directory_lock: File,
     pub lock_warning: Option<Code>,
     settings: Vec<PathBuf>,
-    pub profile: Option<PathBuf>,
+    pub record_profile: Option<PathBuf>,
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
@@ -205,7 +205,7 @@ impl Store {
             _directory_lock: directory,
             lock_warning: (marker[0] == REPAIRED).then_some(Code::RecordFailed),
             settings,
-            profile: e.claude_config_dir.as_ref().map(|_| profile),
+            record_profile: e.claude_config_dir.as_ref().map(|_| profile),
         })
     }
     fn read_path(path: &Path, settings: &[PathBuf]) -> Result<Record> {

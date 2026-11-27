@@ -64,7 +64,7 @@ struct Entry {
     digest: String,
 }
 struct State {
-    profile: Option<PathBuf>,
+    record_profile: Option<PathBuf>,
     program: Program,
     entry: Option<Entry>,
     record: Record,
@@ -182,7 +182,7 @@ impl State {
         if had_claim || warning.is_some() {
             store.revoke(true)?;
         }
-        let mut state = match Self::query(e, program, record, store.profile.clone()) {
+        let mut state = match Self::query(e, program, record, store.record_profile.clone()) {
             Ok(state) => state,
             Err(mut result) => {
                 if had_claim {
@@ -206,9 +206,9 @@ impl State {
         e: &Engine,
         program: Program,
         record: Record,
-        profile: Option<PathBuf>,
+        record_profile: Option<PathBuf>,
     ) -> Result<Self, CommandResult> {
-        let output = program.run(e, profile.as_deref(), &["mcp", "get", "aphrodite"])?;
+        let output = program.run(e, &["mcp", "get", "aphrodite"])?;
         let entry = match output.status {
             Some(0) => Some(
                 entry(&output.stdout).map_err(|code| CommandResult::new(code, output.status))?,
@@ -223,7 +223,7 @@ impl State {
             _ => return Err(CommandResult::new(Code::CliGetFailed, output.status)),
         };
         Ok(Self {
-            profile,
+            record_profile,
             program,
             entry,
             record,
@@ -294,7 +294,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
         Err(code) => {
             // A read-only lookup can still establish presence without a usable record.
             out.record_error = Some(code);
-            State::query(e, program, Record::default(), e.claude_config_dir.clone())
+            State::query(e, program, Record::default(), None)
         }
     };
     match inspection {
@@ -423,7 +423,7 @@ impl State {
             &e.exe,
             e.home.as_os_str().as_encoded_bytes(),
             &e.claude_config_dir,
-            self.profile
+            self.record_profile
                 .as_ref()
                 .map(|p| p.as_os_str().as_encoded_bytes()),
             e.location,
@@ -536,7 +536,7 @@ impl Invocation {
         action: Action,
     ) -> Result<CommandResult, CommandResult> {
         let args: Vec<_> = self.argv[1..].iter().map(String::as_str).collect();
-        let output = state.program.run(e, state.profile.as_deref(), &args)?;
+        let output = state.program.run(e, &args)?;
         let (success, failure) = match action {
             Action::Connect => (Code::Registered, Code::CliAddFailed),
             Action::Remove => (Code::Removed, Code::CliRemoveFailed),
@@ -675,7 +675,7 @@ impl State {
             e,
             self.program.clone(),
             self.record.clone(),
-            self.profile.clone(),
+            self.record_profile.clone(),
         ) {
             Ok(now) => {
                 result.observed = Some(Observation {

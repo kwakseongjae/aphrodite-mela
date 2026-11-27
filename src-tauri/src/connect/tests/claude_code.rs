@@ -1698,3 +1698,53 @@ fn fix3_n1_ask_still_reports_presence_if_the_lock_cannot_be_replaced() {
     assert_eq!(asked["owned"], false);
     assert_eq!(asked["recordError"], "record_failed");
 }
+
+#[test]
+fn fix3_n3_automatic_and_copied_lines_use_claudes_textual_profile_join() {
+    let mut f = Fixture::new();
+    let home = f.e().home.clone();
+    fs::create_dir_all(home.join("real/sub")).unwrap();
+    symlink("real/sub", home.join("lnk")).unwrap();
+    let spelling = home.join("lnk/..");
+    f.0.engine.claude_config_dir = Some(spelling.clone());
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    assert!(f
+        .calls()
+        .iter()
+        .all(|call| call["profile"] == json!(spelling)));
+    // Claude's textual join of lnk/.. and .claude.json selects the injected home.
+    assert!(home.join("entry").is_file());
+    let line = claude::snippet(f.e(), Action::Remove).unwrap();
+    let output = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &home)
+        .args(["-c", &line])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(f.calls().last().unwrap()["profile"], json!(spelling));
+    assert!(!home.join("entry").exists());
+    // The registration record still uses the physically resolved profile directory.
+    f.0.engine.claude_config_dir = Some(home.join("real"));
+    assert!(record_path(&f).is_file());
+}
+
+#[test]
+fn fix3_n3_file_comparison_includes_the_textually_joined_profile_settings() {
+    let mut f = Fixture::new();
+    let selected = f.e().home.join("selected");
+    fs::create_dir(&selected).unwrap();
+    fs::create_dir_all(f.e().home.join("real/sub")).unwrap();
+    symlink("../real/sub", selected.join("lnk")).unwrap();
+    f.0.engine.claude_config_dir = Some(selected.join("lnk/.."));
+    let target = f.0.file(Tool::Cursor, "{}");
+    symlink(target, selected.join(".claude.json")).unwrap();
+    assert_eq!(
+        f.e().status(Tool::Cursor).unwrap().error,
+        Some(Code::InvalidPath)
+    );
+}

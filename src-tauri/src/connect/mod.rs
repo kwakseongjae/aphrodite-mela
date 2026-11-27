@@ -228,7 +228,23 @@ impl Engine {
     }
     fn claude_settings(&self) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        for dir in std::iter::once(&self.home).chain(self.claude_config_dir.iter()) {
+        // Claude joins the setting and filename textually, collapsing ".." before
+        // following symlinks. Protect that location as well as the filesystem spelling.
+        let mut profiles: Vec<_> = self.claude_config_dir.iter().cloned().collect();
+        if let Some(dir) = &self.claude_config_dir {
+            let mut joined = PathBuf::new();
+            for part in dir.components() {
+                if part == std::path::Component::ParentDir {
+                    joined.pop();
+                } else {
+                    joined.push(part);
+                }
+            }
+            if &joined != dir {
+                profiles.push(joined);
+            }
+        }
+        for dir in std::iter::once(&self.home).chain(&profiles) {
             for name in [
                 ".claude.json",
                 ".claude-custom-oauth.json",
@@ -239,9 +255,7 @@ impl Engine {
             }
         }
         paths.push(self.home.join(".claude/.config.json"));
-        if let Some(dir) = &self.claude_config_dir {
-            paths.push(dir.join(".config.json"));
-        }
+        paths.extend(profiles.iter().map(|dir| dir.join(".config.json")));
         paths
     }
     fn profile(&self) -> Result<Option<&str>> {

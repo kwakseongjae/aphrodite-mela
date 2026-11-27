@@ -54,7 +54,7 @@ def fixture(name, **values):
     template = (home / "fixtures" / (name + ".txt")).read_text().split("\n", 1)[1]
     return template.format(**values)
 
-config = Path(profile or home).resolve() / ".claude.json"
+config = Path(os.path.normpath(profile or home)).resolve() / ".claude.json"
 state = home / ("entry" if config == home / ".claude.json" else "entry-" + hashlib.sha256(os.fsencode(config)).hexdigest())  # display only
 if verb == "get":
     assert args == ["mcp", "get", "aphrodite"]
