@@ -1,5 +1,6 @@
 import {build} from 'esbuild';
 import {readFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {chromium} from 'playwright-core';
 
@@ -36,8 +37,10 @@ export async function keyboardBrowser(){
     external:['/assets/*','/fonts/*','/brand/*'],plugins:[{name:'raw-text',setup(build){
       build.onLoad({filter:/.*/},async args=>args.suffix==='?raw'?{contents:await readFile(args.path,'utf8'),loader:'text'}:undefined);
     }}]});
-  const browser=await chromium.launch({executablePath:process.env.CHROME_BIN||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    args:process.env.CHROME_BIN?.includes('headless-shell')?['--single-process','--no-zygote','--disable-gpu']:[]});
+  const executablePath=process.env.CHROME_BIN;
+  const bundled=existsSync(chromium.executablePath());
+  const browser=await chromium.launch({executablePath,channel:executablePath||bundled?undefined:'chrome',
+    args:bundled||executablePath?.includes('headless-shell')?['--single-process','--no-zygote','--disable-gpu']:[]});
   try{
     const page=await browser.newPage();
     await page.addInitScript(()=>localStorage.clear());
