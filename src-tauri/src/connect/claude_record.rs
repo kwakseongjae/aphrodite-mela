@@ -58,14 +58,15 @@ fn private_file(meta: &fs::Metadata, owner: u32) -> bool {
 }
 
 fn open_lock(path: &Path, settings: &[PathBuf], owner: u32) -> Result<Option<File>> {
-    let mut options = OpenOptions::new();
-    options
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     if fs::symlink_metadata(path).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
-        match options.clone().create_new(true).open(path) {
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .create_new(true)
+            .open(path)
+        {
             Ok(file) => {
                 let m = file.metadata().map_err(|_| Code::Io)?;
                 files::exclude_settings((m.dev(), m.ino()), settings)?;
@@ -76,12 +77,21 @@ fn open_lock(path: &Path, settings: &[PathBuf], owner: u32) -> Result<Option<Fil
             Err(_) => return Err(Code::Io),
         }
     }
+    open_existing_lock(path, settings, owner)
+}
+
+fn open_existing_lock(path: &Path, settings: &[PathBuf], owner: u32) -> Result<Option<File>> {
     let before = fs::symlink_metadata(path).map_err(|_| Code::Io)?;
     if !private_file(&before, owner) || !controlled(path) {
         return Ok(None);
     }
     files::exclude_settings((before.dev(), before.ino()), settings)?;
-    let file = options.open(path).map_err(|_| Code::Io)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|_| Code::Io)?;
     let after = file.metadata().map_err(|_| Code::Io)?;
     if !private_file(&after, owner) || (after.dev(), after.ino()) != (before.dev(), before.ino()) {
         return Err(Code::Changed);
@@ -113,7 +123,7 @@ fn wait_for_lock(
 
 const REPAIRED: u8 = 1;
 
-fn replace_lock(dir: &Path, path: &Path) -> Result<File> {
+fn replace_lock(dir: &Path, path: &Path) -> Result<()> {
     let mut fresh = tempfile::Builder::new()
         .prefix(".damaged-claude-lock-")
         .tempfile_in(dir)
@@ -135,7 +145,7 @@ fn replace_lock(dir: &Path, path: &Path) -> Result<File> {
     if displaced.is_file() || displaced.is_symlink() {
         fs::remove_file(fresh.path()).map_err(|_| Code::RecordFailed)?;
     }
-    Ok(fresh.into_file())
+    Ok(())
 }
 
 pub(super) struct Store {
@@ -150,7 +160,7 @@ impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
         Self::lock_for_user(e, unsafe { libc::geteuid() })
     }
-    pub(super) fn lock_for_user(e: &Engine, owner: u32) -> Result<Self> {
+    pub(super) fn lock_for_user(e: &Engine, existing_owner: u32) -> Result<Self> {
         let profile = profile_dir(e)?;
         let path = record_path(e, &profile);
         let dir = path.parent().ok_or(Code::InvalidPath)?;
@@ -176,15 +186,19 @@ impl Store {
         let deadline = Instant::now() + Duration::from_millis(750);
         use fs2::FileExt as Lock;
         wait_for_lock(&directory, deadline, Lock::try_lock_shared)?;
-        let lock = match open_lock(&lock_path, &settings, owner)? {
+        let lock = match open_lock(&lock_path, &settings, existing_owner)? {
             Some(file) => file,
             None => {
                 Lock::unlock(&directory).map_err(|_| Code::Io)?;
                 wait_for_lock(&directory, deadline, Lock::try_lock_exclusive)?;
-                match open_lock(&lock_path, &settings, owner)? {
-                    Some(file) => file, // Another repair won while we waited.
-                    None => replace_lock(dir, &lock_path)?,
+                if open_existing_lock(&lock_path, &settings, existing_owner)?.is_none() {
+                    replace_lock(dir, &lock_path)?;
                 }
+                // Convert directly. macOS flock can admit another holder during
+                // conversion, so reopen the current name under the shared lock.
+                wait_for_lock(&directory, deadline, Lock::try_lock_shared)?;
+                open_existing_lock(&lock_path, &settings, unsafe { libc::geteuid() })?
+                    .ok_or(Code::Changed)?
             }
         };
         wait_for_lock(&lock, deadline, Lock::try_lock_exclusive)?;

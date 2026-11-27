@@ -1775,6 +1775,25 @@ fn fix3_n1_repair_waits_for_the_store_using_the_original_lock() {
 }
 
 #[test]
+fn fix4_f4_a_store_that_repaired_its_lock_shares_the_folder_with_other_profiles() {
+    use claude_record::Store;
+    let mut f = Fixture::new();
+    drop(Store::lock(f.e()).unwrap());
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    let repaired = Store::lock(f.e()).unwrap();
+    assert_eq!(repaired.lock_warning, Some(Code::RecordFailed));
+    f.0.engine.claude_config_dir = Some(f.e().home.join("other"));
+    let other = Store::lock(f.e()).unwrap();
+    assert_eq!(other.lock_warning, None);
+    f.0.engine.claude_config_dir = None;
+    assert!(matches!(Store::lock(f.e()), Err(Code::CliBusy)));
+    drop(repaired);
+    assert!(Store::lock(f.e()).is_ok());
+    drop(other);
+}
+
+#[test]
 fn fix3_n1_ask_still_reports_presence_if_the_lock_cannot_be_replaced() {
     let f = Fixture::new();
     let add = f.proposal(Action::Connect);
