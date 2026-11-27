@@ -100,6 +100,31 @@ test('Escape closes the open connection popover and returns to its summary',asyn
   assert.equal(await page.locator('.connect-mark[open]').count(),0);assert.ok(await summary.evaluate(el=>el===document.activeElement));
 });
 
+for(const menu of ['connected mark','dock group','editor help','folio-ws','folio-lang','folio-theme','folio-help','folio-more']){
+  test('Escape closes the dialog first, then the unfocused '+menu,async()=>{
+    const {page}=rig,home=menu.startsWith('folio-');
+    if(home){await scene('edit');await scene('home');}
+    if(menu==='connected mark')await scene('mark');
+    const details=home?'.'+menu:menu==='connected mark'?'.connect-mark':'.help-fab';
+    const dock=menu==='dock group';
+    const trigger=page.locator(dock?'[data-action="dock-group"]':details+' > summary').first();
+    const open=page.locator(dock?'.dock-menu':details+'[open]').first();
+    await trigger.click();
+    const outside=page.locator(home?'#project-search':'#component-search');
+    await outside.focus();
+    assert.ok(await outside.evaluate(el=>el===document.activeElement));
+    assert.ok(await open.isVisible());
+
+    await scene('welcome');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#modal-root .modal').count(),0);
+    assert.ok(await open.isVisible(),'the dialog received the first Escape');
+    assert.ok(await outside.evaluate(el=>el===document.activeElement));
+    await page.keyboard.press('Escape');
+    assert.equal(await open.count(),0);
+  });
+}
+
 test('dialog Tab wraps in both directions and Escape restores its opener',async()=>{
   const {page}=rig;
   const opener=page.locator('[data-action="project"]').first();await opener.focus();await page.keyboard.press('Enter');

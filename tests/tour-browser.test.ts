@@ -34,8 +34,10 @@ test('a dialog opened during the first tour delay gets Escape before the tour st
   await page.clock.fastForward(1000);
   const card=page.locator('.tour-card');
   assert.equal(await card.count(),0);
-  await page.keyboard.press('Escape');
+  await page.keyboard.down('Escape');
   assert.equal(await page.locator('#rename-form').count(),0);
+  await page.keyboard.down('Escape'); // A held dismissal still belongs to the dialog.
+  await page.keyboard.up('Escape');
   await page.clock.fastForward(400);
   await page.clock.resume();
   assert.ok(await card.isVisible());
@@ -81,4 +83,24 @@ test('Space on the focused tour Skip button finishes the tour',async()=>{
   await skip.focus();
   await page.keyboard.press('Space');
   assert.equal(await page.locator('#app').getAttribute('data-onboarding'),'done');
+});
+
+test('Escape goes to the dialog, the exposed tour, and then the open help menu',async()=>{
+  const {page}=rig;
+  await page.locator('[data-action="welcome-sample"]').click();
+  const card=page.locator('.tour-card'),help=page.locator('.help-fab[open]');
+  await card.waitFor();
+  await page.locator('.help-fab > summary').click();
+  await page.locator('#component-search').focus();
+  await page.keyboard.press('Control+k');
+  await page.locator('#command-search').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#command-search').count(),0);
+  assert.ok(await card.isVisible());
+  assert.ok(await help.isVisible());
+  await page.keyboard.press('Escape');
+  assert.equal(await card.count(),0);
+  assert.ok(await help.isVisible());
+  await page.keyboard.press('Escape');
+  assert.equal(await help.count(),0);
 });

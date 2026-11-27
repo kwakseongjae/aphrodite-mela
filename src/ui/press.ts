@@ -19,7 +19,7 @@ function visible(el:HTMLElement){
   return getComputedStyle(el).visibility==='visible';
 }
 
-export function topSurface():Surface{
+export function topSurface(key?:string):Surface{
   const sheet=document.querySelector<HTMLElement>('.fatal-scrim');
   if(sheet)return {kind:'sheet',root:sheet};
   const toast=document.activeElement?.closest<HTMLElement>('[data-toast]');
@@ -27,8 +27,14 @@ export function topSurface():Surface{
   const modal=document.querySelector<HTMLElement>('#modal-root > :last-child .modal');
   const page=document.querySelector<HTMLElement>('#page-view-root .page-view');
   const root=modal??page??document.body;
-  const menu=document.activeElement?.closest<HTMLElement>(popovers);
-  if(menu&&root.contains(menu)&&visible(menu))return {kind:'popover',root:menu};
+  // Escape can dismiss a mouse-opened menu even on platforms where the click leaves focus elsewhere.
+  if(key==='Escape'){
+    const open=[...root.querySelectorAll<HTMLElement>(popovers)].reverse().find(visible);
+    if(open)return {kind:'popover',root:open};
+  }else{
+    const focused=document.activeElement?.closest<HTMLElement>(popovers);
+    if(focused&&root.contains(focused)&&visible(focused))return {kind:'popover',root:focused};
+  }
   if(modal)return {kind:modal.matches('.ask-modal')?'ask':modal.querySelector('#command-list')?'palette':'dialog',root};
   return {kind:page?'page':'editor',root};
 }
@@ -133,7 +139,7 @@ export function installPress(actions:Actions){
   function route(e:KeyboardEvent){
     // The delegated-input gate has already run. Leave the IME its native default and skip app shortcuts.
     if(composingKey(e)){e.stopImmediatePropagation();return;}
-    const key=keyName(e),down=e.type==='keydown',surface=topSurface();
+    const key=keyName(e),down=e.type==='keydown',surface=topSurface(key);
     const inside=surface.root.contains(document.activeElement);
     if(key==='Enter'||key===' '){
       const control=buttonFor(surface,key);

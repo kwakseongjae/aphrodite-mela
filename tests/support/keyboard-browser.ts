@@ -10,7 +10,8 @@ export async function keyboardBrowser(){
   const main=await readFile('src/main.ts','utf8');
   const fixture=`
     Object.assign(window,{scene:{
-      board:()=>{markWelcomed();closeModal();openProject(project);},
+      board:()=>{markWelcomed();endTour();closeModal();openProject(project);},
+      welcome:()=>welcomeModal(),
       sheet:()=>showFatal('test diagnostic'),
       request:()=>window.aphroditeAgent.run('connect',{},'keyboard-test'),
       palette:()=>commandsModal(),

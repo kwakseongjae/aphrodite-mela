@@ -2744,8 +2744,11 @@ document.addEventListener('keydown', e => {
     if(!modalRoot.children.length&&!pageView)return;}
   if(pageView&&!modalRoot.children.length)return;
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
-  if ((e.key === 'Escape' || e.code === 'Escape') && (tourActive()||tourTimer!==undefined)) { endTour(); return; }
-  if (e.key === 'Escape' || e.code === 'Escape') { closeModal();return; }
+  if (e.key === 'Escape' || e.code === 'Escape') {
+    if(tourTimer!==undefined){if(!e.repeat&&dispatchOf(e))endTour();}
+    else closeModal();
+    return;
+  }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
   if (modalRoot.children.length||topSurface().kind==='toast')return;
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
