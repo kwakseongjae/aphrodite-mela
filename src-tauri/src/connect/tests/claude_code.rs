@@ -698,7 +698,8 @@ fn astra_6_a_press_repairs_a_missing_record_and_observed_absence_forgets_the_old
     fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
     let added = f.apply(Action::Connect, &p, false);
     fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
-    assert_eq!(added["code"], "registered_record_missing");
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "registered_record_missing");
     assert_eq!(added["exitStatus"], 0);
     let p = f.proposal(Action::Connect);
     assert_eq!(f.apply(Action::Connect, &p, true)["code"], "registered");
@@ -731,7 +732,7 @@ fn opus_9_add_and_remove_limits_recheck_what_the_program_actually_changed() {
                 .unwrap()
                 .extend(over.as_object().unwrap().clone());
             f.override_reply(verb, reply);
-            let r = f.apply(action, &p, false);
+            let r = f.apply(action, &p, p["confirmationRequired"] == true);
             assert_eq!(
                 r["observed"]["entryExists"],
                 action == Action::Connect,
@@ -1347,4 +1348,45 @@ fn recheck_astra_6_profile_alias_shares_the_journal_and_lock_even_before_creatio
         .as_str()
         .unwrap()
         .contains("alias/new"));
+}
+
+#[test]
+fn recheck_astra_7_failed_invalidation_cannot_authorize_a_recreated_entry() {
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    fs::remove_file(f.e().home.join("entry")).unwrap();
+    assert_eq!(f.status()["entryExists"], false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    f.state(f.e().executable(), "");
+    assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
+}
+
+#[test]
+fn recheck_astra_7_command_and_persistence_results_are_independent() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let added = f.apply(Action::Connect, &add, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "registered_record_missing");
+    let repair = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &repair, true);
+    let before = fs::metadata(&path).unwrap().ino();
+    let remove = f.proposal(Action::Remove);
+    f.override_reply("remove", json!({"exit":11,"once":true}));
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let failed = f.apply(Action::Remove, &remove, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(failed["code"], "cli_remove_failed");
+    assert_eq!(failed["exitStatus"], 11);
+    assert_eq!(failed["recordError"], Value::Null);
+    assert_eq!(fs::metadata(path).unwrap().ino(), before);
 }

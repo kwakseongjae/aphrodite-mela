@@ -99,7 +99,7 @@ fn open_lock(path: &Path) -> Result<File> {
 
 pub(super) struct Store {
     path: PathBuf,
-    _lock: File,
+    lock: File,
 }
 impl Store {
     pub fn lock(e: &Engine) -> Result<Self> {
@@ -125,7 +125,7 @@ impl Store {
         let deadline = Instant::now() + Duration::from_millis(750);
         loop {
             match fs2::FileExt::try_lock_exclusive(&lock) {
-                Ok(()) => return Ok(Self { path, _lock: lock }),
+                Ok(()) => return Ok(Self { path, lock }),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if Instant::now() >= deadline {
                         return Err(Code::CliBusy);
@@ -165,9 +165,28 @@ impl Store {
         Self::read_path(&record_path(e)?)
     }
     pub fn read(&self) -> Result<Record> {
-        Self::read_path(&self.path)
+        let mut record = Self::read_path(&self.path)?;
+        if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != 0 {
+            record.registered = None;
+        }
+        Ok(record)
+    }
+    // The lock inode survives receipt replacement, including when the directory is
+    // read-only. A nonempty lock suspends the old ownership claim across restarts.
+    pub fn revoke(&self, revoked: bool) -> Result<()> {
+        let len = u64::from(revoked);
+        if self.lock.metadata().map_err(|_| Code::RecordFailed)?.len() != len {
+            self.lock
+                .set_len(len)
+                .and_then(|()| self.lock.sync_all())
+                .map_err(|_| Code::RecordFailed)?;
+        }
+        Ok(())
     }
     pub fn save(&self, record: &Record) -> Result<()> {
+        if Self::read_path(&self.path).as_ref() == Ok(record) {
+            return self.revoke(false);
+        }
         let dir = self.path.parent().ok_or(Code::InvalidPath)?;
         if record == &Record::default() {
             match fs::remove_file(&self.path) {
@@ -186,6 +205,7 @@ impl Store {
         }
         File::open(dir)
             .and_then(|f| f.sync_all())
-            .map_err(|_| Code::RecordFailed)
+            .map_err(|_| Code::RecordFailed)?;
+        self.revoke(false)
     }
 }

@@ -22,6 +22,8 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     restore_error: Option<Code>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    record_error: Option<Code>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     observed: Option<Observation>,
 }
 impl CommandResult {
@@ -33,6 +35,7 @@ impl CommandResult {
             cause: None,
             restore_exit_status: None,
             restore_error: None,
+            record_error: None,
             observed: None,
         }
     }
@@ -166,10 +169,18 @@ impl State {
             Ok(record) => (record, None),
             Err(code) => (Record::default(), Some(code)),
         };
+        // Arm invalidation before asking. A crash or failed receipt save cannot
+        // leave an old claim usable after we have witnessed the entry disappear.
+        let had_claim = record.registered.is_some();
+        if had_claim || warning.is_some() {
+            store.revoke(true)?;
+        }
         let mut state = Self::query(e, program, record)?;
         state.record_error = warning;
         if state.entry.is_none() && state.record.registered.take().is_some() {
             state.record_error = store.save(&state.record).err();
+        } else if state.entry.is_some() && had_claim {
+            store.revoke(false)?;
         }
         Ok(state)
     }
@@ -241,11 +252,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     }
     let inspection = match Store::lock(e) {
         Ok(store) => State::inspect(e, program, &store),
-        Err(Code::CliBusy) => Err(Code::CliBusy.into()),
-        Err(code) => State::query(e, program, Record::default()).map(|mut state| {
-            state.record_error = Some(code);
-            state
-        }),
+        Err(code) => Err(code.into()),
     };
     match inspection {
         Ok(state) => {
@@ -509,11 +516,11 @@ fn save_record(
         })
         .is_err()
     {
-        result.code = if registered.is_some() {
+        result.record_error = Some(if result.code == Code::Registered {
             Code::RegisteredRecordMissing
         } else {
             Code::RecordFailed
-        };
+        });
     }
     result
 }
@@ -560,6 +567,9 @@ pub(super) fn execute(
                 target: e.executable().to_owned(),
             });
             store.save(&state.record)?;
+        }
+        if state.record.registered.is_some() {
+            store.revoke(true)?;
         }
         let removed = first
             .run(e, &state.program, Action::Remove)
@@ -612,18 +622,24 @@ impl State {
             return failure;
         };
         if let Some(entry) = &now.entry {
-            if entry.plain_stdio && now.points_here(e) == Some(true) {
-                return save_record(store, Some(e.executable()), failure);
-            }
-            // A failed remove may have left the old definition intact. An intervening
-            // definition remains untouched and the next press requires a fresh preview.
-            if self.record.pending.is_some()
+            if failed_step == Action::Remove
                 && self
                     .entry
                     .as_ref()
                     .is_some_and(|old| old.digest == entry.digest)
             {
-                return save_record(store, self.record.registered.as_deref(), failure);
+                // No mutation was observed. Preserve even an interrupted recovery.
+                if self.owned() {
+                    return save_record(store, self.record.registered.as_deref(), failure);
+                }
+                failure.record_error = store.save(&self.record).err();
+            } else if failed_step == Action::Connect
+                && entry.plain_stdio
+                && now.points_here(e) == Some(true)
+            {
+                // A failed add and a concurrent author can produce the same display.
+                // Report the observed path, without creating an ownership claim.
+                return save_record(store, None, failure);
             }
             return failure;
         }
@@ -638,8 +654,7 @@ impl State {
         let mut absent = self.record.clone();
         absent.registered = None;
         if store.save(&absent).is_err() {
-            failure.cause = Some(failure.code);
-            failure.code = Code::RecordFailed;
+            failure.record_error = Some(Code::RecordFailed);
             return failure;
         }
         // Only the confirmed recovery command may run, and only after observing absence.
@@ -659,10 +674,12 @@ impl State {
             v.plain_stdio && previous.is_some_and(|p| v.points_at(p) == Some(true))
         }) {
             failure.code = Code::RepointRestored;
-            if let Some(observed) = &mut failure.observed {
-                observed.owned = Some(true);
+            let registered = previous.filter(|_| failure.restore_error.is_none());
+            let mut result = save_record(store, registered, failure);
+            if let Some(observed) = &mut result.observed {
+                observed.owned = Some(registered.is_some() && result.record_error.is_none());
             }
-            save_record(store, previous, failure)
+            result
         } else {
             failure.code = Code::RepointRestoreFailed;
             failure
