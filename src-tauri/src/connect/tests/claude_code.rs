@@ -1567,6 +1567,19 @@ fn recheck_astra_6_retargeting_a_profile_alias_invalidates_its_preview() {
     assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
 }
 
+fn displaced_locks(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".damaged-claude-lock-")
+        })
+        .collect()
+}
+
 fn damaged_lock_requires_a_new_claim(damage: impl FnOnce(&Path)) {
     use std::os::unix::fs::MetadataExt;
     let f = Fixture::new();
@@ -1586,10 +1599,7 @@ fn damaged_lock_requires_a_new_claim(damage: impl FnOnce(&Path)) {
         (fresh.mode() & 0o777, fresh.nlink(), fresh.len()),
         (0o600, 1, 1)
     );
-    assert!(fs::read_dir(lock.parent().unwrap()).unwrap().flatten().any(
-        |item| fs::symlink_metadata(item.path()).unwrap().ino() == displaced.ino()
-            && item.file_name() != "other-link"
-    ));
+    assert!(displaced_locks(lock.parent().unwrap()).is_empty());
     let remove = f.proposal(Action::Remove);
     assert_eq!(remove["recordError"], "record_failed");
     assert_eq!(
@@ -1656,6 +1666,47 @@ fn fix4_f2_either_preview_repairs_a_lock_hard_linked_to_settings() {
         assert_eq!(fs::read(&settings).unwrap(), contents);
         assert_ne!(fs::metadata(&lock).unwrap().ino(), original.ino());
     }
+}
+
+#[test]
+fn fix4_f3_three_repairs_leave_no_displaced_files_or_links() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let repair = || drop(claude_record::Store::lock(f.e()).unwrap());
+    repair();
+    let lock = record_path(&f).with_extension("lock");
+    let settings = f.e().path(CLAUDE);
+    fs::write(&settings, b"keep these settings").unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
+    repair();
+    fs::remove_file(&lock).unwrap();
+    symlink(&settings, &lock).unwrap();
+    repair();
+    fs::remove_file(&lock).unwrap();
+    fs::hard_link(&settings, &lock).unwrap();
+    repair();
+    assert!(displaced_locks(lock.parent().unwrap()).is_empty());
+    assert_eq!(fs::metadata(&settings).unwrap().nlink(), 1);
+    assert_eq!(fs::read(settings).unwrap(), b"keep these settings");
+}
+
+#[test]
+fn fix4_f3_a_displaced_directory_keeps_its_contents() {
+    let f = Fixture::new();
+    drop(claude_record::Store::lock(f.e()).unwrap());
+    let lock = record_path(&f).with_extension("lock");
+    fs::remove_file(&lock).unwrap();
+    fs::create_dir(&lock).unwrap();
+    fs::write(lock.join("child"), b"keep this file").unwrap();
+    let store = claude_record::Store::lock(f.e()).unwrap();
+    assert_eq!(store.lock_warning, Some(Code::RecordFailed));
+    assert!(fs::symlink_metadata(&lock).unwrap().is_file());
+    let displaced = displaced_locks(lock.parent().unwrap());
+    assert_eq!(displaced.len(), 1);
+    assert_eq!(
+        fs::read(displaced[0].join("child")).unwrap(),
+        b"keep this file"
+    );
 }
 
 #[test]

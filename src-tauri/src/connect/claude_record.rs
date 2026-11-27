@@ -131,6 +131,10 @@ fn replace_lock(dir: &Path, path: &Path) -> Result<File> {
     File::open(dir)
         .and_then(|f| f.sync_all())
         .map_err(|_| Code::RecordFailed)?;
+    let displaced = fs::symlink_metadata(fresh.path()).map_err(|_| Code::RecordFailed)?;
+    if displaced.is_file() || displaced.is_symlink() {
+        fs::remove_file(fresh.path()).map_err(|_| Code::RecordFailed)?;
+    }
     Ok(fresh.into_file())
 }
 
