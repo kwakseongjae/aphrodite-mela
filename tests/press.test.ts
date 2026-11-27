@@ -50,6 +50,17 @@ test('the deferred request focus cannot steal the keys from a later sheet',async
   const {page}=rig;await page.evaluate('scene.request();scene.sheet()');await page.waitForTimeout(20);
   assert.equal(await focused(),'fatal-redraw');await page.keyboard.press('Escape');assert.equal(await focused(),'ask-allow');
 });
+test('a late font dialog keeps the edit request focused until the person answers',async()=>{
+  const {page}=rig;await scene('request');
+  assert.equal(await focused(),'ask-allow');
+  await page.locator('#app [data-action="font-picker"]').evaluate(el=>(el as HTMLElement).click());
+  const search=page.locator('#font-search');
+  await search.waitFor({state:'attached'});
+  assert.equal(await focused(),'ask-allow');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.ask-dialog').count(),0);
+  assert.ok(await search.evaluate(el=>el===document.activeElement));
+});
 test('Escape released under delegation leaves the next request a fresh Escape',async()=>{
   const {page}=rig;await scene('lock');await scene('sheet');await page.keyboard.down('Escape');
   assert.equal(await page.locator('.fatal-scrim').count(),0);
@@ -70,6 +81,7 @@ test('dialog Tab wraps in both directions and Escape restores its opener',async(
   await buttons.last().focus();await page.keyboard.press('Tab');assert.ok(await buttons.first().evaluate(el=>el===document.activeElement));
   await page.keyboard.press('Shift+Tab');assert.ok(await buttons.last().evaluate(el=>el===document.activeElement));
   await page.keyboard.press('Escape');assert.ok(await opener.evaluate(el=>el===document.activeElement));
+  assert.equal(await page.locator('#app').evaluate(el=>(el as HTMLElement).inert),false);
 });
 test('untrusted key events cannot answer a request, and changing focus cancels a trusted press',async()=>{
   const {page}=rig;await scene('request');await page.waitForTimeout(10);
@@ -145,4 +157,20 @@ test('a focused toast returns focus to the palette when it expires',async()=>{
   await page.locator('#toast button').last().focus();await page.clock.fastForward(11_000);
   assert.equal(await page.locator('#toast button').count(),0);
   assert.ok(await search.evaluate(el=>el===document.activeElement));
+});
+
+test('focus sent below a dialog, palette or request returns to its last focused control',async()=>{
+  const {page}=rig;
+  for(const open of ['dialog','palette','request']){
+    if(open==='dialog')await page.locator('[data-action="project"]').first().click();
+    else await scene(open);
+    const onTop=page.locator('#modal-root button:visible').last();
+    await onTop.focus();
+    await page.evaluate(()=>{
+      const lower=document.createElement('button');document.body.append(lower);
+      lower.focus();lower.remove();
+    });
+    assert.ok(await onTop.evaluate(el=>el===document.activeElement),open);
+    await page.keyboard.press('Escape');
+  }
 });

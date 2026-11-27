@@ -1310,8 +1310,12 @@ function showModal(title: string, subtitle: string, body: string, wide: boolean|
      continuation after an await, a script's click — which goes under it and shows once it is answered.
      The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
   const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
-  modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
-  if(ask)modalRoot.append(ask);
+  const markup = `<div class="modal-backdrop ui-scrim"${ask?' inert':''}><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
+  if(ask){
+    // Keep the request and its focused control mounted. The covered dialog cannot take focus.
+    ask.previousElementSibling?.remove();
+    ask.insertAdjacentHTML('beforebegin',markup);
+  }else modalRoot.innerHTML=markup;
   app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
@@ -1323,7 +1327,14 @@ function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); 
 }
 function askOpen(){return !!modalRoot.querySelector('.ask-dialog');}
 /** Takes the answered request away. A dialog that opened under it (see showModal) is left for the person. */
-function closeAsk(){const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');if(!ask)return;if(modalRoot.children.length<2)closeModal();else{ask.remove();focusModal();syncStateAttributes();}}
+function closeAsk(){
+  const ask=modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop');
+  if(!ask)return;
+  if(modalRoot.children.length<2){closeModal();return;}
+  ask.remove();
+  modalRoot.lastElementChild?.removeAttribute('inert');
+  focusModal();syncStateAttributes();
+}
 /** Which request the dialog on screen is: its id and who asked, as drawn into it. */
 function askShown(){const d=modalRoot.querySelector<HTMLElement>('.ask-dialog');return d?{id:d.dataset.askId??'',by:d.dataset.askBy??''}:null;}
 /** Whether that is still the request waiting for an answer. Anything else on screen is stale. */

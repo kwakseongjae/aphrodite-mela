@@ -117,7 +117,10 @@ export function installPress(actions:Actions){
     const surface=topSurface(),el=e.target;
     if(!(el instanceof HTMLElement))return;
     if(surface.root.contains(el))lastFocus.set(surface.root,el);
-    else if(surface.kind==='sheet'&&!restoreFocus())focusOnSurface(surface.root.querySelector<HTMLElement>('[data-action="fatal-redraw"]'));
+    else if(['sheet','ask','dialog','palette','page'].includes(surface.kind)&&!restoreFocus()){
+      const first=surface.root.querySelector<HTMLElement>('[data-action="fatal-redraw"],[data-action="ask-allow"],[data-first-focus]');
+      focusOnSurface(first)||focusOnSurface(surface.root);
+    }
   },true);
   document.addEventListener('focusout',e=>{
     for(const origin of held.values())if(origin?.focus===e.target)origin.cancelled=true;
