@@ -52,18 +52,56 @@ impl From<&fs::Metadata> for Identity {
     }
 }
 
+fn controlled_component(path: &Path, m: &fs::Metadata) -> bool {
+    !m.is_symlink()
+        && (m.uid() == unsafe { libc::geteuid() } || m.uid() == 0)
+        && m.mode() & 0o022 == 0
+        && super::files::acl_controlled(path)
+}
+
 // Callers pass a resolved path. Every component, including the filesystem root, matters.
 pub(super) fn controlled(path: &Path) -> bool {
-    let user = unsafe { libc::geteuid() };
     path.is_absolute()
-        && path.ancestors().all(|p| {
-            fs::symlink_metadata(p).is_ok_and(|m| {
-                !m.is_symlink()
-                    && (m.uid() == user || m.uid() == 0)
-                    && m.mode() & 0o022 == 0
-                    && super::files::acl_controlled(p)
-            })
-        })
+        && path
+            .ancestors()
+            .all(|p| fs::symlink_metadata(p).is_ok_and(|m| controlled_component(p, &m)))
+}
+
+// Check a link's parent before reading its target, including links in directory
+// components and directories traversed before ".." in a relative target.
+fn trusted_resolution(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut pending = path.to_owned();
+    'links: for _ in 0..=40 {
+        let mut current = PathBuf::new();
+        let mut parts = pending.components();
+        while let Some(part) = parts.next() {
+            match part {
+                Component::RootDir | Component::Normal(_) => current.push(part),
+                Component::ParentDir => {
+                    current.pop();
+                    continue;
+                }
+                Component::CurDir => continue,
+                _ => return None,
+            }
+            let meta = fs::symlink_metadata(&current).ok()?;
+            if meta.is_symlink() {
+                let target = fs::read_link(&current).ok()?;
+                current.pop();
+                pending = current.join(target).join(parts.as_path());
+                continue 'links;
+            }
+            if !controlled_component(&current, &meta) {
+                return None;
+            }
+        }
+        return current.canonicalize().ok();
+    }
+    None
 }
 
 fn safe_to_inspect(e: &Engine, path: &Path, meta: &fs::Metadata) -> bool {
@@ -135,15 +173,12 @@ impl Program {
                 ]
                 .map(Path::new),
             )
-            .filter_map(|dir| dir.canonicalize().ok())
-            .filter(|dir| dir.to_str().is_some() && controlled(dir))
+            .filter_map(trusted_resolution)
+            .filter(|dir| dir.to_str().is_some())
             .collect::<Vec<_>>();
         let mut program = Self {
             identity: (&m).into(),
-            trusted: selected.parent().is_some_and(|dir| {
-                dir.ancestors()
-                    .all(|p| p.canonicalize().is_ok_and(|resolved| controlled(&resolved)))
-            }) && controlled(&path)
+            trusted: trusted_resolution(&selected).as_ref() == Some(&path)
                 && safe_to_inspect(e, &path, &m),
             path,
             interpreter: vec![],
@@ -167,7 +202,7 @@ impl Program {
         };
         let mut words = std::str::from_utf8(line).ok()?.split_ascii_whitespace();
         let interpreter = Path::new(words.next()?);
-        if !interpreter.is_absolute() || !controlled(interpreter.parent()?) {
+        if !interpreter.is_absolute() {
             return None;
         }
         let pinned = self.pin_interpreter(e, interpreter)?;
@@ -190,9 +225,9 @@ impl Program {
     }
 
     fn pin_interpreter(&mut self, e: &Engine, selected: &Path) -> Option<(u64, u64)> {
-        let path = selected.canonicalize().ok()?;
+        let path = trusted_resolution(selected)?;
         let m = fs::metadata(&path).ok()?;
-        if !controlled(&path) || !m.is_file() || access(&path, Access::EXEC_OK).is_err() {
+        if !m.is_file() || access(&path, Access::EXEC_OK).is_err() {
             return None;
         }
         if path.to_str().is_none() || !safe_to_inspect(e, &path, &m) {

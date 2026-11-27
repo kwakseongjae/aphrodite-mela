@@ -1781,3 +1781,29 @@ fn fix3_n4_file_clients_can_inspect_configs_under_an_unreadable_profile_ancestor
     file_clients_with_unreachable_settings(&f);
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
 }
+
+#[test]
+fn fix3_n5_every_intermediate_file_or_directory_link_has_a_controlled_parent() {
+    for directory_link in [false, true] {
+        let f = Fixture::new();
+        let bin = &f.e().cli_dirs[0];
+        let shared = f.e().home.join("middle");
+        fs::create_dir(&shared).unwrap();
+        let selected = bin.join("claude");
+        fs::remove_file(&selected).unwrap();
+        if directory_link {
+            symlink(bin, shared.join("bin")).unwrap();
+            symlink("../middle/bin/playback", &selected).unwrap();
+        } else {
+            symlink(bin.join("playback"), shared.join("next")).unwrap();
+            symlink("../middle/next", &selected).unwrap();
+        }
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let status = f.status();
+        assert_eq!(status["trusted"], false, "{status}");
+        assert_eq!(status["error"], "cli_untrusted");
+        assert!(f.calls().is_empty());
+        fs::set_permissions(shared, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(f.status()["entryExists"], false);
+    }
+}
