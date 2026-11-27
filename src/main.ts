@@ -2745,8 +2745,7 @@ document.addEventListener('keydown', e => {
   if(pageView&&!modalRoot.children.length)return;
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
   if (e.key === 'Escape' || e.code === 'Escape') {
-    if(tourTimer!==undefined){if(!e.repeat&&dispatchOf(e))endTour();}
-    else closeModal();
+    closeModal();
     return;
   }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}

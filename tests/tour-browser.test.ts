@@ -1,4 +1,4 @@
-import {after,before,beforeEach,test} from 'node:test';
+import {after,before,beforeEach,test,type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
 import {keyboardBrowser} from './support/keyboard-browser';
 
@@ -12,24 +12,60 @@ beforeEach(async()=>{
   await page.goto('http://localhost/');
 });
 
-test('one Escape on the sample board dismisses the first tour even as it is about to appear',async()=>{
+async function openSampleDuringDelay(t:TestContext){
   const {page}=rig;
   await page.clock.install();
   await page.clock.pauseAt(new Date(Date.now()+1000));
+  t.after(()=>page.clock.resume());
   await page.locator('[data-action="welcome-sample"]').click();
   await page.locator('.space-frame.active').waitFor();
+  assert.equal(await page.locator('.tour-card').count(),0);
+}
+
+async function assertFirstTourVisible(){
+  const {page}=rig;
+  assert.equal(await page.locator('#app').getAttribute('data-onboarding'),'tour-pending');
+  assert.ok(await page.locator('.tour-card').isVisible());
+}
+
+test('Escape during the first tour delay leaves it pending and one Escape on the visible card ends it',async t=>{
+  const {page}=rig;
+  await openSampleDuringDelay(t);
   await page.keyboard.press('Escape');
-  await page.clock.fastForward(1000);
-  await page.clock.resume();
+  await page.clock.fastForward(400);
+  await assertFirstTourVisible();
+  await page.keyboard.press('Escape');
   assert.equal(await page.locator('.tour-card').isVisible(),false);
   assert.equal(await page.locator('#app').getAttribute('data-onboarding'),'done');
 });
 
-test('a dialog opened during the first tour delay gets Escape before the tour starts',async()=>{
+test('a second Escape 100 ms after closing the Board dialog still lets the first tour appear',async t=>{
   const {page}=rig;
-  await page.clock.install();
-  await page.clock.pauseAt(new Date(Date.now()+1000));
-  await page.locator('[data-action="welcome-sample"]').click();
+  await openSampleDuringDelay(t);
+  await page.locator('[data-action="project"]').first().click();
+  assert.ok(await page.locator('#rename-form').isVisible());
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#rename-form').count(),0);
+  await page.clock.fastForward(100);
+  await page.keyboard.press('Escape');
+  await page.clock.fastForward(300);
+  await assertFirstTourVisible();
+});
+
+test('a connected agent pressing Escape during the delay still lets the first tour appear',async t=>{
+  const {page}=rig;
+  await openSampleDuringDelay(t);
+  await page.evaluate('scene.mark()');
+  // Dispatch while paused, then run both the agent reply timer and the tour timer.
+  const reply=await page.evaluateHandle<{result:Promise<{error?:string}>}>("({result: window.aphroditeAgent.run('key',{key:'Escape'})})");
+  await page.clock.runFor(400);
+  assert.equal((await reply.evaluate(r=>r.result)).error,undefined);
+  await assertFirstTourVisible();
+});
+
+test('a dialog opened during the first tour delay gets Escape before the tour starts',async t=>{
+  const {page}=rig;
+  await openSampleDuringDelay(t);
   await page.locator('[data-action="project"]').first().click();
   await page.clock.fastForward(1000);
   const card=page.locator('.tour-card');
@@ -39,7 +75,6 @@ test('a dialog opened during the first tour delay gets Escape before the tour st
   await page.keyboard.down('Escape'); // A held dismissal still belongs to the dialog.
   await page.keyboard.up('Escape');
   await page.clock.fastForward(400);
-  await page.clock.resume();
   assert.ok(await card.isVisible());
   await page.locator('#component-search').focus();
   await page.keyboard.press('Escape');
