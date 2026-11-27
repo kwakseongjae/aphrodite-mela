@@ -1,4 +1,5 @@
 import { createIcons, createElement } from 'lucide';
+import {message as nativeQuestion} from '@tauri-apps/plugin-dialog';
 /** Last-resort crash surface: a blank webview hides everything, so what stopped is said in one sheet over the page (src/ui/notices.ts). */
 window.addEventListener('error',e=>showFatal(`${e.message}\n${e.filename??''}:${e.lineno??''}:${e.colno??''}`));
 window.addEventListener('unhandledrejection',e=>showFatal(`Unhandled promise rejection: ${String((e as PromiseRejectionEvent).reason).slice(0,600)}`));
@@ -608,14 +609,13 @@ function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){r
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
  * screen cannot answer it for them: it is the system's, not the page's.
  */
-async function askClose(error:unknown,dialog=()=>import('@tauri-apps/plugin-dialog')):Promise<CloseAnswer>{
+async function askClose(error:unknown):Promise<CloseAnswer>{
   const fileChoice=saves.noCopy?'save-library':'save-file';
   // A save that has not finished is said as still under way, not as failed: it may yet land (0.3-R fix 5 #2).
   const pending=error instanceof StillSaving,said=pending?ui(`The board is still being saved: ${String(error.message)}. It may still finish.`,`보드를 아직 저장하는 중입니다: ${SAVE_LIMIT/1000}초 안에 끝나지 않았습니다. 곧 끝날 수도 있습니다.`):ui(`This board could not be saved before closing: ${String(error)}.`,`종료 전에 이 보드를 저장하지 못했습니다: ${String(error)}.`);
   if(nativeDesktop){
     const save=fileChoice==='save-library'?everyBoardLabel():ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
-    const {message}=await dialog();
-    const got=await message(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
+    const got=await nativeQuestion(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
     return got===save||got==='Yes'?fileChoice:got===discard||got==='No'?'discard':'cancel';
   }
   if(confirm(`${said}\n\n${fileChoice==='save-library'?everyBoardLabel():ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return fileChoice;

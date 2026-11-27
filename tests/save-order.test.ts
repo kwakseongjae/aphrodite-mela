@@ -68,9 +68,8 @@ test('quit after an empty read and failed retry exports the same live boards as 
   const {windowCloser}=await import('../src/workspace/closing');
   Object.assign(s,{windowCloser,StillSaving:class extends Error{}});
   editorCalls(['async function askClose(','async function keepOnClose('],s);
-  const ask=s.askClose;
-  const dialog=async()=>({message:async(_said:string,o:{buttons:{yes:string}})=>{questions.push(o.buttons.yes);return o.buttons.yes;}});
-  s.askClose=(error:unknown)=>ask(error,dialog);editorCalls(['const closer=windowCloser'],s);
+  s.nativeQuestion=async(_said:string,o:{buttons:{yes:string}})=>{questions.push(o.buttons.yes);return o.buttons.yes;};
+  editorCalls(['const closer=windowCloser'],s);
   const {runInNewContext}=await import('node:vm');
   let closed=false;s.destroy=async()=>{closed=true;};
   const closing=runInNewContext('closer.request(destroy)',s);await tick();writes[1].done.reject(new Error('disk full'));await closing;
