@@ -62,7 +62,7 @@ import {personOnlyRow} from './agent/commands.mjs';
 import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
-import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,type Toast} from './design/toasts';
+import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,settleUndo,type Toast} from './design/toasts';
 import {askKey} from './editor/ask-keys';
 import {troubleKind,troubleDialog,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
@@ -478,7 +478,7 @@ function saveLibrary(next:Library){if(startupError)throw new Error(startupError)
 /* Off the editor no board is open (0.3-R): the copy left in memory is not the library's, and is never written back over it. */
 function persist() { if(screen!=='editor')return;
   // Every change and every step goes through here: an Undo drawn for a change that is no longer the last is taken off its toast.
-  if(toasts.some(t=>t.undo))paintToasts(); try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.')); } }
+  if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();} try { saveLibrary(upsertProject(library,project,undefined,workspaces.activeId)); if(!diskQueue)lastSaved=true; } catch { lastSaved = false; toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.')); } }
 /**
  * The library into the disk's line, held to what the desktop can save (libraryText): one it cannot, half of a surrogate pair
  * in a project carried over from the browser's store say, is said to the person and nothing is queued, so the line is not

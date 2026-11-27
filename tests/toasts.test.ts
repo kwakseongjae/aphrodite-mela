@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,toastLife,TOAST_LIFE,TOAST_LIFE_MAX,TOAST_MAX,type Toast} from '../src/design/toasts';
+import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,toastLife,settleUndo,TOAST_LIFE,TOAST_LIFE_MAX,TOAST_MAX,type Toast} from '../src/design/toasts';
 
 const NOW=1_700_000_000_000;
 const build=(...messages:string[])=>messages.reduce((list,m,i)=>pushToast(list,m,NOW+i,i+1),[] as Toast[]);
@@ -79,4 +79,16 @@ test('a change that can be undone carries Undo, the same single step as the shor
   assert.match(toastHtml(list),/<button type="button" class="ui-toast-text toast-dismiss"/,'a toast without Undo is put away from the keyboard too');
   assert.match(live,/data-undo-for="p1:7"/,'and it names its change, so a press that comes after another change does nothing');
   assert.ok(toastLife('컴포넌트를 삭제했습니다',true)>toastLife('컴포넌트를 삭제했습니다'),'and stays a little longer, to be reached');
+});
+
+test('a repeated line takes the newest Undo or none, and a settled list keeps only the last change\'s',()=>{
+  let list=pushToast([],'Moved.',NOW,1,{undo:'s:b:1'});
+  list=pushToast(list,'Moved.',NOW+1,2);
+  assert.equal(list.length,1);assert.equal(list[0].count,2);
+  assert.equal(list[0].undo,undefined,'the newest move recorded nothing, so the line offers nothing');
+  list=pushToast(list,'Moved.',NOW+2,3,{undo:'s:b:2'});
+  assert.equal(list[0].undo,'s:b:2','and the newest change is the one it offers');
+  const two=pushToast(list,'Renamed.',NOW+3,4,{undo:'s:b:3'});
+  assert.deepEqual(settleUndo(two,'s:b:3').map(t=>t.undo),[undefined,'s:b:3']);
+  assert.deepEqual(settleUndo(two,'s:b:2').map(t=>t.undo),['s:b:2',undefined]);
 });

@@ -22,17 +22,24 @@ export const TOAST_MAX = 3;
 
 /**
  * Adds a message. Repeating what is already on screen bumps a count instead of pushing a duplicate —
- * "Deleted" three times is one line saying so, not three lines saying it.
+ * "Deleted" three times is one line saying so, not three lines saying it. The line's Undo is the newest one's, or none
+ * when the newest recorded nothing: an older change is never offered under a newer line.
  */
 export function pushToast(list: readonly Toast[], message: string, now: number, nextId: number, o: {undo?: string} = {}): Toast[] {
   const text = message.trim();
   if (!text) return [...list];
   const existing = list.findIndex(t => t.message === text);
   if (existing >= 0) {
-    const bumped = {...list[existing], count: list[existing].count + 1, at: now, ...(o.undo ? {undo: o.undo} : {})};
+    const {undo: _old, ...kept} = list[existing];
+    const bumped = {...kept, count: list[existing].count + 1, at: now, ...(o.undo ? {undo: o.undo} : {})};
     return [...list.slice(0, existing), ...list.slice(existing + 1), bumped];
   }
   return [...list, {id: nextId, message: text, count: 1, at: now, ...(o.undo ? {undo: o.undo} : {})}].slice(-TOAST_MAX);
+}
+
+/** Takes Undo off every line whose change is not `last`: once history moves past a change, its button does not come back. */
+export function settleUndo(list: readonly Toast[], last: string): Toast[] {
+  return list.map(t => (t.undo && t.undo !== last ? (({undo: _gone, ...rest}) => rest)(t) : t));
 }
 
 /** Drops what has had its time. A bumped message gets its time back. */

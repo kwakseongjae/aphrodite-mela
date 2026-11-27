@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject,isApproved,systems,canonicalSystem,currentPage,catalog,makeBlock,type Project} from '../src/model';
-import {pushToast,expireToasts,toastHtml,type Toast} from '../src/design/toasts';
+import {pushToast,expireToasts,toastHtml,settleUndo,type Toast} from '../src/design/toasts';
 import {stepForScreen,HumanOnlyStep,StepDoesNotFit} from '../src/ledger/session';
 import {ensureSpace,tidyFrames} from '../src/editor/space';
 import {visiblePages} from '../src/editor/starter';
@@ -144,3 +144,22 @@ test('an edit landing while Undo waits to run is not what Undo takes back',async
   assert.equal(s.edits.undo.length,steps+1,'no step was taken');
 });
 
+/* Astra recheck 3: the same sentence twice keeps one line, and that line's Undo is the newest change's or none; once
+   history moves past a change, its Undo is gone for good. */
+test('a repeated toast carries the newest change\'s Undo or none, and a button history moved past never comes back',async()=>{
+  const p=board(),s=editor(p,['function persist('],{settleUndo,saveLibrary:()=>{},upsertProject:()=>({}),library:{entries:[]},workspaces:{activeId:'w'},diskQueue:undefined,lastSaved:true});
+  const undoable=s.undoable as (m:string,c:unknown)=>void,history=s.history as (dir:string,d:unknown)=>void;
+  const first=s.commit(()=>{s.project.name='First';},person(),'edit.project-rename');
+  undoable('The board was renamed.',first);
+  assert.equal(shown(s).undo,true);
+  undoable('The board was renamed.',null);
+  assert.equal(s.toasts.length,1,'one line, counted twice');
+  assert.equal(shown(s).undo,false,'the second time changed nothing, so the line offers nothing to take back');
+  const second=s.commit(()=>{s.project.name='Second';},person(),'edit.project-rename');
+  undoable('The name changed again.',second);
+  assert.equal(s.toasts[0].undo,undefined,'the first line\'s Undo went when the next change landed');
+  history('undo',person());
+  assert.equal(s.project.name,'First');
+  assert.ok(s.toasts.every(t=>!t.undo||t.undo===s.undoToken()),'no line holds an Undo for a change that is not the last');
+  assert.equal(/data-action="undo"/.test(toastHtml(s.toasts,{undo:s.undoToken()})),false,'and the first line does not get its button back now that its change is last again');
+});
