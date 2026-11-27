@@ -5,10 +5,13 @@ import {toolManifest, tools, refusalText, FALLBACK_CALLER} from '../mcp/aphrodit
 import {promptManifest, prompts} from '../mcp/aphrodite-mcp/prompts.mjs';
 import {protocol} from '../mcp/aphrodite-mcp/protocol.mjs';
 
+import {buildIdentity} from './preview-config.mjs';
+import {schemeForIdentifier} from '../src/board-scheme.mjs';
+
+const build = buildIdentity();
 const triple = process.env.TAURI_ENV_TARGET_TRIPLE || execFileSync('rustc', ['-vV'], {encoding:'utf8'}).match(/^host: (.+)$/m)[1];
 const bin = 'src-tauri/bin';
 const target = 'src-tauri/target/mcp';
-const version = JSON.parse(readFileSync('package.json','utf8')).version;
 const marker = 'APHRODITE_TEMPLATE_ARGUMENT';
 const routes = Object.fromEntries(tools.map(({name,route,body,params}) => {
   const select = body || params;
@@ -20,7 +23,7 @@ const templates = Object.fromEntries(prompts.map(prompt => {
   const arg = prompt.arguments[0]?.name;
   return [prompt.name, {arg, empty:prompt.build()[0].content.text, parts:prompt.build({[arg]:marker})[0].content.text.split(marker)}];
 }));
-const manifest = {version, ...protocol, fallbackCaller:FALLBACK_CALLER, tools:toolManifest(), routes,
+const manifest = {version:build.version, identifier:build.identifier, ...protocol, fallbackCaller:FALLBACK_CALLER, tools:toolManifest(schemeForIdentifier(build.identifier)), routes,
   prompts:promptManifest(), templates,
   refused:refusalText({},marker).split(marker),
   board:refusalText({error:'',open:{name:marker}},403).split(marker),
@@ -36,6 +39,6 @@ if (process.argv[2] === '--check-manifest') {
 } else {
   mkdirSync(bin, {recursive: true});
   if (!existsSync(path) || readFileSync(path, 'utf8') !== json) writeFileSync(path, json);
-  execFileSync('cargo',['build','--locked','--manifest-path','mcp/native/Cargo.toml','--release','--target',triple,'--target-dir',target],{stdio:'inherit'});
+  execFileSync('cargo',['build','--locked','--manifest-path','mcp/native/Cargo.toml','--release','--target',triple,'--target-dir',target],{stdio:'inherit', env:{...process.env, APHRODITE_BUILD_IDENTIFIER:build.identifier, APHRODITE_BUILD_VERSION:build.version}});
   copyFileSync(`${target}/${triple}/release/aphrodite-mcp`,`${bin}/aphrodite-mcp-${triple}`);
 }

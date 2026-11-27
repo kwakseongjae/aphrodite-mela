@@ -202,6 +202,7 @@ fn claude_textual_dir(dir: &Path) -> PathBuf {
 
 struct Engine {
     app_data: PathBuf,
+    receipt_key: String,
     home: PathBuf,
     exe: PathBuf,
     location: Location,
@@ -213,9 +214,10 @@ struct Engine {
     app_dirs: Vec<PathBuf>,
 }
 impl Engine {
-    fn new(home: PathBuf, exe: PathBuf) -> Self {
+    fn new(home: PathBuf, exe: PathBuf, identifier: &str) -> Self {
         Self {
             app_data: home.join("Library/Application Support/studio.aphrodite.mela"),
+            receipt_key: files::receipt_key(identifier),
             codex_home: home.join(".codex"),
             claude_config_dir: None,
             cli_timeout: std::time::Duration::from_secs(10),
@@ -346,7 +348,7 @@ impl Engine {
             let root = files::root(&self.home)?;
             let relative = files::resolve(&root, &self.home, &path)?;
             files::parent(&root, &relative)?;
-            let f = FileState::read(&root, &relative, &self.claude_settings())?;
+            let f = FileState::read(&root, &relative, &self.receipt_key, &self.claude_settings())?;
             let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
             Ok((
                 f.text.is_some(),
@@ -410,7 +412,7 @@ impl Engine {
         let source = f.text.as_deref().unwrap_or("");
         let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
         let owner = self.owner(tool, relative, f, &layout);
-        let history = files::history(root, relative)?;
+        let history = files::history(root, relative, &self.receipt_key)?;
         let prior = owner.or(history.as_ref());
         let foreign = !layout.entry.is_empty() && owner.is_none();
         let (changes, deletes_file) = match action {
@@ -591,7 +593,7 @@ impl Engine {
             tool,
             action,
             stamp,
-            &FileState::read(&root, &rel, &self.claude_settings())?,
+            &FileState::read(&root, &rel, &self.receipt_key, &self.claude_settings())?,
         )
     }
     fn commit(
@@ -614,7 +616,7 @@ impl Engine {
         let path = self.path(tool);
         let rel = files::resolve(&root, &self.home, &path)?;
         let settings = self.claude_settings();
-        let file = FileState::read(&root, &rel, &settings)?;
+        let file = FileState::read(&root, &rel, &self.receipt_key, &settings)?;
         let preview = self.plan(&root, &rel, tool, action, stamp, &file)?;
         if preview.fingerprint != fingerprint {
             return Err(Code::Changed);
@@ -627,7 +629,7 @@ impl Engine {
         }
         let source = file.text.as_deref().unwrap_or("");
         let candidate = preview.edited(source)?;
-        let history = files::history(&root, &rel)?;
+        let history = files::history(&root, &rel, &self.receipt_key)?;
         let before = edit::layout(tool, file.text.as_deref(), self.executable())?;
         let owned = self.owner(tool, &rel, &file, &before);
         let prior = owned.or(history.as_ref());
@@ -668,7 +670,7 @@ impl Engine {
         let temp = file.temp(&dir, &candidate, receipt.as_ref())?;
         let unchanged = || -> Result<()> {
             reachable()?;
-            let now = FileState::read(&dir, Path::new(name), &settings)?;
+            let now = FileState::read(&dir, Path::new(name), &self.receipt_key, &settings)?;
             if now.protection != file.protection
                 || now.revision != file.revision
                 || now.mode != file.mode
@@ -686,11 +688,11 @@ impl Engine {
             files::backup(&dir, name, source)?;
         }
         let result = unchanged().and_then(|()| {
-            files::set_history(&dir, name, receipt.as_ref())?;
+            files::set_history(&dir, name, receipt.as_ref(), &self.receipt_key)?;
             if let Err(code) =
                 temp.publish_checked(name, &file, preview.deletes_file, &settings, reachable)
             {
-                files::set_history(&dir, name, history.as_ref())?;
+                files::set_history(&dir, name, history.as_ref(), &self.receipt_key)?;
                 return Err(code);
             }
             Ok(())

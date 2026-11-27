@@ -22,7 +22,7 @@ fn runtime(app: tauri::AppHandle, inspect_images: bool) -> Result<Engine> {
         .map_err(|_| Code::InvalidPath)?;
     let app_exe = env::current_exe().map_err(|_| Code::InvalidPath)?;
     let exe = sidecar(&app_exe)?;
-    let mut e = Engine::new(home.clone(), exe);
+    let mut e = Engine::new(home.clone(), exe, &app.config().identifier);
     e.app_data = app.path().app_data_dir().map_err(|_| Code::InvalidPath)?;
     e.location = location(&app_exe, inspect_images);
     if let Some(dir) = env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {

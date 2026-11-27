@@ -2,9 +2,9 @@ name: Release macOS build
 
 # Builds a signed (and, when secrets are present, notarized) .dmg for Apple Silicon
 # and attaches it to a GitHub Release. Trigger by pushing a tag like v0.1.0,
-# or run manually with a tag name.
+# or run manually with the name of a tag that already exists (the run builds that tag).
 #
-# Secrets (Settings → Secrets → Actions). All optional: without them the build is
+# Secrets (Settings → Secrets → Actions). Stable tags can build without these. The fallback is
 # ad-hoc signed and users must right-click → Open on first launch.
 #   APPLE_CERTIFICATE            base64 of the Developer ID Application .p12
 #   APPLE_CERTIFICATE_PASSWORD   password of that .p12
@@ -21,10 +21,12 @@ name: Release macOS build
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published, edited]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0)"
+        description: "An existing release tag (e.g. v0.1.0)"
         required: true
 
 permissions:
@@ -32,6 +34,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'release'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -47,6 +50,8 @@ jobs:
       TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -65,6 +70,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Select the preview build for a preview tag
+        id: channel
+        if: contains(env.TAG, '-preview.')
+        run: |
+          [[ "$TAG" == v* ]]
+          node scripts/build-preview.mjs --version "${TAG#v}" --target "$TARGET" --config-only
+          echo "TAURI_CONFIG=$(cat src-tauri/target/preview.conf.json)" >> "$GITHUB_ENV"
+          echo "APHRODITE_PREVIEW_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "args=--config src-tauri/target/preview.conf.json" >> "$GITHUB_OUTPUT"
+          echo "assets=Aphrodite_[version]_[arch][ext]" >> "$GITHUB_OUTPUT"
+
       - name: Run tests
         run: npm test
 
@@ -81,13 +97,21 @@ jobs:
       # exist in the signed one.
       # Tauri treats a *defined but empty* APPLE_* variable as a real setting, so each
       # signing path is its own step and only defines the variables it uses.
-      # The release body is also what lands in latest.json, which is what the app reads to say
+      # The release body is also what lands in latest.json (stable) or preview.json (preview), which is what the app reads to say
       # "what changed". A generic sentence there means the card has nothing to show.
       - name: Read the release notes
         id: notes
         run: |
           FILE="docs/RELEASE-NOTES-${TAG}.md"
+          if [[ "$TAG" == *-preview.* && ! -f "$FILE" ]]; then
+            echo "::error::Missing preview release notes at $FILE"
+            exit 1
+          fi
           if [ -f "$FILE" ]; then
+            if grep -Fq '[PLACEHOLDER' "$FILE"; then
+              echo "::error::Replace the placeholder in $FILE before tagging."
+              exit 1
+            fi
             { echo "body<<APHRODITE_EOF"; cat "$FILE"; echo "APHRODITE_EOF"; } >> "$GITHUB_OUTPUT"
           else
             { echo "body<<APHRODITE_EOF"; echo "Aphrodite ${TAG} for macOS. Download, drag Aphrodite to Applications, open it."; echo "APHRODITE_EOF"; } >> "$GITHUB_OUTPUT"
@@ -102,6 +126,23 @@ jobs:
           if [ -z "$CERT" ]; then echo "mode=unsigned" >> "$GITHUB_OUTPUT";
           elif [ -n "$API_KEY" ]; then echo "mode=apikey" >> "$GITHUB_OUTPUT";
           else echo "mode=appleid" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Refuse an unsigned preview
+        if: steps.signing.outputs.mode == 'unsigned' && contains(env.TAG, '-preview.')
+        run: |
+          echo "::error::Preview releases require an Apple signing certificate."
+          exit 1
+
+      - name: Check preview signing credentials
+        if: contains(env.TAG, '-preview.')
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ "$IDENTITY" != "Developer ID Application:"* || -z "$UPDATER_KEY" ]]; then
+            echo "::error::Preview releases require a Developer ID Application identity and the updater signing key."
+            exit 1
+          fi
 
       - name: Write App Store Connect API key
         if: steps.signing.outputs.mode == 'apikey'
@@ -129,9 +170,10 @@ jobs:
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          prerelease: ${{ contains(env.TAG, '-preview.') }}
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
 
       - name: Build and publish release (signed, notarized with Apple ID)
         if: steps.signing.outputs.mode == 'appleid'
@@ -151,9 +193,18 @@ jobs:
           releaseName: "Aphrodite ${{ env.TAG }}"
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          prerelease: ${{ contains(env.TAG, '-preview.') }}
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
+
+      - name: Keep the stapled preview DMG under its published asset name
+        if: contains(env.TAG, '-preview.') && steps.signing.outputs.mode != 'unsigned'
+        run: |
+          dir="src-tauri/target/$TARGET/release/bundle/dmg"
+          for dmg in "$dir"/Aphrodite\ Preview_*.dmg; do
+            mv "$dmg" "$dir/Aphrodite_${dmg##*/Aphrodite Preview_}"
+          done
 
       # tauri-action notarizes and staples the .app, but not the .dmg container. Gatekeeper
       # evaluates the DMG first when a user double-clicks the download, so notarize + staple it
@@ -188,7 +239,7 @@ jobs:
           gh release upload "$TAG" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Build and publish release (unsigned, ad-hoc)
-        if: steps.signing.outputs.mode == 'unsigned'
+        if: steps.signing.outputs.mode == 'unsigned' && !contains(env.TAG, '-preview.')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -200,5 +251,36 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: true
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }} --bundles dmg,app
+          includeUpdaterJson: ${{ !contains(env.TAG, '-preview.') }}
+          assetNamePattern: ${{ steps.channel.outputs.assets }}
+          args: --target ${{ matrix.target }} --bundles dmg,app ${{ steps.channel.outputs.args }}
+
+  repair-preview:
+    if: github.event_name == 'release' && !github.event.release.prerelease && (contains(github.event.release.tag_name, '-preview.') || github.event.release.tag_name == 'preview-channel')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore the prerelease flag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release edit "$TAG" --prerelease --repo "$GITHUB_REPOSITORY"
+          echo "::error::Restored the prerelease flag on $TAG. This event did not promote it."
+          exit 1
+
+  promote-preview:
+    if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease && contains(github.event.release.tag_name, '-preview.')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: aphrodite-preview-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Advance preview.json from the published assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/promote-preview.mjs

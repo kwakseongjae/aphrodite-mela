@@ -2,6 +2,9 @@
 //! compares it with the running version, and — only when the person clicks — downloads that
 //! release's disk image to ~/Downloads and reveals it. The app never replaces itself behind anyone's
 //! back, so what lands on disk is the same signed, notarized DMG the website serves.
+use crate::channel::Channel;
+use semver::Version;
+use tauri_plugin_updater::{RemoteRelease, RemoteReleaseInner};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Read;
@@ -10,61 +13,99 @@ use std::path::{Path, PathBuf};
 const REPO: &str = "kwakseongjae/aphrodite-mela";
 const MAX_DMG_BYTES: u64 = 200 * 1024 * 1024;
 
-/// Compares two dotted version strings numerically. Missing segments count as zero, and anything
-/// unparsable sorts as zero rather than throwing, so a malformed tag can never look newer.
-pub fn is_newer(candidate: &str, current: &str) -> bool {
-    let part = |v: &str| -> Vec<u64> {
-        v.trim_start_matches('v')
-            .split(['.', '-', '+'])
-            .take(4)
-            .map(|s| s.parse::<u64>().unwrap_or(0))
-            .collect()
-    };
-    let (a, b) = (part(candidate), part(current));
-    for i in 0..a.len().max(b.len()) {
-        let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
-        if x != y {
-            return x > y;
-        }
+// Older releases also accepted a fourth numeric component. Keep that comparison for legacy tags.
+fn version_parts(value: &str) -> Option<(Version, u64)> {
+    let value = value.strip_prefix('v').unwrap_or(value);
+    if let Ok(version) = Version::parse(value) {
+        return Some((version, 0));
     }
-    false
+    let (base, revision) = value.rsplit_once('.')?;
+    let version = Version::parse(base).ok()?;
+    (version.pre.is_empty() && version.build.is_empty()).then_some((version, revision.parse().ok()?))
 }
 
+pub fn is_newer(candidate: &str, current: &str) -> bool {
+    let (Some((a, ar)), Some((b, br))) = (version_parts(candidate), version_parts(current)) else {
+        return false;
+    };
+    a.cmp_precedence(&b).then(ar.cmp(&br)).is_gt()
+}
 
-/// Asks GitHub for the newest published release. Never errors loudly: a machine that is offline or
-/// rate-limited simply reports that there is nothing newer. Off the main thread: a slow network
-/// must never freeze the window.
-#[tauri::command(async)]
-pub fn update_check() -> Result<Value, String> {
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    let quiet = json!({"current": current, "newer": false});
-    // The updater's own manifest, not the API. /releases/latest/download/… is a plain file, so a
-    // shared address — an office, a cafe — cannot spend the hour's sixty API calls and leave
-    // everyone in the building unable to hear about a new version.
-    let body = match fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json")) {
-        Ok(text) => text,
-        Err(_) => return Ok(quiet),
-    };
-    let manifest: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(_) => return Ok(quiet),
-    };
-    let tag = manifest["version"].as_str().unwrap_or("").trim_start_matches('v').to_string();
-    if tag.is_empty() || !is_newer(&tag, &current) {
-        return Ok(json!({"current": current, "latest": tag, "newer": false}));
+fn preview_version(version: &Version) -> bool {
+    version.pre.as_str().strip_prefix("preview.").is_some_and(|n| {
+        !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+    })
+}
+
+// Both channels use the same signing key. A signed stable binary is still the wrong app.
+fn preview_archives(release: &RemoteRelease) -> bool {
+    let RemoteReleaseInner::Static { platforms } = &release.data else { return false };
+    let version = &release.version;
+    platforms.len() == 2 && [("darwin-aarch64", "aarch64"), ("darwin-x86_64", "x64")].iter().all(|(key, arch)| {
+        let expected = format!("https://github.com/{REPO}/releases/download/v{version}/Aphrodite_{version}_{arch}.app.tar.gz");
+        platforms.get(*key).is_some_and(|p| p.url.as_str() == expected && !p.signature.trim().is_empty())
+    })
+}
+
+pub fn can_install(channel: Channel, current: Version, release: RemoteRelease) -> bool {
+    release.version.cmp_precedence(&current).is_gt() && match channel {
+        Channel::Stable => release.version.pre.is_empty(),
+        Channel::Preview => preview_version(&release.version) && preview_archives(&release),
     }
-    let Some(name) = dmg_name(&tag) else {
-        return Ok(json!({"current": current, "latest": tag, "newer": false}));
+}
+
+fn read_manifest(client: &ureq::Agent, endpoint: &str) -> Option<Value> {
+    serde_json::from_str(&fetch_text(client, endpoint).ok()?).ok()
+}
+
+// The stable feed can announce a separate DMG to a preview user. Only the app's own feed
+// can produce an in-place offer, and the updater plugin checks the channel again at install.
+fn offer(channel: Channel, current: &Version, manifest: &Value, stable_download: bool) -> Option<Value> {
+    let tag = manifest["version"].as_str()?;
+    let tag = tag.strip_prefix('v').unwrap_or(tag);
+    let (candidate, _) = version_parts(tag)?;
+    let accepted = if stable_download {
+        channel == Channel::Preview && candidate.pre.is_empty()
+    } else if channel == Channel::Preview {
+        let release: RemoteRelease = serde_json::from_value(manifest.clone()).ok()?;
+        can_install(channel, current.clone(), release)
+    } else {
+        candidate.pre.is_empty()
     };
-    Ok(json!({
-        "current": current,
-        "latest": tag,
-        "newer": true,
-        "name": name,
-        "url": format!("https://github.com/{REPO}/releases/download/v{tag}/{name}"),
+    if !accepted || !is_newer(tag, &current.to_string()) {
+        return None;
+    }
+    let name = dmg_name(tag)?;
+    Some(json!({
+        "current": current.to_string(), "latest": tag, "newer": true, "stableDownload": stable_download,
+        "name": name, "url": format!("https://github.com/{REPO}/releases/download/v{tag}/{name}"),
         "notes": format!("https://github.com/{REPO}/releases/tag/v{tag}"),
         "summary": release_summary(manifest["notes"].as_str().unwrap_or(""))
     }))
+}
+
+fn check_feeds(channel: Channel, current: &Version, endpoint: Option<&str>, skipped: Option<&str>,
+               read: impl Fn(&str) -> Option<Value>) -> Option<Value> {
+    let own = endpoint.and_then(&read).and_then(|manifest| offer(channel, current, &manifest, false));
+    if let Some(update) = own.filter(|info| info["latest"].as_str() != skipped) {
+        return Some(update);
+    }
+    if channel == Channel::Preview {
+        let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
+        return read(&stable).and_then(|manifest| offer(channel, current, &manifest, true));
+    }
+    None
+}
+
+#[tauri::command(async)]
+pub fn update_check(app: tauri::AppHandle, skipped: Option<String>) -> Result<Value, String> {
+    let current = &app.package_info().version;
+    let client = agent(current);
+    let channel = Channel::from_identifier(&app.config().identifier);
+    let endpoint = app.config().plugins.0.get("updater")
+        .and_then(|plugin| plugin["endpoints"][0].as_str());
+    Ok(check_feeds(channel, current, endpoint, skipped.as_deref(), |url| read_manifest(&client, url))
+        .unwrap_or_else(|| json!({"current": current.to_string(), "newer": false})))
 }
 
 /// The disk image this Mac would want, named the way the release names it. Kept as a fallback for
@@ -153,14 +194,14 @@ fn release_summary(body: &str) -> Vec<String> {
 /// the bytes must actually be a disk image before anything is written where the person will click it.
 /// Runs off the main thread, so the window stays alive for the length of the download.
 #[tauri::command(async)]
-pub fn update_download(url: String, name: String) -> Result<Value, String> {
+pub fn update_download(app: tauri::AppHandle, url: String, name: String) -> Result<Value, String> {
     let home = std::env::var_os("HOME").ok_or("no home directory")?;
-    download_dmg_into(&PathBuf::from(home).join("Downloads"), &url, &name)
+    download_dmg_into(&agent(&app.package_info().version), &PathBuf::from(home).join("Downloads"), &url, &name)
 }
 
 /// The download itself, given the folder to land in. Refuses anything that is not a release of this
 /// app, writes under a temporary name, and only moves it into place once the bytes are a disk image.
-fn download_dmg_into(dir: &Path, url: &str, name: &str) -> Result<Value, String> {
+fn download_dmg_into(client: &ureq::Agent, dir: &Path, url: &str, name: &str) -> Result<Value, String> {
     if !url.starts_with(&format!("https://github.com/{REPO}/releases/download/")) {
         return Err("that download does not come from this app's releases".into());
     }
@@ -177,7 +218,7 @@ fn download_dmg_into(dir: &Path, url: &str, name: &str) -> Result<Value, String>
     if target.exists() {
         return Ok(json!({"path": target.to_string_lossy(), "alreadyThere": true}));
     }
-    let bytes = fetch_bytes(url)?;
+    let bytes = fetch_bytes(client, url)?;
     if !looks_like_dmg(&bytes) {
         return Err("that download is not a macOS disk image".into());
     }
@@ -313,16 +354,16 @@ fn looks_like_dmg(bytes: &[u8]) -> bool {
     bytes.len() > 512 && bytes[bytes.len() - 512..].starts_with(b"koly")
 }
 
-fn agent() -> ureq::Agent {
+fn agent(version: &Version) -> ureq::Agent {
     ureq::AgentBuilder::new()
+        .user_agent(&format!("Aphrodite/{version}"))
         .timeout_connect(std::time::Duration::from_secs(10))
         .build()
 }
 
-fn fetch_text(url: &str) -> Result<String, String> {
-    agent()
+fn fetch_text(client: &ureq::Agent, url: &str) -> Result<String, String> {
+    client
         .get(url)
-        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
         .set("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(20))
         .call()
@@ -331,10 +372,9 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let response = agent()
+fn fetch_bytes(client: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+    let response = client
         .get(url)
-        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(600))
         .call()
         .map_err(|e| format!("download failed: {e}"))?;
@@ -431,6 +471,13 @@ mod tests {
 
     #[test]
     fn newer_versions_are_recognised_in_order() {
+        for (older, newer) in [
+            ("0.2.8", "0.3.0-preview.1"), ("0.3.0-preview.1", "0.3.0-preview.2"),
+            ("0.3.0-preview.2", "0.3.0-preview.10"), ("0.3.0-preview.10", "0.3.0"),
+        ] {
+            assert!(is_newer(newer, older));
+            assert!(!is_newer(older, newer));
+        }
         assert!(is_newer("0.1.6", "0.1.5"));
         assert!(is_newer("0.2.0", "0.1.9"));
         assert!(is_newer("1.0.0", "0.9.9"));
@@ -440,6 +487,60 @@ mod tests {
         assert!(!is_newer("0.1.4", "0.1.5"));
         assert!(!is_newer("0.1", "0.1.0"));
         assert!(is_newer("0.1.5.1", "0.1.5"));
+    }
+
+    #[test]
+    fn updates_stay_in_their_channel_and_stable_graduation_is_download_only() {
+        let preview = Version::parse("0.3.0-preview.1").unwrap();
+        let stable = Version::parse("0.2.8").unwrap();
+        let version = "0.3.0-preview.2";
+        let asset = |arch| json!({"url":format!("https://github.com/{REPO}/releases/download/v{version}/Aphrodite_{version}_{arch}.app.tar.gz"), "signature":"sig"});
+        let next = json!({"version":version, "platforms":{"darwin-aarch64":asset("aarch64"), "darwin-x86_64":asset("x64")}});
+        let final_release = json!({"version":"0.3.0"});
+        assert!(offer(Channel::Stable, &stable, &next, false).is_none());
+        assert!(offer(Channel::Preview, &preview, &final_release, false).is_none());
+        assert!(offer(Channel::Preview, &preview, &next, true).is_none());
+        assert_eq!(offer(Channel::Preview, &preview, &next, false).unwrap()["stableDownload"], false);
+        assert_eq!(offer(Channel::Preview, &preview, &final_release, true).unwrap()["stableDownload"], true);
+        assert!(offer(Channel::Preview, &preview, &json!({"version":"0.2.9"}), true).is_none());
+        assert!(offer(Channel::Preview, &preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
+    }
+
+    #[test]
+    fn preview_checks_its_own_feed_after_stable_ships() {
+        let current = Version::parse("0.3.0-preview.1").unwrap();
+        let next = "0.4.0-preview.1";
+        let archive = |arch| json!({"url":format!("https://github.com/{REPO}/releases/download/v{next}/Aphrodite_{next}_{arch}.app.tar.gz"),"signature":"sig"});
+        let own = json!({"version":next,"platforms":{"darwin-aarch64":archive("aarch64"),"darwin-x86_64":archive("x64")}});
+        let check = |skipped| check_feeds(Channel::Preview, &current, Some("preview.json"), skipped, |url| {
+            Some(if url == "preview.json" { own.clone() } else { json!({"version":"0.3.0"}) })
+        }).unwrap();
+        assert_eq!(check(None)["latest"], next);
+        assert_eq!(check(None)["stableDownload"], false);
+        assert_eq!(check(Some(next))["stableDownload"], true);
+        assert_eq!(check(Some("0.3.0"))["latest"], next);
+    }
+
+    #[test]
+    fn a_stable_release_candidate_can_be_offered_and_install_the_final_release() {
+        let current = Version::parse("0.3.0-rc.1").unwrap();
+        let manifest = json!({"version":"0.3.0","platforms":{}});
+        let channel = Channel::from_identifier("studio.aphrodite.mela");
+        assert!(crate::opened::read_link("aphrodite://open?board=b", channel.board_scheme()).is_some());
+        let offered = offer(channel, &current, &manifest, false);
+        let install = can_install(channel, current, serde_json::from_value(manifest).unwrap());
+        assert!(offered.is_some() && install, "offered={offered:?}, install={install}");
+    }
+
+    #[test]
+    fn a_preview_version_label_cannot_offer_a_stable_archive() {
+        let current = Version::parse("0.3.0-preview.1").unwrap();
+        let mixed = json!({"version":"0.3.0-preview.2","platforms":{
+            "darwin-aarch64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0/Aphrodite_aarch64.app.tar.gz"),"signature":"s"},
+            "darwin-x86_64":{"url":format!("https://github.com/{REPO}/releases/download/v0.3.0-preview.2/Aphrodite_0.3.0-preview.2_x64.app.tar.gz"),"signature":"s"}
+        }});
+        assert!(offer(Channel::Preview, &current, &mixed, false).is_none());
+        assert!(!can_install(Channel::Preview, current, serde_json::from_value(mixed).unwrap()));
     }
 
     #[test]
@@ -466,7 +567,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_release_manifest_parses() {
-        let body = fetch_text(&format!("https://github.com/{REPO}/releases/latest/download/latest.json"))
+        let body = fetch_text(&ureq::Agent::new(), &format!("https://github.com/{REPO}/releases/latest/download/latest.json"))
             .expect("the manifest answers");
         let manifest: Value = serde_json::from_str(&body).expect("valid json");
         let version = manifest["version"].as_str().expect("a version");
@@ -483,11 +584,11 @@ mod tests {
             ("http://github.com/kwakseongjae/aphrodite-mela/releases/download/v1/a.dmg", "a.dmg"),
             ("https://github.com/someone-else/app/releases/download/v1/a.dmg", "a.dmg"),
         ] {
-            assert!(download_dmg_into(dir.path(), url, name).is_err(), "{url}");
+            assert!(download_dmg_into(&ureq::Agent::new(), dir.path(), url, name).is_err(), "{url}");
         }
         let good = format!("https://github.com/{REPO}/releases/download/v0.1.5/x.dmg");
         for name in ["../../escape.dmg", ".hidden.dmg", "notes.txt", "payload.sh"] {
-            assert!(download_dmg_into(dir.path(), &good, name).is_err(), "{name}");
+            assert!(download_dmg_into(&ureq::Agent::new(), dir.path(), &good, name).is_err(), "{name}");
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0, "nothing was written");
     }
@@ -498,13 +599,13 @@ mod tests {
     fn live_download_lands_a_real_disk_image() {
         let dir = tempfile::tempdir().expect("temp dir");
         let url = format!("https://github.com/{REPO}/releases/download/v0.1.5/Aphrodite_0.1.5_aarch64.dmg");
-        let got = download_dmg_into(dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("download");
+        let got = download_dmg_into(&ureq::Agent::new(), dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("download");
         let path = PathBuf::from(got["path"].as_str().expect("a path"));
         assert!(path.is_file());
         assert!(fs::metadata(&path).unwrap().len() > 20_000_000);
         assert!(looks_like_dmg(&fs::read(&path).unwrap()));
         assert!(!dir.path().join("Aphrodite_0.1.5_aarch64.dmg.part").exists(), "the partial file is gone");
-        let again = download_dmg_into(dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("second call");
+        let again = download_dmg_into(&ureq::Agent::new(), dir.path(), &url, "Aphrodite_0.1.5_aarch64.dmg").expect("second call");
         assert_eq!(again["alreadyThere"], json!(true), "a file already there is not downloaded twice");
     }
 

@@ -19,6 +19,7 @@ import {MAX_EXPORT_FILE} from './page-export';
 import {savedText, utf8Length} from './workspace/library';
 import {localRefsIn} from './design/local-images';
 import {halfPairIn} from './text';
+import {boardScheme} from './board-scheme.mjs';
 import named from '../src-tauri/board-file.json';
 
 /**
@@ -430,8 +431,8 @@ export async function writeBoardFile(project: Project, host: Pick<FrameHost, 'st
  */
 export type OpenLink = {board: string; page?: string};
 const ID = /^[a-zA-Z0-9_-]{1,200}$/;
-export function readOpenLink(href: string): OpenLink | undefined {
-  if (href.length > 1000 || !/^aphrodite:\/\/open\/?\?/i.test(href)) return undefined;
+export function readOpenLink(href: string, scheme = boardScheme): OpenLink | undefined {
+  if (href.length > 1000 || !href.toLowerCase().startsWith(scheme + ':') || !/^:\/\/open\/?\?/i.test(href.slice(scheme.length))) return undefined;
   const query = href.slice(href.indexOf('?') + 1);
   if (query.includes('#')) return undefined;
   const got: Record<string, string> = {};
@@ -442,6 +443,6 @@ export function readOpenLink(href: string): OpenLink | undefined {
   }
   return got.board ? {board: got.board, ...(got.page ? {page: got.page} : {})} : undefined;
 }
-export function openLink(board: string, page?: string): string {
-  return `aphrodite://open?board=${board}${page ? `&page=${page}` : ''}`;
+export function openLink(board: string, page?: string, scheme = boardScheme): string {
+  return `${scheme}://open?board=${board}${page ? `&page=${page}` : ''}`;
 }

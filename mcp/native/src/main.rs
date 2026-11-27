@@ -354,7 +354,9 @@ fn main() {
         .unwrap_or_else(|| {
             env::home_dir()
                 .unwrap_or_default()
-                .join("Library/Application Support/studio.aphrodite.mela/agent-endpoint.json")
+                .join("Library/Application Support")
+                .join(option_env!("APHRODITE_BUILD_IDENTIFIER").unwrap_or_else(|| text(&data["identifier"])))
+                .join("agent-endpoint.json")
         });
     let client = ureq::AgentBuilder::new()
         .redirects(0)
@@ -396,7 +398,7 @@ fn main() {
                     let asked = &p["protocolVersion"];
                     json!({"protocolVersion":if versions.contains(asked){asked}else{&versions[0]},
                   "capabilities":{"tools":{"listChanged":false},"prompts":{"listChanged":false}},
-                  "serverInfo":{"name":"aphrodite","version":data["version"]},"instructions":data["instructions"]})
+                  "serverInfo":{"name":"aphrodite","version":option_env!("APHRODITE_BUILD_VERSION").unwrap_or_else(|| text(&data["version"]))},"instructions":data["instructions"]})
                 }
                 "tools/list" => json!({"tools":data["tools"]}),
                 "prompts/list" => json!({"prompts":data["prompts"]}),
