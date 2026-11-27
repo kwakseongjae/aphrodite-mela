@@ -64,7 +64,7 @@ import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,settleUndo,type Toast} from './design/toasts';
-import {focusOnSurface,installPress,pressOrigin,rememberFocus,restoreFocus,takeReturnFocus,topSurface} from './ui/press';
+import {composingKey,focusOnSurface,installPress,pressOrigin,rememberFocus,restoreFocus,takeReturnFocus,topSurface} from './ui/press';
 import {troubleKind,troubleDialog,backupFormat,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -2557,7 +2557,7 @@ for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblc
     if(!agentLocked()||!e.isTrusted)return;
     const target=e.target as HTMLElement|null;
     if(target?.closest?.('.agent-banner,.fatal-scrim'))return;
-    if(e instanceof KeyboardEvent&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
+    if(e instanceof KeyboardEvent&&!composingKey(e)&&isHumanHatch(e)){if(e.type==='keydown'){e.preventDefault();endAgentMode('returned');editorMode='design';render();toast(ui('Control returned to you. The run was recorded.','제어를 돌려받았습니다. 실행 기록이 남았습니다.'));}return;}
     e.stopImmediatePropagation();if(e.cancelable)e.preventDefault();
   },{capture:true,passive:false});
 }

@@ -58,6 +58,8 @@ function cycle(root:HTMLElement,back:boolean){
   items[next]?.focus();
 }
 
+export function composingKey(e:KeyboardEvent){return e.isComposing||e.keyCode===229;}
+
 function keyName(e:KeyboardEvent){
   if(e.code==='Enter'||e.code==='NumpadEnter'||e.keyCode===13)return 'Enter';
   if(e.code==='Space')return ' ';
@@ -94,16 +96,10 @@ export function installPress(actions:Actions){
   const held=new Map<string,Origin|null>();
   const releases=new WeakMap<KeyboardEvent,Origin|null>();
   const fresh=new WeakSet<KeyboardEvent>();
-  // Composition belongs to the input method. Leave its native default alone and give app shortcuts no press.
-  function composing(e:KeyboardEvent){
-    if(!e.isComposing&&e.keyCode!==229)return false;
-    if(e.isTrusted)held.delete(e.code||e.key);
-    e.stopImmediatePropagation();
-    return true;
-  }
   window.addEventListener('keydown',e=>{
-    if(composing(e)||!e.isTrusted)return;
+    if(!e.isTrusted)return;
     const id=e.code||e.key;
+    if(composingKey(e)){held.delete(id);return;}
     if(!e.repeat&&!held.has(id))fresh.add(e);
     const key=keyName(e);
     if(key==='Enter'||key===' '){
@@ -112,8 +108,9 @@ export function installPress(actions:Actions){
     }else held.set(id,null);
   },true);
   window.addEventListener('keyup',e=>{
-    if(composing(e)||!e.isTrusted)return;
+    if(!e.isTrusted)return;
     const id=e.code||e.key;
+    if(composingKey(e)){held.delete(id);return;}
     if(held.has(id))releases.set(e,held.get(id)??null);
     held.delete(id);
     if(e.key==='Meta')held.clear();
@@ -134,6 +131,8 @@ export function installPress(actions:Actions){
   },true);
 
   function route(e:KeyboardEvent){
+    // The delegated-input gate has already run. Leave the IME its native default and skip app shortcuts.
+    if(composingKey(e)){e.stopImmediatePropagation();return;}
     const key=keyName(e),down=e.type==='keydown',surface=topSurface();
     const inside=surface.root.contains(document.activeElement);
     if(key==='Enter'||key===' '){

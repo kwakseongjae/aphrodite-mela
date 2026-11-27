@@ -352,3 +352,19 @@ test('the sheet permits native copy of its selected details and blocks a plain k
     new KeyboardEvent('keydown',{key:'a',code:'KeyA',bubbles:true,cancelable:true})));
   assert.equal(passed,false);
 });
+
+test('the delegated input gate still receives composing keys before the keyboard router',async()=>{
+  const {page}=rig;
+  await page.addInitScript(()=>{
+    window.addEventListener('keydown',e=>{
+      if(e.keyCode===229)Object.assign(window,{composingDown:e});
+    },true);
+  });
+  await page.reload();await scene('board');await scene('lock');
+  const session=await page.context().newCDPSession(page);
+  try{
+    await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Process',code:'Enter',windowsVirtualKeyCode:229});
+    await session.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    assert.equal(await page.evaluate('window.composingDown.defaultPrevented'),true);
+  }finally{await session.detach();}
+});
