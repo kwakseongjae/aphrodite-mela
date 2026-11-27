@@ -1134,6 +1134,10 @@ fn opus_10_the_guide_uses_generated_setup_and_undo_and_explains_the_active_looku
             assert!(guide.lines().any(|l| l == line), "{line}");
         }
     }
+    f.0.engine.claude_config_dir = None;
+    let preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let line = claude::snippet(&preview, Action::Connect).unwrap();
+    assert!(guide.lines().any(|l| l == line), "{line}");
     for term in [
         "connect_status",
         "connect_ask",
