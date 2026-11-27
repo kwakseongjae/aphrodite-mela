@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::os::unix::fs::MetadataExt;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
@@ -23,7 +24,11 @@ const PAGE_FRESH: std::time::Duration = std::time::Duration::from_secs(60);
 const PAGES_BOUND: u64 = 256 * 1024 * 1024;
 /// Files on their way in, outside both folders the asset protocol serves.
 const UPLOADS: &str = "board-uploads";
-const EXTENSIONS: [&str; 6] = ["png", "jpg", "gif", "webp", "mp4", "webm"];
+const BOARD_FILES: &[(&str, &str)] = &[
+    ("png", "image/png"), ("jpg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp"),
+    ("mp4", "video/mp4"), ("webm", "video/webm"), ("woff2", "font/woff2"), ("woff", "font/woff"),
+    ("ttf", "font/ttf"), ("otf", "font/otf"), ("wav", "audio/wav"), ("ogg", "audio/ogg"), ("mp3.bin", "audio/mpeg"),
+];
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Stored {
@@ -32,7 +37,7 @@ pub struct Stored {
     pub bytes: u64,
 }
 
-fn base(app: &AppHandle) -> Result<PathBuf, String> {
+fn base<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
@@ -56,7 +61,7 @@ pub(crate) fn sniff(head: &[u8]) -> Option<&'static str> {
     if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
         return Some("image/webp");
     }
-    if head.len() >= 8 && &head[4..8] == b"ftyp" {
+    if head.len() >= 8 && head[0] == 0 && &head[4..8] == b"ftyp" {
         return Some("video/mp4");
     }
     if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
@@ -65,15 +70,35 @@ pub(crate) fn sniff(head: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn extension(mime: &str) -> &'static str {
-    match mime {
-        "image/png" => "png",
-        "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "video/mp4" => "mp4",
-        _ => "webm",
+fn page_asset(head: &[u8]) -> Option<&'static str> {
+    if let Some(mime) = sniff(head) { return Some(mime); }
+    for (magic, mime) in [
+        (&b"wOF2"[..], "font/woff2"), (b"wOFF", "font/woff"), (b"OTTO", "font/otf"),
+        (b"\0\x01\0\0", "font/ttf"), (b"OggS", "audio/ogg"), (b"ID3", "audio/mpeg"),
+    ] {
+        if head.starts_with(magic) { return Some(mime); }
     }
+    if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") { return Some("audio/wav"); }
+    if matches!(head, [0xff, 0xfb | 0xf3 | 0xf2, _, ..]) { return Some("audio/mpeg"); }
+    None
+}
+
+pub(crate) fn media_extension(ext: &str) -> bool {
+    matches!(ext, "jpeg" | "mp3") || BOARD_FILES.iter().any(|(e, _)| *e == ext)
+}
+
+fn extension(mime: &str) -> &'static str {
+    BOARD_FILES.iter().find(|(_, kind)| *kind == mime).expect("recognized board file").0
+}
+
+/// Keep a video already written by an earlier H1 build at its existing path.
+fn stored_path(dir: &Path, sha: &str, ext: &str) -> PathBuf {
+    let name = dir.join(format!("{sha}.{ext}"));
+    if ext == "mp4" && !name.is_file() {
+        let previous = dir.join(format!("{sha}.video.mp4"));
+        if previous.is_file() { return previous; }
+    }
+    name
 }
 
 fn is_sha(text: &str) -> bool {
@@ -84,11 +109,12 @@ fn too_big(bytes: u64) -> String {
     format!("the file is {} MB; a file on a board holds at most {} MB.", bytes.div_ceil(1024 * 1024), MAX_MEDIA_BYTES / 1024 / 1024)
 }
 
-const UNKNOWN: &str = "the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.";
+const UNKNOWN_VISUAL: &str = "the file is not a PNG, JPEG, GIF, WebP, MP4 or WebM picture or video.";
+const UNKNOWN: &str = "the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.";
 
 /// Hashes `from` into `to`, at most MAX_MEDIA_BYTES, and says what it is. A file that is something
 /// else, or grows past the cap while it is read, leaves nothing behind.
-fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, u64), String> {
+fn copy_hashed(mut from: impl Read, to: &Path, identify: fn(&[u8]) -> Option<&'static str>, unknown: &str) -> Result<(String, &'static str, u64), String> {
     let result = (|| {
         let mut out = fs::File::create(to).map_err(|e| e.to_string())?;
         let mut hasher = Sha256::new();
@@ -100,7 +126,7 @@ fn copy_hashed(mut from: impl Read, to: &Path) -> Result<(String, &'static str, 
                 break;
             }
             if total == 0 {
-                mime = Some(sniff(&buffer[..n]).ok_or(UNKNOWN)?);
+                mime = Some(identify(&buffer[..n]).ok_or(unknown)?);
             }
             total += n as u64;
             if total > MAX_MEDIA_BYTES {
@@ -145,8 +171,8 @@ fn mark(base: &Path, dest: &Path) -> Result<PathBuf, String> {
 /// Moves a file that has come in into `board-media/` under its hash; one already there stays as it is. `stage` names the
 /// session staging a file this move is the first to bring; a file already there loses any mark, whoever made it.
 fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, stage: Option<&str>) -> Result<Stored, String> {
-    let dest = folder(base, MEDIA)?.join(format!("{sha}.{}", extension(mime)));
     let _held = settling(base)?;
+    let dest = stored_path(&base.join(MEDIA), &sha, extension(mime));
     if dest.exists() {
         let _ = fs::remove_file(incoming);
         let _ = fs::remove_file(mark(base, &dest)?);
@@ -166,7 +192,7 @@ fn settle(base: &Path, incoming: &Path, sha: String, mime: &str, bytes: u64, sta
 pub(crate) fn release(base: &Path, shas: &[String], session: &str) {
     let Ok(_held) = settling(base) else { return };
     for sha in shas {
-        let Some(path) = media_file(base, sha) else { continue };
+        let Some(path) = published_file(base, sha) else { continue };
         let Ok(marked) = mark(base, &path) else { continue };
         if fs::read_to_string(&marked).ok().as_deref() != Some(session) {
             continue;
@@ -200,8 +226,105 @@ fn store_as(base: &Path, from: &Path, stage: Option<&str>) -> Result<Stored, Str
     }
     let incoming = folder(base, UPLOADS)?.join(format!("{}.part", crate::agent::random_token()));
     let file = fs::File::open(from).map_err(|e| e.to_string())?;
-    let (sha, mime, bytes) = copy_hashed(file, &incoming)?;
+    let (sha, mime, bytes) = copy_hashed(file, &incoming, sniff, UNKNOWN_VISUAL)?;
     settle(base, &incoming, sha, mime, bytes, stage)
+}
+
+#[derive(Serialize)]
+pub(crate) struct ImportAsset {
+    #[serde(flatten)]
+    pub stored: Stored,
+    pub receipt: Option<String>,
+}
+
+/// Discard abandoned private names, including receipts whose other hard link was published.
+pub(crate) fn sweep_imports(base: &Path) {
+    const KEPT: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+    let pending = base.join(UPLOADS).join("importing");
+    if !pending.is_dir() { return; }
+    let Ok(_held) = settling(base) else { return };
+    let Ok(entries) = fs::read_dir(pending) else { return };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_file() && meta.modified().ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age >= KEPT) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn import_marker(base: &Path, dest: &Path) -> PathBuf {
+    base.join(UPLOADS).join("importing").join(dest.file_name().expect("board media filename"))
+}
+
+fn remove_if_present(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Uncommitted files live in the private upload folder. A receipt links the bytes to one import.
+pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> Result<ImportAsset, &'static str> {
+    let pending = folder(&base.join(UPLOADS), "importing").map_err(|_| "io")?;
+    let incoming = tempfile::NamedTempFile::new_in(pending).map_err(|_| "io")?.into_temp_path();
+    let (sha, mime, bytes) = copy_hashed(from, &incoming, page_asset, UNKNOWN).map_err(|e| {
+        if e == UNKNOWN { "unsupported" } else if e == "the file is empty." { "empty" }
+        else if e.starts_with("the file is ") { "too_large" } else { "io" }
+    })?;
+    if bytes != expected { return Err("changed"); }
+    let stored = Stored {sha, mime: mime.to_string(), bytes};
+    let filename = format!("{}.{}", stored.sha, extension(mime));
+    let _held = settling(base).map_err(|_| "io")?;
+    let dest = stored_path(&base.join(MEDIA), &stored.sha, extension(mime));
+    let marker = import_marker(base, &dest);
+    if dest.try_exists().map_err(|_| "io")? { return Ok(ImportAsset {stored, receipt: None}); }
+    let new = !marker.try_exists().map_err(|_| "io")?;
+    if new {
+        fs::rename(&incoming, &marker).map_err(|_| "io")?;
+    } else {
+        // All outstanding receipts share the marker's modification time.
+        fs::File::open(&marker).and_then(|f| f.set_modified(std::time::SystemTime::now())).map_err(|_| "io")?;
+    }
+    let ticket = format!("{}.{}", filename, crate::agent::random_token());
+    if fs::hard_link(&marker, marker.with_file_name(&ticket)).is_err() {
+        if new { let _ = fs::remove_file(&marker); }
+        return Err("io");
+    }
+    Ok(ImportAsset {stored, receipt: Some(ticket)})
+}
+
+/// Under the settlement lock, publish by rename or release only private uploads.
+/// Settles every receipt of an import. One that fails does not leave the ones after it private: the first failure is returned once all were tried.
+pub(crate) fn finish_imports(base: &Path, receipts: Vec<(String, bool)>) -> Result<(), String> {
+    let mut first = Ok(());
+    for (ticket, keep) in receipts {
+        if let Err(error) = finish_import(base, &ticket, keep) { if first.is_ok() { first = Err(error); } }
+    }
+    first
+}
+
+pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<(), String> {
+    let (filename, token) = receipt.rsplit_once('.').ok_or("invalid_name")?;
+    let (sha, ext) = filename.split_once('.').ok_or("invalid_name")?;
+    if !is_sha(sha) || !BOARD_FILES.iter().any(|(e, _)| *e == ext)
+        || token.len() != 48 || !token.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid_name".into()); }
+    let dest = base.join(MEDIA).join(format!("{sha}.{ext}"));
+    let marker = import_marker(base, &dest);
+    let claim = marker.with_file_name(receipt);
+    let _held = settling(base)?;
+    if !claim.try_exists().map_err(|e| e.to_string())? {
+        if keep && !dest.try_exists().map_err(|e| e.to_string())? { return Err("missing".into()); }
+        return Ok(());
+    }
+    if marker.try_exists().map_err(|e| e.to_string())? {
+        if keep && !dest.try_exists().map_err(|e| e.to_string())? {
+            fs::rename(&marker, &dest).map_err(|e| e.to_string())?;
+        } else if fs::metadata(&marker).map_err(|e| e.to_string())?.nlink() == 2 {
+            remove_if_present(&marker)?;
+        }
+    }
+    remove_if_present(&claim)
 }
 
 fn upload_path(base: &Path, id: &str) -> Result<PathBuf, String> {
@@ -235,31 +358,52 @@ pub(crate) fn finish(base: &Path, id: &str) -> Result<Stored, String> {
     let path = upload_path(base, id)?;
     let file = fs::File::open(&path).map_err(|_| "no such upload".to_string())?;
     let hashed = folder(base, UPLOADS)?.join(format!("{id}.hashed"));
-    let result = copy_hashed(file, &hashed);
+    let result = copy_hashed(file, &hashed, page_asset, UNKNOWN);
     let _ = fs::remove_file(&path);
     let (sha, mime, bytes) = result?;
     settle(base, &hashed, sha, mime, bytes, None)
 }
 
 /// Where a board's file is, when this Mac has it.
-pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
-    if !is_sha(sha) {
-        return None;
-    }
-    EXTENSIONS.iter().map(|ext| base.join(MEDIA).join(format!("{sha}.{ext}"))).find(|p| p.is_file())
+fn published_file(base: &Path, sha: &str) -> Option<PathBuf> {
+    if !is_sha(sha) { return None; }
+    let dir = base.join(MEDIA);
+    BOARD_FILES.iter().map(|(ext, _)| stored_path(&dir, sha, ext)).find(|p| p.is_file())
 }
 
-/// What a board's file is, by its name here: its kind and its size, without reading it.
+/// Readers can only look up files that have already been published.
+pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
+    if let Some(path) = published_file(base, sha) {
+        if path.extension()?.to_str()? == "mp4" {
+            // Older boards accepted a broader MP4 signature. Check the same prefix the asset responder sees:
+            // a video in this container (MP4, QuickTime, M4V) is served, a sound or a picture in it is not.
+            let mut head = Vec::new();
+            fs::File::open(&path).ok()?.take(8192).read_to_end(&mut head).ok()?;
+            if sniff(&head) != Some("video/mp4") || !tauri::utils::mime_type::MimeType::parse(&head, "x.mp4").starts_with("video/") {
+                return None;
+            }
+        }
+        return Some(path);
+    }
+    if !is_sha(sha) { return None; }
+    let previous = base.join(MEDIA).join(format!("{sha}.mp3"));
+    if !previous.is_file() { return None; }
+    let _held = settling(base).ok()?;
+    let dest = base.join(MEDIA).join(format!("{sha}.{}", extension("audio/mpeg")));
+    if dest.is_file() { return Some(dest); }
+    let mut head = Vec::new();
+    fs::File::open(&previous).ok()?.take(16).read_to_end(&mut head).ok()?;
+    if page_asset(&head) != Some("audio/mpeg") { return None; }
+    fs::hard_link(previous, &dest).ok()?;
+    Some(dest)
+}
+
+/// The kind and size of a published file available to a board.
 pub(crate) fn media_stat(base: &Path, sha: &str) -> Option<Stored> {
     let path = media_file(base, sha)?;
-    let mime = match path.extension()?.to_str()? {
-        "png" => "image/png",
-        "jpg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "mp4" => "video/mp4",
-        _ => "video/webm",
-    };
+    let (_, ext) = path.file_name()?.to_str()?.split_once('.')?;
+    let ext = if ext == "video.mp4" { "mp4" } else { ext };
+    let mime = BOARD_FILES.iter().find(|(e, _)| *e == ext)?.1;
     Some(Stored { sha: sha.to_string(), mime: mime.to_string(), bytes: fs::metadata(&path).ok()?.len() })
 }
 
@@ -453,8 +597,12 @@ pub fn board_media_release(app: AppHandle, shas: Vec<String>) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn board_media_path(app: AppHandle, sha: String) -> Result<Option<String>, String> {
-    Ok(media_file(&base(&app)?, &sha).map(|p| p.to_string_lossy().to_string()))
+pub fn board_media_path<R: tauri::Runtime>(app: AppHandle<R>, sha: String) -> Result<Option<String>, String> {
+    let Some(path) = media_file(&base(&app)?, &sha) else { return Ok(None) };
+    if path.extension().is_some_and(|ext| ext == "mp4") {
+        app.asset_protocol_scope().allow_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// A board's file by its kind and size, for an export to be measured before anything is read.
@@ -483,6 +631,276 @@ pub fn free_page_write(app: AppHandle, page: String, key: String, html: String, 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn refused_imports_release_only_their_own_uncommitted_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = || stage_page_asset(dir.path(), &PNG[..], PNG.len() as u64).unwrap();
+        let first = stage();
+        let second = stage();
+        let permanent = dir.path().join(MEDIA).join(format!("{}.png", first.stored.sha));
+        assert!(!permanent.exists(), "unaccepted copies are private uploads");
+        let file = || media_file(dir.path(), &first.stored.sha);
+        finish_import(dir.path(), &first.receipt.unwrap(), false).unwrap();
+        assert!(!permanent.exists(), "another import still holds its private copy");
+        finish_import(dir.path(), &second.receipt.unwrap(), false).unwrap();
+        assert!(file().is_none());
+        let accepted = stage();
+        let refused = stage();
+        finish_import(dir.path(), &accepted.receipt.unwrap(), true).unwrap();
+        finish_import(dir.path(), &refused.receipt.unwrap(), false).unwrap();
+        assert!(file().is_some(), "the accepted copy stays");
+        assert!(stage().receipt.is_none(), "a previously carried file needs no lease");
+
+        let reading = tempfile::tempdir().unwrap();
+        let staged = stage_page_asset(reading.path(), &PNG[..], PNG.len() as u64).unwrap();
+        assert!(media_file(reading.path(), &staged.stored.sha).is_none());
+        assert!(media_stat(reading.path(), &staged.stored.sha).is_none());
+        finish_import(reading.path(), &staged.receipt.unwrap(), false).unwrap();
+        assert!(media_file(reading.path(), &staged.stored.sha).is_none());
+
+        let other = tempfile::tempdir().unwrap();
+        let held = stage_page_asset(other.path(), &PNG[..], PNG.len() as u64).unwrap();
+        let upload = begin(other.path()).unwrap();
+        append(other.path(), &upload, &PNG).unwrap();
+        finish(other.path(), &upload).unwrap();
+        finish_import(other.path(), &held.receipt.unwrap(), false).unwrap();
+        assert!(media_file(other.path(), &held.stored.sha).is_some(), "a received board claimed the copy");
+    }
+
+    #[test]
+    fn an_interrupted_copy_is_already_in_the_private_sweep_directory_before_it_has_a_receipt() {
+        struct Interrupted<'a>(&'a Path);
+        impl Read for Interrupted<'_> {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                assert_eq!(fs::read_dir(self.0).unwrap().count(), 1, "in-flight temporary file");
+                Err(std::io::Error::other("interrupted copy"))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let pending = dir.path().join(UPLOADS).join("importing");
+        assert_eq!(stage_page_asset(dir.path(), Interrupted(&pending), 8).err(), Some("io"));
+    }
+
+    #[test]
+    fn sweeping_interrupted_imports_only_unlinks_old_private_copies_and_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let stage = |bytes: &[u8]| stage_page_asset(base, bytes, bytes.len() as u64).unwrap();
+        let old = stage(&PNG);
+        let pending = base.join(UPLOADS).join("importing");
+        let ticket = old.receipt.unwrap();
+        let old_receipt = pending.join(&ticket);
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(48 * 3600);
+        let age = |p: &Path| fs::File::open(p).unwrap().set_modified(long_ago).unwrap();
+        age(&old_receipt);
+        let partial = pending.join(".unfinished");
+        fs::write(&partial, b"partial").unwrap();
+        age(&partial);
+        let fresh = stage(b"GIF89a");
+        let renewed = stage(b"GIF87a");
+        age(&pending.join(renewed.receipt.unwrap()));
+        let renewed = stage(b"GIF87a");
+        let public = stage(b"ID3public");
+        // A second receipt shares this inode even after the first is published.
+        let abandoned = stage(b"ID3public");
+        finish_import(base, &public.receipt.unwrap(), true).unwrap();
+        let published = media_file(base, &public.stored.sha).unwrap();
+        age(&published);
+
+        sweep_imports(base);
+        assert!(!pending.join(format!("{}.png", old.stored.sha)).exists());
+        assert!(!partial.exists());
+        assert!(!old_receipt.exists());
+        assert_eq!(finish_import(base, &ticket, true).unwrap_err(), "missing");
+        assert!(!pending.join(abandoned.receipt.unwrap()).exists());
+        assert_eq!(fs::read(published).unwrap(), b"ID3public");
+        for asset in [fresh, renewed] {
+            assert!(media_file(base, &asset.stored.sha).is_none());
+            finish_import(base, &asset.receipt.unwrap(), true).unwrap();
+            assert!(media_file(base, &asset.stored.sha).is_some());
+        }
+    }
+
+    #[test]
+    fn an_existing_boards_mp4_is_served_in_place_and_new_copies_use_the_same_name() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let dir = tempfile::tempdir().unwrap();
+        let mut context = mock_context(noop_assets());
+        context.config_mut().identifier = dir.path().to_str().unwrap().into();
+        let app = mock_builder().build(context).unwrap();
+        let media = folder(dir.path(), MEDIA).unwrap();
+        let bytes = b"\0\0\0\x18ftypisom";
+        let sha = format!("{:x}", Sha256::digest(bytes));
+        let old = media.join(format!("{sha}.mp4"));
+        let other = media.join(format!("{}.mp4", "b".repeat(64)));
+        fs::write(&old, bytes).unwrap();
+        fs::write(&other, b"unknown").unwrap();
+        let inode = fs::metadata(&old).unwrap().ino();
+        assert_eq!(media_file(dir.path(), &sha).as_ref(), Some(&old));
+        assert_eq!(media_stat(dir.path(), &sha).unwrap().mime, "video/mp4");
+        assert_eq!(board_media_path(app.handle().clone(), sha.clone()).unwrap(), Some(old.to_str().unwrap().into()));
+        assert!(app.asset_protocol_scope().is_allowed(&old));
+        assert!(!app.asset_protocol_scope().is_allowed(&other));
+        assert!(stage_page_asset(dir.path(), &bytes[..], bytes.len() as u64).unwrap().receipt.is_none());
+        let unchanged = fs::metadata(&old).unwrap();
+        assert_eq!((unchanged.ino(), unchanged.nlink()), (inode, 1));
+        assert!(!media.join(format!("{sha}.video.mp4")).exists());
+        let new = stage_page_asset(dir.path(), b"\0\0\0\x18ftypmp42".as_slice(), 12).unwrap();
+        finish_import(dir.path(), &new.receipt.unwrap(), true).unwrap();
+        assert!(media.join(format!("{}.mp4", new.stored.sha)).is_file());
+    }
+
+    #[test]
+    fn one_receipt_that_cannot_be_finished_does_not_leave_the_others_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"\x89PNG\r\n\x1a\n-kept-after-a-bad-receipt";
+        let held = stage_page_asset(dir.path(), &bytes[..], bytes.len() as u64).unwrap();
+        let missing = format!("{}.png.{}", "c".repeat(64), "d".repeat(48));
+        let result = finish_imports(dir.path(), vec![(missing, true), (held.receipt.clone().unwrap(), true)]);
+        assert_eq!(result, Err("missing".to_string()), "the first failure is the one reported");
+        assert!(media_file(dir.path(), &held.stored.sha).is_some(), "the receipt after it was still finished");
+    }
+
+    #[test]
+    fn a_quicktime_or_m4v_video_stored_as_mp4_is_still_found_and_a_new_one_shows_after_it_is_put() {
+        use tauri::utils::mime_type::MimeType;
+        let dir = tempfile::tempdir().unwrap();
+        let media = folder(dir.path(), MEDIA).unwrap();
+        // What a macOS screen recording and an iTunes video start with: main stored both as <hash>.mp4 and served them.
+        for bytes in [&b"\0\0\0\x14ftypqt  \0\0\0\0qt  "[..], &b"\0\0\0\x18ftypM4V \0\0\0\0M4V mp42"[..]] {
+            let sha = format!("{:x}", Sha256::digest(bytes));
+            let old = media.join(format!("{sha}.mp4"));
+            fs::write(&old, bytes).unwrap();
+            let answered = MimeType::parse(bytes, old.to_str().unwrap());
+            assert!(answered.starts_with("video/") && allowed_asset_response("mp4", &answered), "{answered}");
+            assert_eq!(media_file(dir.path(), &sha).as_ref(), Some(&old), "{answered}");
+            assert_eq!(media_stat(dir.path(), &sha).unwrap().mime, "video/mp4");
+            fs::remove_file(&old).unwrap();
+            let new = stage_page_asset(dir.path(), bytes, bytes.len() as u64).unwrap();
+            finish_import(dir.path(), &new.receipt.unwrap(), true).unwrap();
+            assert_eq!(media_file(dir.path(), &new.stored.sha).as_ref(), Some(&old), "a video that was accepted is found");
+        }
+        // A sound or a picture in the same container was never a video the board could show: still not served.
+        let audio = b"\0\0\0\x18ftypM4A \0\0\0\0M4A mp42";
+        let sha = format!("{:x}", Sha256::digest(audio));
+        fs::write(media.join(format!("{sha}.mp4")), audio).unwrap();
+        assert_eq!(media_file(dir.path(), &sha), None);
+    }
+
+    #[test]
+    fn previously_stored_mp4_and_mp3_files_enter_the_asset_scope_only_after_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let media = folder(dir.path(), MEDIA).unwrap();
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let scope = config["app"]["security"]["assetProtocol"]["scope"].as_array().unwrap();
+        for (ext, valid, refused) in [
+            ("mp4", &b"\0\0\0\x18ftypisom"[..], &b"testftypinvalid"[..]),
+            ("mp3", &b"\xff\xf3sample"[..], &b"\xff\xe3invalid"[..]),
+        ] {
+            assert!(!scope.contains(&serde_json::json!(format!("$APPDATA/board-media/*.{ext}"))));
+            for (content, recognized) in [(valid, true), (refused, false)] {
+                let sha = format!("{:x}", Sha256::digest(content));
+                let old = media.join(format!("{sha}.{ext}"));
+                fs::write(&old, content).unwrap();
+                let path = media_file(dir.path(), &sha);
+                assert_eq!(path.is_some(), recognized);
+                if let Some(path) = path {
+                    if ext == "mp4" { assert_eq!(old, path); } else { assert_ne!(old, path); }
+                    assert_eq!(fs::metadata(old).unwrap().ino(), fs::metadata(path).unwrap().ino());
+                }
+            }
+        }
+    }
+
+    fn allowed_asset_response(ext: &str, answered: &str) -> bool {
+        matches!((ext, answered),
+            ("png", "image/png") | ("jpg", "image/jpeg") | ("gif", "image/gif") | ("webp", "image/webp") |
+            ("mp4", "video/mp4" | "video/quicktime" | "video/x-m4v") | ("webm", "video/webm") | ("ogg", "audio/ogg") |
+            ("wav", "audio/x-wav" | "audio/wav") | ("mp3.bin", "audio/mpeg" | "application/octet-stream"))
+    }
+
+    #[test]
+    fn each_served_kind_requires_its_own_response_type() {
+        for (ext, _) in BOARD_FILES {
+            for wrong in ["text/plain", "application/xml", "image/svg+xml"] {
+                assert!(!allowed_asset_response(ext, wrong), "{ext}: {wrong}");
+            }
+        }
+        assert!(!allowed_asset_response("png", "audio/mpeg"));
+        assert!(!allowed_asset_response("mp4", "application/octet-stream"));
+    }
+
+    #[test]
+    fn all_four_mp3_heads_have_a_safe_actual_asset_response_and_keep_their_board_type() {
+        use tauri::utils::mime_type::MimeType;
+        let dir = tempfile::tempdir().unwrap();
+        for (head, answered) in [
+            (&b"ID3"[..], "audio/mpeg"), (b"\xff\xfb", "audio/mpeg"),
+            (b"\xff\xf3", "application/octet-stream"), (b"\xff\xf2", "application/octet-stream"),
+        ] {
+            let bytes = [head, b"<p>sample</p>"].concat();
+            let held = stage_page_asset(dir.path(), bytes.as_slice(), bytes.len() as u64).unwrap();
+            finish_import(dir.path(), &held.receipt.unwrap(), true).unwrap();
+            let path = media_file(dir.path(), &held.stored.sha).unwrap();
+            assert_eq!(MimeType::parse(&fs::read(&path).unwrap(), path.to_str().unwrap()), answered);
+            assert_eq!(media_stat(dir.path(), &held.stored.sha).unwrap().mime, "audio/mpeg");
+        }
+    }
+
+    #[test]
+    fn served_signatures_answer_with_an_allowed_type_and_fonts_stay_out_of_scope() {
+        use tauri::utils::mime_type::MimeType;
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let scope = config["app"]["security"]["assetProtocol"]["scope"].as_array().unwrap();
+        let mut covered = std::collections::BTreeSet::new();
+        for (ext, heads) in [
+            ("png", vec![&PNG[..]]), ("jpg", vec![&b"\xff\xd8\xff"[..]]),
+            ("gif", vec![&b"GIF87a"[..], b"GIF89a"]), ("webp", vec![&b"RIFF0000WEBP"[..]]),
+            ("mp4", vec![&b"\0\0\0\x20ftyp"[..]]), ("webm", vec![&b"\x1a\x45\xdf\xa3"[..]]),
+            ("ogg", vec![&b"OggS"[..]]), ("wav", vec![&b"RIFF0000WAVE"[..]]),
+            ("mp3.bin", vec![&b"ID3"[..], b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa", b"\xff\xe3", b"\xff\xe2"]),
+            ("woff", vec![&b"wOFFXXXX"[..], b"wOFFOTTO"]), ("woff2", vec![&b"wOF2font"[..]]),
+            ("ttf", vec![&b"\0\x01\0\0"[..]]), ("otf", vec![&b"OTTO"[..]]),
+        ] {
+            covered.insert(ext);
+            let served = scope.contains(&serde_json::json!(format!("$APPDATA/board-media/*.{ext}")));
+            for head in heads {
+                let bytes = [head, b"<p>sample</p>"].concat();
+                let accepted = page_asset(&bytes);
+                if BOARD_FILES.iter().any(|(e, mime)| *e == ext && mime.starts_with("font/")) {
+                    assert!(!served);
+                    assert!(accepted.is_some());
+                } else {
+                    assert_eq!(served, ext != "mp4", "{ext} static scope");
+                    let detected = MimeType::parse(&bytes, &format!("x.{ext}"));
+                    if [b"\xff\xfa".as_slice(), b"\xff\xe3", b"\xff\xe2"].contains(&head) { assert!(accepted.is_none(), "{head:?}"); }
+                    else {
+                        assert_eq!(accepted.map(extension), Some(ext));
+                        assert!(allowed_asset_response(ext, &detected), "{ext}: {detected}");
+                    }
+                }
+            }
+        }
+        assert_eq!(covered, BOARD_FILES.iter().map(|(ext, _)| *ext).collect());
+        // Four fonts and individually verified MP4s have no wildcard. Free pages have one.
+        assert_eq!(scope.len(), BOARD_FILES.len() - 5 + 1);
+        assert!(scope.contains(&serde_json::json!("$APPDATA/free-pages/**")));
+    }
+
+    #[test]
+    fn a_font_can_be_held_by_hash_and_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = stage_page_asset(dir.path(), &b"wOF2font"[..], 8).unwrap();
+        finish_import(dir.path(), &first.receipt.unwrap(), true).unwrap();
+        let one = first.stored;
+        let two = stage_page_asset(dir.path(), &b"wOF2font"[..], 8).unwrap().stored;
+        assert_eq!(one, two);
+        assert_eq!(one.mime, "font/woff2");
+        assert_eq!(media_stat(dir.path(), &one.sha), Some(one));
+        assert!(sniff(b"wOF2font").is_none());
+        assert_eq!(page_asset(b"\0\x01\0\0ftypisom"), Some("video/mp4"));
+    }
+
     use super::*;
 
     const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
@@ -528,6 +946,14 @@ mod tests {
         let dangling = dir.path().join("gone.png");
         std::os::unix::fs::symlink(dir.path().join("nothing"), &dangling).unwrap();
         assert!(store(dir.path(), &dangling).unwrap_err().contains("no file"));
+    }
+
+    #[test]
+    fn board_upload_refusals_name_fonts_and_sounds_as_well_as_pictures_and_videos() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = begin(dir.path()).unwrap();
+        append(dir.path(), &id, b"unknown").unwrap();
+        assert_eq!(finish(dir.path(), &id).unwrap_err(), "the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.");
     }
 
     #[test]
