@@ -392,7 +392,11 @@ let agentEndpoint:{port:number;token:string;file:string}|undefined;let paletteDe
    `*` is the switch, open to any agent. connectMode is only "anyone is let in". */
 let allowedAgents:string[]=[];try{allowedAgents=readAllowed(store.getItem(ALLOWED_KEY));store.removeItem(LEGACY_CONNECT_KEY);}catch{}
 let connectMode=allowedAgents.length>0;
-function setAllowed(next:string[]){allowedAgents=next;connectMode=next.length>0;try{if(next.length)store.setItem(ALLOWED_KEY,JSON.stringify(next));else store.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}}
+function setAllowed(next:string[]){
+  allowedAgents=next;connectMode=next.length>0;
+  if(connectWriter&&!mayWrite(connectWriter,next))connectWriter='';
+  try{if(next.length)store.setItem(ALLOWED_KEY,JSON.stringify(next));else store.removeItem(ALLOWED_KEY);}catch{/* not remembered; it still holds for this launch */}
+}
 /** Who the door is open to, in the person's language: the switch reads as any agent, a name as itself. */
 function allowedText(){return allowedAgents.map(callerText).join(', ');}
 /** An agent's step refused for moving the approval, kept with that command's own Dispatch: a command running beside it never answers with it. */

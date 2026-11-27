@@ -19,6 +19,9 @@ export async function keyboardBrowser(){
       lock:()=>startAgentMode('keyboard-test','Test keyboard ownership'),
       unlock:()=>{endAgentMode('returned');editorMode='design';render();},
       mark:()=>{setAllowed([ANYONE]);refreshBanners();},
+      connections:()=>agentConnectModal(),
+      titleEdit:(title)=>{const block=currentPage(project).blocks[0];return window.aphroditeAgent.run('edit',
+        {blockId:block.id,field:'title',text:title??block.title,reason:'Set the block title'},'claude-code');},
       wrote:()=>bumpConnect('claude-code'),
       page:()=>openPageView(project.activePageId),
       disk:()=>{window.__TAURI_INTERNALS__={invoke:async cmd=>{

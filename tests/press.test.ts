@@ -417,3 +417,22 @@ test('the delegated input gate still receives composing keys before the keyboard
     assert.equal(await page.evaluate('window.composingDown.defaultPrevented'),true);
   }finally{await session.detach();}
 });
+
+const connectedMark=()=>rig.page.locator('#app .connect-mark').evaluate(el=>({
+  allowed:el.querySelector('[data-connect-who]')?.textContent,
+  count:el.querySelector('[data-connect-writes]')?.textContent,
+  logo:el.querySelector('[data-connect-mark] img')?.getAttribute('src')??null,
+}));
+test('forgetting the agent who wrote clears its logo beside the other allowed agent',async()=>{
+  const {page}=rig;
+  for(const caller of ['claude-code','codex']){
+    await page.evaluate(`window.aphroditeAgent.run('connect',{},${JSON.stringify(caller)})`);
+    await page.locator('[data-action="ask-allow"]').click();
+  }
+  const edit=await page.evaluate<{ok:boolean}>("scene.titleEdit('New title')");
+  assert.equal(edit.ok,true);
+  assert.deepEqual(await connectedMark(),{allowed:'Claude Code, Codex',count:'1',logo:'/brand/agents/claude-spark-clay.svg'});
+  await scene('connections');
+  await page.locator('[data-action="agent-forget"][data-name="claude-code"]').click();
+  assert.deepEqual(await connectedMark(),{allowed:'Codex',count:'1',logo:null});
+});
