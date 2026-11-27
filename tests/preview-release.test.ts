@@ -6,7 +6,7 @@ test('all three signing modes keep the stable release routing and isolate previe
   const flow = releaseWorkflow();
   const builds = flow.jobs.build.steps.filter((s: {uses?:string}) => s.uses === 'tauri-apps/tauri-action@v0');
   // The release settings at ff08a22 had two full signed drafts and one unsigned prerelease draft.
-  assert.deepEqual(builds.map((s:{if:string})=>s.if), ["steps.signing.outputs.mode == 'apikey'", "steps.signing.outputs.mode == 'appleid'", "steps.signing.outputs.mode == 'unsigned'"]);
+  assert.deepEqual(builds.map((s:{if:string})=>s.if), ["steps.signing.outputs.mode == 'apikey'", "steps.signing.outputs.mode == 'appleid'", "steps.signing.outputs.mode == 'unsigned' && !contains(env.TAG, '-preview.')"]);
   assert.deepEqual(flow.jobs.build.strategy.matrix.include.map((row:{target:string})=>row.target), ['aarch64-apple-darwin','x86_64-apple-darwin']);
   const channel = flow.jobs.build.steps.find((s:{id?:string})=>s.id==='channel');
   assert.equal(channel.if, "contains(env.TAG, '-preview.')");
@@ -36,17 +36,16 @@ test('all three signing modes keep the stable release routing and isolate previe
 test('only a complete published preview can advance the fixed manifest for both Macs', async () => {
   const {previewManifest, olderPreview} = await import(new URL('../scripts/promote-preview.mjs', import.meta.url).href);
   const {release,version,assets} = publishedPreview();
-  const signature = (asset:{name:string}) => 'signed ' + asset.name;
-  const index = previewManifest(release, signature);
+  const index = previewManifest(release, signedContents, fixtureKey);
   assert.equal(index.version, version);
   for (const [platform,arch] of [['darwin-aarch64','aarch64'],['darwin-x86_64','x64']]) {
     const archive = assets.find(a=>a.name.endsWith(arch+'.app.tar.gz'))!;
-    assert.deepEqual(index.platforms[platform], {url:archive.browser_download_url,signature:'signed '+archive.name+'.sig'});
+    assert.deepEqual(index.platforms[platform], {url:archive.browser_download_url,signature:fixtureSignature});
   }
   for (const change of [{draft:true},{prerelease:false},{tag_name:'v0.3.0'},{assets:assets.slice(1)},{assets:assets.slice(0,-1)}]) {
-    assert.throws(()=>previewManifest({...release,...change}, signature));
+    assert.throws(()=>previewManifest({...release,...change}, signedContents, fixtureKey));
   }
-  assert.throws(()=>previewManifest(release, ()=>''));
+  assert.throws(()=>previewManifest(release, ()=>'', fixtureKey));
   assert.equal(olderPreview('0.3.0-preview.2', version),true);
   assert.equal(olderPreview(version, '0.3.0-preview.2'),false);
   assert.equal(olderPreview(version, version),false);
@@ -68,7 +67,7 @@ test('a preview writes only preview.json and refuses releases carrying the stabl
   const channel = {...release, tag_name:'preview-channel', assets:[] as {name:string}[]};
   const uploads:string[] = [];
   const promote = () => promotePreview(release.tag_name, (tag:string)=>tag===channel.tag_name ? channel : release,
-    ()=>'signature', (name:string)=>uploads.push(name));
+    signedContents, (name:string)=>uploads.push(name), fixtureKey);
   promote();
   assert.deepEqual(uploads,['preview.json']);
   channel.assets.push({name:'latest.json'});
@@ -107,10 +106,46 @@ test('the promotion job checks the fixed release again immediately before writin
   const {release} = publishedPreview();
   let prerelease = true;
   const read = (tag:string) => tag===release.tag_name ? release : {...release, tag_name:tag, assets:[], prerelease};
-  const readAsset = () => { prerelease=false; return 'signature'; };
+  const readAsset = (asset:{name:string}) => { prerelease=false; return signedContents(asset); };
   let uploads = 0;
-  const promote = () => promotePreview(release.tag_name, read, readAsset, ()=>uploads++);
+  const promote = () => promotePreview(release.tag_name, read, readAsset, ()=>uploads++, fixtureKey);
   assert.throws(promote,/preview-channel.*prerelease/);
   assert.throws(promote,/preview-channel.*prerelease/);
   assert.equal(uploads,0);
+});
+
+// Published verification vector from minisign-verify 0.2.5 (verify_prehashed). No signing keys are needed.
+const encoded = (text:string) => Buffer.from(text).toString('base64');
+const fixtureKey = encoded('untrusted comment: minisign public key E7620F1842B4E81F\nRWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3');
+const fixtureSignature = encoded([
+  'untrusted comment: signature from minisign secret key',
+  'RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=',
+  'trusted comment: timestamp:1556193335\tfile:test',
+  'y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==',
+].join('\n'));
+function signedContents(asset:{name:string}) {
+  return asset.name.endsWith('.sig') ? fixtureSignature : 'test';
+}
+
+test('promotion verifies each archive against the configured updater key before any upload', async () => {
+  const {promotePreview} = await import(new URL('../scripts/promote-preview.mjs', import.meta.url).href);
+  const {release} = publishedPreview();
+  const read = (tag:string) => tag===release.tag_name ? release : {...release,tag_name:tag,assets:[]};
+  let uploads = 0;
+  const upload = () => uploads++;
+  assert.throws(()=>promotePreview(release.tag_name,read,signedContents,upload),/signature/i,'the real configured key refuses the fixture signature');
+  for (const arch of ['aarch64','x64']) {
+    const contents = (asset:{name:string}) => asset.name.endsWith(arch+'.app.tar.gz') ? 'changed' : signedContents(asset);
+    assert.throws(()=>promotePreview(release.tag_name,read,contents,upload,fixtureKey),/signature/i);
+  }
+  assert.equal(uploads,0);
+});
+
+test('the unsigned path fails a preview build before any release action', () => {
+  const steps = releaseWorkflow().jobs.build.steps;
+  const i = steps.findIndex((s:{if?:string})=>s.if==="steps.signing.outputs.mode == 'unsigned' && contains(env.TAG, '-preview.')");
+  assert.ok(i >= 0 && i < steps.findIndex((s:{uses?:string})=>s.uses==='tauri-apps/tauri-action@v0'));
+  const result = spawnSync('bash',['-ec',steps[i].run],{encoding:'utf8'});
+  assert.equal(result.status,1);
+  assert.match(result.stdout,/::error::.*sign/i);
 });
