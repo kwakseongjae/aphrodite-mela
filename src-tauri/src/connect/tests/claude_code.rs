@@ -1,0 +1,2319 @@
+use super::*;
+use serde_json::{json, Value};
+use std::{
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
+
+const CLAUDE: Tool = Tool::ClaudeCode;
+const STABLE_SIDECAR: &str = "/Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp";
+const PREVIEW_SIDECAR: &str = "/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp";
+const SCRIPT: &str = include_str!("../../../../tests/support/claude-registration.sh");
+
+struct Fixture(Home);
+impl Fixture {
+    fn new() -> Self {
+        let mut home = Home::new();
+        let dir = home.engine.home.join("tools 'and spaces'");
+        fs::create_dir(&dir).unwrap();
+        let fixtures = home.engine.home.join("fixtures");
+        fs::create_dir(&fixtures).unwrap();
+        for file in fs::read_dir(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/claude-code"
+        ))
+        .unwrap()
+        {
+            let file = file.unwrap();
+            fs::copy(file.path(), fixtures.join(file.file_name())).unwrap();
+        }
+        let program = dir.join("playback");
+        fs::write(&program, SCRIPT).unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(program, dir.join("claude")).unwrap();
+        fs::write(home.engine.home.join("fake-cli-home"), []).unwrap();
+        home.engine.exe = "/Applications/Art's \"Studio\".app/Contents/MacOS/aphrodite-mcp".into();
+        home.engine.cli_dirs = vec![dir];
+        Self(home)
+    }
+    fn e(&self) -> &Engine {
+        &self.0.engine
+    }
+    fn installation(&self, identifier: &str, sidecar: &str) -> Engine {
+        let mut engine = Engine::new(self.e().home.clone(), sidecar.into(), identifier);
+        engine.cli_dirs = self.e().cli_dirs.clone();
+        engine.claude_config_dir = self.e().claude_config_dir.clone();
+        engine
+    }
+    fn state(&self, path: &str, args: &str) {
+        let template = include_str!("../../../../tests/fixtures/claude-code/get-stdio.txt");
+        let args = if args.is_empty() {
+            String::new()
+        } else {
+            format!(" {args}")
+        };
+        fs::write(
+            self.e().home.join("entry"),
+            template
+                .split_once('\n')
+                .unwrap()
+                .1
+                .replace("{args}", &args)
+                .replace("{command}", path),
+        )
+        .unwrap();
+    }
+    fn override_reply(&self, verb: &str, reply: Value) {
+        fs::write(
+            self.e().home.join(format!("{verb}-reply")),
+            reply.to_string(),
+        )
+        .unwrap();
+    }
+    fn calls(&self) -> Vec<Value> {
+        fs::read_to_string(self.e().home.join("calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+    fn status(&self) -> Value {
+        json!(self.e().ask_claude().unwrap())
+    }
+    fn proposal(&self, action: Action) -> Value {
+        preview_for(self.e(), action)
+    }
+    fn apply(&self, action: Action, preview: &Value, confirm: bool) -> Value {
+        apply_for(self.e(), action, preview, confirm)
+    }
+}
+fn preview_for(engine: &Engine, action: Action) -> Value {
+    wire(engine.prepare(CLAUDE, action, 123))
+}
+fn apply_for(engine: &Engine, action: Action, preview: &Value, confirm: bool) -> Value {
+    wire(engine.execute(
+        CLAUDE,
+        action,
+        preview["fingerprint"].as_str().unwrap(),
+        confirm,
+    ))
+}
+
+#[test]
+fn switching_the_shared_claude_entry_requires_confirmation_in_both_directions() {
+    use claude_record::Store;
+    let f = Fixture::new();
+    let stable = f.installation(STABLE_ID, STABLE_SIDECAR);
+    let preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let program = stable.cli_dirs[0].join("playback");
+    let program = program.to_str().unwrap().replace('\'', "'\"'\"'");
+    let cli = format!(
+        "/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR '{program}' mcp"
+    );
+    let remove_line = format!("{cli} remove --scope user aphrodite");
+    let first = preview_for(&stable, Action::Connect);
+    assert_eq!(
+        apply_for(&stable, Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    assert_eq!(Store::peek(&preview).unwrap().registered, None);
+
+    for (owner, other, target_arg) in [
+        (&stable, &preview, format!("'{PREVIEW_SIDECAR}'")),
+        (&preview, &stable, STABLE_SIDECAR.to_owned()),
+    ] {
+        let old_record = Store::peek(owner).unwrap();
+        assert_eq!(old_record.registered.as_deref(), Some(owner.executable()));
+        let previous_remove = preview_for(owner, Action::Remove);
+        assert_eq!(previous_remove["confirmationRequired"], false);
+        let status = other.ask_claude().unwrap();
+        assert_eq!(status.entry_exists, Some(true));
+        assert_eq!(status.points_here, Some(false));
+        assert_eq!(status.owned, Some(false));
+
+        let change = preview_for(other, Action::Connect);
+        assert_eq!(change["confirmationRequired"], true);
+        assert_eq!(change["replacementRequired"], true);
+        assert_eq!(change["commands"].as_array().unwrap().len(), 2);
+        assert_eq!(change["commands"][0]["line"], remove_line);
+        assert_eq!(
+            change["commands"][1]["line"],
+            format!("{cli} add --transport stdio --scope user aphrodite -- {target_arg}")
+        );
+        let remove = preview_for(other, Action::Remove);
+        assert_eq!(remove["confirmationRequired"], true, "{remove}");
+        assert_eq!(remove["commands"].as_array().unwrap().len(), 1);
+        assert_eq!(remove["commands"][0]["line"], remove_line);
+        assert_eq!(
+            apply_for(other, Action::Remove, &remove, false)["code"],
+            "confirmation_required"
+        );
+        assert_eq!(
+            apply_for(other, Action::Connect, &change, false)["code"],
+            "confirmation_required"
+        );
+        assert_eq!(owner.ask_claude().unwrap().owned, Some(true));
+
+        assert_eq!(
+            apply_for(other, Action::Connect, &change, true)["code"],
+            "registered"
+        );
+        assert_eq!(Store::peek(owner).unwrap(), old_record);
+        assert_eq!(
+            Store::peek(other).unwrap().registered.as_deref(),
+            Some(other.executable())
+        );
+        assert_eq!(other.ask_claude().unwrap().owned, Some(true));
+        assert_eq!(owner.ask_claude().unwrap().owned, Some(false));
+        assert_eq!(
+            apply_for(owner, Action::Remove, &previous_remove, false)["code"],
+            "changed"
+        );
+    }
+    let remove = preview_for(&preview, Action::Remove);
+    assert_eq!(
+        apply_for(&preview, Action::Remove, &remove, true)["code"],
+        "removed"
+    );
+    assert_eq!(stable.ask_claude().unwrap().entry_exists, Some(false));
+}
+
+#[test]
+fn a_sibling_record_allows_only_its_exact_plain_command_in_the_same_profile() {
+    let f = Fixture::new();
+    let stable = f.installation(
+        STABLE_ID,
+        "/Applications/My Stable.app/Contents/MacOS/aphrodite-mcp",
+    );
+    let mut preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let first = preview_for(&stable, Action::Connect);
+    assert_eq!(
+        apply_for(&stable, Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    let remove = || preview_for(&preview, Action::Remove);
+    assert_eq!(remove()["confirmationRequired"], true);
+    f.state(stable.executable(), "--customized");
+    assert_eq!(remove()["code"], "foreign_entry");
+    f.state(&stable.executable().replace("My Stable", "My  Stable"), "");
+    assert_eq!(remove()["code"], "foreign_entry");
+
+    f.state(stable.executable(), "");
+    let settings = stable.path(CLAUDE);
+    symlink(record_path(&f), &settings).unwrap();
+    assert_eq!(remove()["code"], "foreign_entry");
+    fs::remove_file(settings).unwrap();
+
+    preview.claude_config_dir = Some(preview.home.join("another-profile"));
+    let stanza = fs::read_to_string(stable.home.join("entry")).unwrap();
+    f.override_reply("get", json!({"exit":0,"out":stanza}));
+    assert_eq!(
+        preview_for(&preview, Action::Remove)["code"],
+        "foreign_entry"
+    );
+}
+fn wire(result: Result<Proposal>) -> Value {
+    let data = match result {
+        Ok(p) => json!(p),
+        Err(code) => json!({"code":code}),
+    };
+    assert!(!data.to_string().contains("private-neighbor"), "{data}");
+    data
+}
+
+#[test]
+fn command_preview_is_the_exact_pasteable_argv_and_only_get_runs_before_consent() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    let argv = &preview["commands"][0]["argv"];
+    assert_eq!(argv[0], json!(f.e().cli_dirs[0].join("playback")));
+    assert_eq!(argv[8], "--");
+    assert_eq!(argv[9], f.e().executable());
+    assert_eq!(f.calls().len(), 1);
+    assert_eq!(f.calls()[0]["args"], json!(["mcp", "get", "aphrodite"]));
+    let cwd = tempdir().unwrap();
+    let shell = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &f.e().home)
+        .current_dir(cwd.path())
+        .arg("-c")
+        .arg(preview["commands"][0]["line"].as_str().unwrap())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(shell.success());
+    assert_eq!(f.calls()[1]["args"], json!(&argv.as_array().unwrap()[1..]));
+}
+
+#[test]
+fn the_spaced_preview_sidecar_round_trips_through_the_shell_child_and_captured_display() {
+    let mut f = Fixture::new();
+    f.0.engine = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let snippet = claude::snippet(f.e(), Action::Connect).unwrap();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(first["commands"][0]["line"], snippet);
+    assert!(snippet.ends_with(&format!(" -- '{PREVIEW_SIDECAR}'")));
+    let copied = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &f.e().home)
+        .current_dir(&f.e().home)
+        .args(["-c", &snippet])
+        .output()
+        .unwrap();
+    assert!(copied.status.success());
+    let args = json!([
+        "mcp",
+        "add",
+        "--transport",
+        "stdio",
+        "--scope",
+        "user",
+        "aphrodite",
+        "--",
+        PREVIEW_SIDECAR
+    ]);
+    assert_eq!(f.calls().last().unwrap()["args"], args);
+
+    let display = include_str!("../../../../tests/fixtures/claude-code/get-stdio-preview.txt")
+        .split_once('\n')
+        .unwrap()
+        .1
+        .replace("<P>", "/Applications");
+    let entry = f.e().home.join("entry");
+    fs::write(&entry, &display).unwrap();
+    let status = f.status();
+    assert_eq!(status["entryExists"], true);
+    assert_eq!(status["scope"], "user");
+    assert_eq!(status["pointsHere"], true);
+    assert_eq!(status["owned"], false);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+
+    let connect = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &connect, true)["code"],
+        "registered"
+    );
+    assert_eq!(f.calls().last().unwrap()["args"], args);
+
+    // Leave the matching path in Issue. Only Command identifies the sidecar.
+    let different = display.replace(
+        "  Command: /Applications/Aphrodite Preview.app",
+        "  Command: /Applications/Aphrodite Review.app",
+    );
+    fs::write(&entry, different).unwrap();
+    let status = f.status();
+    assert_eq!(status["pointsHere"], false);
+    assert_eq!(status["owned"], false);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+    fs::write(&entry, display.replace("  Args:\n", "  Args: --other\n")).unwrap();
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
+
+    fs::write(entry, display).unwrap();
+    assert_eq!(f.status()["owned"], true);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], false);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["code"], "removed");
+    assert_eq!(f.status()["entryExists"], false);
+}
+
+#[test]
+fn owned_repoint_restores_the_recorded_path_if_add_fails_after_remove() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    let status = f.status();
+    assert_eq!(
+        (status["owned"].clone(), status["pointsHere"].clone()),
+        (json!(true), json!(false))
+    );
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["willRepoint"], true);
+    assert_eq!(p["confirmationRequired"], false);
+    assert_eq!(p["commands"][0]["argv"][2], "remove");
+    assert_eq!(p["commands"][1]["argv"][2], "add");
+    assert_eq!(p["onAddFailure"]["argv"][9], json!(old));
+    f.override_reply(
+        "add",
+        json!({"exit":17,"err":"private-neighbor","once":true}),
+    );
+    let result = f.apply(Action::Connect, &p, false);
+    assert_eq!(result["code"], "repoint_restored");
+    assert_eq!(result["exitStatus"], 17);
+    assert_eq!(result["restoreExitStatus"], 0);
+    assert_eq!(f.status()["owned"], true);
+    assert!(fs::read_to_string(f.e().home.join("entry"))
+        .unwrap()
+        .contains(old.to_str().unwrap()));
+    let p = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &p, false);
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["exitStatus"], 0);
+    assert_eq!(f.status()["pointsHere"], true);
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["commands"], json!([]));
+    assert_eq!(
+        f.apply(Action::Connect, &p, false)["code"],
+        "already_connected"
+    );
+    let p = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &p, false)["code"], "removed");
+    assert_eq!(f.status()["entryExists"], false);
+    for call in f.calls() {
+        let cwd = Path::new(call["cwd"].as_str().unwrap());
+        assert!(cli_process::controlled(cwd.parent().unwrap()));
+        assert!(!cwd.exists());
+        for key in call["env"].as_array().unwrap() {
+            assert!(
+                [
+                    "HOME",
+                    "PATH",
+                    "LC_ALL",
+                    "COLUMNS",
+                    "NO_COLOR",
+                    "PWD",
+                    "SHLVL",
+                    "_",
+                    "__CF_USER_TEXT_ENCODING"
+                ]
+                .contains(&key.as_str().unwrap()),
+                "unexpected environment key {key}"
+            );
+        }
+    }
+}
+
+#[test]
+fn foreign_entries_require_bound_confirmation_and_removal_requires_this_executable() {
+    let f = Fixture::new();
+    f.state("/private-neighbor", "--existing");
+    let p = f.proposal(Action::Connect);
+    assert_eq!(p["replacementRequired"], true);
+    assert_eq!(p["confirmationRequired"], true);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+    assert_eq!(
+        f.apply(Action::Connect, &p, false)["code"],
+        "confirmation_required"
+    );
+    f.state("/private-neighbor", "--edited");
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "changed");
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+    let p = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "registered");
+    f.state(f.e().executable(), "--customized");
+    assert_eq!(f.status()["owned"], false);
+    let p = f.proposal(Action::Remove);
+    assert_eq!(
+        f.apply(Action::Remove, &p, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &p, true)["code"], "removed");
+}
+
+#[test]
+fn discovery_skips_non_executables_and_dangling_links_and_notices_a_retargeted_link() {
+    let f = Fixture::new();
+    let path = f.e().cli_dirs[0].join("claude");
+    assert!(fs::symlink_metadata(&path).unwrap().is_symlink());
+    let p = f.proposal(Action::Connect);
+    let new = f.e().home.join("new-cli");
+    fs::copy(&path, &new).unwrap();
+    fs::remove_file(&path).unwrap();
+    symlink(&new, &path).unwrap();
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "changed");
+    fs::set_permissions(&new, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(f.status()["installed"], false);
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_not_found");
+    fs::remove_file(new).unwrap();
+    assert_eq!(f.status()["installed"], false);
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}
+
+#[test]
+fn hanging_or_oversized_get_and_generic_get_failure_never_mean_missing() {
+    let mut f = Fixture::new();
+    f.0.engine.cli_timeout = Duration::from_millis(250);
+    let start = Instant::now();
+    f.override_reply("get", json!({"hang":true,"exit":0}));
+    assert_eq!(f.status()["error"], "cli_timeout");
+    assert!(start.elapsed() < Duration::from_secs(3));
+    f.0.engine.cli_timeout = Duration::from_secs(5);
+    for stream in ["err", "out"] {
+        f.override_reply(
+            "get",
+            json!({(stream): "private-neighbor".repeat(20000), "exit":1}),
+        );
+        let s = f.status();
+        assert_eq!(s["error"], "cli_output_limit");
+        assert_eq!(s["entryExists"], Value::Null);
+        assert!(!s.to_string().contains("private-neighbor"));
+    }
+    for exit in [1, 8] {
+        f.override_reply("get", json!({"exit":exit,"err":"private-neighbor"}));
+        let p = f.proposal(Action::Connect);
+        assert_eq!(p["code"], "cli_get_failed");
+        assert_eq!(p["exitStatus"], exit);
+    }
+}
+
+#[test]
+fn only_the_named_user_stanza_can_establish_ownership_and_health_is_not_configuration() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let entry = fs::read_to_string(&path).unwrap();
+    let p = f.proposal(Action::Remove);
+    fs::write(
+        &path,
+        include_str!("../../../../tests/fixtures/claude-code/get-stdio-issue.txt")
+            .split_once('\n')
+            .unwrap()
+            .1
+            .replace("{args}", "")
+            .replace("{command}", f.e().executable()),
+    )
+    .unwrap();
+    assert_eq!(f.proposal(Action::Remove)["fingerprint"], p["fingerprint"]);
+    for text in [
+        entry.replace("aphrodite:", "private-neighbor:"),
+        entry.replace(
+            "User config (available in all your projects)",
+            "Project config (shared via .mcp.json)",
+        ),
+        entry.replace("  Args:", "  Args: \nambiguous continuation\n  Args:"),
+    ] {
+        fs::write(&path, text).unwrap();
+        let s = f.status();
+        assert_ne!(s["owned"], true);
+        assert!(!s.to_string().contains("private-neighbor"));
+        assert_ne!(f.apply(Action::Remove, &p, true)["code"], "removed");
+    }
+    fs::write(
+        &path,
+        include_str!("../../../../tests/fixtures/claude-code/get-http.txt")
+            .split_once('\n')
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.proposal(Action::Connect)["confirmationRequired"], true);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+}
+
+#[test]
+fn failed_add_remove_and_restore_preserve_exit_status_and_stop_the_sequence() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "add",
+        json!({"exit":7,"err":"private-neighbor","once":true}),
+    );
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "cli_add_failed");
+    assert_eq!(err["exitStatus"], 7);
+    assert_eq!(err["tail"], Value::Null);
+    let added = f.apply(Action::Connect, &p, false);
+    assert!(added["tail"].as_str().unwrap().contains(f.e().executable()));
+    let removed = f.proposal(Action::Remove);
+    f.override_reply(
+        "remove",
+        json!({"exit":1,"err":"No MCP server named \"aphrodite\" in user scope","once":true}),
+    );
+    let err = f.apply(Action::Remove, &removed, false);
+    assert_eq!(err["code"], "cli_remove_failed");
+    assert_eq!(err["exitStatus"], 1);
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"exit":13,"err":"private-neighbor","once":true}),
+    );
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "cli_remove_failed");
+    assert_eq!(f.calls().last().unwrap()["args"][1], "get");
+    f.override_reply("add", json!({"exit":9,"err":"private-neighbor"}));
+    let err = f.apply(Action::Connect, &p, false);
+    assert_eq!(err["code"], "repoint_restore_failed");
+    assert_eq!(err["exitStatus"], 9);
+    assert_eq!(err["restoreExitStatus"], 9);
+    assert!(!f.e().home.join("entry").exists());
+    f.state("/private-neighbor", "");
+    let foreign = f.proposal(Action::Connect);
+    let err = f.apply(Action::Connect, &foreign, true);
+    assert_eq!(err["code"], "foreign_removed_add_failed");
+    assert_eq!(err["exitStatus"], 9);
+    assert_eq!(err["restoreExitStatus"], Value::Null);
+}
+
+#[test]
+fn all_registration_writes_recheck_the_runtime_location_before_running_a_cli() {
+    let mut f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    let before = f.calls().len();
+    for loc in [
+        Location::Translocated,
+        Location::DiskImage,
+        Location::ReadOnly,
+        Location::NotInApplications,
+    ] {
+        f.0.engine.location = loc;
+        for (action, p) in [(Action::Remove, &remove), (Action::Connect, &connect)] {
+            assert_eq!(f.proposal(action)["code"], "move_to_applications");
+            assert_eq!(f.apply(action, p, true)["code"], "move_to_applications");
+        }
+    }
+    assert_eq!(f.calls().len(), before);
+}
+
+#[test]
+fn a_receipt_is_scoped_to_the_cli_profile_and_cleared_on_remove() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &first, false)["code"],
+        "registered"
+    );
+    f.0.engine.exe = "/Applications/New.app/Contents/MacOS/aphrodite-mcp".into();
+    let p = f.proposal(Action::Remove);
+    f.0.engine.claude_config_dir = Some(f.e().home.join("another-profile"));
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.apply(Action::Remove, &p, true)["code"], "changed");
+    f.0.engine.claude_config_dir = None;
+    assert_eq!(f.apply(Action::Remove, &p, false)["code"], "removed");
+    f.state(old.to_str().unwrap(), "");
+    assert_eq!(f.status()["owned"], false);
+}
+
+#[test]
+fn a_success_line_with_extra_text_is_not_a_safe_tail() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let line = format!(
+        "Added stdio MCP server aphrodite with command: {}  to user config",
+        f.e().executable()
+    );
+    f.override_reply(
+        "add",
+        json!({"out":format!("{line} private-neighbor"), "exit":0}),
+    );
+    let reply = f.apply(Action::Connect, &p, false);
+    assert_eq!(reply["exitStatus"], 0);
+    assert_eq!(reply["tail"], Value::Null);
+}
+
+#[test]
+fn the_copy_fallback_for_an_absent_program_matches_the_requested_action() {
+    let f = Fixture::new();
+    fs::remove_file(f.e().cli_dirs[0].join("claude")).unwrap();
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(
+        connect["snippet"],
+        claude::snippet(f.e(), Action::Connect).unwrap()
+    );
+    assert_eq!(remove["code"], "cli_not_found");
+    assert_eq!(
+        remove["snippet"],
+        "/usr/bin/env -u CLAUDE_CODE_CUSTOM_OAUTH_URL -u CLAUDE_CONFIG_DIR claude mcp remove --scope user aphrodite"
+    );
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_1_a_fresh_real_format_registration_reads_back_as_ours() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn opus_2_only_the_real_two_space_add_acknowledgment_is_returned() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["tail"],
+        format!(
+            "Added stdio MCP server aphrodite with command: {}  to user config",
+            f.e().executable()
+        )
+    );
+}
+
+#[test]
+fn astra_4_ambiguous_fields_and_controls_never_establish_the_command() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let base = fs::read_to_string(&path).unwrap();
+    for suffix in [
+        "\r",
+        "\t",
+        "\u{85}",
+        "\n  Args: extra",
+        "\n  Command: second",
+        "\ncontinuation",
+    ] {
+        fs::write(
+            &path,
+            base.replace(
+                f.e().executable(),
+                &format!("{}{suffix}", f.e().executable()),
+            ),
+        )
+        .unwrap();
+        let status = f.status();
+        assert_eq!(status["entryExists"], true);
+        assert_ne!(status["owned"], true);
+        let remove = f.proposal(Action::Remove);
+        assert!(remove["code"].is_string() || remove["confirmationRequired"] == true);
+    }
+    for extra in [
+        "  Other: value",
+        "  Environment:",
+        "  Status: ✓ Connected",
+        "  Args:",
+    ] {
+        fs::write(
+            &path,
+            base.replace("  Environment:", &format!("  Environment:\n{extra}")),
+        )
+        .unwrap();
+        let status = f.status();
+        assert_eq!(status["pointsHere"], true);
+        assert_eq!(status["owned"], false);
+        assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
+    }
+}
+
+#[test]
+fn opus_4_astra_1_passive_discovery_never_asks_the_program() {
+    let f = Fixture::new();
+    let look = json!(f.e().status(CLAUDE).unwrap());
+    assert!(f.calls().is_empty());
+    assert_eq!(look["installed"], true);
+    assert_eq!(look["entryExists"], Value::Null);
+    assert_eq!(f.status()["entryExists"], false);
+    assert_eq!(f.calls().len(), 1);
+}
+
+#[test]
+fn astra_1_a_changed_program_is_refused_before_even_get_runs() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let connect = f.proposal(Action::Connect);
+    let remove = f.proposal(Action::Remove);
+    let calls = f.calls().len();
+    let link = f.e().cli_dirs[0].join("claude");
+    let other = f.e().cli_dirs[0].join("other");
+    fs::copy(&link, &other).unwrap();
+    fs::remove_file(&link).unwrap();
+    symlink(&other, &link).unwrap();
+    for (action, preview) in [(Action::Connect, connect), (Action::Remove, remove)] {
+        assert_eq!(f.apply(action, &preview, true)["code"], "changed");
+        assert_eq!(calls, f.calls().len());
+    }
+}
+
+#[test]
+fn opus_4_a_writable_program_or_ancestor_is_found_but_never_run() {
+    let f = Fixture::new();
+    let real = f.e().cli_dirs[0].join("claude").canonicalize().unwrap();
+    for path in [&real, &f.e().home] {
+        let original = fs::metadata(path).unwrap().permissions();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o775)).unwrap();
+        let look = json!(f.e().status(CLAUDE).unwrap());
+        assert_eq!(look["program"], json!(real));
+        assert_eq!(look["trusted"], false);
+        assert_eq!(f.status()["error"], "cli_untrusted");
+        assert_eq!(f.proposal(Action::Connect)["code"], "cli_untrusted");
+        assert!(f.calls().is_empty());
+        fs::set_permissions(path, original).unwrap();
+    }
+}
+#[test]
+fn astra_2_text_without_an_interpreter_fails_to_start() {
+    let f = Fixture::new();
+    fs::write(f.e().cli_dirs[0].join("claude"), "exit 0\n").unwrap();
+    assert_eq!(f.status()["error"], "cli_start_failed");
+}
+
+#[test]
+fn astra_8_non_utf8_profile_is_rejected_before_a_get() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut f = Fixture::new();
+    f.0.engine.claude_config_dir = Some(f.e().home.join(std::ffi::OsString::from_vec(vec![0xff])));
+    assert_eq!(f.proposal(Action::Connect)["code"], "invalid_path");
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_3_get_runs_below_a_private_nonproject_ancestry() {
+    let f = Fixture::new();
+    assert_eq!(f.status()["entryExists"], false);
+    let calls = f.calls();
+    let cwd = Path::new(calls[0]["cwd"].as_str().unwrap());
+    assert!(!cwd.starts_with("/private/tmp"));
+    assert!(super::super::cli_process::controlled(cwd.parent().unwrap()));
+    assert!(!cwd.exists());
+}
+
+#[test]
+fn opus_3_an_ancestor_project_or_shared_parent_prevents_launch() {
+    let h = Home::new();
+    let p = h.engine.home.join("scratch");
+    fs::create_dir(&p).unwrap();
+    let cwd = cli_process::private_cwd(&p).unwrap();
+    assert_eq!(
+        fs::metadata(cwd.path()).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    for marker in [
+        ".git",
+        ".mcp.json",
+        ".claude",
+        "CLAUDE.md",
+        "CLAUDE.local.md",
+    ] {
+        fs::write(h.engine.home.join(marker), []).unwrap();
+        assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
+        fs::remove_file(h.engine.home.join(marker)).unwrap();
+    }
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o777)).unwrap();
+    assert_eq!(cli_process::private_cwd(&p).unwrap_err(), Code::InvalidPath);
+}
+
+#[test]
+fn astra_9_fake_profiles_and_post_write_failures_are_independent() {
+    let mut f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &preview, false);
+    f.0.engine.claude_config_dir = Some(f.e().home.join("another-profile"));
+    assert_eq!(f.status()["entryExists"], false);
+    f.0.engine.claude_config_dir = None;
+    f.override_reply("remove", json!({"afterWrite":true, "exit":17}));
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["exitStatus"], 17);
+    assert_eq!(f.status()["entryExists"], false);
+}
+
+#[test]
+fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
+    for shell in ["/bin/sh", "/bin/zsh", "/bin/bash"] {
+        let mut f = Fixture::new();
+        let profile = f.e().home.join(r#"한글 ' " $default \ 폴더"#);
+        f.0.engine.claude_config_dir = Some(profile.clone());
+        f.0.engine.exe = r#"/old 쌀 $ \ ' ".app/sidecar"#.into();
+        let preview = f.proposal(Action::Connect);
+        f.apply(Action::Connect, &preview, false);
+        f.0.engine.exe = r#"/new 쌀 $ \ ' ".app/sidecar"#.into();
+        let preview = f.proposal(Action::Connect);
+        let cmds = preview["commands"].as_array().unwrap();
+        assert_eq!(
+            claude::snippet(f.e(), Action::Remove).unwrap(),
+            cmds[0]["line"]
+        );
+        assert_eq!(
+            claude::snippet(f.e(), Action::Connect).unwrap(),
+            cmds[1]["line"]
+        );
+        for cmd in [&cmds[0], &cmds[1], &cmds[0], &preview["onAddFailure"]] {
+            let line = cmd["line"].as_str().unwrap();
+            assert!(line.starts_with("CLAUDE_CONFIG_DIR='"), "{line}");
+            let result = Command::new(shell)
+                .env_clear()
+                .env("HOME", &f.e().home)
+                .env("CLAUDE_CONFIG_DIR", f.e().home.join("wrong"))
+                .env("CLAUDE_CODE_CUSTOM_OAUTH_URL", "https://wrong.invalid")
+                .arg("-c")
+                .arg(line)
+                .output()
+                .unwrap();
+            assert!(result.status.success());
+            let calls = f.calls();
+            let call = calls.last().unwrap();
+            assert!(!call["env"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("CLAUDE_CODE_CUSTOM_OAUTH_URL")));
+            assert_eq!(call["profile"], json!(profile));
+            assert_eq!(call["args"], json!(&cmd["argv"].as_array().unwrap()[1..]));
+        }
+    }
+}
+
+fn record_path(f: &Fixture) -> PathBuf {
+    let key = hash(f.e().path(CLAUDE).as_os_str().as_encoded_bytes());
+    f.e()
+        .app_data
+        .join("connect")
+        .join(format!("claude-{key}.json"))
+}
+
+#[test]
+fn each_installation_locks_and_writes_its_own_profile_record() {
+    use claude_record::{Record, Store};
+    let f = Fixture::new();
+    let preview_id = format!("{STABLE_ID}.preview");
+    let stable = f.installation(STABLE_ID, STABLE_SIDECAR);
+    let preview = f.installation(&preview_id, PREVIEW_SIDECAR);
+    let stable_store = Store::lock(&stable).unwrap();
+    let preview_store = Store::lock(&preview).unwrap();
+    let key = hash(f.e().path(CLAUDE).as_os_str().as_encoded_bytes());
+    for (id, engine, store) in [
+        (STABLE_ID, &stable, stable_store),
+        (&preview_id, &preview, preview_store),
+    ] {
+        let record = Record {
+            registered: Some(engine.executable().into()),
+            pending: None,
+        };
+        store.save(&record).unwrap();
+        let path = engine
+            .home
+            .join("Library/Application Support")
+            .join(id)
+            .join("connect")
+            .join(format!("claude-{key}.json"));
+        assert!(path.with_extension("lock").is_file());
+        assert_eq!(
+            serde_json::from_slice::<Record>(&fs::read(path).unwrap()).unwrap(),
+            record
+        );
+    }
+    assert_eq!(
+        Store::peek(&stable).unwrap().registered.as_deref(),
+        Some(STABLE_SIDECAR)
+    );
+    assert_eq!(
+        Store::peek(&preview).unwrap().registered.as_deref(),
+        Some(PREVIEW_SIDECAR)
+    );
+}
+
+#[test]
+fn opus_6_private_profile_records_are_atomic_and_use_a_bounded_lock() {
+    use fs2::FileExt;
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    let receipt = fs::File::open(&path).unwrap();
+    assert_eq!(receipt.metadata().unwrap().mode() & 0o777, 0o600);
+    let lock = fs::File::open(path.with_extension("lock")).unwrap();
+    lock.lock_exclusive().unwrap();
+    let start = Instant::now();
+    assert_eq!(f.proposal(Action::Remove)["code"], "cli_busy");
+    assert!(start.elapsed() < Duration::from_secs(3));
+    drop(lock);
+    let remove = f.proposal(Action::Remove);
+    f.apply(Action::Remove, &remove, false);
+    assert!(!path.exists());
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    assert_ne!(
+        receipt.metadata().unwrap().ino(),
+        fs::metadata(path).unwrap().ino()
+    );
+}
+
+#[test]
+fn astra_6_a_press_repairs_a_missing_record_and_observed_absence_forgets_the_old_path() {
+    let mut f = Fixture::new();
+    let path = record_path(&f);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let p = f.proposal(Action::Connect);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
+    let added = f.apply(Action::Connect, &p, false);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "registered_record_missing");
+    assert_eq!(added["exitStatus"], 0);
+    let p = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &p, true)["code"], "registered");
+    assert!(path.is_file());
+    let old = f.e().exe.clone();
+    f.0.engine.exe = "/Applications/Moved.app/Contents/MacOS/aphrodite-mcp".into();
+    assert_eq!(f.status()["owned"], true);
+    fs::remove_file(f.e().home.join("entry")).unwrap();
+    assert_eq!(f.status()["entryExists"], false);
+    assert!(!path.exists());
+    f.state(old.to_str().unwrap(), "");
+    assert_eq!(f.status()["owned"], false);
+}
+
+#[test]
+fn opus_9_add_and_remove_limits_recheck_what_the_program_actually_changed() {
+    for (over, cause) in [
+        (json!({"hang":true}), "cli_timeout"),
+        (json!({"out":"x".repeat(70_000)}), "cli_output_limit"),
+        (json!({"signal":9}), "signal"),
+        (json!({"exit":23}), "nonzero"),
+    ] {
+        let mut f = Fixture::new();
+        f.0.engine.cli_timeout = Duration::from_secs(2);
+        for (action, verb) in [(Action::Connect, "add"), (Action::Remove, "remove")] {
+            let p = f.proposal(action);
+            let mut reply = json!({"exit":0,"afterWrite":true,"once":true});
+            reply
+                .as_object_mut()
+                .unwrap()
+                .extend(over.as_object().unwrap().clone());
+            f.override_reply(verb, reply);
+            let r = f.apply(action, &p, p["confirmationRequired"] == true);
+            assert_eq!(
+                r["observed"]["entryExists"],
+                action == Action::Connect,
+                "{cause} {verb}: {r}"
+            );
+            assert_eq!(r["observed"]["pointsHere"], action == Action::Connect);
+            assert_eq!(f.calls().last().unwrap()["args"][1], "get");
+            match cause {
+                "nonzero" => assert_eq!(r["exitStatus"], 23),
+                "signal" => assert_eq!(r["exitStatus"], Value::Null),
+                _ => assert_eq!(
+                    r["cause"].as_str().unwrap_or(r["code"].as_str().unwrap()),
+                    cause
+                ),
+            }
+        }
+    }
+}
+
+#[test]
+fn opus_7_an_add_that_wrote_before_timeout_never_restores_over_the_new_entry() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/new path/aphrodite-mcp".into();
+    f.0.engine.cli_timeout = Duration::from_secs(2);
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "add",
+        json!({"afterWrite":true, "hang":true, "once":true, "exit":0}),
+    );
+    let start = f.calls().len();
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["observed"]["pointsHere"], true);
+    assert_eq!(
+        f.calls()[start..]
+            .iter()
+            .filter(|c| c["args"][1] == "add")
+            .count(),
+        1
+    );
+    assert_eq!(f.status()["unfinishedRepoint"], false);
+    f.state("/someone/else", "");
+    assert_eq!(
+        f.proposal(Action::Connect)["cannotRestoreReplacement"],
+        true
+    );
+}
+
+#[test]
+fn astra_5_interrupted_repoint_survives_relaunch_and_requires_a_fresh_press() {
+    let mut f = Fixture::new();
+    let old = f.e().exe.clone();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"snapshot":record_path(&f),"once":true,"exit":17}),
+    );
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["code"], "repoint_restored");
+    let mut fresh = Fixture::new();
+    fresh.0.engine.exe = f.e().exe.clone();
+    let path = record_path(&fresh);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::copy(f.e().home.join("repoint-snapshot"), &path).unwrap();
+    let look = json!(fresh.e().status(CLAUDE).unwrap());
+    assert_eq!(look["unfinishedRepoint"], true);
+    assert!(fresh.calls().is_empty());
+    let resume = fresh.proposal(Action::Connect);
+    assert_eq!(resume["onAddFailure"]["argv"][9], json!(old));
+    assert_eq!(fresh.calls().len(), 1);
+    fresh.state("/someone/else", "");
+    assert_eq!(
+        fresh.apply(Action::Connect, &resume, false)["code"],
+        "changed"
+    );
+    fs::remove_file(fresh.e().home.join("entry")).unwrap();
+    let resume = fresh.proposal(Action::Connect);
+    assert_eq!(
+        fresh.apply(Action::Connect, &resume, false)["code"],
+        "registered"
+    );
+    assert_eq!(fresh.status()["unfinishedRepoint"], false);
+}
+
+#[test]
+fn astra_5_close_and_restart_wait_for_an_accepted_registration() {
+    use crate::disk;
+    use std::{
+        future::Future,
+        sync::mpsc,
+        task::{Context, Waker},
+    };
+    use tauri::test::{mock_builder, mock_context, noop_assets};
+    let _serial = disk::TEST_SERIAL.lock().unwrap();
+    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+    let web = tauri::WebviewWindowBuilder::new(&app, "connect", Default::default())
+        .build()
+        .unwrap();
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let (entered, started) = mpsc::channel();
+    let (release, stalled) = mpsc::channel();
+    let mut change = Box::pin(commands::mutation(
+        || Location::Installed,
+        move || {
+            entered.send(()).unwrap();
+            stalled.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(f.0.engine)
+        },
+        CLAUDE,
+        Action::Connect,
+        p["fingerprint"].as_str().unwrap().to_owned(),
+        false,
+    ));
+    assert!(change
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
+    tauri::async_runtime::block_on(async {
+        let closes = disk::disk_begin_close(web.as_ref().window(), "restart".into(), 40)
+            .await
+            .unwrap();
+        if closes {
+            disk::release_close("connect", disk::Release::Cancelled("restart"));
+        }
+        release.send(()).unwrap();
+        let result = wire(change.await);
+        assert!(!closes);
+        assert_eq!(result["code"], "registered");
+    });
+}
+
+#[test]
+fn opus_10_the_guide_uses_generated_setup_and_undo_and_explains_the_active_lookup() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    let mut f = Fixture::new();
+    f.0.engine.cli_dirs.clear();
+    f.0.engine.exe = "/Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp".into();
+    for profile in [None, Some(PathBuf::from("/Users/ada/Claude Work"))] {
+        f.0.engine.claude_config_dir = profile;
+        for action in [Action::Connect, Action::Remove] {
+            let line = claude::snippet(f.e(), action).unwrap();
+            assert!(guide.lines().any(|l| l == line), "{line}");
+        }
+    }
+    f.0.engine.claude_config_dir = None;
+    let preview = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let line = claude::snippet(&preview, Action::Connect).unwrap();
+    assert!(guide.lines().any(|l| l == line), "{line}");
+    for term in [
+        "connect_status",
+        "connect_ask",
+        "connect_apply",
+        "connect_remove",
+        "health-check",
+        "registered_record_missing",
+        "unfinishedRepoint",
+    ] {
+        assert!(guide.contains(term), "{term}");
+    }
+}
+
+#[test]
+fn astra_4_only_the_exact_missing_sentence_can_clear_ownership() {
+    let f = Fixture::new();
+    for name in [
+        "get-missing",
+        "get-missing-empty",
+        "get-missing-suggestion",
+        "get-missing-plugin",
+        "get-missing-truncated",
+    ] {
+        let fixture =
+            fs::read_to_string(f.e().home.join("fixtures").join(format!("{name}.txt"))).unwrap();
+        f.override_reply(
+            "get",
+            json!({"exit":1, "err":fixture.split_once('\n').unwrap().1.trim_end_matches('\n')}),
+        );
+        assert_eq!(f.status()["entryExists"], false);
+    }
+    for text in [
+        "No MCP server named \"aphrodite\". unrecognized reply",
+        "No MCP server named \"aphrodite\". Configured servers: other\n  Command: ignored",
+        "No MCP server named \"aphrodite\". Configured servers: other\r",
+    ] {
+        f.override_reply("get", json!({"exit":1, "err":text}));
+        assert_eq!(f.status()["entryExists"], false);
+    }
+}
+#[test]
+fn opus_4_trust_accounts_for_write_acls_and_the_env_interpreter() {
+    let f = Fixture::new();
+    let dir = &f.e().cli_dirs[0];
+    let real = dir.join("playback");
+    assert!(Command::new("/bin/chmod")
+        .args(["+a", "everyone allow write"])
+        .arg(&real)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(json!(f.e().status(CLAUDE).unwrap())["trusted"], false);
+    assert!(Command::new("/bin/chmod")
+        .arg("-N")
+        .arg(&real)
+        .status()
+        .unwrap()
+        .success());
+    fs::write(&real, "#!/usr/bin/env fixture-runtime\n").unwrap();
+    let interpreter = dir.join("fixture-runtime");
+    fs::write(&interpreter, "exit 0\n").unwrap();
+    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(f.status()["error"], "cli_untrusted");
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn astra_7_cli_discovery_also_refuses_a_link_to_the_settings_inode() {
+    let f = Fixture::new();
+    fs::hard_link(f.e().cli_dirs[0].join("playback"), f.e().path(CLAUDE)).unwrap();
+    assert_eq!(f.status()["error"], "cli_untrusted");
+    assert!(f.calls().is_empty());
+}
+#[test]
+fn astra_6_readable_registration_survives_an_unreadable_record() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    fs::write(record_path(&f), "incomplete fixture").unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["pointsHere"], true);
+    assert_eq!(s["error"], "record_failed");
+    let repair = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &repair, true)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["error"], Value::Null);
+}
+
+#[test]
+fn astra_5_remove_that_commits_then_times_out_is_checked_before_restoration() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    f.0.engine.cli_timeout = Duration::from_secs(2);
+    let p = f.proposal(Action::Connect);
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"hang":true,"once":true,"exit":0}),
+    );
+    let start = f.calls().len();
+    let r = f.apply(Action::Connect, &p, false);
+    assert_eq!(r["code"], "repoint_restored");
+    assert_eq!(r["cause"], "cli_timeout");
+    assert_eq!(r["observed"]["owned"], true);
+    assert_eq!(r["observed"]["pointsHere"], false);
+    let calls = f.calls();
+    assert_eq!(
+        calls[start..]
+            .iter()
+            .map(|c| c["args"][1].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["get", "remove", "get", "add", "get"]
+    );
+}
+
+#[test]
+fn astra_8_an_invalid_profile_still_allows_discovery_of_all_clients() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut f = Fixture::new();
+    f.0.engine.claude_config_dir = Some(f.e().home.join(std::ffi::OsString::from_vec(vec![0xff])));
+    let all = TOOLS
+        .iter()
+        .map(|&t| f.e().status(t))
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    let rows = json!(all);
+    assert_eq!(rows[0]["installed"], true);
+    assert_eq!(rows[0]["path"], Value::Null);
+    assert_eq!(rows[0]["error"], "invalid_path");
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn opus_1_fake_health_uses_the_installed_macos_formatters_tick() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let stanza = fs::read_to_string(f.e().home.join("entry")).unwrap();
+    assert!(stanza.lines().any(|line| line == "  Status: ✔ Connected"));
+}
+
+#[test]
+fn opus_1_supported_optional_fields_have_versioned_fixtures() {
+    let f = Fixture::new();
+    let path = f.e().home.join("entry");
+    let preview = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &preview, false);
+    for (name, plain) in [("get-stdio-no-env", true), ("get-stdio-env-values", false)] {
+        let fixture =
+            fs::read_to_string(f.e().home.join("fixtures").join(format!("{name}.txt"))).unwrap();
+        fs::write(
+            &path,
+            fixture
+                .split_once('\n')
+                .unwrap()
+                .1
+                .replace("{args}", "")
+                .replace("{command}", f.e().executable()),
+        )
+        .unwrap();
+        let s = f.status();
+        assert_eq!(s["pointsHere"], true);
+        assert_eq!(s["owned"], plain);
+    }
+    let url = include_str!("../../../../tests/fixtures/claude-code/get-url.txt")
+        .split_once('\n')
+        .unwrap()
+        .1;
+    for kind in ["http", "sse", "ws"] {
+        fs::write(&path, url.replace("{transport}", kind)).unwrap();
+        let s = f.status();
+        assert_eq!(s["entryExists"], true);
+        assert_eq!(s["pointsHere"], false);
+    }
+}
+
+#[test]
+fn astra_5_an_unwritable_journal_prevents_remove_and_an_unknown_result_keeps_recovery() {
+    let mut f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/moved/aphrodite-mcp".into();
+    let p = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let start = f.calls().len();
+    let failed = f.apply(Action::Connect, &p, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(failed["code"], "record_failed");
+    assert!(f.calls()[start..].iter().all(|c| c["args"][1] == "get"));
+    f.override_reply(
+        "remove",
+        json!({"afterWrite":true,"exit":17,"once":true,
+        "nextGet":{"exit":12,"err":"private-neighbor","once":true}}),
+    );
+    let failed = f.apply(Action::Connect, &p, false);
+    assert_eq!(failed["observed"]["error"], "cli_get_failed");
+    assert_eq!(failed["observed"]["exitStatus"], 12);
+    assert_eq!(failed["observed"]["entryExists"], Value::Null);
+    assert_eq!(f.calls().last().unwrap()["args"][1], "get");
+    assert_eq!(
+        json!(f.e().status(CLAUDE).unwrap())["unfinishedRepoint"],
+        true
+    );
+}
+
+#[test]
+fn astra_1_preview_displays_the_resolved_file_identity_and_detects_in_place_change() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    let real = f.e().cli_dirs[0].join("playback");
+    let m = fs::metadata(&real).unwrap();
+    assert_eq!(p["program"]["path"], json!(real));
+    assert!(p["program"].get("searchPath").is_none());
+    assert!(p["program"].get("interpreter").is_none());
+    assert_eq!(
+        p["program"]["identity"],
+        json!({"device":m.dev(), "inode":m.ino(), "size":m.size(),
+        "mtimeSeconds":m.mtime(), "mtimeNanos":m.mtime_nsec()})
+    );
+    fs::write(real, format!("{SCRIPT}\n# newer fixture\n")).unwrap();
+    let count = f.calls().len();
+    assert_eq!(f.apply(Action::Connect, &p, false)["code"], "changed");
+    assert_eq!(f.calls().len(), count);
+}
+#[test]
+fn astra_1_an_env_symlink_still_checks_its_selected_interpreter() {
+    let f = Fixture::new();
+    let dir = &f.e().cli_dirs[0];
+    let env = f.e().home.join("env");
+    symlink("/usr/bin/env", &env).unwrap();
+    fs::write(
+        dir.join("playback"),
+        format!("#!{} fixture-runtime\n", env.display()),
+    )
+    .unwrap();
+    fs::write(dir.join("fixture-runtime"), []).unwrap();
+    fs::set_permissions(
+        dir.join("fixture-runtime"),
+        fs::Permissions::from_mode(0o775),
+    )
+    .unwrap();
+    assert_eq!(json!(f.e().status(CLAUDE).unwrap())["trusted"], false);
+    assert!(f.calls().is_empty());
+}
+#[test]
+fn astra_7_a_read_only_settings_alias_is_displaced_before_opening_the_lock() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let path = record_path(&f).with_extension("lock");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let settings = f.e().path(CLAUDE);
+    fs::write(&settings, b"preserve").unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o400)).unwrap();
+    fs::hard_link(&settings, &path).unwrap();
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["recordError"], "record_failed");
+    assert_eq!(preview["commands"][0]["argv"][2], "add");
+    let calls = f.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["args"], json!(["mcp", "get", "aphrodite"]));
+    let kept = fs::metadata(&settings).unwrap();
+    assert_ne!(fs::metadata(path).unwrap().ino(), kept.ino());
+    assert_eq!(kept.mode() & 0o777, 0o400);
+    assert_eq!(fs::read(settings).unwrap(), b"preserve");
+}
+
+#[test]
+fn recheck_opus_1_connector_list_allows_first_connect_without_disclosing_names() {
+    let f = Fixture::new();
+    let diagnostic =
+        include_str!("../../../../tests/fixtures/claude-code/get-missing-connectors.txt")
+            .split_once('\n')
+            .unwrap()
+            .1
+            .trim_end();
+    f.override_reply("get", json!({"exit":1,"err":diagnostic}));
+    let preview = f.proposal(Action::Connect);
+    assert!(preview["commands"].is_array(), "{preview}");
+    assert!(!preview.to_string().contains("claude.ai"));
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+}
+
+#[test]
+fn recheck_astra_4_missing_sentence_is_decisive_only_on_stderr_with_exit_one() {
+    let f = Fixture::new();
+    let sentence = "No MCP server named \"aphrodite\". Configured servers: plugin:example:calendar";
+    for (exit, out, err, exists) in [
+        (1, "", sentence, json!(false)),
+        (1, sentence, "", Value::Null),
+        (2, "", sentence, Value::Null),
+        (1, "", "No MCP server named \"aphrodite-x\".", Value::Null),
+    ] {
+        f.override_reply("get", json!({"exit":exit,"out":out,"err":err}));
+        let status = f.status();
+        assert_eq!(status["entryExists"], exists);
+        assert!(!status.to_string().contains("plugin:"));
+    }
+}
+
+#[test]
+fn recheck_opus_2_wrapped_fields_still_hint_at_the_sidecar() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let path = f.e().home.join("entry");
+    let stanza = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        stanza
+            .replace("all your projects", "all   your\n    projects")
+            .replace("Contents/MacOS", "Contents/Ma\n    cOS"),
+    )
+    .unwrap();
+    assert_eq!(f.status()["pointsHere"], true);
+    fs::write(
+        &path,
+        include_str!("../../../../tests/fixtures/claude-code/get-stdio-node.txt")
+            .split_once('\n')
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(f.status()["pointsHere"], false);
+}
+
+#[test]
+fn recheck_opus_3_trimmed_empty_argument_requires_a_confirmed_remove() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &preview, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &preview, true)["code"], "removed");
+}
+
+#[test]
+fn recheck_astra_1_lossy_command_without_a_record_requires_confirmed_replacement() {
+    let f = Fixture::new();
+    // A tab in the original command prints as a space in this stanza.
+    f.state(f.e().executable(), "");
+    assert_eq!(f.status()["owned"], false);
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["commands"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(
+        f.apply(Action::Connect, &preview, true)["code"],
+        "registered"
+    );
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn recheck_astra_3_health_and_future_fields_do_not_establish_ownership() {
+    let f = Fixture::new();
+    f.state(f.e().executable(), "");
+    let path = f.e().home.join("entry");
+    let stanza = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        stanza.replace("✔ Connected", "Future format\n  Future Field: 30"),
+    )
+    .unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["owned"], false);
+    assert_eq!(s["pointsHere"], true);
+    fs::write(path, "aphrodite:\n  Future: something\n").unwrap();
+    let s = f.status();
+    assert_eq!(s["entryExists"], true);
+    assert_eq!(s["pointsHere"], Value::Null);
+}
+
+fn install_receipt(f: &Fixture, value: &str, mode: u32) {
+    let path = record_path(f);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, value).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+fn recheck_opus_5_damaged_or_newer_receipts_allow_the_next_connect() {
+    for (value, mode) in [
+        ("damaged", 0o600),
+        ("{}", 0o644),
+        (r#"{"future":7}"#, 0o600),
+    ] {
+        let f = Fixture::new();
+        install_receipt(&f, value, mode);
+        let preview = f.proposal(Action::Connect);
+        assert!(preview["commands"].is_array(), "{preview}");
+        assert_eq!(
+            f.apply(Action::Connect, &preview, false)["code"],
+            "registered"
+        );
+        assert_eq!(f.status()["owned"], true);
+        let valid = json!({"registered": f.e().executable(), "future":7});
+        install_receipt(&f, &valid.to_string(), 0o600);
+        assert_eq!(f.status()["owned"], true);
+    }
+}
+
+fn pending_receipt(f: &Fixture, previous: &str) {
+    let record =
+        json!({"registered":null, "pending":{"previous":previous,"target":f.e().executable()}});
+    install_receipt(f, &record.to_string(), 0o600);
+}
+
+#[test]
+fn recheck_opus_6_remove_clears_an_absent_unfinished_repoint() {
+    let f = Fixture::new();
+    pending_receipt(&f, "/previous/sidecar");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["commands"], json!([]));
+    assert_eq!(f.apply(Action::Remove, &preview, false)["code"], "removed");
+    assert_eq!(f.status()["unfinishedRepoint"], false);
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}
+
+#[test]
+fn recheck_astra_5_interrupted_rollback_preserves_the_previous_add() {
+    let f = Fixture::new();
+    let old = "/previous/sidecar";
+    pending_receipt(&f, old);
+    f.state(old, "");
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(preview["onAddFailure"]["argv"][9], old);
+    assert_eq!(preview["cannotRestoreReplacement"], false);
+    assert_eq!(preview["confirmationRequired"], true);
+    f.override_reply("add", json!({"exit":17, "once":true}));
+    assert_eq!(
+        f.apply(Action::Connect, &preview, true)["code"],
+        "repoint_restored"
+    );
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn recheck_astra_6_profile_alias_shares_the_journal_and_lock_even_before_creation() {
+    use fs2::FileExt;
+    let mut f = Fixture::new();
+    let real = f.e().home.join("profiles");
+    fs::create_dir(&real).unwrap();
+    let alias = f.e().home.join("alias");
+    symlink(&real, &alias).unwrap();
+    f.0.engine.claude_config_dir = Some(real.join("new"));
+    pending_receipt(&f, "/previous/sidecar");
+    let _ = f.proposal(Action::Connect);
+    let lock = fs::File::open(record_path(&f).with_extension("lock")).unwrap();
+    lock.lock_exclusive().unwrap();
+    f.0.engine.claude_config_dir = Some(alias.join("new"));
+    assert_eq!(
+        json!(f.e().status(CLAUDE).unwrap())["unfinishedRepoint"],
+        true
+    );
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_busy");
+    drop(lock);
+    assert!(f.proposal(Action::Connect)["commands"][0]["line"]
+        .as_str()
+        .unwrap()
+        .contains("alias/new"));
+}
+
+#[test]
+fn recheck_astra_7_failed_invalidation_cannot_authorize_a_recreated_entry() {
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    fs::remove_file(f.e().home.join("entry")).unwrap();
+    assert_eq!(f.status()["entryExists"], false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    f.state(f.e().executable(), "");
+    assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
+}
+
+#[test]
+fn recheck_astra_7_command_and_persistence_results_are_independent() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    let path = record_path(&f);
+    let dir = path.parent().unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let added = f.apply(Action::Connect, &add, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "registered_record_missing");
+    let repair = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &repair, true);
+    let before = fs::metadata(&path).unwrap().ino();
+    let remove = f.proposal(Action::Remove);
+    f.override_reply("remove", json!({"exit":11,"once":true}));
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let failed = f.apply(Action::Remove, &remove, false);
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(failed["code"], "cli_remove_failed");
+    assert_eq!(failed["exitStatus"], 11);
+    assert_eq!(failed["recordError"], Value::Null);
+    assert_eq!(fs::metadata(path).unwrap().ino(), before);
+}
+
+#[test]
+fn recheck_opus_4_the_directory_selecting_the_cli_link_must_be_controlled() {
+    let mut f = Fixture::new();
+    let link_dir = f.e().home.join("shared");
+    fs::create_dir(&link_dir).unwrap();
+    symlink(f.e().cli_dirs[0].join("playback"), link_dir.join("claude")).unwrap();
+    fs::set_permissions(&link_dir, fs::Permissions::from_mode(0o777)).unwrap();
+    f.0.engine.cli_dirs.insert(0, link_dir);
+    assert_eq!(f.status()["trusted"], false);
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn recheck_astra_12_untrusted_cli_status_is_unavailable_with_the_reason() {
+    let f = Fixture::new();
+    fs::set_permissions(
+        f.e().cli_dirs[0].join("playback"),
+        fs::Permissions::from_mode(0o775),
+    )
+    .unwrap();
+    let s = json!(f.e().status(CLAUDE).unwrap());
+    assert_eq!(s["unavailable"], true);
+    assert_eq!(s["copyOnly"], false);
+    assert_eq!(s["error"], "cli_untrusted");
+}
+
+#[test]
+fn recheck_opus_7_untrusted_cli_offers_the_same_manual_line_as_a_missing_cli() {
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o775)).unwrap();
+    let snippet = claude::snippet(f.e(), Action::Connect).unwrap();
+    assert_eq!(f.proposal(Action::Connect)["snippet"], snippet);
+    fs::remove_file(program).unwrap();
+    assert_eq!(claude::snippet(f.e(), Action::Connect).unwrap(), snippet);
+    assert!(f.calls().is_empty());
+}
+#[test]
+fn recheck_astra_9_the_verified_wrapper_survives_path_replacement_during_launch() {
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    let script = r#"#!/usr/bin/env sh
+/bin/mv "$HOME/replacement" "$HOME/tools 'and spaces'/playback"
+[ "$0" -ef "$HOME/original" ] || exit 89
+echo 'No MCP server named "aphrodite".' >&2
+exit 1
+"#;
+    fs::write(&program, script).unwrap();
+    fs::hard_link(&program, f.e().home.join("original")).unwrap();
+    fs::write(f.e().home.join("replacement"), "different file").unwrap();
+    let status = f.status();
+    assert_eq!(status["entryExists"], false, "{status}");
+}
+#[test]
+fn recheck_astra_11_copied_undo_clears_terminal_profile_selectors_in_three_shells() {
+    for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+        let mut f = Fixture::new();
+        for profile in [None, Some(f.e().home.join("profile's $한글"))] {
+            f.0.engine.claude_config_dir = profile.clone();
+            let add = f.proposal(Action::Connect);
+            f.apply(Action::Connect, &add, false);
+            let line = claude::snippet(f.e(), Action::Remove).unwrap();
+            let output = Command::new(shell)
+                .env_clear()
+                .env("HOME", &f.e().home)
+                .env("CLAUDE_CONFIG_DIR", "/wrong profile")
+                .env("CLAUDE_CODE_CUSTOM_OAUTH_URL", "https://example.invalid")
+                .args(["-c", &line])
+                .output()
+                .unwrap();
+            let calls = f.calls();
+            let call = calls.last().unwrap();
+            assert_eq!(call["profile"], json!(profile));
+            assert!(!call["env"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("CLAUDE_CODE_CUSTOM_OAUTH_URL")));
+            assert!(output.status.success());
+        }
+    }
+}
+
+#[test]
+fn recheck_astra_10_changed_cli_refuses_before_external_volume_inventory() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    fs::write(f.e().cli_dirs[0].join("playback"), "#!/bin/sh\nexit 8\n").unwrap();
+    let result = commands::execute_at(
+        f.0.engine,
+        CLAUDE,
+        Action::Connect,
+        preview["fingerprint"].as_str().unwrap(),
+        false,
+        || panic!("inventory started"),
+    );
+    assert_eq!(wire(result)["code"], "changed");
+}
+
+#[test]
+fn recheck_astra_1_a_normalized_match_to_a_recorded_old_path_needs_confirmation() {
+    let mut f = Fixture::new();
+    f.0.engine.exe = "/Art  Studio/sidecar".into();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    f.0.engine.exe = "/New/sidecar".into();
+    f.state("/Art Studio/sidecar", "");
+    let preview = f.proposal(Action::Remove);
+    assert_eq!(preview["confirmationRequired"], true);
+    assert_eq!(f.apply(Action::Remove, &preview, true)["code"], "removed");
+}
+
+#[test]
+fn recheck_astra_7_an_absent_entry_can_connect_after_a_failed_receipt_deletion() {
+    let f = Fixture::new();
+    install_receipt(&f, &json!({"registered":"/old/sidecar"}).to_string(), 0o600);
+    f.e().ask_claude().unwrap(); // creates the profile lock
+    install_receipt(&f, &json!({"registered":"/old/sidecar"}).to_string(), 0o600);
+    let path = record_path(&f);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
+    let preview = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &preview, false);
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["recordError"], "registered_record_missing");
+}
+
+#[test]
+fn recheck_astra_2_private_lock_and_record_cannot_be_settings_symlink_targets() {
+    let f = Fixture::new();
+    let p = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &p, false);
+    let path = record_path(&f);
+    let settings = f.e().path(CLAUDE);
+    symlink(&path, &settings).unwrap();
+    let s = f.status();
+    assert_eq!(s["owned"], false);
+    assert_eq!(s["error"], "invalid_path");
+    fs::remove_file(&settings).unwrap();
+    symlink(path.with_extension("lock"), &settings).unwrap();
+    let s = f.proposal(Action::Connect);
+    assert_eq!(s["code"], "invalid_path");
+}
+
+#[test]
+fn recheck_astra_6_retargeting_a_profile_alias_invalidates_its_preview() {
+    let mut f = Fixture::new();
+    let alias = f.e().home.join("selected");
+    let first = f.e().home.join("first");
+    let next = f.e().home.join("next");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&next).unwrap();
+    symlink(&first, &alias).unwrap();
+    f.0.engine.claude_config_dir = Some(alias.clone());
+    let preview = f.proposal(Action::Connect);
+    fs::remove_file(&alias).unwrap();
+    symlink(&next, &alias).unwrap();
+    assert_eq!(f.apply(Action::Connect, &preview, false)["code"], "changed");
+    assert!(f.calls().iter().all(|c| c["args"][1] == "get"));
+}
+
+fn displaced_locks(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".damaged-claude-lock-")
+        })
+        .collect()
+}
+
+fn damaged_lock_requires_a_new_claim(damage: impl FnOnce(&Path)) {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    let lock = record_path(&f).with_extension("lock");
+    damage(&lock);
+    let displaced = fs::symlink_metadata(&lock).unwrap();
+    let asked = f.status();
+    assert_eq!(asked["entryExists"], true, "{asked}");
+    assert_eq!(asked["owned"], false);
+    assert_eq!(asked["recordError"], "record_failed");
+    let fresh = fs::symlink_metadata(&lock).unwrap();
+    assert_ne!(displaced.ino(), fresh.ino());
+    assert!(fresh.is_file());
+    assert_eq!(
+        (fresh.mode() & 0o777, fresh.nlink(), fresh.len()),
+        (0o600, 1, 1)
+    );
+    assert!(displaced_locks(lock.parent().unwrap()).is_empty());
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["recordError"], "record_failed");
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    let add = f.proposal(Action::Connect);
+    let result = f.apply(Action::Connect, &add, true);
+    assert_eq!(result["code"], "registered");
+    assert_eq!(result["exitStatus"], 0);
+    assert_eq!(result["recordError"], "record_failed");
+    assert_eq!(f.status()["owned"], true);
+    assert!(f.status()["recordError"].is_null());
+}
+
+#[test]
+fn fix3_n1_wrong_mode_lock_suspends_ownership_until_confirmation() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+    });
+}
+
+#[test]
+fn fix3_n1_link_lock_is_moved_without_following_it() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::remove_file(path).unwrap();
+        symlink("missing-target", path).unwrap();
+    });
+}
+
+#[test]
+fn fix3_n1_second_hard_link_is_preserved_during_repair() {
+    damaged_lock_requires_a_new_claim(|path| {
+        fs::hard_link(path, path.with_file_name("other-link")).unwrap();
+    });
+}
+
+#[test]
+fn fix4_f2_either_preview_repairs_a_lock_hard_linked_to_settings() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    let lock = record_path(&f).with_extension("lock");
+    let settings = f.e().home.join(".claude.json");
+    let target = f.e().home.join("settings-file");
+    let contents = b"{\"preserve\":true}\n";
+    fs::write(&target, contents).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    symlink(&target, &settings).unwrap();
+    let original = fs::metadata(&settings).unwrap();
+    for action in [Action::Connect, Action::Remove] {
+        fs::remove_file(&lock).unwrap();
+        fs::hard_link(&target, &lock).unwrap();
+        let preview = f.proposal(action);
+        assert_eq!(preview["confirmationRequired"], true, "{preview}");
+        assert_eq!(preview["recordError"], "record_failed");
+        assert_eq!(fs::read_link(&settings).unwrap(), target);
+        let after = fs::metadata(&settings).unwrap();
+        assert_eq!(
+            (after.ino(), after.mode()),
+            (original.ino(), original.mode())
+        );
+        assert_eq!(fs::read(&settings).unwrap(), contents);
+        assert_ne!(fs::metadata(&lock).unwrap().ino(), original.ino());
+    }
+}
+
+#[test]
+fn fix4_f3_three_repairs_leave_no_displaced_files_or_links() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let repair = || drop(claude_record::Store::lock(f.e()).unwrap());
+    repair();
+    let lock = record_path(&f).with_extension("lock");
+    let settings = f.e().path(CLAUDE);
+    fs::write(&settings, b"keep these settings").unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
+    repair();
+    fs::remove_file(&lock).unwrap();
+    symlink(&settings, &lock).unwrap();
+    repair();
+    fs::remove_file(&lock).unwrap();
+    fs::hard_link(&settings, &lock).unwrap();
+    repair();
+    assert!(displaced_locks(lock.parent().unwrap()).is_empty());
+    assert_eq!(fs::metadata(&settings).unwrap().nlink(), 1);
+    assert_eq!(fs::read(settings).unwrap(), b"keep these settings");
+}
+
+#[test]
+fn fix4_f3_a_displaced_directory_keeps_its_contents() {
+    let f = Fixture::new();
+    drop(claude_record::Store::lock(f.e()).unwrap());
+    let lock = record_path(&f).with_extension("lock");
+    fs::remove_file(&lock).unwrap();
+    fs::create_dir(&lock).unwrap();
+    fs::write(lock.join("child"), b"keep this file").unwrap();
+    let store = claude_record::Store::lock(f.e()).unwrap();
+    assert_eq!(store.lock_warning, Some(Code::RecordFailed));
+    assert!(fs::symlink_metadata(&lock).unwrap().is_file());
+    let displaced = displaced_locks(lock.parent().unwrap());
+    assert_eq!(displaced.len(), 1);
+    assert_eq!(
+        fs::read(displaced[0].join("child")).unwrap(),
+        b"keep this file"
+    );
+}
+
+#[test]
+fn fix3_n1_an_absent_entry_and_a_failed_get_keep_their_own_outcomes() {
+    let f = Fixture::new();
+    let preview = f.proposal(Action::Connect);
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    f.override_reply("get", json!({"exit":14, "once":true}));
+    let failed = f.status();
+    assert_eq!(failed["error"], "cli_get_failed");
+    assert_eq!(failed["exitStatus"], 14);
+    assert_eq!(failed["recordError"], "record_failed");
+    assert_eq!(f.status()["entryExists"], false);
+    let added = f.apply(Action::Connect, &preview, false);
+    assert_eq!(added["code"], "registered");
+    assert_eq!(added["recordError"], "record_failed");
+}
+
+#[test]
+fn fix3_n1_a_suspended_old_installation_can_be_removed_with_confirmation() {
+    let mut f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    f.0.engine.exe = "/Applications/Moved/sidecar".into();
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true, "{remove}");
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.apply(Action::Remove, &remove, true)["code"], "removed");
+}
+
+#[test]
+fn fix3_n1_another_owners_lock_is_displaced_using_the_same_uid_check() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f).with_extension("lock");
+    let original = fs::metadata(&path).unwrap();
+    // Supply a different expected UID to exercise the ownership check without chown.
+    let store = claude_record::Store::lock_for_user(f.e(), original.uid() + 1).unwrap();
+    let (record, hint) = store.read().unwrap();
+    assert!(record.registered.is_none());
+    assert_eq!(hint.as_deref(), Some(f.e().executable()));
+    drop(store);
+    assert_ne!(fs::metadata(path).unwrap().ino(), original.ino());
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(f.apply(Action::Remove, &remove, true)["code"], "removed");
+}
+
+#[test]
+fn fix3_n1_repair_waits_for_the_store_using_the_original_lock() {
+    let f = Fixture::new();
+    let active = claude_record::Store::lock(f.e()).unwrap();
+    let path = record_path(&f).with_extension("lock");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(f.proposal(Action::Connect)["code"], "cli_busy");
+    drop(active);
+    assert_eq!(f.proposal(Action::Connect)["recordError"], "record_failed");
+}
+
+#[test]
+fn fix4_f4_a_store_that_repaired_its_lock_shares_the_folder_with_other_profiles() {
+    use claude_record::Store;
+    let mut f = Fixture::new();
+    drop(Store::lock(f.e()).unwrap());
+    let lock = record_path(&f).with_extension("lock");
+    fs::set_permissions(lock, fs::Permissions::from_mode(0o644)).unwrap();
+    let repaired = Store::lock(f.e()).unwrap();
+    assert_eq!(repaired.lock_warning, Some(Code::RecordFailed));
+    f.0.engine.claude_config_dir = Some(f.e().home.join("other"));
+    let other = Store::lock(f.e()).unwrap();
+    assert_eq!(other.lock_warning, None);
+    f.0.engine.claude_config_dir = None;
+    assert!(matches!(Store::lock(f.e()), Err(Code::CliBusy)));
+    drop(repaired);
+    assert!(Store::lock(f.e()).is_ok());
+    drop(other);
+}
+
+#[test]
+fn fix3_n1_ask_still_reports_presence_if_the_lock_cannot_be_replaced() {
+    let f = Fixture::new();
+    let add = f.proposal(Action::Connect);
+    f.apply(Action::Connect, &add, false);
+    let path = record_path(&f).with_extension("lock");
+    let dir = path.parent().unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let asked = f.status();
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(asked["entryExists"], true);
+    assert_eq!(asked["owned"], false);
+    assert_eq!(asked["recordError"], "record_failed");
+}
+
+#[test]
+fn fix3_n3_automatic_and_copied_lines_use_claudes_textual_profile_join() {
+    let mut f = Fixture::new();
+    let home = f.e().home.clone();
+    fs::create_dir_all(home.join("real/sub")).unwrap();
+    symlink("real/sub", home.join("lnk")).unwrap();
+    let spelling = home.join("lnk/..");
+    f.0.engine.claude_config_dir = Some(spelling.clone());
+    let preview = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &preview, false)["code"],
+        "registered"
+    );
+    assert!(f
+        .calls()
+        .iter()
+        .all(|call| call["profile"] == json!(spelling)));
+    // Claude's textual join of lnk/.. and .claude.json selects the injected home.
+    assert!(home.join("entry").is_file());
+    let line = claude::snippet(f.e(), Action::Remove).unwrap();
+    let output = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &home)
+        .args(["-c", &line])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(f.calls().last().unwrap()["profile"], json!(spelling));
+    assert!(!home.join("entry").exists());
+    // Claude used the default profile's settings, so its journal holds the claim.
+    f.0.engine.claude_config_dir = None;
+    assert!(record_path(&f).is_file());
+}
+
+#[test]
+fn fix4_f1_a_textual_parent_cannot_borrow_the_link_targets_claim() {
+    let mut f = Fixture::new();
+    let home = f.e().home.clone();
+    let real = home.join("real");
+    fs::create_dir_all(real.join("sub")).unwrap();
+    symlink("real/sub", home.join("lnk")).unwrap();
+    f.0.engine.claude_config_dir = Some(real.clone());
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, false)["code"], "registered");
+    assert_eq!(f.status()["owned"], true);
+    let real_journal = record_path(&f);
+    let claim = fs::read(&real_journal).unwrap();
+
+    f.0.engine.claude_config_dir = Some(home.join("lnk/.."));
+    f.state(f.e().executable(), ""); // Hand-added entry in the playback's default profile.
+    let asked = f.status();
+    assert_eq!(asked["entryExists"], true);
+    assert_eq!(asked["owned"], false);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+    assert_eq!(f.status()["entryExists"], true);
+    assert_eq!(fs::read(&real_journal).unwrap(), claim);
+
+    let add = f.proposal(Action::Connect);
+    assert_eq!(f.apply(Action::Connect, &add, true)["code"], "registered");
+    f.0.engine.claude_config_dir = None;
+    assert_eq!(f.status()["owned"], true);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["code"], "removed");
+    f.0.engine.claude_config_dir = Some(home.join("lnk/.."));
+    assert_eq!(f.status()["entryExists"], false);
+    f.0.engine.claude_config_dir = Some(real);
+    assert_eq!(fs::read(real_journal).unwrap(), claim);
+    assert_eq!(f.status()["owned"], true);
+}
+
+#[test]
+fn fix3_n3_file_comparison_includes_the_textually_joined_profile_settings() {
+    let mut f = Fixture::new();
+    let selected = f.e().home.join("selected");
+    fs::create_dir(&selected).unwrap();
+    fs::create_dir_all(f.e().home.join("real/sub")).unwrap();
+    symlink("../real/sub", selected.join("lnk")).unwrap();
+    f.0.engine.claude_config_dir = Some(selected.join("lnk/.."));
+    let target = f.0.file(Tool::Cursor, "{}");
+    symlink(target, selected.join(".claude.json")).unwrap();
+    assert_eq!(
+        f.e().status(Tool::Cursor).unwrap().error,
+        Some(Code::InvalidPath)
+    );
+}
+
+fn file_clients_with_unreachable_settings(f: &Fixture) {
+    for tool in [Tool::Cursor, Tool::Codex, Tool::ClaudeDesktop] {
+        f.0.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        let status = f.e().status(tool).unwrap();
+        assert_eq!(status.error, None, "{tool:?}");
+        assert_eq!(status.entry_exists, Some(false));
+        assert!(f.e().preview(tool, Action::Connect, 1).is_ok());
+    }
+    // Exercise the extra identity comparisons for a multiply-linked executable too.
+    let cli = f.e().cli_dirs[0].join("playback");
+    fs::hard_link(cli, f.e().home.join("same-program")).unwrap();
+    assert_eq!(f.e().status(CLAUDE).unwrap().trusted, Some(true));
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn fix3_n4_file_clients_can_inspect_configs_when_dot_claude_is_a_file() {
+    let f = Fixture::new();
+    fs::write(f.e().home.join(".claude"), []).unwrap();
+    file_clients_with_unreachable_settings(&f);
+}
+
+#[test]
+fn fix3_n4_file_clients_can_inspect_configs_under_an_unreadable_profile_ancestor() {
+    let mut f = Fixture::new();
+    let parent = f.e().home.join("private");
+    fs::create_dir(&parent).unwrap();
+    f.0.engine.claude_config_dir = Some(parent.join("profile"));
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o000)).unwrap();
+    file_clients_with_unreachable_settings(&f);
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[test]
+fn fix3_n5_every_intermediate_file_or_directory_link_has_a_controlled_parent() {
+    for directory_link in [false, true] {
+        let f = Fixture::new();
+        let bin = &f.e().cli_dirs[0];
+        let shared = f.e().home.join("middle");
+        fs::create_dir(&shared).unwrap();
+        let selected = bin.join("claude");
+        fs::remove_file(&selected).unwrap();
+        if directory_link {
+            symlink(bin, shared.join("bin")).unwrap();
+            symlink("../middle/bin/playback", &selected).unwrap();
+        } else {
+            symlink(bin.join("playback"), shared.join("next")).unwrap();
+            symlink("../middle/next", &selected).unwrap();
+        }
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let status = f.status();
+        assert_eq!(status["trusted"], false, "{status}");
+        assert_eq!(status["error"], "cli_untrusted");
+        assert!(f.calls().is_empty());
+        fs::set_permissions(shared, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(f.status()["entryExists"], false);
+    }
+}
+
+#[test]
+fn fix3_n6_unreadable_scope_allows_only_confirmed_user_scope_commands() {
+    const USER: &str = "  Scope: User config (available in all your projects)";
+    for scope in ["", "  Scope: reworded", &format!("{USER}\n{USER}")] {
+        for action in [Action::Connect, Action::Remove] {
+            let f = Fixture::new();
+            let add = f.proposal(Action::Connect);
+            f.apply(Action::Connect, &add, false);
+            let entry = f.e().home.join("entry");
+            let previous = fs::read_to_string(&entry).unwrap();
+            fs::write(entry, previous.replace(USER, scope)).unwrap();
+            let status = f.status();
+            assert_eq!(status["entryExists"], true);
+            assert_ne!(status["owned"], true);
+            let p = f.proposal(action);
+            assert_eq!(p["confirmationRequired"], true, "{p}");
+            assert_eq!(status["scope"], "unknown");
+            let mut lines = vec![claude::snippet(f.e(), Action::Remove).unwrap()];
+            if action == Action::Connect {
+                lines.push(claude::snippet(f.e(), action).unwrap());
+                assert_eq!(p["cannotRestoreReplacement"], true);
+            }
+            let shown: Vec<_> = p["commands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["line"].as_str().unwrap())
+                .collect();
+            assert_eq!(shown, lines);
+            let calls = f.calls().len();
+            assert_eq!(f.apply(action, &p, false)["code"], "confirmation_required");
+            assert!(f.calls()[calls..].iter().all(|c| c["args"][1] == "get"));
+            assert_eq!(
+                f.apply(action, &p, true)["code"],
+                if action == Action::Connect {
+                    "registered"
+                } else {
+                    "removed"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn fix3_n6_a_recognized_project_scope_is_still_refused() {
+    let f = Fixture::new();
+    fs::write(
+        f.e().home.join("entry"),
+        "aphrodite:\n  Scope: Project config (shared via .mcp.json)\n",
+    )
+    .unwrap();
+    assert_eq!(f.status()["scope"], "other");
+    for action in [Action::Connect, Action::Remove] {
+        assert_eq!(f.proposal(action)["code"], "cli_scope_unknown");
+    }
+}
+
+#[test]
+fn fix3_n8_swapping_the_previewed_file_at_the_last_check_refuses_before_get() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    let original = fs::metadata(&program).unwrap().ino();
+    // Both files can run the playback. A start by file ID would succeed after the swap.
+    fs::hard_link(&program, f.e().home.join("original")).unwrap();
+    let replacement = f.e().home.join("replacement");
+    fs::copy(&program, &replacement).unwrap();
+    let preview = f.proposal(Action::Connect);
+    let count = f.calls().len();
+    let selected = program.clone();
+    spawn::BEFORE_VERIFY.set(Some(Box::new(move || {
+        fs::rename(replacement, selected).unwrap();
+    })));
+    let result = f.apply(Action::Connect, &preview, false);
+    assert_ne!(fs::metadata(program).unwrap().ino(), original);
+    assert_eq!(f.calls().len(), count, "a lookup started after the swap");
+    assert_eq!(result["code"], "changed");
+}
+
+#[test]
+fn fix3_n9_guide_covers_record_repair_previous_paths_and_launch_behavior() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    for detail in [
+        "successful Connect press replaces a damaged record",
+        "previous path in an unfinished re-point",
+        "profile exactly as you spelled it",
+        "Wrappers that locate siblings through their own script path are unsupported",
+        "Claude Code 2.1.327",
+        "2026-11-27",
+    ] {
+        assert!(guide.contains(detail), "missing guide detail: {detail}");
+    }
+}
+
+#[test]
+fn fix4_guide_explains_the_shared_journal_and_displaced_lock_names() {
+    let guide = include_str!("../../../../docs/AGENT-CONNECT.md");
+    for detail in [
+        "collapses `..` before resolving links",
+        "`$HOME/lnk/..` shares the default profile’s journal",
+        "unlinks the displaced name if it is a regular file or a symlink",
+        "A displaced directory stays",
+        "`.damaged-claude-lock-*`",
+    ] {
+        assert!(guide.contains(detail), "missing guide detail: {detail}");
+    }
+}

@@ -1,0 +1,2 @@
+# Claude Code 2.1.327, planner's piped stderr capture; identifying names replaced
+No MCP server named "aphrodite". Configured servers: server-0, server-1, server-2, server-3, claude.ai Example 4, claude.ai Example 5, claude.ai Example 6, claude.ai Example 7 (and 22 more — run `claude mcp list` to see all)

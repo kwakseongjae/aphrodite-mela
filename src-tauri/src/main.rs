@@ -55,6 +55,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             look::window_look,
             connect::connect_status,
+            connect::connect_ask,
             connect::connect_preview,
             connect::connect_apply,
             connect::connect_remove,

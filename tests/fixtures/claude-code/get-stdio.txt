@@ -1,0 +1,10 @@
+# Claude Code 2.1.327, installed macOS bundle, mcp get
+aphrodite:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: stdio
+  Command: {command}
+  Args:{args}
+  Environment:
+
+To remove this server, run: claude mcp remove aphrodite -s user

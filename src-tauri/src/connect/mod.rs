@@ -1,7 +1,12 @@
 //! Person-facing commands only. The loopback bridge and the MCP command table have no route here.
+mod claude;
+mod claude_record;
+mod cli_process;
 mod commands;
 mod edit;
 mod files;
+mod spawn;
+mod volume;
 pub use commands::*;
 #[cfg(test)]
 mod tests;
@@ -40,6 +45,26 @@ pub enum Code {
     SidecarMissing,
     UnknownLocation,
     WorkerFailed,
+    WindowDestroyed,
+    CliNotFound,
+    CliUntrusted,
+    CliStartFailed,
+    CliTimeout,
+    CliOutputLimit,
+    CliGetFailed,
+    CliUnrecognized,
+    CliScopeUnknown,
+    Registered,
+    AlreadyConnected,
+    Removed,
+    CliAddFailed,
+    CliRemoveFailed,
+    RepointRestored,
+    RepointRestoreFailed,
+    ForeignRemovedAddFailed,
+    RecordFailed,
+    RegisteredRecordMissing,
+    CliBusy,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,12 +75,9 @@ pub enum Tool {
     ClaudeDesktop,
 }
 impl Tool {
-    fn snippet(self, exe: &str) -> String {
+    fn file_snippet(self, exe: &str) -> String {
         match self {
-            Tool::ClaudeCode => format!(
-                "claude mcp add --transport stdio --scope user aphrodite -- '{}'",
-                exe.replace('\'', "'\"'\"'")
-            ),
+            Tool::ClaudeCode => unreachable!("Claude Code uses its invocation builder"),
             Tool::Codex => edit::toml_entry(exe, "\n"),
             _ => format!(
                 r#"{{"mcpServers":{{"aphrodite":{}}}}}"#,
@@ -92,10 +114,24 @@ enum Location {
 pub struct Status {
     tool: Tool,
     installed: bool,
-    path: PathBuf,
+    path: Option<PathBuf>,
     executable: PathBuf,
     location: Location,
     copy_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unavailable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    program: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trusted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unfinished_repoint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_status: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record_error: Option<Code>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<claude::Scope>,
     config_exists: Option<bool>,
     entry_exists: Option<bool>,
     points_here: Option<bool>,
@@ -151,38 +187,95 @@ struct Receipt {
     entry: String,
 }
 
+// Claude collapses ".." in its profile/filename join before following any symlinks.
+fn claude_textual_dir(dir: &Path) -> PathBuf {
+    let mut joined = PathBuf::new();
+    for part in dir.components() {
+        if part == std::path::Component::ParentDir {
+            joined.pop();
+        } else {
+            joined.push(part);
+        }
+    }
+    joined
+}
+
 struct Engine {
+    app_data: PathBuf,
     receipt_key: String,
     home: PathBuf,
     exe: PathBuf,
     location: Location,
     codex_home: PathBuf,
-    claude_file: PathBuf,
+    claude_config_dir: Option<PathBuf>,
+    cli_timeout: std::time::Duration,
     cli_dirs: Vec<PathBuf>,
+    claude_dirs: Vec<PathBuf>,
     app_dirs: Vec<PathBuf>,
 }
 impl Engine {
     fn new(home: PathBuf, exe: PathBuf, identifier: &str) -> Self {
         Self {
+            app_data: home.join("Library/Application Support").join(identifier),
             receipt_key: files::receipt_key(identifier),
             codex_home: home.join(".codex"),
-            claude_file: home.join(".claude.json"),
+            claude_config_dir: None,
+            cli_timeout: std::time::Duration::from_secs(10),
             home,
             exe,
             location: Location::Installed,
             cli_dirs: vec![],
+            claude_dirs: vec![],
             app_dirs: vec![],
         }
     }
     fn path(&self, tool: Tool) -> PathBuf {
         match tool {
-            Tool::ClaudeCode => self.claude_file.clone(),
+            Tool::ClaudeCode => self
+                .claude_config_dir
+                .as_ref()
+                .unwrap_or(&self.home)
+                .join(".claude.json"),
             Tool::Codex => self.codex_home.join("config.toml"),
             Tool::Cursor => self.home.join(".cursor/mcp.json"),
             Tool::ClaudeDesktop => self
                 .home
                 .join("Library/Application Support/Claude/claude_desktop_config.json"),
         }
+    }
+    fn claude_settings(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        // Protect Claude's textual join as well as the filesystem spelling.
+        let mut profiles: Vec<_> = self.claude_config_dir.iter().cloned().collect();
+        if let Some(dir) = &self.claude_config_dir {
+            let joined = claude_textual_dir(dir);
+            if &joined != dir {
+                profiles.push(joined);
+            }
+        }
+        for dir in std::iter::once(&self.home).chain(&profiles) {
+            for name in [
+                ".claude.json",
+                ".claude-custom-oauth.json",
+                ".claude-local-oauth.json",
+                ".claude-staging-oauth.json",
+            ] {
+                paths.push(dir.join(name));
+            }
+        }
+        paths.push(self.home.join(".claude/.config.json"));
+        paths.extend(profiles.iter().map(|dir| dir.join(".config.json")));
+        paths
+    }
+    fn profile(&self) -> Result<Option<&str>> {
+        self.claude_config_dir
+            .as_ref()
+            .map(|path| {
+                path.to_str()
+                    .filter(|s| path.is_absolute() && !s.contains(char::is_control))
+                    .ok_or(Code::InvalidPath)
+            })
+            .transpose()
     }
     fn executable(&self) -> &str {
         self.exe.to_str().unwrap_or("")
@@ -220,14 +313,27 @@ impl Engine {
         .then_some(receipt)
     }
     fn status(&self, tool: Tool) -> Result<Status> {
+        self.tool_status(tool, false)
+    }
+    fn ask_claude(&self) -> Result<Status> {
+        self.tool_status(Tool::ClaudeCode, true)
+    }
+    fn tool_status(&self, tool: Tool, ask: bool) -> Result<Status> {
         let path = self.path(tool);
         let mut out = Status {
             tool,
-            installed: self.installed(tool),
-            path: path.clone(),
+            installed: tool != Tool::ClaudeCode && self.installed(tool),
+            path: Some(path.clone()),
             executable: self.exe.clone(),
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,
+            unavailable: (tool == Tool::ClaudeCode).then_some(false),
+            program: None,
+            trusted: None,
+            unfinished_repoint: None,
+            exit_status: None,
+            record_error: None,
+            scope: None,
             config_exists: None,
             entry_exists: None,
             points_here: None,
@@ -235,13 +341,14 @@ impl Engine {
             error: None,
         };
         if tool == Tool::ClaudeCode {
+            claude::status(self, &mut out, ask)?;
             return Ok(out);
         }
         let inspect = || -> Result<(bool, bool, bool, bool)> {
             let root = files::root(&self.home)?;
             let relative = files::resolve(&root, &self.home, &path)?;
             files::parent(&root, &relative)?;
-            let f = FileState::read(&root, &relative, &self.receipt_key)?;
+            let f = FileState::read(&root, &relative, &self.receipt_key, &self.claude_settings())?;
             let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
             Ok((
                 f.text.is_some(),
@@ -268,7 +375,7 @@ impl Engine {
         }
         Ok(out)
     }
-    fn validate(&self, tool: Tool) -> Result<()> {
+    fn validate_location(&self) -> Result<()> {
         if matches!(
             self.location,
             Location::Translocated
@@ -281,6 +388,11 @@ impl Engine {
         if self.location == Location::Unknown {
             return Err(Code::UnknownLocation);
         }
+        Ok(())
+    }
+    fn validate(&self, tool: Tool) -> Result<()> {
+        self.validate_location()?;
+        // The file editor must never open Claude Code's configuration.
         if tool == Tool::ClaudeCode {
             return Err(Code::CopyOnly);
         }
@@ -481,7 +593,7 @@ impl Engine {
             tool,
             action,
             stamp,
-            &FileState::read(&root, &rel, &self.receipt_key)?,
+            &FileState::read(&root, &rel, &self.receipt_key, &self.claude_settings())?,
         )
     }
     fn commit(
@@ -503,7 +615,8 @@ impl Engine {
         lock.lock_exclusive().map_err(|_| Code::Io)?;
         let path = self.path(tool);
         let rel = files::resolve(&root, &self.home, &path)?;
-        let file = FileState::read(&root, &rel, &self.receipt_key)?;
+        let settings = self.claude_settings();
+        let file = FileState::read(&root, &rel, &self.receipt_key, &settings)?;
         let preview = self.plan(&root, &rel, tool, action, stamp, &file)?;
         if preview.fingerprint != fingerprint {
             return Err(Code::Changed);
@@ -557,7 +670,7 @@ impl Engine {
         let temp = file.temp(&dir, &candidate, receipt.as_ref())?;
         let unchanged = || -> Result<()> {
             reachable()?;
-            let now = FileState::read(&dir, Path::new(name), &self.receipt_key)?;
+            let now = FileState::read(&dir, Path::new(name), &self.receipt_key, &settings)?;
             if now.protection != file.protection
                 || now.revision != file.revision
                 || now.mode != file.mode
@@ -576,7 +689,9 @@ impl Engine {
         }
         let result = unchanged().and_then(|()| {
             files::set_history(&dir, name, receipt.as_ref(), &self.receipt_key)?;
-            if let Err(code) = temp.publish_checked(name, &file, preview.deletes_file, reachable) {
+            if let Err(code) =
+                temp.publish_checked(name, &file, preview.deletes_file, &settings, reachable)
+            {
                 files::set_history(&dir, name, history.as_ref(), &self.receipt_key)?;
                 return Err(code);
             }
@@ -640,6 +755,17 @@ fn mount_location(
     read_only: bool,
     image_info: impl FnOnce() -> Option<plist::Value>,
 ) -> Location {
+    classify_mount(exe, mount, read_only, Location::NotInApplications, || {
+        image_info().and_then(|info| mounted_image(mount, device, &info))
+    })
+}
+fn classify_mount(
+    exe: &Path,
+    mount: &Path,
+    read_only: bool,
+    unknown: Location,
+    image: impl FnOnce() -> Option<bool>,
+) -> Location {
     if mount
         .components()
         .any(|c| c.as_os_str() == OsStr::new("AppTranslocation"))
@@ -650,10 +776,10 @@ fn mount_location(
         return Location::ReadOnly;
     }
     if mount != Path::new("/") && mount != Path::new("/System/Volumes/Data") {
-        match image_info().and_then(|info| mounted_image(mount, device, &info)) {
+        match image() {
             Some(true) => return Location::DiskImage,
             Some(false) => (),
-            None => return Location::NotInApplications,
+            None => return unknown,
         }
     }
     if exe.parent().is_some_and(|p| p.ends_with("Contents/MacOS")) {
@@ -697,7 +823,7 @@ fn image_inventory(
     plist::Value::from_reader(output).ok()
 }
 
-fn location(exe: &Path) -> Location {
+fn location(exe: &Path, inspect_images: bool) -> Location {
     use std::{
         ffi::CStr,
         os::{fd::AsRawFd, unix::ffi::OsStrExt},
@@ -713,18 +839,24 @@ fn location(exe: &Path) -> Location {
     let mount = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(stat.f_mntonname.as_ptr()) }.to_bytes(),
     ));
-    mount_location(
-        exe,
-        mount,
-        OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes()),
-        stat.f_flags & libc::MNT_RDONLY as u32 != 0,
-        || {
-            image_inventory(
-                std::process::Command::new("/usr/bin/hdiutil")
-                    .env_clear()
-                    .args(["info", "-plist"]),
-                std::time::Duration::from_secs(2),
-            )
-        },
-    )
+    let device =
+        OsStr::from_bytes(unsafe { CStr::from_ptr(stat.f_mntfromname.as_ptr()) }.to_bytes());
+    let read_only = stat.f_flags & libc::MNT_RDONLY as u32 != 0;
+    if !inspect_images {
+        return classify_mount(exe, mount, read_only, Location::Unknown, || {
+            if stat.f_flags & libc::MNT_LOCAL as u32 == 0 {
+                Some(false)
+            } else {
+                volume::is_image(device)
+            }
+        });
+    }
+    mount_location(exe, mount, device, read_only, || {
+        image_inventory(
+            std::process::Command::new("/usr/bin/hdiutil")
+                .env_clear()
+                .args(["info", "-plist"]),
+            std::time::Duration::from_secs(2),
+        )
+    })
 }

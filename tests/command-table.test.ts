@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {personOnlyRow,commands,grades,surfaceNames,commandById,gradeOfKind,kindsOfGrade,loopbackRoutes,mcpTools,type Row} from '../src/agent/commands.mjs';
 import {tools,toolByName} from '../mcp/aphrodite-mcp/tools.mjs';
-import {parseAgentCommand} from '../src/agent/bridge';
+import {parseAgentCommand,reachedAction} from '../src/agent/bridge';
 import {judge,gateFor,isRead,isWrite,isAsk,readKinds,askKinds,writeKinds,HUMAN_ONLY_KIND,DOOR_KIND,type Authority} from '../src/agent/authority';
 
 /**
@@ -73,8 +73,36 @@ test('what only the person may do is reachable only from the screen, by the pers
   }
   assert.equal(gradeOfKind(HUMAN_ONLY_KIND),'human','approving is a human row');
   assert.equal(gradeOfKind(DOOR_KIND),'human','answering for the door is a human row');
+  for(const verb of ['ask','preview','connect','repoint','remove']){
+    const row=commandById['human.tool-'+verb];
+    assert.ok(row,verb);
+    assert.equal(row.grade,'human');
+    assert.equal(row.author,'person-only');
+    assert.deepEqual(row.controls,[]);
+    assert.equal('command' in parseAgentCommand(row.id,{}),false);
+  }
   for(const name of ['approve','approve-export'])assert.ok(commandById['human.approve'].controls.some(c=>c.kind==='action'&&c.name===name),name);
   for(const name of ['ask-allow','ask-decline','agent-connect-toggle','agent-disconnect','agent-forget'])assert.ok(commandById['human.door'].controls.some(c=>c.kind==='action'&&c.name===name),name);
+});
+
+test('Recheck Opus 8 and Astra 8 protect ask and active preview through direct action, click and palette',()=>{
+  for(const verb of ['ask','preview','connect','repoint','remove']){
+    const row=commandById['human.tool-'+verb];
+    // Stand in for the settings control until the screen binds its own action.
+    const name='fixture-tool-'+verb;
+    row.controls.push({kind:'action',name});
+    try{
+      const look={click:()=>name,palette:()=>name};
+      const requests:[string,Record<string,string>][]=[
+        ['act',{action:name}],['ui',{action:'click',selector:'button'}],['ui',{action:'command',query:name}],
+      ];
+      for(const [kind,payload] of requests){
+        const parsed=parseAgentCommand(kind,payload);
+        assert.ok('command' in parsed);
+        assert.equal(personOnlyRow(reachedAction(parsed.command,look)),row.id);
+      }
+    }finally{row.controls.pop();}
+  }
 });
 
 test('the interface around the design is offered to no agent surface',()=>{

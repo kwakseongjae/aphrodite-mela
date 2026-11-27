@@ -1,0 +1,2 @@
+# Claude Code 2.1.327, installed macOS bundle, missing-name formatter Eps
+No MCP server named "aphrodite". Run `claude mcp add` to add one.
