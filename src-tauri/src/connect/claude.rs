@@ -243,7 +243,7 @@ pub(super) fn status(e: &Engine, out: &mut Status, ask: bool) -> super::Result<(
     out.program = Some(program.path.clone());
     out.trusted = Some(program.trusted);
     if !program.trusted {
-        out.copy_only = true;
+        out.unavailable = Some(true);
         out.error = Some(Code::CliUntrusted);
         return Ok(());
     }
@@ -303,11 +303,11 @@ impl<'a> Lines<'a> {
         {
             return Err(Code::InvalidPath);
         }
-        if program.is_some_and(|p| !p.trusted) {
-            return Err(Code::CliUntrusted);
-        }
         Ok(Self {
-            program: program.and_then(|p| p.path.to_str()).unwrap_or("claude"),
+            program: program
+                .filter(|p| p.trusted)
+                .and_then(|p| p.path.to_str())
+                .unwrap_or("claude"),
             profile: e.profile()?,
         })
     }
@@ -448,17 +448,20 @@ impl State {
 pub(super) fn prepare(e: &Engine, action: Action) -> super::Result<Proposal> {
     e.validate_location()?;
     e.profile()?;
-    let Some(program) = Program::find(e) else {
+    let found = Program::find(e);
+    let found_untrusted = found.is_some();
+    let Some(program) = found.filter(|p| p.trusted) else {
         return Ok(Proposal::Copy {
             tool: Tool::ClaudeCode,
             path: e.path(Tool::ClaudeCode),
-            code: Code::CliNotFound,
+            code: if found_untrusted {
+                Code::CliUntrusted
+            } else {
+                Code::CliNotFound
+            },
             snippet: Lines::new(e, None)?.for_action(action, e.executable()).line,
         });
     };
-    if !program.trusted {
-        return Err(Code::CliUntrusted);
-    }
     let store = Store::lock(e)?;
     Ok(
         match State::inspect(e, program, &store).and_then(|s| s.plan(e, action)) {

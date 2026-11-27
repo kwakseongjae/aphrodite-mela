@@ -118,6 +118,8 @@ pub struct Status {
     location: Location,
     copy_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    unavailable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     program: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trusted: Option<bool>,
@@ -281,6 +283,7 @@ impl Engine {
             executable: self.exe.clone(),
             location: self.location,
             copy_only: tool == Tool::ClaudeCode,
+            unavailable: (tool == Tool::ClaudeCode).then_some(false),
             program: None,
             trusted: None,
             unfinished_repoint: None,

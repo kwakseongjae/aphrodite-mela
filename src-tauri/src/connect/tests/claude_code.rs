@@ -1390,3 +1390,41 @@ fn recheck_astra_7_command_and_persistence_results_are_independent() {
     assert_eq!(failed["recordError"], Value::Null);
     assert_eq!(fs::metadata(path).unwrap().ino(), before);
 }
+
+#[test]
+fn recheck_opus_4_the_directory_selecting_the_cli_link_must_be_controlled() {
+    let mut f = Fixture::new();
+    let link_dir = f.e().home.join("shared");
+    fs::create_dir(&link_dir).unwrap();
+    symlink(f.e().cli_dirs[0].join("playback"), link_dir.join("claude")).unwrap();
+    fs::set_permissions(&link_dir, fs::Permissions::from_mode(0o777)).unwrap();
+    f.0.engine.cli_dirs.insert(0, link_dir);
+    assert_eq!(f.status()["trusted"], false);
+    assert!(f.calls().is_empty());
+}
+
+#[test]
+fn recheck_astra_12_untrusted_cli_status_is_unavailable_with_the_reason() {
+    let f = Fixture::new();
+    fs::set_permissions(
+        f.e().cli_dirs[0].join("playback"),
+        fs::Permissions::from_mode(0o775),
+    )
+    .unwrap();
+    let s = json!(f.e().status(CLAUDE).unwrap());
+    assert_eq!(s["unavailable"], true);
+    assert_eq!(s["copyOnly"], false);
+    assert_eq!(s["error"], "cli_untrusted");
+}
+
+#[test]
+fn recheck_opus_7_untrusted_cli_offers_the_same_manual_line_as_a_missing_cli() {
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o775)).unwrap();
+    let snippet = claude::snippet(f.e(), Action::Connect).unwrap();
+    assert_eq!(f.proposal(Action::Connect)["snippet"], snippet);
+    fs::remove_file(program).unwrap();
+    assert_eq!(claude::snippet(f.e(), Action::Connect).unwrap(), snippet);
+    assert!(f.calls().is_empty());
+}

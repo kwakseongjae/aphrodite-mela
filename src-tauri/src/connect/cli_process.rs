@@ -117,7 +117,11 @@ impl Program {
             .collect::<Vec<_>>();
         let mut program = Self {
             identity: (&m).into(),
-            trusted: controlled(&path) && safe_to_inspect(e, &path, &m),
+            trusted: selected.parent().is_some_and(|dir| {
+                dir.ancestors()
+                    .all(|p| p.canonicalize().is_ok_and(|resolved| controlled(&resolved)))
+            }) && controlled(&path)
+                && safe_to_inspect(e, &path, &m),
             path,
             interpreter: vec![],
             search_path,
