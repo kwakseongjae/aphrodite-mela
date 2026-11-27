@@ -6,6 +6,8 @@ use std::{
 };
 
 const CLAUDE: Tool = Tool::ClaudeCode;
+const STABLE_SIDECAR: &str = "/Applications/Aphrodite.app/Contents/MacOS/aphrodite-mcp";
+const PREVIEW_SIDECAR: &str = "/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp";
 const SCRIPT: &str = include_str!("../../../../tests/support/claude-registration.sh");
 
 struct Fixture(Home);
@@ -36,6 +38,12 @@ impl Fixture {
     }
     fn e(&self) -> &Engine {
         &self.0.engine
+    }
+    fn installation(&self, identifier: &str, sidecar: &str) -> Engine {
+        let mut engine = Engine::new(self.e().home.clone(), sidecar.into(), identifier);
+        engine.cli_dirs = self.e().cli_dirs.clone();
+        engine.claude_config_dir = self.e().claude_config_dir.clone();
+        engine
     }
     fn state(&self, path: &str, args: &str) {
         let template = include_str!("../../../../tests/fixtures/claude-code/get-stdio.txt");
@@ -659,9 +667,50 @@ fn opus_5_astra_3_opus_9_every_preview_line_round_trips_in_three_shells() {
 fn record_path(f: &Fixture) -> PathBuf {
     let key = hash(f.e().path(CLAUDE).as_os_str().as_encoded_bytes());
     f.e()
-        .home
-        .join("Library/Application Support/studio.aphrodite.mela/connect")
+        .app_data
+        .join("connect")
         .join(format!("claude-{key}.json"))
+}
+
+#[test]
+fn each_installation_locks_and_writes_its_own_profile_record() {
+    use claude_record::{Record, Store};
+    let f = Fixture::new();
+    let preview_id = format!("{STABLE_ID}.preview");
+    let stable = f.installation(STABLE_ID, STABLE_SIDECAR);
+    let preview = f.installation(&preview_id, PREVIEW_SIDECAR);
+    let stable_store = Store::lock(&stable).unwrap();
+    let preview_store = Store::lock(&preview).unwrap();
+    let key = hash(f.e().path(CLAUDE).as_os_str().as_encoded_bytes());
+    for (id, engine, store) in [
+        (STABLE_ID, &stable, stable_store),
+        (&preview_id, &preview, preview_store),
+    ] {
+        let record = Record {
+            registered: Some(engine.executable().into()),
+            pending: None,
+        };
+        store.save(&record).unwrap();
+        let path = engine
+            .home
+            .join("Library/Application Support")
+            .join(id)
+            .join("connect")
+            .join(format!("claude-{key}.json"));
+        assert!(path.with_extension("lock").is_file());
+        assert_eq!(
+            serde_json::from_slice::<Record>(&fs::read(path).unwrap()).unwrap(),
+            record
+        );
+    }
+    assert_eq!(
+        Store::peek(&stable).unwrap().registered.as_deref(),
+        Some(STABLE_SIDECAR)
+    );
+    assert_eq!(
+        Store::peek(&preview).unwrap().registered.as_deref(),
+        Some(PREVIEW_SIDECAR)
+    );
 }
 
 #[test]
@@ -797,7 +846,7 @@ fn astra_5_interrupted_repoint_survives_relaunch_and_requires_a_fresh_press() {
     let p = f.proposal(Action::Connect);
     f.override_reply(
         "remove",
-        json!({"afterWrite":true,"snapshot":true,"once":true,"exit":17}),
+        json!({"afterWrite":true,"snapshot":record_path(&f),"once":true,"exit":17}),
     );
     let r = f.apply(Action::Connect, &p, false);
     assert_eq!(r["code"], "repoint_restored");

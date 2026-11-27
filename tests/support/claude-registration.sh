@@ -34,8 +34,7 @@ def finish_reply():
     if "nextGet" in reply:
         (home / "get-reply").write_text(json.dumps(reply["nextGet"]))
     if reply.get("snapshot"):
-        records = home / "Library/Application Support/studio.aphrodite.mela/connect"
-        shutil.copyfile(next(records.glob("claude-*.json")), home / "repoint-snapshot")
+        shutil.copyfile(reply["snapshot"], home / "repoint-snapshot")
         (home / "repoint-snapshot").chmod(0o600)
     if reply.get("hang"):
         time.sleep(30)

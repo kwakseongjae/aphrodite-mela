@@ -216,7 +216,7 @@ struct Engine {
 impl Engine {
     fn new(home: PathBuf, exe: PathBuf, identifier: &str) -> Self {
         Self {
-            app_data: home.join("Library/Application Support/studio.aphrodite.mela"),
+            app_data: home.join("Library/Application Support").join(identifier),
             receipt_key: files::receipt_key(identifier),
             codex_home: home.join(".codex"),
             claude_config_dir: None,
