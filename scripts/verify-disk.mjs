@@ -24,7 +24,9 @@ import {readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 
-const BUNDLE = 'studio.aphrodite.mela';
+import {stableConfig, previewConfig} from './preview-config.mjs';
+
+const BUNDLE = process.env.APHRODITE_PREVIEW_VERSION ? previewConfig(process.env.APHRODITE_PREVIEW_VERSION).identifier : stableConfig.identifier;
 const HOME = process.env.APHRODITE_HOME || homedir();
 const DATA = join(HOME, 'Library', 'Application Support', BUNDLE);
 const STORE = join(DATA, 'workspace-v1');
