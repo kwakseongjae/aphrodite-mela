@@ -247,6 +247,83 @@ fn command_preview_is_the_exact_pasteable_argv_and_only_get_runs_before_consent(
 }
 
 #[test]
+fn the_spaced_preview_sidecar_round_trips_through_the_shell_child_and_captured_display() {
+    let mut f = Fixture::new();
+    f.0.engine = f.installation(&format!("{STABLE_ID}.preview"), PREVIEW_SIDECAR);
+    let snippet = claude::snippet(f.e(), Action::Connect).unwrap();
+    let first = f.proposal(Action::Connect);
+    assert_eq!(first["commands"][0]["line"], snippet);
+    assert!(snippet.ends_with(&format!(" -- '{PREVIEW_SIDECAR}'")));
+    let copied = Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", &f.e().home)
+        .current_dir(&f.e().home)
+        .args(["-c", &snippet])
+        .output()
+        .unwrap();
+    assert!(copied.status.success());
+    let args = json!([
+        "mcp",
+        "add",
+        "--transport",
+        "stdio",
+        "--scope",
+        "user",
+        "aphrodite",
+        "--",
+        PREVIEW_SIDECAR
+    ]);
+    assert_eq!(f.calls().last().unwrap()["args"], args);
+
+    let display = include_str!("../../../../tests/fixtures/claude-code/get-stdio-preview.txt")
+        .split_once('\n')
+        .unwrap()
+        .1
+        .replace("<P>", "/Applications");
+    let entry = f.e().home.join("entry");
+    fs::write(&entry, &display).unwrap();
+    let status = f.status();
+    assert_eq!(status["entryExists"], true);
+    assert_eq!(status["scope"], "user");
+    assert_eq!(status["pointsHere"], true);
+    assert_eq!(status["owned"], false);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], true);
+    assert_eq!(
+        f.apply(Action::Remove, &remove, false)["code"],
+        "confirmation_required"
+    );
+
+    let connect = f.proposal(Action::Connect);
+    assert_eq!(
+        f.apply(Action::Connect, &connect, true)["code"],
+        "registered"
+    );
+    assert_eq!(f.calls().last().unwrap()["args"], args);
+
+    // Leave the matching path in Issue. Only Command identifies the sidecar.
+    let different = display.replace(
+        "  Command: /Applications/Aphrodite Preview.app",
+        "  Command: /Applications/Aphrodite Review.app",
+    );
+    fs::write(&entry, different).unwrap();
+    let status = f.status();
+    assert_eq!(status["pointsHere"], false);
+    assert_eq!(status["owned"], false);
+    assert_eq!(f.proposal(Action::Remove)["code"], "foreign_entry");
+    fs::write(&entry, display.replace("  Args:\n", "  Args: --other\n")).unwrap();
+    assert_eq!(f.status()["owned"], false);
+    assert_eq!(f.proposal(Action::Remove)["confirmationRequired"], true);
+
+    fs::write(entry, display).unwrap();
+    assert_eq!(f.status()["owned"], true);
+    let remove = f.proposal(Action::Remove);
+    assert_eq!(remove["confirmationRequired"], false);
+    assert_eq!(f.apply(Action::Remove, &remove, false)["code"], "removed");
+    assert_eq!(f.status()["entryExists"], false);
+}
+
+#[test]
 fn owned_repoint_restores_the_recorded_path_if_add_fails_after_remove() {
     let mut f = Fixture::new();
     let old = f.e().exe.clone();

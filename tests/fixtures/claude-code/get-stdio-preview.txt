@@ -1,0 +1,11 @@
+# Claude Code 2.1.327, planner's piped stdout capture, 2026-11-27; scratch folder replaced by <P>, exit 0, stderr empty
+aphrodite:
+  Scope: User config (available in all your projects)
+  Status: ✘ Failed to connect
+  Issue: ENOENT: no such file or directory, posix_spawn '<P>/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp'
+  Type: stdio
+  Command: <P>/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp
+  Args:
+  Environment:
+
+To remove this server, run: claude mcp remove aphrodite -s user
