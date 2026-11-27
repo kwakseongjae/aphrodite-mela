@@ -418,3 +418,21 @@ test('only the refused-save reload description explains the discard without repe
     assert.ok(!troubleDialog(failed,'editor',ko).body.includes(sentence));
   }
 });
+
+/* A placed mark popover is fixed in the window at the top main.ts gives it, and nothing pins its bottom too: on Home the
+   rule that opens the unplaced popover upward set a bottom as well, so the placed one was squeezed between the two and
+   its surface stopped after the title while its text ran on below. */
+test('a placed mark popover keeps its whole content on its surface, on Home as in the editor',async()=>{
+  const {rules,value,el}=await import('./support/css');
+  const {readdirSync}=await import('node:fs');
+  const src=new URL('../src/',import.meta.url);
+  const sheets=readdirSync(src,{recursive:true}).map(String).filter(f=>f.startsWith('ui/')&&f.endsWith('.css')&&f!=='ui/tokens.css').sort();
+  const all=rules(sheets.map(f=>readFileSync(new URL(f,src),'utf8')).join('\n'));
+  const pop=(placed:boolean)=>el(['ui-popover','notice-pop',...(placed?['is-placed']:[])]);
+  for(const host of ['ui-home-marks','ui-notice-marks']){
+    const chain=[el([host]),el(['ui-notice-mark','notice-mark-connect','connect-mark']),pop(true)];
+    assert.equal(value(all,chain,'bottom'),'auto',host+': placed, only its top is set');
+    assert.equal(value(all,chain,'position'),'fixed',host);
+  }
+  assert.match(value(all,[el(['ui-home-marks']),el(['ui-notice-mark','notice-mark-connect','connect-mark']),pop(false)],'bottom')??'',/100%/,'unplaced on Home, it still opens upward');
+});

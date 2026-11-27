@@ -99,7 +99,7 @@
 .ui-home-marks { display: grid; gap: var(--ui-space-1); margin-bottom: var(--ui-space-1); }
 .ui-home-marks .ui-btn, .ui-home-marks .ui-notice-mark.notice-mark-connect > summary { width: 100%; justify-content: flex-start; }
 .ui-home-marks.ui-home-marks-float { position: absolute; left: var(--ui-space-3); bottom: var(--ui-space-3); z-index: 10; width: calc(var(--ui-control-lg) * 5); margin: 0; }
-.ui-home-marks .ui-popover.notice-pop { top: auto; right: auto; bottom: calc(100% + var(--ui-space-1)); left: 0; }
+.ui-home-marks .ui-popover.notice-pop:not(.is-placed) { top: auto; right: auto; bottom: calc(100% + var(--ui-space-1)); left: 0; }
 
 /* The dialog that stops the work: what happened, where the work is, then the ways on, the safe one first. */
 .ui-notice-lead { display: inline-flex; align-items: center; justify-content: center; width: var(--ui-control-md); height: var(--ui-control-md); margin-bottom: var(--ui-space-3); border-radius: var(--ui-radius-2); background: var(--ui-warn-soft); color: var(--ui-warn-text); }
