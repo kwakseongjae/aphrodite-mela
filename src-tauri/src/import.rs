@@ -299,8 +299,7 @@ pub async fn html_import_finish(window: WebviewWindow, state: tauri::State<'_, I
     let base = window.path().app_data_dir().map_err(|_| "io")?;
     crate::disk::write(move || {
         crate::board::sweep_imports(&base);
-        for (ticket, keep) in receipts { crate::board::finish_import(&base, &ticket, keep)?; }
-        Ok(())
+        crate::board::finish_imports(&base, receipts)
     }).await
 }
 

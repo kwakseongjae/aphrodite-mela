@@ -295,6 +295,15 @@ pub(crate) fn stage_page_asset(base: &Path, from: impl Read, expected: u64) -> R
 }
 
 /// Under the settlement lock, publish by rename or release only private uploads.
+/// Settles every receipt of an import. One that fails does not leave the ones after it private: the first failure is returned once all were tried.
+pub(crate) fn finish_imports(base: &Path, receipts: Vec<(String, bool)>) -> Result<(), String> {
+    let mut first = Ok(());
+    for (ticket, keep) in receipts {
+        if let Err(error) = finish_import(base, &ticket, keep) { if first.is_ok() { first = Err(error); } }
+    }
+    first
+}
+
 pub(crate) fn finish_import(base: &Path, receipt: &str, keep: bool) -> Result<(), String> {
     let (filename, token) = receipt.rsplit_once('.').ok_or("invalid_name")?;
     let (sha, ext) = filename.split_once('.').ok_or("invalid_name")?;
@@ -366,10 +375,11 @@ fn published_file(base: &Path, sha: &str) -> Option<PathBuf> {
 pub(crate) fn media_file(base: &Path, sha: &str) -> Option<PathBuf> {
     if let Some(path) = published_file(base, sha) {
         if path.extension()?.to_str()? == "mp4" {
-            // Older boards accepted a broader MP4 signature. Check the same prefix the asset responder sees.
+            // Older boards accepted a broader MP4 signature. Check the same prefix the asset responder sees:
+            // a video in this container (MP4, QuickTime, M4V) is served, a sound or a picture in it is not.
             let mut head = Vec::new();
             fs::File::open(&path).ok()?.take(8192).read_to_end(&mut head).ok()?;
-            if sniff(&head) != Some("video/mp4") || tauri::utils::mime_type::MimeType::parse(&head, "x.mp4") != "video/mp4" {
+            if sniff(&head) != Some("video/mp4") || !tauri::utils::mime_type::MimeType::parse(&head, "x.mp4").starts_with("video/") {
                 return None;
             }
         }
@@ -741,6 +751,43 @@ mod tests {
     }
 
     #[test]
+    fn one_receipt_that_cannot_be_finished_does_not_leave_the_others_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"\x89PNG\r\n\x1a\n-kept-after-a-bad-receipt";
+        let held = stage_page_asset(dir.path(), &bytes[..], bytes.len() as u64).unwrap();
+        let missing = format!("{}.png.{}", "c".repeat(64), "d".repeat(48));
+        let result = finish_imports(dir.path(), vec![(missing, true), (held.receipt.clone().unwrap(), true)]);
+        assert_eq!(result, Err("missing".to_string()), "the first failure is the one reported");
+        assert!(media_file(dir.path(), &held.stored.sha).is_some(), "the receipt after it was still finished");
+    }
+
+    #[test]
+    fn a_quicktime_or_m4v_video_stored_as_mp4_is_still_found_and_a_new_one_shows_after_it_is_put() {
+        use tauri::utils::mime_type::MimeType;
+        let dir = tempfile::tempdir().unwrap();
+        let media = folder(dir.path(), MEDIA).unwrap();
+        // What a macOS screen recording and an iTunes video start with: main stored both as <hash>.mp4 and served them.
+        for bytes in [&b"\0\0\0\x14ftypqt  \0\0\0\0qt  "[..], &b"\0\0\0\x18ftypM4V \0\0\0\0M4V mp42"[..]] {
+            let sha = format!("{:x}", Sha256::digest(bytes));
+            let old = media.join(format!("{sha}.mp4"));
+            fs::write(&old, bytes).unwrap();
+            let answered = MimeType::parse(bytes, old.to_str().unwrap());
+            assert!(answered.starts_with("video/") && allowed_asset_response("mp4", &answered), "{answered}");
+            assert_eq!(media_file(dir.path(), &sha).as_ref(), Some(&old), "{answered}");
+            assert_eq!(media_stat(dir.path(), &sha).unwrap().mime, "video/mp4");
+            fs::remove_file(&old).unwrap();
+            let new = stage_page_asset(dir.path(), bytes, bytes.len() as u64).unwrap();
+            finish_import(dir.path(), &new.receipt.unwrap(), true).unwrap();
+            assert_eq!(media_file(dir.path(), &new.stored.sha).as_ref(), Some(&old), "a video that was accepted is found");
+        }
+        // A sound or a picture in the same container was never a video the board could show: still not served.
+        let audio = b"\0\0\0\x18ftypM4A \0\0\0\0M4A mp42";
+        let sha = format!("{:x}", Sha256::digest(audio));
+        fs::write(media.join(format!("{sha}.mp4")), audio).unwrap();
+        assert_eq!(media_file(dir.path(), &sha), None);
+    }
+
+    #[test]
     fn previously_stored_mp4_and_mp3_files_enter_the_asset_scope_only_after_validation() {
         let dir = tempfile::tempdir().unwrap();
         let media = folder(dir.path(), MEDIA).unwrap();
@@ -768,7 +815,7 @@ mod tests {
     fn allowed_asset_response(ext: &str, answered: &str) -> bool {
         matches!((ext, answered),
             ("png", "image/png") | ("jpg", "image/jpeg") | ("gif", "image/gif") | ("webp", "image/webp") |
-            ("mp4", "video/mp4") | ("webm", "video/webm") | ("ogg", "audio/ogg") |
+            ("mp4", "video/mp4" | "video/quicktime" | "video/x-m4v") | ("webm", "video/webm") | ("ogg", "audio/ogg") |
             ("wav", "audio/x-wav" | "audio/wav") | ("mp3.bin", "audio/mpeg" | "application/octet-stream"))
     }
 
