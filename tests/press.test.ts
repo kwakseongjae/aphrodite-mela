@@ -222,3 +222,27 @@ for(const surface of ['board dialog','palette']){
     }finally{await session.detach();}
   });
 }
+
+test('an open connection mark leaves Space, Tab and Enter at the focus outside it',async()=>{
+  const {page}=rig;await scene('mark');
+  const search=page.locator('#component-search'),summary=page.locator('.connect-mark summary').first();
+  await search.focus();await page.keyboard.press('Tab');
+  const next=await page.evaluateHandle(()=>document.activeElement);
+  await summary.click();await search.click();await page.keyboard.press('Tab');
+  assert.ok(await next.evaluate(el=>el===document.activeElement));
+  await search.focus();await page.keyboard.type('a b');
+  assert.equal(await search.inputValue(),'a b');
+  assert.equal(await page.locator('.connect-mark[open]').count(),1);
+  await page.locator('[data-action="project"]').first().focus();await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#rename-form').count(),1);
+});
+
+test('the dock group opened by keyboard keeps focus across its redraw and Escape closes it',async()=>{
+  const {page}=rig,group=page.locator('.dock [data-action="dock-group"]').first();
+  await group.focus();await page.keyboard.press('Enter');
+  assert.ok(await group.evaluate(el=>el===document.activeElement));
+  assert.equal(await page.locator('.dock-menu').count(),1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.dock-menu').count(),0);
+  assert.ok(await group.evaluate(el=>el===document.activeElement));
+});

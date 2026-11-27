@@ -27,9 +27,8 @@ export function topSurface():Surface{
   const modal=document.querySelector<HTMLElement>('#modal-root > :last-child .modal');
   const page=document.querySelector<HTMLElement>('#page-view-root .page-view');
   const root=modal??page??document.body;
-  const menus=[...root.querySelectorAll<HTMLElement>(popovers)].filter(visible).reverse();
-  const menu=menus.find(el=>el.contains(document.activeElement))??menus[0];
-  if(menu)return {kind:'popover',root:menu};
+  const menu=document.activeElement?.closest<HTMLElement>(popovers);
+  if(menu&&root.contains(menu)&&visible(menu))return {kind:'popover',root:menu};
   if(modal)return {kind:modal.matches('.ask-modal')?'ask':modal.querySelector('#command-list')?'palette':'dialog',root};
   return {kind:page?'page':'editor',root};
 }

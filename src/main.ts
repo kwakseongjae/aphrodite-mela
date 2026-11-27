@@ -1691,7 +1691,12 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'page': {const id=el.dataset.id!;if(id!==project.activePageId||project.starter===id)commit(() => { revealStarter(project,id); if(id!==project.activePageId){project.activePageId = id; selected = currentPage(project).blocks[0]?.id ?? '';} }, d, 'edit.page-switch');if(el.dataset.nav==='fit')fitFrame(id);break;}
     case 'select': selectBlock(el.dataset.id!); {const target=document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`),scroll=app.querySelector<HTMLElement>('#canvas-scroll');if(target&&scroll){const top=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;scroll.scrollTop=Math.max(0,top-40);scroll.dispatchEvent(new Event('scroll'));}} break;
     case 'dock-hand': dockTool='hand';dockGroupOpen='';render();break;
-    case 'dock-group': {const g=el.dataset.group??'';dockGroupOpen=dockGroupOpen===g?'':g;render();break;}
+    case 'dock-group': {
+      const group=el.dataset.group??'',focused=el===document.activeElement;
+      dockGroupOpen=dockGroupOpen===group?'':group;render();
+      if(focused)focusOnSurface(app.querySelector<HTMLElement>(`[data-action="dock-group"][data-group="${CSS.escape(group)}"]`));
+      break;
+    }
     case 'welcome-sample': {markWelcomed();const sample=sampleProject(uiLanguage);await leave(async()=>{saveLibrary(()=>upsertProject(library,sample,undefined,workspaces.activeId));await bounded(flushDisk());openProject(sample);});break;}
     case 'welcome-blank': {markWelcomed();closeModal();const btn=document.createElement('button');btn.dataset.action='new-project';app.append(btn);await action(btn,d);btn.remove();break;}
     case 'welcome-dismiss': markWelcomed();closeModal();render();break;
