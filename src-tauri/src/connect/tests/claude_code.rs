@@ -908,6 +908,7 @@ fn astra_4_only_the_exact_missing_sentence_can_clear_ownership() {
         "get-missing",
         "get-missing-empty",
         "get-missing-suggestion",
+        "get-missing-plugin",
         "get-missing-truncated",
     ] {
         let fixture =
