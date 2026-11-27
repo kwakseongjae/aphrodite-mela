@@ -63,7 +63,7 @@ import {serial} from './serial';
 import {hopLimit} from './page-hops';
 import {localLookups} from './local-lookups';
 import {pushToast,expireToasts,dismissToast,nextExpiry,toastHtml,settleUndo,type Toast} from './design/toasts';
-import {askKey} from './editor/ask-keys';
+import {focusOnSurface,installPress,pressOrigin,rememberFocus,restoreFocus,takeReturnFocus,topSurface} from './ui/press';
 import {troubleKind,troubleDialog,backupFormat,troubleMarkHtml,connectMarkHtml,renderFailedHtml,reloadConfirm,type Trouble} from './ui/notices';
 import {designContract,designTokens,componentVocabulary,closedCanvas,closedRender,HOME_CANVAS_HINT,pageHtmlRead,pageTextRead,renderRefusal,changesForReply} from './agent/contract';
 import {parseBatch,type Batch,type Op} from './agent/ops';
@@ -382,7 +382,6 @@ let device: 'desktop' | 'mobile' = 'desktop';
 let query = '';
 /** Undo, redo and the ledger's view of the last committed state (src/ledger/session.ts). */
 let edits = newHistory();
-let modalReturnFocus: HTMLElement | null = null;
 let zoom = 100;
 let editorMode:EditorMode='design';let dockTool='select';
 let suppressClickUntil=0;let camera:Camera={x:0,y:0,zoom:1};
@@ -435,17 +434,20 @@ const iconButton = (action: string, name: string, label: string, rest = '') => `
 function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }); hydrateNativeLibraries(document); }
 /** The sheet for a screen that could not be drawn. It reads no state it cannot be sure of: the app may be what stopped. */
 function fatalUp(){return !!document.querySelector('.fatal-scrim');}
-/** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
-function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();offerTrouble();return;}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c')return;if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
-function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
+function dismissSheet(sheet:{remove():void}){
+  sheet.remove();offerAsk();
+  if(!restoreFocus(takeReturnFocus('sheet')))focusModal();
+  offerTrouble();
+}
+function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}if(!fatalUp())rememberFocus('sheet');document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!pressOrigin(e).isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /**
  * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
  * other buttons go to their actions, which answer them before reading anything of the app's state. Draw again takes the
  * sheet away only once the screen was drawn; if drawing throws again, the sheet stays and says what stopped it now.
  */
 function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
-  if(action==='fatal-close'){sheet.remove();offerTrouble();return;}
-  try{render();sheet.remove();offerTrouble();}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
+  if(action==='fatal-close'){dismissSheet(sheet);return;}
+  try{render();dismissSheet(sheet);}catch(error){const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error instanceof Error?error.stack??error.message:error);}
 }
 /** createIcons() redraws every icon on the page, the canvas's too. This fills only the placeholders under `root`. */
 function hydrateIconsIn(root:ParentNode){root.querySelectorAll<HTMLElement>('i[data-lucide]').forEach(el=>{const name=el.dataset.lucide!,node=icons[name.replace(/(^|-)(\w)/g,(_,_dash,c:string)=>c.toUpperCase()) as keyof typeof icons];if(!node)return;const svg=createElement(node);svg.setAttribute('stroke-width','1.65');for(const a of Array.from(el.attributes))svg.setAttribute(a.name,a.value);svg.setAttribute('class',`lucide lucide-${name} ${el.getAttribute('class')??''}`.trim());el.replaceWith(svg);});}
@@ -519,7 +521,7 @@ function turn<T>(go:()=>T|Promise<T>):Promise<T>{
   return leaves(async()=>{
     leaving++;app.inert=true;
     try{return await go();}
-    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))focusAfterLeaving.focus();focusAfterLeaving=undefined;}}
+    finally{leaving--;if(!leaving){app.inert=modalRoot.children.length>0;if(!app.inert&&focusAfterLeaving?.isConnected&&(document.activeElement===document.body||!document.activeElement))restoreFocus(focusAfterLeaving);focusAfterLeaving=undefined;}}
   });
 }
 /** A refusal the person must not miss after a wait: said as a notice, even over the request to edit (0.3-R fix 5 #4). */
@@ -763,7 +765,7 @@ function paletteContext(){const page=currentPage(project);return {hasSelection:!
 function commandsModal(query=''){
   if(screen!=='editor')return;
   showModal(ui('Commands','명령'),ui('Everything you can do here is in this list. Type to narrow it down.','이 화면에서 할 수 있는 일을 모두 모았습니다. 입력하면 걸러집니다.'),commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage));
-  const input=modalRoot.querySelector<HTMLInputElement>('#command-search');input?.focus();input?.setSelectionRange(input.value.length,input.value.length);
+  const input=modalRoot.querySelector<HTMLInputElement>('#command-search');focusOnSurface(input);input?.setSelectionRange(input.value.length,input.value.length);
 }
 function renderPaletteList(query:string){const list=modalRoot.querySelector('#command-list');if(!list)return;const html=commandPaletteHtml(commandTable(paletteContext()),query,uiLanguage);const next=new DOMParser().parseFromString(html,'text/html').querySelector('#command-list');if(next)list.replaceWith(next);}
 let delegation:Delegation|undefined;
@@ -1245,30 +1247,31 @@ function inspectorHtml(page:Page) {
 }
 function focusModal(){
   if(fatalUp())return;
+  if(askOpen()){focusOnSurface(modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]'));return;}
   const modal=modalRoot.querySelector<HTMLElement>('.modal'),body=modalRoot.querySelector<HTMLElement>('.modal-content');
   if(!modal||!body)return;
   // A dialog that opened without a press names what it starts on: the choice that loses nothing (src/ui/notices.ts).
   const controls=Array.from(body.querySelectorAll<HTMLElement>('input,textarea,select,button')).filter(el=>!el.matches(':disabled')&&el.getClientRects().length);
-  const named=controls.find(el=>el.dataset.firstFocus!==undefined);if(named){named.focus();return;}
+  const named=controls.find(el=>el.dataset.firstFocus!==undefined);if(named){focusOnSurface(named);return;}
   const first=controls.some(el=>el.dataset.action==='open-link'||el.dataset.action==='agent-connect-toggle'||el.classList.contains('ui-btn-danger'))?controls.find(el=>el.dataset.action==='close-modal'):
     controls.find(el=>el.tagName!=='BUTTON')??controls.find(el=>el.classList.contains('ui-btn-primary')||el.classList.contains('primary-button'))??controls[0];
-  (first??modal).focus();
+  focusOnSurface(first??modal);
 }
 /** A dialog in the system's frame: confirm (420) for a yes-or-no, the usual 560, and wide (960) for two columns side by side. `lead` sits above the title. */
 function showModal(title: string, subtitle: string, body: string, wide: boolean|'confirm' = false, lead = '') {
   comparisonObserver?.disconnect(); comparisonObserver = null;
-  if (!modalRoot.children.length) modalReturnFocus = document.activeElement as HTMLElement;
+  if (!modalRoot.children.length) rememberFocus('dialog');
   /* A request to edit stays on top of any dialog the person did not open just now — a button's
      continuation after an await, a script's click — which goes under it and shows once it is answered.
      The person's own keys or clicks (⌘K, say) still take the screen; the request comes back when they close it. */
   const ask=askOpen()&&(window.event as Event|undefined)?.isTrusted!==true?modalRoot.querySelector('.ask-modal')?.closest('.modal-backdrop'):null;
   modalRoot.innerHTML = `<div class="modal-backdrop ui-scrim"><section class="modal ui-modal ${wide === 'confirm' ? '' : wide ? 'ui-modal-xl wide' : 'ui-modal-md'}" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modal-title"><header class="modal-heading ui-modal-head"><div class="ui-modal-heading">${lead}<h2 id="modal-title" class="ui-modal-title">${title}</h2>${subtitle ? `<p class="ui-modal-text">${subtitle}</p>` : ''}</div><button type="button" class="ui-icon-btn" data-action="close-modal" aria-label="${control('Close dialog')}" title="${control('Close dialog')}">${icon('x', 'ui-icon')}</button></header><div class="modal-content ui-modal-body">${body}</div></section></div>`;
   if(ask)modalRoot.append(ask);
-  app.inert = true; hydrateIcons(); setTimeout(() => {if(askOpen())modalRoot.querySelector<HTMLElement>('.ask-modal [data-action="ask-allow"]')?.focus();else if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
+  app.inert = true; hydrateIcons(); setTimeout(() => {if(!modalRoot.contains(document.activeElement))focusModal();}, 0);
   hydrateNativeLibraries(modalRoot);
   syncStateAttributes();
 }
-function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; if(leaving)focusAfterLeaving=modalReturnFocus;else modalReturnFocus?.focus();   syncStateAttributes();
+function closeModal() { analysisGeneration++; comparisonObserver?.disconnect(); comparisonObserver = null; modalRoot.innerHTML = ''; app.inert = leaving>0; const opener=takeReturnFocus('dialog');if(leaving)focusAfterLeaving=opener;else restoreFocus(opener);   syncStateAttributes();
   // A request closed by anything but the person's answer (answerAsk) is still waiting: it comes back.
   offerAsk();
   offerTrouble();
@@ -1286,7 +1289,7 @@ let askSeq=0;
  * over another dialog the person is using (it shows when that one closes), and not in the middle of a
  * press, where making the page inert would cancel the person's drag.
  */
-function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld)return;askModal(askState.by,askState.id);}
+function offerAsk(){if(!askState||askState.answered!=='pending'||!askState.id||callerMode(askState.by)!=='design'||modalRoot.children.length||pointerHeld||fatalUp())return;askModal(askState.by,askState.id);}
 /** A program's name as a person knows it ("Codex", not "codex-mcp-client"); the switch reads as any agent. */
 function callerText(raw:string){return raw===ANYONE?ui('any agent','모든 에이전트'):describeCaller(raw).name;}
 /**
@@ -1309,7 +1312,7 @@ function askModal(by:string,id:string){
   modalRoot.querySelector('.modal')?.classList.add('ask-modal');
   // Toasts sit above dialogs; one left over from a moment ago covered Not now in a short window.
   toasts=[];paintToasts();
-  modalRoot.querySelector<HTMLElement>('[data-action="ask-allow"]')?.focus();
+  focusModal();
 }
 /**
  * The person's answer to the dialog on screen. Only their own input reaches here (doorActions in
@@ -1849,7 +1852,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(modalRoot.querySelector('[data-reload-confirm]')?reloadAsked:undefined); break;
     case 'notice-open': if(!modalRoot.children.length&&!fatalUp())openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
-    case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
+    case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;{const sheet=document.querySelector('.fatal-scrim');if(sheet)dismissSheet(sheet);} break;
     /* Starting fresh explicitly accepts a replacement folder. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
        breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */
@@ -1905,10 +1908,10 @@ document.addEventListener('click', e => {
   const control = target.closest<HTMLElement>('[data-action]');
   // A toast's Undo is pressed and the toast goes with it; the line itself only puts the toast away.
   // One drawn before a later change would take that change back instead, so it only goes.
-  if(chip){toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(!control||!chip.contains(control))return;}
+  if(chip){const focused=chip.contains(document.activeElement);toasts=dismissToast(toasts,Number(chip.dataset.toast));paintToasts();if(focused&&!restoreFocus())focusModal();if(!control||!chip.contains(control))return;}
   // Undo takes back the change its toast reports: history() saves what is being typed and compares that change with the last one just before the step.
   if (control?.hasAttribute('data-palette')) closeModal();
-  if (control) { e.preventDefault(); void action(control, dispatchOf(e), e.isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
+  if (control) { e.preventDefault(); void action(control, dispatchOf(e), pressOrigin(e).isTrusted).catch(error => {recordRun('action:failed',{action:control.dataset.action});(error instanceof Unmissable?notice:toast)(error instanceof Error ? error.message : '작업을 완료하지 못했습니다.');}); return; }
   const block = target.closest<HTMLElement>('[data-block-id]');
   if (block && target.closest('.kit') && target.closest('input,select,button,label')) return;
   if (block) { e.preventDefault(); selectBlock(block.dataset.blockId!); }
@@ -2072,12 +2075,16 @@ document.addEventListener('submit', async e => {
       // The rename is a change to that board, recorded in its own ledger under whoever sent it, by the rule every change keeps (0.3-R): a name put back brings no approval back.
       if(entry&&d){const renamed=parseProject(JSON.stringify(entry.project));changeAside(renamed,p=>{p.name=clip(name,100);},{author:d.author,source:sourceFor('edit.project-rename','home:rename'),reason:d.reason});saveLibrary(()=>upsertProject(library,renamed));closeModal();render();}}}catch(error){channel(error)(error instanceof Error?error.message:'프로젝트 저장 실패');} }
 });
-/** Palette keys: WebKit under an IME can deliver arrows/Enter only on keyup or with keyCode 229, so both events are watched. */
-let paletteKeyHandled=false;
-/** `code` is IME-independent: under a Korean input source WebKit reports key='Process'/keyCode 229 for arrows and Enter. */
-function paletteKey(e:KeyboardEvent){const c=e.code;if(c==='ArrowDown'||c==='ArrowUp')return c;if(c==='Enter'||c==='NumpadEnter')return 'Enter';return e.key==='ArrowDown'||e.key==='Down'||e.keyCode===40?'ArrowDown':e.key==='ArrowUp'||e.key==='Up'||e.keyCode===38?'ArrowUp':e.key==='Enter'||e.keyCode===13?'Enter':'';}
-function paletteNavigate(k:'ArrowDown'|'ArrowUp'|'Enter',e:Event){const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]'));if(!items.length)return;const marked=items.findIndex(b=>b.classList.contains('is-active'));const current=marked>=0?marked:items.indexOf(document.activeElement as HTMLButtonElement);if(k==='Enter'){const press=(item:HTMLButtonElement)=>send(item,new MouseEvent('click',{bubbles:true,cancelable:true,view:window}),dispatchOf(e));if(current>=0){e.preventDefault();press(items[current]);}else if(items.length===1||modalRoot.querySelector<HTMLInputElement>('#command-search')?.value.trim()){e.preventDefault();press(items[0]);}return;}e.preventDefault();const next=k==='ArrowDown'?(current+1)%items.length:(current-1+items.length)%items.length;items.forEach((b,i)=>{b.classList.toggle('is-active',i===next);b.setAttribute('aria-selected',String(i===next));});items[next].scrollIntoView({block:'nearest'});items[next].focus();}
-document.addEventListener('keyup',e=>{if(e.code==='Space'&&spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}if(fatalUp()||!modalRoot.querySelector('#command-list'))return;const k=paletteKey(e);if(!k)return;if(paletteKeyHandled){paletteKeyHandled=false;return;}paletteNavigate(k,e);});
+/** Palette keys move the selection only when the palette owns the press. */
+function paletteNavigate(key:'ArrowDown'|'ArrowUp'){
+  const items=Array.from(modalRoot.querySelectorAll<HTMLButtonElement>('#command-list [data-palette]:not(:disabled)'));
+  if(!items.length)return;
+  const focused=items.indexOf(document.activeElement as HTMLButtonElement);
+  const current=focused>=0?focused:items.findIndex(item=>item.classList.contains('is-active'));
+  const next=(current+(key==='ArrowDown'?1:-1)+items.length)%items.length;
+  items.forEach((item,i)=>{item.classList.toggle('is-active',i===next);item.setAttribute('aria-selected',String(i===next));});
+  items[next].scrollIntoView({block:'nearest'});items[next].focus();
+}
 
 function welcomeModal(){showModal(ui('Welcome to Aphrodite','Aphrodite에 오신 것을 환영합니다'),ui('Start from a sample, or from an empty board.','샘플로 시작하거나, 빈 보드로 시작하세요.'),welcomeHtml(uiLanguage),true);}
 function markWelcomed(){onboarding={...onboarding,welcomed:true};writeOnboarding(store,onboarding);syncStateAttributes();}
@@ -2467,6 +2474,20 @@ async function runAgentCommand(kind:unknown,payload:unknown,caller:string|undefi
    before this lands, or a request arriving in between is emitted into nothing and waits out the
    whole timeout — which is what an agent calling the moment it saw the endpoint file used to get. */
 const agentListening=nativeDesktop?tauriListen<{id:number;kind:string;payload:unknown;caller?:string}>('agent:command',async ev=>{const result=await runAgentCommand(ev.payload.kind,ev.payload.payload,ev.payload.caller,'loopback');try{await invoke('agent_bridge_reply',{id:ev.payload.id,result});}catch{/* bridge gone */}}):Promise.resolve(undefined);
+installPress({
+  paletteArrow:paletteNavigate,
+  releaseSpace:()=>{if(spaceHeld){spaceHeld=false;document.getElementById('canvas-scroll')?.classList.remove('pan-ready');}},
+  escape:({kind,root})=>{
+    if(kind==='sheet')dismissSheet(root);
+    else if(kind==='ask')answerAsk(false);
+    else if(kind==='toast'){toasts=dismissToast(toasts,Number(root.dataset.toast));paintToasts();if(!restoreFocus())focusModal();}
+    else if(kind==='page')closePageView();
+    else if(kind==='popover'){
+      if(root instanceof HTMLDetailsElement){root.open=false;root.querySelector('summary')?.focus();}
+      else{const group=dockGroupOpen;dockGroupOpen='';render();focusOnSurface(app.querySelector<HTMLElement>(`[data-action="dock-group"][data-group="${CSS.escape(group)}"]`));}
+    }else closeModal();
+  },
+});
 /* Input gate: while an agent holds the screen, OS-originated events are dropped; programmatic ones pass. The banner and ⌘⇧A stay human. */
 for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','wheel','touchstart','keydown','keyup','keypress','beforeinput','paste','drop','dragstart'] as const){
   window.addEventListener(type,e=>{
@@ -2635,45 +2656,25 @@ function mountSpace(){
     recordRun('frame:preset',{pageId:id,preset});
   },{signal});
 }
-/** Keys the person holds down. One that was down before (a repeat, or held while a sheet went away) is not a fresh press, and answers no request. */
-const heldKeys=new Set<string>();
-document.addEventListener('keyup',e=>{heldKeys.delete(e.key);/* A key let go while ⌘ was down sends no keyup on macOS. */if(e.key==='Meta')heldKeys.clear();});
-window.addEventListener('blur',()=>{heldKeys.clear();});
 document.addEventListener('keydown', e => {
-  // Noted before anything else reads the key, the sheet included: a key held through its going away is still the same press.
-  const fresh=!e.repeat&&!heldKeys.has(e.key);if(e.isTrusted)heldKeys.add(e.key);
-  // A sheet over everything (a screen that could not be drawn) takes every key: nothing under it hears one (src/ui/notices.ts).
-  if(fatalUp()){fatalKey(e);return;}
-  // Enter allows and Esc is Not now, from the person's own keyboard and with the focus in the request only (src/editor/ask-keys.ts).
-  if(askOpen()&&(e.key==='Enter'||e.key==='Escape'||e.code==='Escape')){
-    const on=document.activeElement as HTMLElement|null;
-    const said=askKey(e.code==='Escape'?'Escape':e.key,e.isTrusted,{sheet:false,inAsk:!!on?.closest('.ask-modal'),onButton:on?.matches('button')?on.dataset.action??'button':'',fresh});
-    if(said==='button')return;
-    e.preventDefault();
-    if(said==='allow'||said==='decline')answerAsk(said==='allow');
-    return;
-  }
+  if(fatalUp())return;
   // While a board is being left the keyboard changes nothing on it (0.3-P3-fix5 #2): ⌘K opens nothing over it, ⌘Z and ⌘⇧Z
   // take no step (history() refuses too), and with no dialog and no page seen on its own its shortcuts do not run. A dialog
   // the person has open and the page seen on its own keep their keys: Escape, Tab, and Enter or Space on a button.
   if(leaving){const meta=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
     if(meta&&(e.code==='KeyK'||k==='k'||((e.code==='KeyZ'||k==='z')&&!modalRoot.contains(e.target as Node)))){e.preventDefault();return;}
     if(!modalRoot.children.length&&!pageView)return;}
-  if(pageView&&!modalRoot.children.length){if(e.key==='Escape'||e.code==='Escape')closePageView();return;}
+  if(pageView&&!modalRoot.children.length)return;
   if((e.key==='Escape'||e.code==='Escape')&&enteredPage){leavePage();return;}
-  if ((e.key === 'Escape' || e.code === 'Escape') && (dockGroupOpen||helpOpen)) { dockGroupOpen='';helpOpen=false;document.querySelectorAll<HTMLDetailsElement>('details.help-fab[open]').forEach(d=>{d.open=false;});render(); return; }
   if ((e.key === 'Escape' || e.code === 'Escape') && tourActive()) { endTour(); return; }
-  if (e.key === 'Escape' || e.code === 'Escape') { const menu=document.querySelector<HTMLDetailsElement>('details.folio-more[open],details.folio-lang[open],details.folio-theme[open],details.top-lang[open]'); if(menu){menu.open=false;return;} closeModal(); return; }
+  if (e.key === 'Escape' || e.code === 'Escape') { closeModal();return; }
   if(screen==='editor'&&(e.metaKey||e.ctrlKey)&&(e.code==='KeyK'||e.key.toLowerCase()==='k')){e.preventDefault();if(modalRoot.querySelector('#command-search'))closeModal();else commandsModal();return;}
-  if(modalRoot.querySelector('#command-list')){const k=paletteKey(e);if(k){paletteKeyHandled=true;paletteNavigate(k,e);return;}}
-  if (modalRoot.children.length) {
-    if (e.key === 'Tab') { const scope = modalRoot.querySelector<HTMLElement>('.ask-modal') ?? modalRoot; const items = Array.from(scope.querySelectorAll<HTMLElement>('button:not([disabled]),input,textarea,select,[tabindex="0"]')); const first = items[0], last = items.at(-1); if (!scope.contains(document.activeElement)) { e.preventDefault(); first?.focus(); } else if (e.shiftKey && (document.activeElement === first || document.activeElement === scope.querySelector('.modal'))) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } return;
-  }
+  if (modalRoot.children.length||topSurface().kind==='toast')return;
   if ((e.target as HTMLElement).matches('input,textarea,select')) return;
   if(screen==='editor'&&e.key==='?'&&!modalRoot.children.length){e.preventDefault();commandsModal();return;}
   if(screen==='editor'&&!modalRoot.children.length){
     // Space on a toast's button presses it: it pans the board only from the board.
-    if(e.code==='Space'&&!(e.target as HTMLElement).closest?.('#toast')){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
+    if(e.code==='Space'){if(!spaceHeld){spaceHeld=true;document.getElementById('canvas-scroll')?.classList.add('pan-ready');}e.preventDefault();return;}
     if(e.shiftKey&&!e.metaKey&&!e.ctrlKey&&(e.code==='Digit1'||e.code==='Digit2')){e.preventDefault();if(e.code==='Digit1')fitAll();else fitFrame(project.activePageId);return;}
     if((e.metaKey||e.ctrlKey)&&!e.altKey&&(e.code==='Digit0'||e.code==='Equal'||e.code==='Minus'||e.key==='0'||e.key==='='||e.key==='+'||e.key==='-')){e.preventDefault();if(e.code==='Digit0'||e.key==='0')zoomCenter(1);else if(e.code==='Minus'||e.key==='-')zoomCenter(stepZoom(camera.zoom,-1));else zoomCenter(stepZoom(camera.zoom,1));return;}
   }

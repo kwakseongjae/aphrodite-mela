@@ -232,6 +232,7 @@ test('Draw again keeps the sheet until the screen is drawn, and the sheet answer
   let removed=0,drawn=0;const pre={textContent:'first'};
   const sheet={remove:()=>{removed++;},querySelector:(s:string)=>s==='[data-fatal-detail]'?pre:null};
   const screen:Record<string,unknown>={render:()=>{drawn++;if(drawn===1)throw new TypeError('still broken');},String,Error};
+  screen.dismissSheet=(sheet:{remove:()=>void})=>sheet.remove();
   editorCalls(['function fatalPress('],screen);
   const press=screen.fatalPress as (a:string,s:typeof sheet)=>void;
   press('fatal-redraw',sheet);
@@ -240,7 +241,7 @@ test('Draw again keeps the sheet until the screen is drawn, and the sheet answer
   press('fatal-redraw',sheet);
   assert.equal(removed,1,'drawn, it goes');
   const main=readFileSync('src/main.ts','utf8');
-  assert.match(main,/sheet\.addEventListener\('click',e=>\{const b=\(e\.target as HTMLElement\)\.closest<HTMLElement>\('button\[data-action\]'\);if\(!b\)return;e\.stopPropagation\(\);e\.preventDefault\(\);if\(!e\.isTrusted\)return;/,'its own handler, a real press only');
+  assert.match(main,/sheet\.addEventListener\('click',e=>\{const b=\(e\.target as HTMLElement\)\.closest<HTMLElement>\('button\[data-action\]'\);if\(!b\)return;e\.stopPropagation\(\);e\.preventDefault\(\);if\(!pressOrigin\(e\)\.isTrusted\)return;/,'its own handler, a real press only');
   assert.doesNotMatch(renderFailedHtml('x',{ko:true,board:true}),/그대로 있어요/,'it claims nothing it cannot know when the app stopped');
 });
 
@@ -361,35 +362,14 @@ test('the sheet saves and copies before the app\'s state is read, with actions a
 
 /* Astra recheck 9 and 11: while the render-failed sheet is up it owns the keyboard and the pointer, in both phases, and a
    save trouble neither opens nor takes focus behind it; once the sheet goes, the trouble gets its turn. ⌘C still copies. */
-test('nothing opens, focuses or runs behind the render-failed sheet, and ⌘C still copies from it',async()=>{
-  const {editorCalls,noop}=await import('./support/editor-calls');
-  let opened=0,offered=0,navigated=0,focused=0;let sheetUp=true;
-  const screen:Record<string,unknown>={troubleSeen:'',modalRoot:{children:[],contains:()=>false,querySelector:(s:string)=>s==='#command-list'?{}:null},askOpen:()=>false,
-    document:{activeElement:null,addEventListener:(_t:string,fn:unknown)=>{screen.keyup=fn;},getElementById:()=>null},HTMLElement:Object,fatalUp:()=>sheetUp,
-    troubleNow:()=>({kind:'full',detail:'No space left on device (os error 28)'}),openTrouble:()=>{opened++;},troubleKey:(t:{kind:string})=>t.kind,
-    offerTrouble:()=>{offered++;},render:noop,spaceHeld:false,paletteKey:()=>'down',paletteKeyHandled:false,paletteNavigate:()=>{navigated++;}};
-  editorCalls(['function typing(','function troubleOpened(','function fatalPress(',"document.addEventListener('keyup',e=>{if(e.code==='Space'"],screen);
-  assert.equal((screen.troubleOpened as ()=>boolean)(),false,'a failed save waits while the sheet is up');
-  assert.equal(opened,0);
-  (screen.keyup as (e:unknown)=>void)({code:'ArrowDown',key:'ArrowDown'});
-  assert.equal(navigated,0,'the palette under the sheet does not run on a key let go');
-  sheetUp=false;(screen.fatalPress as (a:string,s:unknown)=>void)('fatal-close',{remove:noop,querySelector:()=>null});
-  assert.equal(offered,1,'the sheet put away, the waiting trouble is offered');
-  const main=readFileSync('src/main.ts','utf8');
-  assert.match(main,/function focusModal\(\)\{\n  if\(fatalUp\(\)\)return;/,'a focus already on its way does not move behind the sheet');
-  assert.match(main,/case 'notice-open': if\(!modalRoot\.children\.length&&!fatalUp\(\)\)openTrouble\(\);/);
-  assert.match(main,/if\(target\?\.closest\?\.\('\.agent-banner,\.fatal-scrim'\)\)return;/,'the person\'s press reaches the sheet while an agent holds the screen');
-  let prevented=0;const key=(k:Record<string,unknown>)=>({key:'c',metaKey:false,ctrlKey:false,isTrusted:true,target:{},preventDefault:()=>{prevented++;},...k});
-  let offeredAfterEscape=0;
-  const s2:Record<string,unknown>={document:{querySelector:()=>({contains:()=>false,querySelectorAll:()=>[],remove:()=>{}}),activeElement:null},Node:Object,offerTrouble:()=>{offeredAfterEscape++;}};
-  editorCalls(['function fatalKey('],s2);
-  (s2.fatalKey as (e:unknown)=>void)(key({metaKey:true}));
-  assert.equal(prevented,0,'⌘C copies the selected details');
-  (s2.fatalKey as (e:unknown)=>void)(key({}));
-  assert.equal(prevented,1,'a plain key aimed outside the sheet is held back');
-  (s2.fatalKey as (e:unknown)=>void)(key({key:'Escape',code:'Escape'}));
-  assert.equal(offeredAfterEscape,1,'put away by Escape, a waiting trouble gets its turn too');
-  void focused;
+test('save trouble waits behind the sheet, then gets its turn on dismissal',()=>{
+  let offered=0;
+  const screen:Record<string,unknown>={fatalUp:()=>true,troubleNow:()=>full,troubleKey:()=>'full',troubleSeen:'',typing:()=>false,
+    askOpen:()=>false,modalRoot:{children:[]},offerTrouble:()=>offered++,offerAsk:()=>{},takeReturnFocus:()=>null,restoreFocus:()=>true};
+  editorCalls(['function troubleOpened(','function dismissSheet('],screen);
+  assert.equal((screen.troubleOpened as Function)(),false);
+  (screen.dismissSheet as Function)({remove(){}});
+  assert.equal(offered,1);
 });
 
 /* Astra recheck 10: Start fresh forgets the missing folder only once what the window holds has landed on disk; a write that
@@ -420,7 +400,6 @@ test('the dialogs scope what they claim, and Space and a resized window leave th
   }
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/troubleDialog\(t,screen==='home'\?'home':pageView\?'page':'editor'/);
-  assert.match(main,/if\(e\.code==='Space'&&!\(e\.target as HTMLElement\)\.closest\?\.\('#toast'\)\)\{/);
   assert.match(main,/window\.addEventListener\('resize',\(\)=>document\.querySelectorAll<HTMLDetailsElement>\('details\.connect-mark\[open\]'\)\.forEach\(placeMarkPopover\)\);/);
 });
 

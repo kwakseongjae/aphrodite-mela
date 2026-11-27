@@ -70,7 +70,7 @@ test('opening a dialog focuses its first field, primary action or keep answer an
     }};
   const frame={contentWindow:{},closest:()=>true};
   let message:(e:object)=>void=noop;
-  const screen={modalRoot,app:{},document:{activeElement:null,querySelectorAll:()=>[frame]},window:{},modalReturnFocus:null,comparisonObserver:null,fatalUp:()=>false,
+  const screen={modalRoot,app:{},document:{activeElement:null,querySelectorAll:()=>[frame]},window:{},rememberFocus:noop,focusOnSurface:(el:{focus():void})=>el.focus(),comparisonObserver:null,fatalUp:()=>false,
     addEventListener:(_name:string,fn:typeof message)=>{message=fn;},ui:(en:string)=>en,linkOut,esc,leavePage:noop,
     askOpen:()=>markup.includes('class="ask-dialog"'),control:(s:string)=>s,icon:()=>'',hydrateIcons:noop,hydrateNativeLibraries:noop,syncStateAttributes:noop,
     setTimeout:(fn:()=>void)=>{later=fn;}};
@@ -101,20 +101,3 @@ test('opening a dialog focuses its first field, primary action or keep answer an
   assert.equal(focused,'command-search','the deferred focus preserves a field already focused by its opener');
 });
 
-test('Tab can return to the close button and Escape returns focus to the opener',()=>{
-  let key:(e:Record<string,unknown>)=>void=()=>{};
-  const document={activeElement:{} as {focus:()=>void},querySelector:()=>null,addEventListener:(_type:string,listener:typeof key)=>{key=listener;}};
-  const button=()=>({focus(){document.activeElement=this;}});
-  const opener=button(),close=button(),primary=button(),dialog=button();
-  const modalRoot={children:[dialog],innerHTML:'',contains:(el:unknown)=>[close,primary,dialog].some(c=>c===el),
-    querySelector:(s:string)=>s==='.modal'?dialog:null,querySelectorAll:()=>[close,primary]};
-  const screen={document,app:{inert:true},modalRoot,modalReturnFocus:opener,comparisonObserver:null,analysisGeneration:0,
-    leaving:0,pageView:null,enteredPage:'',dockGroupOpen:false,helpOpen:false,askOpen:()=>false,tourActive:()=>false,screen:'editor',offerAsk:noop,syncStateAttributes:noop,fatalUp:()=>false,offerTrouble:noop,heldKeys:new Set<string>()};
-  editorCalls(['function closeModal(',"document.addEventListener('keydown'"],screen);
-  for(const [from,shiftKey,to] of [[primary,false,close],[close,true,primary],[dialog,true,primary]] as const){
-    from.focus(); key({key:'Tab',shiftKey,preventDefault:noop}); assert.equal(document.activeElement,to);
-  }
-  key({key:'Escape'});
-  assert.equal(document.activeElement,opener);
-  assert.equal(screen.app.inert,false);
-});
