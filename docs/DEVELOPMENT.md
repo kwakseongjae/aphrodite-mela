@@ -96,6 +96,24 @@ The app updates itself. `tauri-plugin-updater` reads `latest.json` from the newe
 
 Signing secrets are stored once with `scripts/apple-signing-secrets.sh` (Developer ID `.p12` filtered to the one identity, team ID, notarization Apple ID + app-specific password); the workflow keeps signed and unsigned paths as separate steps because empty secrets are still defined env vars. The Vision and MCP helpers are Tauri sidecars (`bundle.externalBin`) so both get the hardened runtime notarization requires. The DMG background lives in `src-tauri/dmg/` as a 1x + 2x TIFF.
 
+## Building and releasing a preview
+
+From the repository root, choose one architecture and the preview version. The target defaults to the current Node architecture.
+
+```sh
+node scripts/build-preview.mjs --version 0.3.0-preview.1 --target aarch64-apple-darwin
+```
+
+The command writes a small configuration override and runs Tauri’s existing Vision, MCP and frontend build hook. The output for this target is `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Aphrodite Preview.app`. The local command passes `--no-sign` and disables updater-artifact generation. For a distribution build, use `--config-only` to write the release override, then pass `--config src-tauri/target/preview.conf.json`, the target and the release signing settings to Tauri as in CI.
+
+The preview version comes from the flag or the tag. Tauri uses the full version for its package information and updater. For `0.3.0-preview.1`, Finder reads the numeric short version `0.3.0` and build number `1` from the same input. Its hook passes that version to Vite and to the compiled MCP executable. Cargo’s package version and lock entry continue to describe the underlying stable crate. The source adapter reads the running app’s version from an explicitly selected endpoint and falls back to the build version or package.json when offline.
+
+1. Once, set up a published, mutable GitHub **prerelease** at the fixed tag `preview-channel`. Its only asset is `preview.json`. Remove any legacy `latest.json` before using this channel. Its fixed tag does not match the build trigger.
+2. Replace the download-page placeholder in the tag’s release notes and commit the final link. After owner approval, use a version tag such as `v0.3.0-preview.1`. Release macOS build creates a draft prerelease under GitHub Releases. The two architecture jobs attach their disk images, updater archives and signatures. The download page uses the versioned disk-image filenames.
+3. Check both builds and the draft’s prerelease flag, version, notes and six assets. Verify the stapled DMGs and the bundle identity, board association, URL scheme and bundled MCP on the two Macs. For the clean-account check after publication use `zsh scripts/clean-install-check.sh 0.3.0-preview.1 studio.aphrodite.mela.preview`.
+4. Publish the reviewed draft as a prerelease from a maintainer account. Its published event advances `releases/download/preview-channel/preview.json` after verifying each updater archive against its signature and the configured public key. Preview tags require Apple and updater signing credentials. Older published events cannot move the channel backwards. To retry a failed promotion after correcting the channel or assets, rerun its failed Actions job. If a preview release or the fixed `preview-channel` release is ever published or edited without the prerelease flag, the workflow sets the flag back and fails that run; afterwards read `gh api repos/<owner>/<repo>/releases/latest` and check that it names the last stable release.
+5. Check both platform URLs in that index against the versioned release, and check that `releases/latest/download/latest.json` still serves the published full release. Preview uses the stable index only to announce a separate stable download when one supersedes the preview. A normal stable tag uses the existing stable release procedure above.
+
 ## Working with agents on this repo
 
 In `tauri dev` a saved JS module reloads the webview (nothing calls `import.meta.hot`, so Vite falls back to a full reload), and everything the agent channel keeps in memory goes with it: Agent mode's delegation and lock, the write lease, the connected banner's change count and any standing connect request. Connected mode itself survives — it is remembered on disk in `localStorage` (`aphrodite-connect-until`, 12 hours) and read back as the module loads. A release build has no HMR, so this is dev-only friction.

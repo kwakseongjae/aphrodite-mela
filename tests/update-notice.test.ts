@@ -126,3 +126,43 @@ test('progress is only claimed when the size is known',()=>{
   assert.equal(progressLabel(500,1000,'en'),'50%');
   assert.equal(progressLabel(1200,1000,'en'),'100%','it never promises more than done');
 });
+
+test('graduating from a preview offers the separate stable download in either language',()=>{
+  const info={...offer,stableDownload:true};
+  for(const [lang,sentence] of [['en','Download the stable app to use this release.'],['ko','이 버전을 사용하려면 정식 앱을 다운로드해 주세요.']] as const){
+    const html=updateNoticeHtml(info,'offer',lang);
+    assert.ok(html.includes(sentence));
+    assert.match(html,/data-action="update-download"/);
+    assert.doesNotMatch(html,/data-action="update-install"/);
+  }
+});
+
+test('a fresh launch remembers showing the stable download and still offers a newer preview', async t=>{
+  const {createUpdates} = await import('../src/editor/updates');
+  const {CHECKED_KEY} = await import('../src/update-notice');
+  const storage = new Map<string,string>();
+  let reply = {...offer,stableDownload:true};
+  let cards = 0;
+  const globals = {
+    document:{createElement:()=>({querySelector:()=>null}), body:{append:()=>{}}},
+    localStorage:{getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>storage.set(key,value)},
+    window:{__TAURI_INTERNALS__:{invoke:async()=>reply}},
+  };
+  for (const [key,value] of Object.entries(globals)) {
+    const original = Object.getOwnPropertyDescriptor(globalThis,key);
+    Object.defineProperty(globalThis,key,{configurable:true,value});
+    t.after(()=>{if(original)Object.defineProperty(globalThis,key,original);else Reflect.deleteProperty(globalThis,key);});
+  }
+  const launch = async () => {
+    storage.delete(CHECKED_KEY);
+    await createUpdates({desktop:true, korean:()=>false,ui:en=>en, toast:()=>{},notice:()=>{},
+      hydrateIcons:()=>{cards++;},leaving:async go=>go()}).check();
+  };
+  await launch();
+  assert.equal(cards,1);
+  await launch();
+  assert.equal(cards,1,'the handoff was shown on the first launch');
+  reply = {...offer,latest:'0.4.0-preview.1',stableDownload:false};
+  await launch();
+  assert.equal(cards,2);
+});

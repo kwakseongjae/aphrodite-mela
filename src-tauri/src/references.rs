@@ -384,16 +384,17 @@ pub(crate) fn absolute(page: &str, candidate: &str) -> Option<String> {
 /// Reads a page for its title and its picture. Returns what it found; the caller decides what to
 /// keep. Nothing is written here.
 #[tauri::command]
-pub fn references_fetch(url: String) -> Result<Value, String> {
+pub fn references_fetch(app: AppHandle, url: String) -> Result<Value, String> {
     if !url.starts_with("https://") {
         return Err("only https addresses are looked up".into());
     }
     if !safe_url(&url) {
         return Err("that address cannot be looked up".into());
     }
+    let user_agent = format!("Aphrodite/{}", app.package_info().version);
     let response = http()
         .get(&url)
-        .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
+        .set("User-Agent", &user_agent)
         .set("Accept", "text/html,application/xhtml+xml")
         .timeout(std::time::Duration::from_secs(15))
         .call()
@@ -412,7 +413,7 @@ pub fn references_fetch(url: String) -> Result<Value, String> {
                 // A picture that will not load is not a failure to look a link up.
                 if let Ok(image) = http()
                     .get(&image_url)
-                    .set("User-Agent", concat!("Aphrodite/", env!("CARGO_PKG_VERSION")))
+                    .set("User-Agent", &user_agent)
                     .timeout(std::time::Duration::from_secs(20))
                     .call()
                 {

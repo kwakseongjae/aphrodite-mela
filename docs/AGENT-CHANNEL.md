@@ -26,11 +26,13 @@ The channel is **open from launch**. An agent on this Mac can read the project w
 
 ## Desktop app: loopback HTTP
 
-From launch the app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` (mode 600):
+From launch the stable app writes `~/Library/Application Support/studio.aphrodite.mela/agent-endpoint.json` (mode 600):
 
 ```json
 {"schema":"aphrodite.agent-endpoint/1","port":49321,"token":"…","base":"http://127.0.0.1:49321"}
 ```
+
+Preview writes the same file under `studio.aphrodite.mela.preview`. Each bundled MCP executable looks in its own app’s directory. When using the Node adapter from source, set `APHRODITE_ENDPOINT_FILE` to the full preview endpoint path. Its default and the shell examples below use stable.
 
 The banner shows `127.0.0.1:<port>`; the agent console (right panel) shows ready-made curl lines. Every request needs `Authorization: Bearer <token>` and JSON bodies, and should carry `X-Aphrodite-Agent: <name>` so its edits are named in the receipts. Answers are JSON: `401` wrong token, `403` no such command, `404` no such route (the reply lists every route), `409` someone else holds the screen (or the app refused), `423` writing is not open yet, `504` no answer in 30 s.
 

@@ -152,6 +152,7 @@ struct Receipt {
 }
 
 struct Engine {
+    receipt_key: String,
     home: PathBuf,
     exe: PathBuf,
     location: Location,
@@ -161,8 +162,9 @@ struct Engine {
     app_dirs: Vec<PathBuf>,
 }
 impl Engine {
-    fn new(home: PathBuf, exe: PathBuf) -> Self {
+    fn new(home: PathBuf, exe: PathBuf, identifier: &str) -> Self {
         Self {
+            receipt_key: files::receipt_key(identifier),
             codex_home: home.join(".codex"),
             claude_file: home.join(".claude.json"),
             home,
@@ -239,7 +241,7 @@ impl Engine {
             let root = files::root(&self.home)?;
             let relative = files::resolve(&root, &self.home, &path)?;
             files::parent(&root, &relative)?;
-            let f = FileState::read(&root, &relative)?;
+            let f = FileState::read(&root, &relative, &self.receipt_key)?;
             let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
             Ok((
                 f.text.is_some(),
@@ -298,7 +300,7 @@ impl Engine {
         let source = f.text.as_deref().unwrap_or("");
         let layout = edit::layout(tool, f.text.as_deref(), self.executable())?;
         let owner = self.owner(tool, relative, f, &layout);
-        let history = files::history(root, relative)?;
+        let history = files::history(root, relative, &self.receipt_key)?;
         let prior = owner.or(history.as_ref());
         let foreign = !layout.entry.is_empty() && owner.is_none();
         let (changes, deletes_file) = match action {
@@ -479,7 +481,7 @@ impl Engine {
             tool,
             action,
             stamp,
-            &FileState::read(&root, &rel)?,
+            &FileState::read(&root, &rel, &self.receipt_key)?,
         )
     }
     fn commit(
@@ -501,7 +503,7 @@ impl Engine {
         lock.lock_exclusive().map_err(|_| Code::Io)?;
         let path = self.path(tool);
         let rel = files::resolve(&root, &self.home, &path)?;
-        let file = FileState::read(&root, &rel)?;
+        let file = FileState::read(&root, &rel, &self.receipt_key)?;
         let preview = self.plan(&root, &rel, tool, action, stamp, &file)?;
         if preview.fingerprint != fingerprint {
             return Err(Code::Changed);
@@ -514,7 +516,7 @@ impl Engine {
         }
         let source = file.text.as_deref().unwrap_or("");
         let candidate = preview.edited(source)?;
-        let history = files::history(&root, &rel)?;
+        let history = files::history(&root, &rel, &self.receipt_key)?;
         let before = edit::layout(tool, file.text.as_deref(), self.executable())?;
         let owned = self.owner(tool, &rel, &file, &before);
         let prior = owned.or(history.as_ref());
@@ -555,7 +557,7 @@ impl Engine {
         let temp = file.temp(&dir, &candidate, receipt.as_ref())?;
         let unchanged = || -> Result<()> {
             reachable()?;
-            let now = FileState::read(&dir, Path::new(name))?;
+            let now = FileState::read(&dir, Path::new(name), &self.receipt_key)?;
             if now.protection != file.protection
                 || now.revision != file.revision
                 || now.mode != file.mode
@@ -573,9 +575,9 @@ impl Engine {
             files::backup(&dir, name, source)?;
         }
         let result = unchanged().and_then(|()| {
-            files::set_history(&dir, name, receipt.as_ref())?;
+            files::set_history(&dir, name, receipt.as_ref(), &self.receipt_key)?;
             if let Err(code) = temp.publish_checked(name, &file, preview.deletes_file, reachable) {
-                files::set_history(&dir, name, history.as_ref())?;
+                files::set_history(&dir, name, history.as_ref(), &self.receipt_key)?;
                 return Err(code);
             }
             Ok(())

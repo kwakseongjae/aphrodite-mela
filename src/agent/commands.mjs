@@ -8,7 +8,7 @@
  * permission rule judges by (authority.ts). The UI handlers in main.ts stay hand-written; a test holds
  * every control they answer to against some row here, and every control named here against them.
  *
- * Plain JavaScript with no imports, so the dependency-free MCP server and the Vite app read the same
+ * Dependency-free JavaScript, so the dependency-free MCP server and the Vite app read the same
  * object with no build step (the precedent is tools.mjs + tools.d.mts).
  *
  * Which commands take a reason, which check the revision and which ledger sources each writes are
@@ -16,6 +16,8 @@
  * refuses a source the row does not list, and the agent channel asks for a reason and checks the
  * revision where the row says so (0.3-2b).
  */
+
+import {boardScheme} from '../board-scheme.mjs';
 
 /**
  * §11.3's five grades, plus `chrome`: zoom, panels, tour, dialogs — the interface around the design,
@@ -67,7 +69,7 @@ const plain = {reason: 'none', revision: 'none', ledger: null, author: 'transpor
 /** The interface around the design. Only a person reaches it on purpose; an agent can still `act` it today. */
 const chrome = (id, en, ko, controls, input = NOTHING) => ({id, label: {en, ko}, grade: 'chrome', input, ...plain, author: 'person-only', surfaces: UI, controls});
 
-export const commands = [
+const commandsForScheme = scheme => [
   /* ---- The loopback routes, in the order the bridge matches and advertises them. ---- */
   {
     id: 'read.state',
@@ -144,7 +146,7 @@ export const commands = [
       description: [
         'The html of one html page, exactly as it is stored: what to read before you change it, and where to copy the passage you send as `find` to html_replace.',
         '',
-        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make, and `link`, an aphrodite:// address that opens the page in the app for the person.',
+        'A long page comes back 200,000 characters at a time; the reply says `length` and `more`, and `start`/`end` ask for the rest. It also carries `revision`, to send as base_revision with the change you make, and `link`, an ' + scheme + ':// address that opens the page in the app for the person.',
         'A section page has no html; read it with aphrodite_get_contract. For the words of a page without its markup, aphrodite_get_page_text is shorter.',
         '',
         'Example: {"page_id": "abc-1"} — or {"page_id": "abc-1", "start": 200000} for the next part.',
@@ -482,7 +484,7 @@ export const commands = [
       name: 'aphrodite_apply_edits',
       title: 'Change the design',
       description: [
-        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`, and carries `link`: an aphrodite:// address that opens the page made (or the one open) in the app, to give the person. Opening it changes nothing.',
+        'Change the design with a list of operations that land together. A new page is an html page: make one with `html_page` (the whole document, scripts and styles included), replace it with `html_set`, or change one exact passage with `html_replace` — read the page with aphrodite_get_page_html first and copy the passage. The reply names each page made in `created_pages`, and carries `link`: an ' + scheme + ':// address that opens the page made (or the one open) in the app, to give the person. Opening it changes nothing.',
         'Put a screenshot or a video on the board with `media_add` (`path` on this Mac, or `library_id`); it is placed beside the pages, and a page shows it as <img src="media:<sha256>"> once you read its hash from aphrodite_get_contract.',
         'On a section page made before html: add, update, move, delete a component, resize a page frame, or make and name a section page (`page`). update carries words (`fields`), layout (`variant`) and pictures (`image`) — you never delete and re-add a component to restyle it.',
         '',
@@ -1541,6 +1543,8 @@ export const commands = [
   ]),
 ];
 
+export const commands = commandsForScheme(boardScheme);
+
 /** Rows by id. */
 export const commandById = Object.fromEntries(commands.map(row => [row.id, row]));
 /**
@@ -1576,6 +1580,7 @@ export function toTool(row) {
 }
 
 /** The MCP tool list, in the order a client is shown it. */
-export function mcpTools() {
-  return commands.filter(row => row.surfaces.mcp && row.mcp).sort((a, b) => a.mcp.order - b.mcp.order).map(toTool);
+export function mcpTools(scheme = boardScheme) {
+  const rows = scheme === boardScheme ? commands : commandsForScheme(scheme);
+  return rows.filter(row => row.surfaces.mcp && row.mcp).sort((a, b) => a.mcp.order - b.mcp.order).map(toTool);
 }
