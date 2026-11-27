@@ -200,3 +200,25 @@ test('focus sent below a dialog, palette or request returns to its last focused 
     await page.keyboard.press('Escape');
   }
 });
+
+for(const surface of ['board dialog','palette']){
+  test('a composing Enter and its release leave the '+surface+' text field alone',async()=>{
+    const {page}=rig;
+    if(surface==='palette')await scene('palette');
+    else await page.locator('[data-action="project"]').first().click();
+    const field=page.locator(surface==='palette'?'#command-search':'#rename-form input');
+    await field.fill('한글');
+    if(surface==='palette'){
+      // Select a real command without moving focus out of the search field.
+      await field.fill('');
+      await page.locator('[data-palette]:visible').first().evaluate(el=>el.classList.add('is-active'));
+    }
+    const session=await page.context().newCDPSession(page);
+    try{
+      await session.send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Process',code:'Enter',windowsVirtualKeyCode:229});
+      await session.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+      assert.equal(await field.count(),1);
+      assert.ok(await field.evaluate(el=>el===document.activeElement));
+    }finally{await session.detach();}
+  });
+}

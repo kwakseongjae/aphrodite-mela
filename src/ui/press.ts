@@ -94,8 +94,15 @@ export function installPress(actions:Actions){
   const held=new Map<string,Origin|null>();
   const releases=new WeakMap<KeyboardEvent,Origin|null>();
   const fresh=new WeakSet<KeyboardEvent>();
+  // Composition belongs to the input method. Leave its native default alone and give app shortcuts no press.
+  function composing(e:KeyboardEvent){
+    if(!e.isComposing&&e.keyCode!==229)return false;
+    if(e.isTrusted)held.delete(e.code||e.key);
+    e.stopImmediatePropagation();
+    return true;
+  }
   window.addEventListener('keydown',e=>{
-    if(!e.isTrusted)return;
+    if(composing(e)||!e.isTrusted)return;
     const id=e.code||e.key;
     if(!e.repeat&&!held.has(id))fresh.add(e);
     const key=keyName(e);
@@ -105,7 +112,7 @@ export function installPress(actions:Actions){
     }else held.set(id,null);
   },true);
   window.addEventListener('keyup',e=>{
-    if(!e.isTrusted)return;
+    if(composing(e)||!e.isTrusted)return;
     const id=e.code||e.key;
     if(held.has(id))releases.set(e,held.get(id)??null);
     held.delete(id);
