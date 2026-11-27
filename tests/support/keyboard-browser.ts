@@ -17,6 +17,8 @@ export async function keyboardBrowser(){
       lock:()=>startAgentMode('keyboard-test','Test keyboard ownership'),
       unlock:()=>{endAgentMode('returned');editorMode='design';render();},
       mark:()=>{setAllowed([ANYONE]);refreshBanners();},
+      wrote:()=>bumpConnect('claude-code'),
+      page:()=>openPageView(project.activePageId),
       approved:()=>isApproved(project),
     }});
   `;

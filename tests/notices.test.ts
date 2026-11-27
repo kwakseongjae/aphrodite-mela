@@ -98,7 +98,7 @@ test('the mark that reopens a dialog is a button the person presses, and there i
 });
 
 test('the connected mark keeps disconnecting the person\'s own door, by the same name',()=>{
-  const html=connectMarkHtml({who:'Claude Code',holder:'',writes:2,allowed:'Claude Code',channel:'127.0.0.1:4410'},false);
+  const html=connectMarkHtml({writes:2,allowed:'Claude Code',channel:'127.0.0.1:4410'},false);
   assert.deepEqual(actionsOf(html),['agent-disconnect']);
   assert.match(html,/data-connect-writes[^>]*>2</);
   assert.match(html,/<summary[\s\S]*Claude Code[\s\S]*<\/summary>/,'who is let in is on the mark itself, not only behind it');

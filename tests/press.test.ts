@@ -96,3 +96,12 @@ test('the sheet replaces failure feedback and Copy contains only the diagnostics
   assert.match(copied,/test diagnostic/);assert.match(copied,/disk refused/);
   assert.doesNotMatch(copied,/Could not copy|복사하지 못했습니다|could not be saved|저장하지 못했어요/);
 });
+test('the standalone page and editor show the allowed scope after an agent writes',async()=>{
+  const {page}=rig;await scene('mark');
+  const editor=page.locator('#app [data-connect-who]').first();const allowed=await editor.textContent();
+  await scene('wrote');await scene('page');
+  assert.equal(await page.locator('.page-view [data-connect-who]').textContent(),allowed);
+  assert.equal(await editor.textContent(),allowed);
+  await scene('wrote');
+  assert.deepEqual(await page.locator('[data-connect-who]').allTextContents(),[allowed,allowed]);
+});

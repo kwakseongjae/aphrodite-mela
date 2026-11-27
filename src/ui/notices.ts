@@ -175,7 +175,7 @@ export function troubleMarkHtml(t: Trouble | undefined, ko: boolean): string {
     + '<span class="ui-dot ui-dot-warn" aria-hidden="true"></span><span>' + label + '</span></button>';
 }
 
-export type ConnectState = {who: string; holder: string; holderMark?: string; writes: number; allowed: string; channel: string};
+export type ConnectState = {holderMark?: string; writes: number; allowed: string; channel: string};
 /**
  * The mark that says an agent may edit. Who is let in and how many changes they made are on the mark; what that
  * means, the channel, and the person's own Disconnect (agent-disconnect, src/agent/authority.ts doorActions) open
@@ -183,7 +183,7 @@ export type ConnectState = {who: string; holder: string; holderMark?: string; wr
  */
 export function connectMarkHtml(s: ConnectState, ko: boolean): string {
   const T = (en: string, k: string) => (ko ? k : en);
-  const name = s.holder || s.who || T('An agent', '에이전트');
+  const name = s.allowed || T('An agent', '에이전트');
   return '<details class="ui-notice-mark notice-mark-connect connect-mark"><summary class="ui-btn ui-btn-secondary ui-btn-md">'
     + '<span class="ui-dot ui-dot-ok" aria-hidden="true"></span><span class="connect-mark-logo" data-connect-mark>' + (s.holderMark ?? '') + '</span>'
     + '<b data-connect-who>' + esc(name) + '</b><span class="ui-row-meta">' + T('changes', '변경') + ' <b data-connect-writes>' + s.writes + '</b></span></summary>'

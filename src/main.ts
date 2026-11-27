@@ -406,7 +406,6 @@ function bumpConnect(by:string){
   connectWrites++;
   // Every copy of the mark, the page seen on its own's too.
   const counts=document.querySelectorAll('[data-connect-writes]');counts.forEach(c=>{c.textContent=String(connectWrites);});
-  document.querySelectorAll('[data-connect-who]').forEach(w=>{w.textContent=callerText(by);});
   document.querySelectorAll<HTMLElement>('[data-connect-mark]').forEach(mark=>{mark.innerHTML=callerMarkHtml(by,true);hydrateIconsIn(mark);});
   if(!counts.length)render();
 }
@@ -875,7 +874,7 @@ function connectMarkNow(){
   if(agentMode()!=='connected')return '';
   const channel=agentEndpoint?`127.0.0.1:${agentEndpoint.port}`:(nativeDesktop?ui('channel off','채널 꺼짐'):'window.aphroditeAgent');
   const holder=lease&&lease.label!==HUMAN?lease.label:'';
-  return connectMarkHtml({who:allowedText(),holder:holder?callerText(holder):'',holderMark:holder?callerMarkHtml(holder,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
+  return connectMarkHtml({holderMark:holder?callerMarkHtml(holder,true):'',writes:connectWrites,allowed:allowedText(),channel},uiLanguage==='ko');
 }
 /** What stopped saving, read off the state the store already keeps: the folder gone, the store unread, a save refused. */
 /* Unsaved work comes first, so its backup choices are always one press away; the folder that went missing is kept apart from the last write. */
