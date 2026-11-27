@@ -1362,7 +1362,7 @@ function addBlock(kind: BlockKind, d: Dispatch, before?: string, choice?:{provid
   b.parentId=target?(target.kind==='frame'?target.id:target.parentId):insertionTarget();
   if(!canParent([...blocks,b],b.id,b.parentId)){recordRun('catalog:rejected',{reason:'invalid-depth',parentId:b.parentId});toast('이 프레임에는 더 깊게 중첩할 수 없습니다. 삽입 대상을 바꾸세요.');return;}
   if(!choice&&supportsProvider(project.system.id,kind))b.provider=project.system.id;
-  const parentName=nodePath(blocks,b.parentId);
+  const parentName=b.parentId?nodePath(blocks,b.parentId).replace(/^Page root \/ /,''):ui('the page','페이지');
   const done=commit(()=>{const index=target?.kind==='frame'?-1:blocks.findIndex(x=>x.id===before);blocks.splice(index<0?blocks.length:index,0,b);selected=b.id;},d,'edit.add',{source:before?'catalog:drop':'catalog:add'});
   document.querySelector<HTMLElement>(`[data-block-id="${selected}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   const name=catalog.find(c => c.kind === kind)!.name;

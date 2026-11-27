@@ -94,7 +94,8 @@ test('putting a picture on a component offers Undo for the picture',async()=>{
 
 test('placing a component offers Undo for that one',async()=>{
   const p=board(),s=editor(p,['function addBlock('],{catalog,makeBlock,explorerBlock,canParent,supportsProvider,nodePath,insertionTarget:()=>undefined,document:{querySelector:()=>null}});
-  await oneStep(s,q=>currentPage(q).blocks.length,()=>(s.addBlock as (k:string,d:unknown)=>void)('cta',person()));
+  const said=await oneStep(s,q=>currentPage(q).blocks.length,()=>(s.addBlock as (k:string,d:unknown)=>void)('cta',person()));
+  assert.match(said,/was added to the page\.$/,'a component at the top of the page is said to be on the page, not on its root');
 });
 
 
