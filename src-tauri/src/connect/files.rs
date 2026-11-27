@@ -2,7 +2,7 @@
 use super::{Code, Receipt, Result};
 use cap_std::{
     ambient_authority,
-    fs::{Dir, OpenOptions, OpenOptionsExt},
+    fs::{Dir, MetadataExt as _, OpenOptions, OpenOptionsExt},
 };
 use std::{
     ffi::{OsStr, OsString},
@@ -84,6 +84,7 @@ pub fn resolve(root: &Dir, home: &Path, path: &Path) -> Result<PathBuf> {
             .is_some_and(|name| {
                 name.eq_ignore_ascii_case("auth.json")
                     || name.eq_ignore_ascii_case(".credentials.json")
+                    || name.eq_ignore_ascii_case(".claude.json")
             })
         {
             return Err(Code::InvalidPath);
@@ -108,6 +109,12 @@ pub(super) fn read_receipt(value: io::Result<Option<Vec<u8>>>) -> Result<(Option
 use std::ffi::c_void;
 const EXTENDED_ACL: i32 = 0x100;
 unsafe extern "C" {
+    fn acl_get_file(path: *const libc::c_char, kind: i32) -> *mut c_void;
+    fn acl_get_entry(acl: *mut c_void, which: i32, entry: *mut *mut c_void) -> i32;
+    fn acl_get_tag_type(entry: *mut c_void, tag: *mut i32) -> i32;
+    fn acl_get_permset_mask_np(entry: *mut c_void, mask: *mut u64) -> i32;
+    fn acl_get_qualifier(entry: *mut c_void) -> *mut c_void;
+    fn mbr_uid_to_uuid(uid: libc::uid_t, uuid: *mut u8) -> i32;
     fn acl_init(count: i32) -> *mut c_void;
     fn acl_set_fd_np(fd: i32, acl: *mut c_void, kind: i32) -> i32;
     fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
@@ -115,9 +122,72 @@ unsafe extern "C" {
     fn acl_free(ptr: *mut c_void) -> i32;
 }
 
+// Darwin ACL grants can extend write permissions beyond the POSIX mode.
+pub(super) fn acl_controlled(path: &Path) -> bool {
+    struct Allocation(*mut c_void);
+    impl Drop for Allocation {
+        fn drop(&mut self) {
+            unsafe {
+                acl_free(self.0);
+            }
+        }
+    }
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
+        return false;
+    };
+    unsafe {
+        let acl = acl_get_file(path.as_ptr(), EXTENDED_ACL);
+        if acl.is_null() {
+            return matches!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ENOENT | libc::ENOTSUP)
+            );
+        }
+        let acl = Allocation(acl);
+        // sys/acl.h: write/append data, delete, delete child, write attributes,
+        // write extended attributes, write security and change owner.
+        const MUTATING: u64 = (1 << 2)
+            | (1 << 4)
+            | (1 << 5)
+            | (1 << 6)
+            | (1 << 8)
+            | (1 << 10)
+            | (1 << 12)
+            | (1 << 13);
+        let mut which = 0; // ACL_FIRST_ENTRY
+        loop {
+            let mut entry = std::ptr::null_mut();
+            if acl_get_entry(acl.0, which, &mut entry) != 0 {
+                return io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL);
+            }
+            which = -1; // ACL_NEXT_ENTRY
+            let (mut tag, mut mask) = (0, 0);
+            if acl_get_tag_type(entry, &mut tag) != 0
+                || acl_get_permset_mask_np(entry, &mut mask) != 0
+            {
+                return false;
+            }
+            if tag != 1 || mask & MUTATING == 0 {
+                continue;
+            } // ACL_EXTENDED_ALLOW
+            let id = acl_get_qualifier(entry);
+            if id.is_null() {
+                return false;
+            }
+            let id = Allocation(id);
+            if ![0, libc::geteuid()].iter().any(|&uid| {
+                let mut uuid = [0u8; 16];
+                mbr_uid_to_uuid(uid, uuid.as_mut_ptr()) == 0 && uuid == *id.0.cast::<[u8; 16]>()
+            }) {
+                return false;
+            }
+        }
+    }
+}
+
 // A directory can grant read access through an inherited ACL even when the creation
 // mode is 0600. Establish privacy on the empty inode before putting any data into it.
-fn make_private(file: &File) -> Result<()> {
+pub(super) fn make_private(file: &File) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     unsafe {
         let acl = acl_init(0);
@@ -235,8 +305,36 @@ pub struct FileState {
     pub receipt: Option<Receipt>,
     file: Option<File>,
 }
+pub(super) fn exclude_settings(identity: (u64, u64), settings: &[PathBuf]) -> Result<()> {
+    for path in settings {
+        match std::fs::metadata(path) {
+            Ok(m) if (m.dev(), m.ino()) == identity => return Err(Code::InvalidPath),
+            Ok(_) => (),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::NotADirectory
+                        | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                ()
+            }
+            Err(err) => return Err(io_code(err)),
+        }
+    }
+    Ok(())
+}
 impl FileState {
-    pub fn read(root: &Dir, relative: &Path, receipt_key: &str) -> Result<Self> {
+    pub fn read(root: &Dir, relative: &Path, receipt_key: &str, settings: &[PathBuf]) -> Result<Self> {
+        Self::read_checked(root, relative, receipt_key, |id| exclude_settings(id, settings))
+    }
+    pub(super) fn read_checked(
+        root: &Dir,
+        relative: &Path,
+        receipt_key: &str,
+        check: impl Fn((u64, u64)) -> Result<()>,
+    ) -> Result<Self> {
         let meta = match root.symlink_metadata(relative) {
             Ok(meta) => meta,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -253,17 +351,23 @@ impl FileState {
             }
             Err(e) => return Err(io_code(e)),
         };
-        if !meta.is_file() {
+        if !meta.is_file() || meta.nlink() != 1 {
             return Err(Code::InvalidPath);
         }
+        let identity = (meta.dev(), meta.ino());
+        check(identity)?;
         let mut opts = OpenOptions::new();
         opts.read(true)
             .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
         let mut file = root.open_with(relative, &opts).map_err(io_code)?.into_std();
         let meta = file.metadata().map_err(io_code)?;
-        if !meta.is_file() {
+        if !meta.is_file() || meta.nlink() != 1 {
             return Err(Code::InvalidPath);
         }
+        if (meta.dev(), meta.ino()) != identity {
+            return Err(Code::Changed);
+        }
+        check((meta.dev(), meta.ino()))?;
         let mut source = String::new();
         file.read_to_string(&mut source)
             .map_err(|_| Code::InvalidConfig)?;
@@ -289,11 +393,21 @@ impl FileState {
         }
         if self.file.is_some() {
             // Open with the effective user's credentials, without truncating or following links.
+            let meta = root.symlink_metadata(target).map_err(io_code)?;
+            if !meta.is_file() || meta.nlink() != 1 {
+                return Err(Code::InvalidPath);
+            }
             let mut opts = OpenOptions::new();
             opts.write(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
             let check = root.open_with(target, &opts).map_err(io_code)?.into_std();
-            if check.metadata().map_err(io_code)?.ino() != self.revision.0 {
+            let opened = check.metadata().map_err(io_code)?;
+            if opened.nlink() != 1 {
+                return Err(Code::InvalidPath);
+            }
+            if (opened.dev(), opened.ino()) != (meta.dev(), meta.ino())
+                || opened.ino() != self.revision.0
+            {
                 return Err(Code::Changed);
             }
         }
@@ -361,11 +475,12 @@ impl FileState {
 
 // Move a name aside exclusively before deleting it. If a later editor save occupies the
 // name, return that save. If yet another writer wins recovery, keep both files on disk.
-fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
+fn retire(dir: &Dir, name: &OsStr, expected: &FileState, settings: &[PathBuf]) -> Result<()> {
     use rustix::fs::RenameFlags;
     let recovery = format!(".aphrodite-{}.recovery", uuid::Uuid::new_v4());
     rename(dir, name, recovery.as_ref(), RenameFlags::NOREPLACE)?;
-    if FileState::read(dir, Path::new(&recovery), &expected.receipt_key).is_ok_and(|now| expected.matches(&now)) {
+    if FileState::read(dir, Path::new(&recovery), &expected.receipt_key, settings).is_ok_and(|now| expected.matches(&now))
+    {
         return dir.remove_file(recovery).map_err(io_code);
     }
     rename(dir, recovery.as_ref(), name, RenameFlags::NOREPLACE)?;
@@ -373,20 +488,26 @@ fn retire(dir: &Dir, name: &OsStr, expected: &FileState) -> Result<()> {
 }
 // Swap back only while the live name still holds our candidate. If another writer
 // won the rollback race, retain the displaced generation under the recovery name.
-fn rollback(dir: &Dir, live: &OsStr, displaced: &str, ours: &FileState) -> Result<()> {
+fn rollback(
+    dir: &Dir,
+    live: &OsStr,
+    displaced: &str,
+    ours: &FileState,
+    settings: &[PathBuf],
+) -> Result<()> {
     use rustix::fs::RenameFlags;
-    if !FileState::read(dir, Path::new(live), &ours.receipt_key).is_ok_and(|now| ours.matches(&now)) {
+    if !FileState::read(dir, Path::new(live), &ours.receipt_key, settings).is_ok_and(|now| ours.matches(&now)) {
         return Ok(());
     }
-    let previous = FileState::read(dir, Path::new(displaced), &ours.receipt_key).ok();
+    let previous = FileState::read(dir, Path::new(displaced), &ours.receipt_key, settings).ok();
     rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
-    if FileState::read(dir, Path::new(displaced), &ours.receipt_key).is_ok_and(|now| ours.matches(&now)) {
+    if FileState::read(dir, Path::new(displaced), &ours.receipt_key, settings).is_ok_and(|now| ours.matches(&now)) {
         return dir.remove_file(displaced).map_err(io_code);
     }
     // A newer live save was exchanged between our check and the rollback syscall.
     // Put it back if the generation we just restored still occupies the live name.
     if previous.is_some_and(|prev| {
-        FileState::read(dir, Path::new(live), &ours.receipt_key).is_ok_and(|now| prev.matches(&now))
+        FileState::read(dir, Path::new(live), &ours.receipt_key, settings).is_ok_and(|now| prev.matches(&now))
     }) {
         rename(dir, displaced.as_ref(), live, RenameFlags::EXCHANGE)?;
     }
@@ -398,16 +519,17 @@ impl Staged<'_> {
         name: &OsStr,
         expected: &FileState,
         delete: bool,
+        settings: &[PathBuf],
         reachable: impl Fn() -> Result<()>,
     ) -> Result<()> {
         use rustix::fs::RenameFlags;
-        let ours = FileState::read(self.dir, Path::new(&self.name), &expected.receipt_key)?;
+        let ours = FileState::read(self.dir, Path::new(&self.name), &expected.receipt_key, settings)?;
         reachable()?;
         if expected.text.is_none() {
             rename(self.dir, self.name.as_ref(), name, RenameFlags::NOREPLACE)?;
             self.name.clear();
             if reachable().is_err() {
-                retire(self.dir, name, &ours)?;
+                retire(self.dir, name, &ours, settings)?;
                 return Err(Code::Changed);
             }
             return Ok(());
@@ -415,15 +537,15 @@ impl Staged<'_> {
         rename(self.dir, self.name.as_ref(), name, RenameFlags::EXCHANGE)?;
         // Drop must never unlink the displaced file until we have identified it.
         let displaced = std::mem::take(&mut self.name);
-        let correct = FileState::read(self.dir, Path::new(&displaced), &expected.receipt_key)
+        let correct = FileState::read(self.dir, Path::new(&displaced), &expected.receipt_key, settings)
             .is_ok_and(|now| expected.matches(&now));
         if !correct || reachable().is_err() {
-            rollback(self.dir, name, &displaced, &ours)?;
+            rollback(self.dir, name, &displaced, &ours, settings)?;
             return Err(Code::Changed);
         }
         if delete {
-            if let Err(code) = retire(self.dir, name, &ours) {
-                rollback(self.dir, name, &displaced, &ours)?;
+            if let Err(code) = retire(self.dir, name, &ours, settings) {
+                rollback(self.dir, name, &displaced, &ours, settings)?;
                 return Err(code);
             }
         }

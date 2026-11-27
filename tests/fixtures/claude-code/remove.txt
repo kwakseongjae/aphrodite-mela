@@ -1,0 +1,3 @@
+# Claude Code 2.1.327, installed macOS bundle, mcp remove with explicit scope
+Removed MCP server aphrodite from user config
+File modified: {config}

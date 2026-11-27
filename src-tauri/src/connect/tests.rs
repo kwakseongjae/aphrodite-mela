@@ -175,7 +175,9 @@ fn only_documented_files_are_created_and_translocation_blocks_writes() {
         let file = e.path(tool);
         if tool == Tool::ClaudeCode {
             assert!(e.preview(tool, Action::Connect, 1).is_err());
-            assert!(tool.snippet(e.executable()).contains("claude mcp add"));
+            assert!(claude::snippet(&e, Action::Connect)
+                .unwrap()
+                .contains("claude mcp add"));
             assert!(!file.exists());
             continue;
         }
@@ -407,11 +409,11 @@ fn a_file_first_created_by_another_process_wins_even_at_the_final_rename() {
     let e = &h.engine;
     let dir = root(&e.home).unwrap();
     let name = Path::new("config.toml");
-    let f = FileState::read(&dir, name, &stable_key()).unwrap();
+    let f = FileState::read(&dir, name, &stable_key(), &[]).unwrap();
     let pending = f.temp(&dir, "our bytes", None).unwrap();
     dir.write(name, "their bytes").unwrap();
     assert!(pending
-        .publish_checked(name.as_os_str(), &f, false, || Ok(()))
+        .publish_checked(name.as_os_str(), &f, false, &[], || Ok(()))
         .is_err());
     assert_eq!(dir.read_to_string(name).unwrap(), "their bytes");
 }
@@ -710,11 +712,11 @@ fn astra_2_the_displaced_save_is_checked_for_connect_and_remove() {
     let name = Path::new("local.json");
     for delete in [false, true] {
         dir.write(name, "first").unwrap();
-        let expected = FileState::read(&dir, name, &stable_key()).unwrap();
+        let expected = FileState::read(&dir, name, &stable_key(), &[]).unwrap();
         let staged = expected.temp(&dir, "second", None).unwrap();
         dir.write(name, "editor").unwrap();
         assert!(matches!(
-            staged.publish_checked(name.as_os_str(), &expected, delete, || Ok(())),
+            staged.publish_checked(name.as_os_str(), &expected, delete, &[], || Ok(())),
             Err(Code::Changed)
         ));
         assert_eq!(dir.read(name).unwrap(), b"editor");
@@ -745,7 +747,7 @@ fn opus_8_unsupported_xattrs_leave_status_readable_and_apply_copy_only() {
     let path = h.file(Tool::Cursor, "{}");
     let root = files::root(&h.engine.home).unwrap();
     let rel = path.strip_prefix(&h.engine.home).unwrap();
-    let mut f = FileState::read(&root, rel, &stable_key()).unwrap();
+    let mut f = FileState::read(&root, rel, &stable_key(), &[]).unwrap();
     f.xattrs = supported;
     assert!(matches!(
         h.engine
@@ -821,7 +823,7 @@ fn astra_9_a_directory_name_alone_does_not_establish_translocation() {
     fs::create_dir_all(&dir).unwrap();
     let exe = dir.join("fixture");
     fs::write(&exe, "fixture").unwrap();
-    assert_ne!(location(&exe), Location::Translocated);
+    assert_ne!(location(&exe, true), Location::Translocated);
 }
 
 #[test]
@@ -838,7 +840,10 @@ fn astra_7_valid_toml_outside_the_splicers_grammar_offers_copy_in_ipc() {
         .unwrap();
     let copy = serde_json::to_value(proposal).unwrap();
     assert_eq!(copy["code"], "unsupported_layout");
-    assert_eq!(copy["snippet"], Tool::Codex.snippet(h.engine.executable()));
+    assert_eq!(
+        copy["snippet"],
+        Tool::Codex.file_snippet(h.engine.executable())
+    );
 }
 
 #[test]
@@ -848,10 +853,10 @@ fn astra_2_a_second_editor_save_remains_at_the_live_name_during_conflict_recover
     let dir = files::root(&h.engine.home).unwrap();
     let name = Path::new("local.json");
     dir.write(name, "first").unwrap();
-    let original = FileState::read(&dir, name, &stable_key()).unwrap();
+    let original = FileState::read(&dir, name, &stable_key(), &[]).unwrap();
     let staged = original.temp(&dir, "connected", None).unwrap();
     let checked = Cell::new(false);
-    let result = staged.publish_checked(name.as_os_str(), &original, false, || {
+    let result = staged.publish_checked(name.as_os_str(), &original, false, &[], || {
         if !checked.replace(true) {
             return Ok(());
         }
@@ -1137,6 +1142,191 @@ fn third_review_an_empty_image_inventory_allows_a_second_writable_volume() {
 }
 
 #[test]
+fn claude_status_uses_only_the_named_entry_in_the_injected_home() {
+    let mut h = Home::new();
+    let dir = h.engine.home.join("cli");
+    fs::create_dir(&dir).unwrap();
+    let cli = dir.join("claude");
+    fs::write(
+        &cli,
+        r#"#!/bin/sh
+[ "$1.$2.$3" = "mcp.get.aphrodite" ] || exit 2
+echo 'No MCP server named "aphrodite". Configured servers: private-neighbor' >&2
+exit 1
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
+    h.engine.cli_dirs = vec![dir];
+    let s = h.engine.ask_claude().unwrap();
+    assert!(s.installed);
+    assert_eq!(s.entry_exists, Some(false));
+    assert!(!serde_json::to_string(&s)
+        .unwrap()
+        .contains("private-neighbor"));
+}
+
+mod claude_code;
+
+#[test]
+fn opus_8_a_writable_downloads_install_can_still_register_file_clients() {
+    let h = Home::new();
+    let exe = h
+        .engine
+        .home
+        .join("Downloads/Aphrodite.app/Contents/MacOS/Aphrodite");
+    fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    fs::write(&exe, []).unwrap();
+    assert_eq!(location(&exe, true), Location::Installed);
+    let installed = h
+        .engine
+        .home
+        .join("Applications/Aphrodite.app/Contents/MacOS/Aphrodite");
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    fs::rename(exe, &installed).unwrap();
+    assert_eq!(location(&installed, true), Location::Installed);
+}
+
+#[test]
+fn a_file_tool_cannot_follow_a_link_into_the_claude_code_configuration() {
+    let h = Home::new();
+    let private = h.file(Tool::ClaudeCode, "private-neighbor");
+    for tool in WRITTEN {
+        let file = h.engine.path(tool);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        symlink(&private, file).unwrap();
+        assert_eq!(
+            h.engine.status(tool).unwrap().error,
+            Some(Code::InvalidPath)
+        );
+    }
+}
+
+#[test]
+fn astra_7_file_tools_refuse_multiply_linked_configurations_before_reading() {
+    let h = Home::new();
+    let private = h.file(Tool::ClaudeCode, "unparseable fixture");
+    for tool in WRITTEN {
+        let file = h.engine.path(tool);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::hard_link(&private, &file).unwrap();
+        assert_eq!(
+            h.engine.status(tool).unwrap().error,
+            Some(Code::InvalidPath)
+        );
+        assert!(matches!(
+            h.engine.preview(tool, Action::Connect, 1),
+            Err(Code::InvalidPath)
+        ));
+        fs::remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn recheck_astra_2_single_link_settings_aliases_are_refused_before_read_or_backup() {
+    for tool in [Tool::Cursor, Tool::ClaudeDesktop, Tool::Codex] {
+        for (custom, name) in [
+            (false, ".claude.json"),
+            (false, ".claude/.config.json"),
+            (true, ".config.json"),
+            (true, ".claude.json"),
+            (true, ".claude-custom-oauth.json"),
+        ] {
+            let mut h = Home::new();
+            let profile = if custom {
+                let dir = h.engine.home.join("custom");
+                h.engine.claude_config_dir = Some(dir.clone());
+                dir
+            } else {
+                h.engine.home.clone()
+            };
+            let settings = profile.join(name);
+            fs::create_dir_all(settings.parent().unwrap()).unwrap();
+            let shared = h.engine.home.join("dotfiles-shared");
+            // A read would return invalid_config, so invalid_path distinguishes the guard.
+            fs::write(&shared, [0xff]).unwrap();
+            symlink(&shared, &settings).unwrap();
+            let target = h.engine.path(tool);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            symlink(&shared, &target).unwrap();
+            assert_eq!(
+                h.engine.status(tool).unwrap().error,
+                Some(Code::InvalidPath),
+                "{name}"
+            );
+            assert!(matches!(
+                h.engine.preview(tool, Action::Connect, 0),
+                Err(Code::InvalidPath)
+            ));
+        }
+    }
+}
+
+#[test]
+fn recheck_astra_2_settings_identity_is_checked_again_on_the_open_descriptor() {
+    let h = Home::new();
+    let target = h.file(Tool::Cursor, "invalid");
+    let settings = h.engine.path(Tool::ClaudeCode);
+    let root = files::root(&h.engine.home).unwrap();
+    let checks = std::cell::Cell::new(0);
+    let result =
+        FileState::read_checked(&root, target.strip_prefix(&h.engine.home).unwrap(), &h.engine.receipt_key, |id| {
+            checks.set(checks.get() + 1);
+            if checks.get() == 2 {
+                symlink(&target, &settings).unwrap();
+            }
+            files::exclude_settings(id, &h.engine.claude_settings())
+        });
+    assert!(matches!(result, Err(Code::InvalidPath)));
+    assert_eq!(checks.get(), 2);
+}
+
+#[test]
+fn recheck_opus_9_passive_external_mounts_distinguish_physical_disks_and_images() {
+    let exe = Path::new("/Volumes/Work/A.app/Contents/MacOS/A");
+    for (image, expected) in [
+        (
+            volume::classify(Some("Portable SSD"), Some("USB")),
+            Location::Installed,
+        ),
+        (
+            volume::classify(Some("Disk Image"), Some("Virtual Interface")),
+            Location::DiskImage,
+        ),
+        (volume::classify(None, None), Location::Unknown),
+    ] {
+        assert_eq!(
+            classify_mount(
+                exe,
+                Path::new("/Volumes/Work"),
+                false,
+                Location::Unknown,
+                || image
+            ),
+            expected
+        );
+    }
+}
+
+#[test]
+fn recheck_astra_10_file_snippets_need_only_the_sidecar() {
+    let exe = Path::new("/Applications/A.app/Contents/MacOS/aphrodite-mcp");
+    for tool in WRITTEN {
+        let snippet = commands::snippet_with(
+            tool,
+            Some(Action::Connect),
+            || Ok(exe.into()),
+            || Err(Code::InvalidPath),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(snippet).unwrap()["text"],
+            tool.file_snippet(exe.to_str().unwrap())
+        );
+    }
+}
+
+#[test]
 fn the_last_installation_to_connect_owns_the_shared_entry() {
     for tool in WRITTEN {
         let h = Home::new();
@@ -1154,5 +1344,40 @@ fn the_last_installation_to_connect_owns_the_shared_entry() {
         assert_eq!(preview.status(tool).unwrap().owned, Some(true));
         assert!(connect(stable, tool, 3).replacement_required);
         assert_eq!(preview.status(tool).unwrap().points_here, Some(false));
+    }
+}
+
+#[test]
+fn a_preview_file_receipt_never_overrides_the_claude_settings_exclusion() {
+    for tool in WRITTEN {
+        let h = Home::new();
+        let stable = &h.engine;
+        let preview = Engine::new(
+            stable.home.clone(),
+            "/Applications/Aphrodite Preview.app/Contents/MacOS/aphrodite-mcp".into(),
+            &format!("{STABLE_ID}.preview"),
+        );
+        let file = h.file(tool, if tool == Tool::Codex { "" } else { "{}" });
+        connect(&preview, tool, 1);
+        assert!(xattr::get(&file, &preview.receipt_key).unwrap().is_some());
+        assert!(xattr::get(&file, &stable.receipt_key).unwrap().is_none());
+        let root = files::root(&stable.home).unwrap();
+        let relative = file.strip_prefix(&stable.home).unwrap();
+        assert!(files::history(&root, relative, &preview.receipt_key).unwrap().is_some());
+        assert!(files::history(&root, relative, &stable.receipt_key).unwrap().is_none());
+        let remove = preview.preview(tool, Action::Remove, 2).unwrap();
+        assert!(!remove.confirmation_required);
+        let settings = preview.path(Tool::ClaudeCode);
+        symlink(&file, &settings).unwrap();
+        for engine in [stable, &preview] {
+            assert_eq!(engine.status(tool).unwrap().error, Some(Code::InvalidPath));
+            assert!(matches!(engine.preview(tool, Action::Connect, 3), Err(Code::InvalidPath)));
+        }
+        assert!(matches!(
+            preview.commit(tool, Action::Remove, &remove.fingerprint, true),
+            Err(Code::InvalidPath)
+        ));
+        fs::remove_file(settings).unwrap();
+        assert_eq!(preview.status(tool).unwrap().owned, Some(true));
     }
 }
