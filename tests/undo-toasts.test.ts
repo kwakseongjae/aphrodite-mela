@@ -147,7 +147,7 @@ test('an edit landing while Undo waits to run is not what Undo takes back',async
 /* Astra recheck 3: the same sentence twice keeps one line, and that line's Undo is the newest change's or none; once
    history moves past a change, its Undo is gone for good. */
 test('a repeated toast carries the newest change\'s Undo or none, and a button history moved past never comes back',async()=>{
-  const p=board(),s=editor(p,['function persist('],{settleUndo,saveLibrary:()=>{},upsertProject:()=>({}),library:{entries:[]},workspaces:{activeId:'w'},diskQueue:undefined,lastSaved:true});
+  const p=board(),s=editor(p,['function persist('],{settleUndo,saveRetries:false,saveLibrary:()=>{},upsertProject:()=>({}),library:{entries:[]},workspaces:{activeId:'w'},diskQueue:undefined,lastSaved:true});
   const undoable=s.undoable as (m:string,c:unknown)=>void,history=s.history as (dir:string,d:unknown)=>void;
   const first=s.commit(()=>{s.project.name='First';},person(),'edit.project-rename');
   undoable('The board was renamed.',first);

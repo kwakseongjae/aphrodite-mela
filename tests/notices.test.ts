@@ -229,7 +229,6 @@ test('a folder this window saved into after the old one went missing is not call
 test('a failed save comes before the missing folder, so the backup choices are always reached; a reload that would lose work asks',()=>{
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/function troubleNow\(\):Trouble\|undefined\{if\(saveTrouble\)/,'unsaved work first');
-  assert.match(main,/if\(saved&&!error&&vanished\)replacedStore=true;/,'a write that lands while the folder is missing made a new one');
   const reload=main.slice(main.indexOf('async function reloadFromDisk(){'),main.indexOf('async function reloadFromDiskNow(){'));
   assert.match(reload,/if\(\(!lastSaved\|\|saveTrouble\)&&!modalRoot\.querySelector\('\[data-reload-confirm\]'\)\)\{const c=reloadConfirm\(uiLanguage==='ko'\);showModal\(/);
 });
@@ -304,4 +303,45 @@ test('no notice is drawn outside its four places',()=>{
   const main=readFileSync('src/main.ts','utf8');
   assert.match(main,/function bannersHtml\(\)\{return agentBannerHtml\(\);\}/,'the slot over the screen holds agent mode and nothing else');
   assert.doesNotMatch(main,/className='fatal-error'/,'the red box is gone');
+});
+
+/* Astra recheck 5: while the old folder is missing, write A lands (it made a folder in that place) and write B fails. The
+   queue reports success only for its latest write, so each landed write is recorded on its own: the folder this window
+   made is never read back as the old one, and the failed write still comes first. */
+test('a write that lands while the folder is missing is remembered even when a later write fails',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  const {DurableQueue}=await import('../src/workspace/durable');
+  let calls=0;
+  const screen:Record<string,unknown>={DurableQueue,invoke:()=>++calls===1?Promise.resolve(5):Promise.reject(new Error('No space left on device (os error 28)')),
+    writeBreadcrumb:noop,crumbFor:noop,storagePath:'/s',diskQueue:undefined,library:{entries:[]},syncStateAttributes:noop,
+    document:{querySelectorAll:()=>[],activeElement:null},HTMLElement:Object,showModal:noop,troubleDialog:()=>({title:'',subtitle:'',body:''}),icon:()=>'',uiLanguage:'en',nativeDesktop:true,project:{},TextEncoder,control:(s:string)=>s,saveBadge:()=>'',saveState:noop,hydrateIconsIn:noop,app:{},paintMarks:noop,
+    toast:noop,ui:(en:string)=>en,troubleKind,boardWords:(s:string)=>s,modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,
+    vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,startupError:'',lastSaved:true,storageIssue:'',screen:'editor'};
+  editorCalls(['let troubleSeen','let saveTrouble','function attachDiskQueue(','function troubleNow(','function troubleKey(','function typing(','function openTrouble(','function troubleOpened('],screen);
+  screen.vanished={path:'/old',revision:9,entries:6,at:''};
+  const queue=(screen.attachDiskQueue as (r:number)=>InstanceType<typeof DurableQueue>)(1);
+  queue.enqueue('A');queue.enqueue('B');
+  await new Promise(r=>setTimeout(r,10));
+  assert.equal(screen.replacedStore,true,'A landed in the missing folder\'s place, though B, the latest, failed');
+  assert.equal((screen.troubleNow as ()=>{kind:string})().kind,'full','and the failed write is what the dialog leads with');
+});
+
+/* Astra recheck 5 and 6: a save refused before it reaches the disk (the board cannot be written as it is) ranks as any
+   failed save, ahead of a missing folder, so the dialog that opens carries the backup choices; and it says the next change
+   tries again, as nothing has stopped. */
+test('a save refused before the disk comes before the missing folder, and says the next change tries again',async()=>{
+  const {editorCalls,noop}=await import('./support/editor-calls');
+  let opened:{kind:string;retries?:boolean}|undefined;
+  const screen:Record<string,unknown>={screen:'editor',toasts:[],undoToken:()=>'',settleUndo:(l:unknown)=>l,paintToasts:noop,library:{entries:[]},project:{id:'b'},workspaces:{activeId:'w'},
+    upsertProject:()=>({}),saveLibrary:()=>{throw new Error('the board is larger than a saved board may be');},diskQueue:{},lastSaved:true,startupError:'',saveTrouble:'',saveRetries:false,
+    vanished:{path:'/old',revision:9,entries:6,at:''},replacedStore:false,troubleSeen:'',paintMarks:noop,troubleKind,boardWords:(s:string)=>s,
+    modalRoot:{children:[]},askOpen:()=>false,fatalUp:()=>false,typing:()=>false,openTrouble:(t:{kind:string;retries?:boolean})=>{opened=t;},troubleKey:(t:{kind:string})=>t.kind,toast:noop,ui:(en:string)=>en};
+  editorCalls(['function persist(','function troubleNow(','function troubleOpened('],screen);
+  (screen.persist as ()=>void)();
+  assert.equal(screen.lastSaved,false);
+  assert.equal(opened?.kind,'failed','the refused save is the dialog that opens, not the missing folder');
+  assert.equal(opened?.retries,true);
+  const d=troubleDialog(opened as Trouble,'editor',false);
+  assert.match(d.subtitle,/next change tries saving again/);
+  assert.deepEqual(actionsOf(d.body).filter(a=>a!=='close-modal'),['disk-backup','hub-backup','disk-reload'],'with the backup choices');
 });

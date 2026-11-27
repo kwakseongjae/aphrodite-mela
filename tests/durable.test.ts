@@ -36,3 +36,11 @@ test('the queue can be asked what revision it is at',async()=>{
   q.enqueue('a');await q.flush();
   assert.equal(q.at(),5,'after a write, the one the writer acknowledged');
 });
+
+test('every write that lands is told, not only the latest',async()=>{
+  const landed:number[]=[];let n=0;
+  const q=new DurableQueue(1,async(_d,rev)=>{if(++n===2)throw new Error('full');return rev+1;},()=>{},rev=>landed.push(rev));
+  q.enqueue('a');q.enqueue('b');
+  await q.flush().catch(()=>{});
+  assert.deepEqual(landed,[2],'the first write landed and said so, though the second failed');
+});

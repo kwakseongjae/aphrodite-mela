@@ -21,7 +21,7 @@ export type NoticePlace = (typeof NOTICE_PLACES)[number];
  *  app opens; the others when a save fails. */
 export type Trouble =
   | {kind: 'vanished'; path: string; boards: number; replaced?: boolean}
-  | {kind: 'full' | 'conflict' | 'failed' | 'unread'; detail: string};
+  | {kind: 'full' | 'conflict' | 'failed' | 'unread'; detail: string; retries?: boolean};
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -110,6 +110,8 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor', ko: boolean,
     failed: [T('The boards could not be saved to disk.', '보드를 디스크에 저장하지 못했어요.'),
       T('This window has stopped saving, and writes nothing more until you reload.', '이 창은 저장을 멈췄고, 다시 불러오기 전까지는 디스크에 더 쓰지 않아요.')],
   }[t.kind as 'full' | 'conflict' | 'failed'];
+  // Refused before it reached the disk (a board too big to save, say): nothing has stopped, and the next change tries again.
+  if (t.retries) head[1] = T('The next change tries saving again. Until one is saved, what you did since is only in this window.', '다음 변경 때 다시 저장해 봐요. 저장되기 전까지 그동안 한 일은 이 창에만 있어요.');
   const keep = where === 'editor'
     ? choice({action: 'disk-backup', icon: 'download', name: T('Save this board as a backup file', '이 보드를 백업 파일로 저장'), why: T('This saves the open board, as it is on screen, as one .json file. Pictures and videos placed on it are not in the file.', '화면에 열린 그대로의 보드를 .json 파일 하나로 받아요. 보드에 놓인 그림·영상 파일은 들어 있지 않아요.')
       + (o.reimport ? ' ' + T('Import board opens it again, unapproved.', '보드 가져오기로 다시 열 수 있어요(승인은 다시 해야 해요).') : ''), first: true})
