@@ -53,12 +53,31 @@ test('Start fresh never writes the old board in place of a refused live edit',as
   const start=press('disk-start-fresh');await tick();writes[0]?.done.resolve(1);await start;
   assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));assert.equal(writes.length,0);
 });
-test('a new edit during Start fresh keeps the reminder until a current save succeeds',async()=>{
-  const {s,edit,press,writes,said}=windowWithDisk('missing');
-  const start=press('disk-start-fresh');await tick();edit('B');writes[0].done.resolve(1);await start;
-  assert.ok(s.saves.missing);assert.ok(!said.some(m=>m.includes('Started fresh')));
-  await tick();writes[1].done.resolve(2);await tick();const again=press('disk-start-fresh');await tick();
-  assert.equal(JSON.parse(writes[2].text).entries[0].project.name,'B');writes[2].done.resolve(3);await again;assert.equal(s.saves.missing,undefined);
+test('one Start fresh waits for every newer write and announces the live replacement once',async()=>{
+  const {s,edit,press,writes,questions,said}=windowWithDisk('missing');
+  const start=press('disk-start-fresh');await tick();
+  assert.match(questions[0],/in a new folder at \/old/);
+  for(const [i,name] of ['B','C'].entries()){
+    edit(name);writes[i].done.resolve(i+1);await tick();
+    assert.ok(s.saves.missing);
+    assert.deepEqual(said,[]);
+    assert.equal(JSON.parse(writes[i+1].text).entries[0].project.name,name);
+  }
+  writes[2].done.resolve(3);await start;
+  assert.equal(s.saves.missing,undefined);
+  assert.deepEqual(said,['Started fresh. The old folder was left alone.']);
+  assert.equal(questions.length,1);
+});
+test('a newer refused or failed save during Start fresh keeps the reminder',async()=>{
+  for(const refused of [false,true]){
+    const {s,edit,press,writes,said}=windowWithDisk('missing');
+    const start=press('disk-start-fresh');await tick();
+    edit(refused?'bad\uD800':'B');writes[0].done.resolve(1);await tick();
+    if(!refused)writes[1].done.reject(new Error('disk full'));
+    await start;
+    assert.ok(s.saves.missing);assert.equal(s.saves.saved,false);
+    assert.ok(!said.some(m=>m.includes('Started fresh')));
+  }
 });
 test('quit after an empty read and failed retry exports the same live boards as Save every board',async()=>{
   const {s,writes,reads,press,edit,files,questions}=windowWithDisk('missing');

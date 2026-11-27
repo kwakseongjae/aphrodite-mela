@@ -1936,10 +1936,8 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       if(modalRoot.querySelector('.ui-notice-choices'))closeModal();
       // The missing folder is forgotten only once what the window holds has landed: a write not queued, or one that fails, keeps it.
       saveTyping();
-      const at=saves.generation;
       if(!saves.native||!queueLibrary(library,false))break;
-      if(!await flushDisk().then(()=>true,()=>false))break;
-      if(!saves.acceptReplacement(at))break;
+      if(!await saves.acceptReplacement())break;
       render();
       toast(ui('Started fresh. The old folder was left alone.','새로 시작했습니다. 예전 폴더는 그대로 두었습니다.'));
       break;

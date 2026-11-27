@@ -53,8 +53,14 @@ export class WindowSaves {
     if (!this.replacement) this.missingFolder = undefined;
   }
 
-  acceptReplacement(at: number) {
-    if (!this.saved || at !== this.live || !this.missingFolder) return false;
+  async acceptReplacement() {
+    const queue = this.queue;
+    if (!queue || !this.missingFolder) return false;
+    // A flush covers the writes already queued. Another edit may have added a later one.
+    try {
+      do { await queue.flush(); } while (queue === this.queue && this.writing);
+    } catch { return false; }
+    if (queue !== this.queue || !this.saved || !this.missingFolder || !this.replaced) return false;
     this.missingFolder = undefined;
     this.replacement = false;
     return true;
