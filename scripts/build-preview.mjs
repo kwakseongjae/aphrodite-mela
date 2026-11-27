@@ -15,9 +15,9 @@ mkdirSync('src-tauri/target', {recursive:true});
 if (!values['config-only']) config.bundle.createUpdaterArtifacts = false;
 writeFileSync(file, JSON.stringify(config));
 if (!values['config-only']) {
-  console.log(`For release signing, generate the override with --config-only, set APHRODITE_PREVIEW_VERSION=${config.version}, supply the release workflow's signing credentials, and pass --config ${file} --target ${target} to tauri build.`);
+  console.log(`For release signing, generate the override with --config-only, supply the release workflow's signing credentials, and pass --config ${file} --target ${target} to tauri build.`);
   execFileSync('npm', ['run','tauri','--','build','--config',file,'--target',target,'--bundles','app','--no-sign'], {
     stdio:'inherit',
-    env:{...process.env, APHRODITE_PREVIEW_VERSION:config.version, TAURI_ENV_TARGET_TRIPLE:target},
+    env:{...process.env, TAURI_ENV_TARGET_TRIPLE:target},
   });
 }

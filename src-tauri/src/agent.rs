@@ -157,6 +157,7 @@ fn write_endpoint_file(app: &AppHandle, port: u16, token: &str) -> Result<String
     // recycled — so it is a cheap first filter and the connection is still the real test.
     let body = json!({
         "schema": "aphrodite.agent-endpoint/1",
+        "version": app.package_info().version.to_string(),
         "port": port,
         "token": token,
         "pid": std::process::id(),

@@ -13,6 +13,7 @@ export function previewConfig(version) {
     productName: stableConfig.productName + ' Preview',
     identifier: stableConfig.identifier + '.preview',
     version,
+    build: {beforeBuildCommand: `export APHRODITE_PREVIEW_VERSION='${version}' && ${stableConfig.build.beforeBuildCommand}`},
     bundle: {
       macOS: {infoPlist: 'Info.preview.plist'},
       fileAssociations: stableConfig.bundle.fileAssociations.map(type => ({...type, rank:'Alternate'})),

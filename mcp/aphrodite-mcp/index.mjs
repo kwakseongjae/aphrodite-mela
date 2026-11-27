@@ -24,7 +24,7 @@ const NAME = 'aphrodite';
    nobody knew to bump, and a client shows it in its server list. The one place the version lives is
    package.json; if that cannot be read the server still starts, because a wrong number in a label is
    not a reason to refuse an agent. */
-const VERSION = (() => {
+const VERSION = process.env.APHRODITE_PREVIEW_VERSION || (() => {
   try {
     return JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version ?? '0.0.0';
   } catch {
@@ -157,7 +157,7 @@ async function handle(message, who) {
       return reply(id, {
         protocolVersion: version,
         capabilities: {tools: {listChanged: false}, prompts: {listChanged: false}},
-        serverInfo: {name: NAME, version: VERSION},
+        serverInfo: {name: NAME, version: (process.env.APHRODITE_ENDPOINT_FILE && endpoint()?.version) || VERSION},
         instructions: protocol.instructions,
       });
     }

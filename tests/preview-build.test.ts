@@ -15,6 +15,7 @@ test('the preview override keeps the board format and separates the installed ap
   assert.equal(preview.identifier, stable.identifier + '.preview');
   assert.equal(preview.productName, 'Aphrodite Preview');
   assert.equal(preview.version, version);
+  assert.equal(preview.build.beforeBuildCommand, `export APHRODITE_PREVIEW_VERSION='${version}' && ${stable.build.beforeBuildCommand}`);
   assert.deepEqual(preview.bundle.fileAssociations, stable.bundle.fileAssociations.map((a: object) => ({...a, rank:'Alternate'})));
   assert.match(stable.plugins.updater.endpoints[0], /\/releases\/latest\/download\/latest.json$/);
   assert.match(preview.plugins.updater.endpoints[0], /\/releases\/download\/preview-channel\/latest.json$/);

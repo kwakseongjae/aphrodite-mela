@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {spawn, execFileSync, spawnSync} from 'node:child_process';
 import {Readable} from 'node:stream';
 import {createServer} from 'node:http';
-import {existsSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {toolManifest, tools} from '../mcp/aphrodite-mcp/tools.mjs';
@@ -348,4 +348,56 @@ test('Third review 4 — wide and narrow replies validate every scalar and relay
   const valid = '{"extra":'+wide+',"x":"\\ud83c\\udf19","literal":"\\\\ud800","n":1e308}';
   cases.push({body:valid, text:valid});
   await responseTranscript(cases);
+});
+
+test('each bundled server reaches its own installation and the Node override reaches the same board', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'aph-two-apps-'));
+  const support = join(home, 'Library', 'Application Support');
+  const stable = JSON.parse(readFileSync('src-tauri/tauri.conf.json','utf8'));
+  const preview = {identifier:stable.identifier + '.preview', version:'0.3.0-preview.12'};
+  const listen = createServer((req, res) => res.end(JSON.stringify(req.headers.authorization)));
+  await new Promise<void>(resolve => listen.listen(0, '127.0.0.1', resolve));
+  const base = 'http://127.0.0.1:' + (listen.address() as {port:number}).port;
+  const file = (id:string) => join(support, id, 'agent-endpoint.json');
+  t.after(() => {
+    listen.close();
+    for (const {identifier} of [stable,preview]) {
+      unlinkSync(file(identifier));
+      rmdirSync(join(support, identifier));
+    }
+    rmdirSync(support); rmdirSync(join(home, 'Library')); rmdirSync(home);
+  });
+  for (const {identifier,version} of [stable,preview]) {
+    mkdirSync(join(support, identifier), {recursive:true});
+    writeFileSync(file(identifier), JSON.stringify({base, version, token:identifier, pid:process.pid}));
+  }
+  const clean:NodeJS.ProcessEnv = {...process.env, HOME:home};
+  delete clean.APHRODITE_ENDPOINT_FILE;
+  delete clean.APHRODITE_PREVIEW_VERSION;
+  async function transcript(cmd:string, args:string[], env:NodeJS.ProcessEnv) {
+    const child = spawn(cmd,args,{env});
+    child.stdin.end('{"id":1,"method":"initialize"}\n{"id":2,"method":"tools/call","params":{"name":"aphrodite_get_contract"}}\n');
+    const replies = new Map();
+    for await (const frame of frames(child.stdout)) {
+      const reply = JSON.parse(frame.toString());
+      replies.set(reply.id,reply.result);
+    }
+    return [replies.get(1).serverInfo.version, JSON.parse(replies.get(2).content[0].text)];
+  }
+  try {
+    for (const build of [stable, preview]) {
+      const env = {...clean, ...(build === preview ? {APHRODITE_PREVIEW_VERSION:preview.version} : {})};
+      // Cargo and rustup keep their normal caches. Only the test clients see the temporary home.
+      execFileSync(process.execPath,[buildScript],{env:{...process.env, APHRODITE_PREVIEW_VERSION:env.APHRODITE_PREVIEW_VERSION || ''}});
+      const expected = [build.version, 'Bearer ' + build.identifier];
+      assert.deepEqual(await transcript(native, [], env), expected);
+      const nodeEnv = build === preview ? {...clean, APHRODITE_ENDPOINT_FILE:file(preview.identifier)} : clean;
+      assert.deepEqual(await transcript(process.execPath,[nodeServer],nodeEnv),expected);
+      assert.deepEqual(await transcript(native, [], {...env, APHRODITE_ENDPOINT_FILE:file(stable.identifier)}),
+        [build.version, 'Bearer ' + stable.identifier]);
+    }
+  } finally {
+    // Leave the executable requested by the enclosing build in place for Cargo and Tauri.
+    execFileSync(process.execPath,[buildScript]);
+  }
 });
