@@ -441,11 +441,11 @@ function hydrateIcons() { createIcons({ icons, attrs: { 'stroke-width': 1.65 } }
 function fatalUp(){return !!document.querySelector('.fatal-scrim');}
 /** The sheet's own keys: Tab stays in it, Escape from the person's keyboard puts it away, Enter and Space press its buttons. */
 function fatalKey(e:KeyboardEvent){const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;if(e.key==='Tab'){const items=Array.from(sheet.querySelectorAll<HTMLElement>('button,summary'));const i=items.indexOf(document.activeElement as HTMLElement);e.preventDefault();items[(i+(e.shiftKey?-1:1)+items.length)%items.length]?.focus();return;}if((e.key==='Escape'||e.code==='Escape')&&e.isTrusted){e.preventDefault();sheet.remove();return;}if(!(e.target instanceof Node&&sheet.contains(e.target))||!['Enter',' '].includes(e.key))e.preventDefault();}
-function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent=String(error);});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
+function showFatal(detail:string){let ko=document.documentElement.lang==='ko',board=false;try{ko=uiLanguage==='ko';board=screen==='editor';}catch{/* stopped before the state was set */}document.querySelector('.fatal-scrim')?.remove();document.body.insertAdjacentHTML('beforeend',renderFailedHtml(detail,{ko,board}));const sheet=document.querySelector<HTMLElement>('.fatal-scrim')!;try{hydrateIconsIn(sheet);}catch{/* the buttons work without their icons */}sheet.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('button[data-action]');if(!b)return;e.stopPropagation();e.preventDefault();if(!e.isTrusted)return;const a=b.dataset.action??'';if(a==='fatal-redraw'||a==='fatal-close')fatalPress(a,sheet);else void action(b,dispatchOf(e),true).catch(error=>{const said=sheet.querySelector('[data-fatal-detail]');if(said)said.textContent+=`\n\n${String(error)}`;});});sheet.querySelector<HTMLElement>('[data-action="fatal-redraw"]')?.focus();}
 /**
  * Draw again and Close, answered by the sheet itself rather than the window's click handler, which may be what broke; its
- * other buttons go straight to their actions. Draw again takes the sheet away only once the screen was drawn; if drawing
- * throws again, the sheet stays and says what stopped it now.
+ * other buttons go to their actions, which answer them before reading anything of the app's state. Draw again takes the
+ * sheet away only once the screen was drawn; if drawing throws again, the sheet stays and says what stopped it now.
  */
 function fatalPress(action:string,sheet:{remove():void;querySelector(s:string):{textContent:string|null}|null}){
   if(action==='fatal-close'){sheet.remove();return;}
@@ -1498,6 +1498,12 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   const act = el.dataset.action;
   // Who asked, read before the first await: an agent's `click` has returned by the time this resumes.
   const d=given??NOBODY;
+  // The sheet over a screen that could not be drawn is answered before anything below reads the app's state, which may be what broke.
+  if(act==='fatal-copy'||act==='fatal-backup'||act==='fatal-backup-all'){switch(act){
+    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{const pre=document.querySelector('[data-fatal-detail]');if(pre)pre.textContent+='\n\n'+ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.');}break;}
+    case 'fatal-backup': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');break;}
+    case 'fatal-backup-all': {if(!trusted||refusal(d,'outside.render-failed-backup'))break;await saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');break;}
+  }return;}
   // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
   if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
@@ -1826,7 +1832,6 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'notice-open': if(!modalRoot.children.length)openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;document.querySelector('.fatal-scrim')?.remove(); break;
-    case 'fatal-copy': {if(!trusted||refusal(d,'outside.copy-diagnostics'))break;try{await navigator.clipboard.writeText(document.querySelector('[data-fatal-detail]')?.textContent??'');toast(ui('Copied','복사했습니다'));}catch{toast(ui('Could not copy. Select the text and copy it.','복사하지 못했습니다. 글을 선택해 복사하세요.'));}break;}
     /* The only destructive door in the vanished-store notice. It does not delete anything — the old
        folder stays wherever it was moved to — but it does write a new empty store, after which the
        breadcrumb no longer points at the old one. So it asks, and it says what it will not do. */

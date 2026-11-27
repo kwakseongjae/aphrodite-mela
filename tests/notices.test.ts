@@ -107,7 +107,7 @@ test('the connected mark keeps disconnecting the person\'s own door, by the same
 test('a screen that could not be drawn says so in a sheet, with the words the system wrote folded away',()=>{
   const html=renderFailedHtml('TypeError: x is undefined\nmain.ts:1:1',{ko:true,board:true});
   assert.match(html,/화면을 그리다가 멈췄어요/);
-  assert.deepEqual(actionsOf(html),['fatal-redraw','disk-backup','hub-backup','fatal-copy','fatal-close']);
+  assert.deepEqual(actionsOf(html),['fatal-redraw','fatal-backup','fatal-backup-all','fatal-copy','fatal-close']);
   assert.match(html,/<details[\s\S]*TypeError: x is undefined[\s\S]*<\/details>/);
   assert.doesNotMatch(renderFailedHtml('<img src=x onerror=1>',{ko:false,board:false}),/<img/);
   assert.ok(!actionsOf(renderFailedHtml('e',{ko:false,board:false})).includes('disk-backup'),'with no board open, no board is offered as a file');
@@ -411,4 +411,29 @@ test('a backup is said to open again only when the importer takes its text, and 
     assert.doesNotMatch(d.body,/Pictures and videos placed on (it|boards) are not in|보드에 놓인 그림·영상 파일은 들어 있지 않/,'not every picture is left out');
     assert.match(d.body,ko?/따로 놓은 그림·영상과 이미지 라이브러리의 그림은 별도 파일/:/placed on the board by themselves, and pictures from the image library, are separate files/);
   }
+});
+
+/* Astra recheck 8: every button on the render-failed sheet is the person's alone. Its two saves have actions of their own,
+   refused to an agent, and copying and saving are answered before action() reads anything of the app's state, which may
+   be what broke (here the open page cannot even be read). */
+test('the sheet saves and copies before the app\'s state is read, with actions an agent is refused',async()=>{
+  const {personOnlyRow}=await import('../src/agent/commands.mjs');
+  for(const a of ['fatal-backup','fatal-backup-all'])assert.equal(personOnlyRow(a),'outside.render-failed-backup',a);
+  const {editorCalls}=await import('./support/editor-calls');
+  const {personAt,agentDispatch,refusal}=await import('../src/agent/dispatch');
+  const {humanOnlyBlocked,isDoorAction}=await import('../src/agent/authority');
+  const saved:[string,string][]=[];const copied:string[]=[];const pre={textContent:'TypeError: x'};
+  const screen:Record<string,unknown>={humanOnlyBlocked,isDoorAction,refusal,editorMode:'design',NOBODY:{author:{kind:'unknown',name:''},surface:'ui'},JSON,
+    currentPage:()=>{throw new Error('the open page cannot be read');},project:{id:'p',name:'Live'},fileName:(_p:unknown,n:string)=>n,liveLibrary:()=>({version:1,entries:['live']}),
+    saveFile:async(n:string,text:string)=>{saved.push([n,text]);return true;},navigator:{clipboard:{writeText:async(t:string)=>{copied.push(t);}}},
+    document:{querySelector:(q:string)=>q==='[data-fatal-detail]'?pre:null},toast:()=>{},ui:(en:string)=>en};
+  editorCalls(['async function action('],screen);
+  const action=screen.action as (el:unknown,d:unknown,trusted:boolean)=>Promise<void>;
+  const press=(a:string)=>({dataset:{action:a}});
+  for(const a of ['fatal-backup','fatal-backup-all','fatal-copy'])await action(press(a),agentDispatch('Astra','mcp'),false);
+  assert.deepEqual([saved.length,copied.length],[0,0],'an agent saves and copies nothing');
+  for(const a of ['fatal-backup','fatal-backup-all','fatal-copy'])await action(press(a),personAt({isTrusted:true}),true);
+  assert.deepEqual(saved.map(x=>x[0]),['aphrodite.json','aphrodite-workspace.json']);
+  assert.deepEqual(JSON.parse(saved[1][1]).entries,['live'],'every board as it is now');
+  assert.deepEqual(copied,['TypeError: x']);
 });

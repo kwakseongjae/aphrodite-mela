@@ -84,7 +84,7 @@ test('the interface around the design is offered to no agent surface',()=>{
   }
   // 0.3-P3-fix1: besides approving, the door and the chrome, three rows are the person's alone: files out and in (with links), and Edit in the app.
   // 0.3-R fix 1 and fix 2: and reloading the saved copy from disk or restarting the app, either of which can put an approved board back over a draft.
-  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.page-view-edit','outside.copy-diagnostics','outside.disk-reload','outside.export-page','outside.import','outside.relaunch']);
+  assert.deepEqual(commands.filter(r=>r.author==='person-only'&&!['human','chrome'].includes(r.grade)).map(r=>r.id).sort(),['edit.page-view-edit','outside.copy-diagnostics','outside.disk-reload','outside.export-page','outside.import','outside.relaunch','outside.render-failed-backup']);
 });
 
 test('a screen action only the person does is found by its name, and the chrome an agent may still act is not',()=>{

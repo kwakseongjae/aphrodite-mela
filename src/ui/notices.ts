@@ -194,8 +194,8 @@ export function renderFailedHtml(detail: string, o: {ko: boolean; board: boolean
     + '<h2 id="fatal-title" class="ui-modal-title">' + T('The screen stopped drawing.', '화면을 그리다가 멈췄어요.') + '</h2>'
     + '<p class="ui-modal-text">' + T('Try drawing it again. If it stops again, keep the boards as a file first.', '화면을 다시 그려 보세요. 또 멈추면 보드를 먼저 파일로 받아 두세요.') + '</p>'
     + '<div class="fatal-actions"><button type="button" class="ui-btn ui-btn-primary ui-btn-md" data-action="fatal-redraw">' + icon('rotate-cw', 'ui-icon ui-icon-sm') + T('Draw again', '다시 그리기') + '</button>'
-    + (o.board ? '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="disk-backup">' + icon('download', 'ui-icon ui-icon-sm') + T('Save this board as a file', '보드를 파일로 저장') + '</button>' : '')
-    + '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="hub-backup">' + icon('archive', 'ui-icon ui-icon-sm') + T('Save every board', '모든 보드 저장') + '</button></div>'
+    + (o.board ? '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="fatal-backup">' + icon('download', 'ui-icon ui-icon-sm') + T('Save this board as a file', '보드를 파일로 저장') + '</button>' : '')
+    + '<button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="fatal-backup-all">' + icon('archive', 'ui-icon ui-icon-sm') + T('Save every board', '모든 보드 저장') + '</button></div>'
     + '<details class="ui-notice-details"><summary>' + T('Details for a report', '알릴 때 붙일 자세한 내용') + '</summary><pre class="ui-mono" data-fatal-detail>' + esc(detail) + '</pre>'
     + '<button type="button" class="ui-btn ui-btn-quiet" data-action="fatal-copy">' + icon('copy', 'ui-icon ui-icon-sm') + T('Copy', '복사') + '</button></details>'
     + '<button type="button" class="ui-icon-btn fatal-close" data-action="fatal-close" aria-label="' + T('Close', '닫기') + '">' + icon('x', 'ui-icon') + '</button>'

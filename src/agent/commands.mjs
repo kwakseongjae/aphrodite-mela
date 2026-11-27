@@ -1372,6 +1372,17 @@ export const commands = [
     controls: [action('fatal-copy')],
   },
   {
+    /* The boards saved as files from the sheet over a screen that could not be drawn: the person's, answered by the sheet itself (0.3-G2b fix 3). */
+    id: 'outside.render-failed-backup',
+    label: {en: 'Save the boards as files from the sheet over a screen that stopped', ko: '멈춘 화면 위의 장에서 보드를 파일로 저장'},
+    grade: 'outside',
+    input: NOTHING,
+    ...plain,
+    author: 'person-only',
+    surfaces: UI,
+    controls: [action('fatal-backup'), action('fatal-backup-all')],
+  },
+  {
     id: 'outside.project-new',
     label: {en: 'Make, open, import or duplicate a project, or open a board someone sent', ko: '프로젝트 만들기·열기·가져오기·복제, 받은 보드 열기'},
     grade: 'outside',
