@@ -1428,3 +1428,19 @@ fn recheck_opus_7_untrusted_cli_offers_the_same_manual_line_as_a_missing_cli() {
     assert_eq!(claude::snippet(f.e(), Action::Connect).unwrap(), snippet);
     assert!(f.calls().is_empty());
 }
+#[test]
+fn recheck_astra_9_the_verified_wrapper_survives_path_replacement_during_launch() {
+    let f = Fixture::new();
+    let program = f.e().cli_dirs[0].join("playback");
+    let script = r#"#!/usr/bin/env sh
+/bin/mv "$HOME/replacement" "$HOME/tools 'and spaces'/playback"
+[ "$0" -ef "$HOME/original" ] || exit 89
+echo 'No MCP server named "aphrodite".' >&2
+exit 1
+"#;
+    fs::write(&program, script).unwrap();
+    fs::hard_link(&program, f.e().home.join("original")).unwrap();
+    fs::write(f.e().home.join("replacement"), "different file").unwrap();
+    let status = f.status();
+    assert_eq!(status["entryExists"], false, "{status}");
+}

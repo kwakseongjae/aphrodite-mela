@@ -1,6 +1,6 @@
 #!/bin/sh
 # The executable is installed at <injected home>/<bin directory>/claude.
-[ "${0%/*/*}" = "$HOME" ] || exit 90
+[ -f "$HOME/fake-cli-home" ] || exit 90
 # The Apple Python launcher adds environment variables. Record keys before it runs.
 /usr/bin/env | /usr/bin/cut -d= -f1 > "$HOME/cli-env"
 exec /usr/bin/python3 -I - "$@" <<'PYTHON'

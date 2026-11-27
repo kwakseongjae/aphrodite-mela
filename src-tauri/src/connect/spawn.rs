@@ -44,9 +44,12 @@ impl Drop for Attributes {
 pub(super) struct Child(libc::pid_t);
 impl Child {
     pub fn start(
+        image: &CStr,
         argv: &[CString],
         env: &[CString],
         cwd: &CStr,
+        script: Option<&File>,
+        verify: impl FnOnce() -> Result<()>,
     ) -> Result<(Self, PipeReader, PipeReader)> {
         let stdin = File::open("/dev/null").map_err(|_| Code::Io)?;
         let (stdout, out) = io::pipe().map_err(|_| Code::Io)?;
@@ -80,6 +83,13 @@ impl Child {
                     to,
                 ))?;
             }
+            if let Some(file) = script {
+                check(libc::posix_spawn_file_actions_adddup2(
+                    &mut actions.0,
+                    file.as_raw_fd(),
+                    3,
+                ))?;
+            }
             let mut attr = ptr::null_mut();
             check(libc::posix_spawnattr_init(&mut attr))?;
             let mut attr = Attributes(attr);
@@ -88,9 +98,10 @@ impl Child {
                 &mut attr.0,
                 (libc::POSIX_SPAWN_SETPGROUP | libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as i16,
             ))?;
+            verify()?;
             check(libc::posix_spawn(
                 &mut pid,
-                argv[0].as_ptr(),
+                image.as_ptr(),
                 &actions.0,
                 &attr.0,
                 args.as_ptr(),

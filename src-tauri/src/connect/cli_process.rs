@@ -10,7 +10,7 @@ use std::{
     io::{self, Read},
     os::{
         fd::AsFd,
-        unix::fs::{MetadataExt, PermissionsExt},
+        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
     thread,
@@ -27,6 +27,8 @@ pub(super) struct Program {
     interpreter: Vec<(PathBuf, Identity)>,
     #[serde(skip)]
     search_path: Vec<PathBuf>,
+    #[serde(skip)]
+    interpreter_args: Vec<String>,
 }
 
 #[derive(Clone, Serialize, PartialEq)]
@@ -88,6 +90,27 @@ fn safe_to_inspect(e: &Engine, path: &Path, meta: &fs::Metadata) -> bool {
     })
 }
 
+impl Identity {
+    fn object_path(&self) -> Option<PathBuf> {
+        let path = PathBuf::from(format!("/.vol/{}/{}", self.device, self.inode));
+        fs::metadata(&path)
+            .is_ok_and(|m| Self::from(&m) == *self)
+            .then_some(path)
+    }
+    fn open(&self, e: &Engine, path: &Path) -> super::Result<fs::File> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|_| Code::Changed)?;
+        let m = file.metadata().map_err(|_| Code::Changed)?;
+        if Self::from(&m) != *self || !safe_to_inspect(e, path, &m) {
+            return Err(Code::Changed);
+        }
+        Ok(file)
+    }
+}
+
 impl Program {
     fn at(e: &Engine, selected: PathBuf) -> Option<Self> {
         let path = selected.canonicalize().ok()?;
@@ -124,6 +147,7 @@ impl Program {
                 && safe_to_inspect(e, &path, &m),
             path,
             interpreter: vec![],
+            interpreter_args: vec![],
             search_path,
         };
         if program.trusted {
@@ -135,7 +159,7 @@ impl Program {
     fn check_interpreter(&mut self, e: &Engine) -> Option<()> {
         // Only inspect trusted files. A native binary has no shebang.
         let mut prefix = Vec::new();
-        std::io::BufReader::new(fs::File::open(&self.path).ok()?.take(512))
+        std::io::BufReader::new(self.identity.open(e, &self.path).ok()?.take(512))
             .read_until(b'\n', &mut prefix)
             .ok()?;
         let Some(line) = prefix.strip_prefix(b"#!") else {
@@ -159,6 +183,8 @@ impl Program {
                 .map(|dir| dir.join(name))
                 .find(|p| access(p, Access::EXEC_OK).is_ok())?;
             self.pin_interpreter(e, &selected)?;
+        } else {
+            self.interpreter_args.extend(words.map(str::to_owned));
         }
         Some(())
     }
@@ -175,7 +201,11 @@ impl Program {
         // A PATH-resolved interpreter must itself be a native Darwin image. An env
         // wrapper must not introduce a second shebang lookup or shell fallback.
         let mut magic = [0; 4];
-        fs::File::open(&path).ok()?.read_exact(&mut magic).ok()?;
+        Identity::from(&m)
+            .open(e, &path)
+            .ok()?
+            .read_exact(&mut magic)
+            .ok()?;
         let native = [u32::from_be_bytes(magic), u32::from_le_bytes(magic)]
             .iter()
             .any(|m| matches!(m, 0xfeedface | 0xfeedfacf | 0xcafebabe | 0xcafebabf));
@@ -196,21 +226,41 @@ impl Program {
     }
 
     pub fn binding(&self) -> Result<String, Code> {
-        serde_json::to_vec(&(self, &self.interpreter, &self.search_path))
-            .map(super::hash)
-            .map_err(|_| Code::InvalidPath)
+        serde_json::to_vec(&(
+            self,
+            &self.interpreter,
+            &self.interpreter_args,
+            &self.search_path,
+        ))
+        .map(super::hash)
+        .map_err(|_| Code::InvalidPath)
     }
 
     pub fn run(&self, engine: &Engine, args: &[&str]) -> Result<Output, CommandResult> {
         if !self.trusted {
             return Err(Code::CliUntrusted.into());
         }
-        if Self::find(engine).as_ref() != Some(self) {
-            return Err(Code::Changed.into());
-        }
         let path = std::env::join_paths(&self.search_path).map_err(|_| Code::InvalidPath)?;
         let cwd = private_cwd(&user_temp()?)?;
-        let argv = std::iter::once(self.path.as_os_str().as_encoded_bytes())
+        let script = self.identity.open(engine, &self.path)?;
+        let interpreter = self.interpreter.last();
+        let (image_path, image_id) = interpreter
+            .map(|(p, id)| (p, id))
+            .unwrap_or((&self.path, &self.identity));
+        let native = interpreter
+            .map(|_| image_id.open(engine, image_path))
+            .transpose()?;
+        // Darwin spawn takes a pathname. volfs provides a stable object name on
+        // supporting volumes. The open file keeps its inode from being recycled.
+        let object = image_id.object_path();
+        let launch_path = object.as_ref().unwrap_or(image_path);
+        let script_object = interpreter.and_then(|_| self.identity.object_path());
+        let script_path = script_object.as_deref().unwrap_or(Path::new("/dev/fd/3"));
+        let launch_path = CString::new(launch_path.as_os_str().as_encoded_bytes())
+            .map_err(|_| Code::InvalidPath)?;
+        let argv = std::iter::once(image_path.as_os_str().as_encoded_bytes())
+            .chain(self.interpreter_args.iter().map(|s| s.as_bytes()))
+            .chain(interpreter.map(|_| script_path.as_os_str().as_encoded_bytes()))
             .chain(args.iter().map(|a| a.as_bytes()))
             .map(CString::new)
             .collect::<Result<Vec<_>, _>>()
@@ -234,7 +284,25 @@ impl Program {
         }
         let cwd_path = CString::new(cwd.path().as_os_str().as_encoded_bytes())
             .map_err(|_| Code::InvalidPath)?;
-        let (child, out, err) = Child::start(&argv, &env, &cwd_path)?;
+        let (child, out, err) = Child::start(
+            &launch_path,
+            &argv,
+            &env,
+            &cwd_path,
+            interpreter
+                .filter(|_| script_object.is_none())
+                .map(|_| &script),
+            || {
+                if Self::find(engine).as_ref() != Some(self) {
+                    return Err(Code::Changed);
+                }
+                let image = native.as_ref().unwrap_or(&script);
+                if Identity::from(&image.metadata().map_err(|_| Code::Changed)?) != *image_id {
+                    return Err(Code::Changed);
+                }
+                Ok(())
+            },
+        )?;
         capture(&child, out, err, engine.cli_timeout)
             .map_err(|code| CommandResult::new(code, child.terminate()))
     }
