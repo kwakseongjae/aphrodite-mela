@@ -6,8 +6,9 @@
  * files put in where it names them as addresses. A board that should keep running is sent as a board file.
  */
 import {strToU8, zipSync, type Zippable} from 'fflate';
-import {isFreePage, mediaExtension, mediaNamed, withMedia, type FrameHost} from './free-page';
+import {base64, isFreePage, mediaExtension, mediaNamed, withMedia, type FrameHost} from './free-page';
 import {utf8Length} from './workspace/library';
+export {base64} from './free-page';
 import boardFile from '../src-tauri/board-file.json';
 
 /** The policy the cleaned file carries: its own styles, pictures and fonts as data, its videos beside it, and nothing else. */
@@ -118,12 +119,6 @@ export async function exportPage(source: string, choice: ExportChoice, host: Pic
     html = html.split(placeholder(sha)).join(to ?? `media:${sha}`);
   }
   return {html, beside};
-}
-/** Bytes as base64, in pieces small enough for String.fromCharCode. */
-export function base64(bytes: Uint8Array): string {
-  let text = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(text);
 }
 /** A media item as a page of its own: the picture, or the video with its controls. */
 export function mediaPage(name: string, media: {src: string; mime: string; width: number; height: number}): string {

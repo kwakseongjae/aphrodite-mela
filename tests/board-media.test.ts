@@ -229,3 +229,38 @@ test('the sidebar sends people to the board where a dropped picture is placed',a
   assert.ok(caption.includes('Drop pictures or videos onto the board.'));
   assert.ok(caption.includes('그림이나 영상을 보드에 끌어다 놓으세요.'));
 });
+
+test('a page can carry fonts and sounds through the board store without making them standalone media items', async () => {
+  const {sniffBoardFile, mediaExtension} = await import('../src/free-page');
+  for (const [head, mime, ext] of [['wOF2', 'font/woff2', 'woff2'], ['OggS', 'audio/ogg', 'ogg'], ['RIFF0000WAVE', 'audio/wav', 'wav']]) {
+    assert.equal(sniffBoardFile(bytes(head)), mime);
+    assert.equal(mediaExtension(mime), ext);
+    assert.equal(sniffMedia(bytes(head)), undefined);
+  }
+  assert.equal(sniffBoardFile(bytes([0, 1, 0, 0], 'ftypisom')), 'video/mp4', 'an existing board file keeps its type');
+  const sha = 'a'.repeat(64);
+  const data = bytes('wOF2-demo');
+  const font = desktopFrameHost({fileSrc: p => 'asset://localhost' + p, invoke: async (command: string) => (
+    command === 'board_media_path' ? '/board-media/' + sha + '.woff2' : command === 'board_media_stat' ? {mime: 'font/woff2', bytes: data.length} : data.buffer
+  ) as never});
+  const url = 'data:font/woff2;base64,' + Buffer.from(data).toString('base64');
+  assert.equal(await font.frameCost(sha), url.length);
+  assert.equal(await font.frameMedia(sha), url);
+});
+
+test('the browser upload refusal names pictures, videos, fonts and sounds', async () => {
+  await assert.rejects(browserFrameHost().put(new Blob(['unknown'])), {
+    message: 'the file is not a PNG, JPEG, GIF or WebP picture, MP4 or WebM video, WOFF, WOFF2, TTF or OTF font, or MP3, WAV or Ogg sound.',
+  });
+});
+
+test('TypeScript and Rust agree on the extension for every board file kind', async () => {
+  const {boardFileExtensions} = await import('../src/free-page');
+  const rust = readFileSync(new URL('../src-tauri/src/board.rs', import.meta.url), 'utf8');
+  const table = rust.match(/const BOARD_FILES:[^=]+=(.*?)\];/s)![1];
+  const rows = [...table.matchAll(/\("([^"]+)", "([^"]+)"\)/g)];
+  // MP3 alone needs an internal binary fallback for the desktop responder.
+  const expected = {...boardFileExtensions, 'audio/mpeg': boardFileExtensions['audio/mpeg'] + '.bin'};
+  assert.equal(rows.length, Object.keys(expected).length);
+  assert.deepEqual(Object.fromEntries(rows.map(([, ext, mime]) => [mime, ext])), expected);
+});

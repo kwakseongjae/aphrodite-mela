@@ -1,0 +1,65 @@
+// Parse without a browsing context. Inspecting an author's HTML must never run a script or load a URL.
+import {parse, type DefaultTreeAdapterTypes as Tree} from 'parse5';
+import {MAX_PAGE_HTML} from '../free-page';
+import {clampWidth} from '../editor/space';
+
+export const MAX_TEXT_BYTES = 3 * MAX_PAGE_HTML;
+export type Element = Tree.Element;
+export const attr = (node: Element, key: string) => node.attrs.find(a => a.name === key)?.value;
+
+export function elements(html: string): Element[] {
+  const tree = parse(html, {sourceCodeLocationInfo: true});
+  const nodes: Tree.ChildNode[] = [...tree.childNodes].reverse(), found: Element[] = [];
+  while (nodes.length) {
+    const node = nodes.pop()!;
+    if (!('tagName' in node)) continue;
+    if (node.sourceCodeLocation?.startTag) found.push(node);
+    const children = 'content' in node ? (node as Tree.Template).content.childNodes : node.childNodes;
+    for (let i = children.length - 1; i >= 0; i--) nodes.push(children[i]);
+  }
+  return found;
+}
+
+/** Metadata inside a template or foreign namespace is not the HTML document's metadata. */
+export function inDocument(e: Element): boolean {
+  if (!e.namespaceURI.endsWith('/xhtml')) return false;
+  let node: Tree.ParentNode | null = e;
+  while (node && 'parentNode' in node) node = node.parentNode;
+  return node?.nodeName === '#document';
+}
+
+export function encodingLabel(label?: string): string | undefined {
+  if (!label) return;
+  try { return new TextDecoder(label).encoding; } catch { return; }
+}
+
+export function decode(bytes: Uint8Array, format: 'html' | 'css' | 'script', fallback = 'utf-8') {
+  if (bytes.length > MAX_TEXT_BYTES) throw 'too_large';
+  let encoding = fallback;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+  else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = 'utf-8';
+  else if (format === 'css') {
+    const declaration = new TextDecoder().decode(bytes.subarray(0, 1024)).match(/^@charset "([\x21-\x7e]+)";/);
+    const label = encodingLabel(declaration?.[1]);
+    if (label) encoding = label.startsWith('utf-16') ? 'utf-8' : label;
+  } else if (format === 'html') {
+    const text = new TextDecoder().decode(bytes);
+    if (/<meta[\t\n\f\r />]/i.test(text) && /charset/i.test(text)) {
+      const meta = elements(text).find(e => e.tagName === 'meta' && attr(e, 'charset') && inDocument(e));
+      encoding = encodingLabel(meta && attr(meta, 'charset')) ?? 'utf-8';
+    }
+    // Without a BOM an HTML declaration for either UTF-16 encoding means UTF-8.
+    if (encoding === 'utf-8' || encoding.startsWith('utf-16')) return {text, encoding: 'utf-8'};
+  }
+  const decoder = new TextDecoder(encoding, {fatal: format !== 'html'});
+  try { return {text: decoder.decode(bytes), encoding}; } catch { throw 'encoding'; }
+}
+
+export function metadata(nodes: Element[]) {
+  const title = nodes.find(e => e.tagName === 'title' && inDocument(e));
+  const name = title?.childNodes.map(n => 'value' in n ? n.value : '').join('').trim();
+  const viewport = nodes.find(e => e.tagName === 'meta' && attr(e, 'name')?.toLowerCase() === 'viewport' && inDocument(e));
+  const width = viewport && attr(viewport, 'content')?.match(/(?:^|[,;\s])width\s*=\s*(\d+(?:\.\d+)?)\s*(?=[,;\s]|$)/i)?.[1];
+  return {name, width: width && Number(width) > 0 ? clampWidth(Number(width)) : undefined};
+}
