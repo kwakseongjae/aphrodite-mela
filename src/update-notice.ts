@@ -19,6 +19,7 @@ export function progressLabel(received:number,total:number|undefined,lang:'en'|'
 }
 
 export const SKIP_KEY='aphrodite-update-skip';
+export const STABLE_SHOWN_KEY='aphrodite-update-stable-shown';
 export const CHECKED_KEY='aphrodite-update-checked';
 export const OFF_KEY='aphrodite-update-off';
 /** Long enough that launching the app repeatedly does not hammer the release feed. */

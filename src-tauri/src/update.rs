@@ -84,20 +84,27 @@ fn offer(channel: Channel, current: &Version, manifest: &Value, stable_download:
     }))
 }
 
+fn check_feeds(channel: Channel, current: &Version, endpoint: Option<&str>, skipped: Option<&str>,
+               read: impl Fn(&str) -> Option<Value>) -> Option<Value> {
+    let own = endpoint.and_then(&read).and_then(|manifest| offer(channel, current, &manifest, false));
+    if let Some(update) = own.filter(|info| info["latest"].as_str() != skipped) {
+        return Some(update);
+    }
+    if channel == Channel::Preview {
+        let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
+        return read(&stable).and_then(|manifest| offer(channel, current, &manifest, true));
+    }
+    None
+}
+
 #[tauri::command(async)]
-pub fn update_check(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn update_check(app: tauri::AppHandle, skipped: Option<String>) -> Result<Value, String> {
     let current = &app.package_info().version;
     let client = agent(current);
     let channel = Channel::from_identifier(&app.config().identifier);
-    if channel == Channel::Preview {
-        let stable = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
-        if let Some(notice) = read_manifest(&client, &stable).and_then(|manifest| offer(channel, current, &manifest, true)) {
-            return Ok(notice);
-        }
-    }
     let endpoint = app.config().plugins.0.get("updater")
         .and_then(|plugin| plugin["endpoints"][0].as_str());
-    Ok(endpoint.and_then(|url| read_manifest(&client, url)).and_then(|manifest| offer(channel, current, &manifest, false))
+    Ok(check_feeds(channel, current, endpoint, skipped.as_deref(), |url| read_manifest(&client, url))
         .unwrap_or_else(|| json!({"current": current.to_string(), "newer": false})))
 }
 
@@ -497,6 +504,21 @@ mod tests {
         assert_eq!(offer(Channel::Preview, &preview, &final_release, true).unwrap()["stableDownload"], true);
         assert!(offer(Channel::Preview, &preview, &json!({"version":"0.2.9"}), true).is_none());
         assert!(offer(Channel::Preview, &preview, &json!({"version":"0.3.0-beta.1"}), false).is_none());
+    }
+
+    #[test]
+    fn preview_checks_its_own_feed_after_stable_ships() {
+        let current = Version::parse("0.3.0-preview.1").unwrap();
+        let next = "0.4.0-preview.1";
+        let archive = |arch| json!({"url":format!("https://github.com/{REPO}/releases/download/v{next}/Aphrodite_{next}_{arch}.app.tar.gz"),"signature":"sig"});
+        let own = json!({"version":next,"platforms":{"darwin-aarch64":archive("aarch64"),"darwin-x86_64":archive("x64")}});
+        let check = |skipped| check_feeds(Channel::Preview, &current, Some("preview.json"), skipped, |url| {
+            Some(if url == "preview.json" { own.clone() } else { json!({"version":"0.3.0"}) })
+        }).unwrap();
+        assert_eq!(check(None)["latest"], next);
+        assert_eq!(check(None)["stableDownload"], false);
+        assert_eq!(check(Some(next))["stableDownload"], true);
+        assert_eq!(check(Some("0.3.0"))["latest"], next);
     }
 
     #[test]

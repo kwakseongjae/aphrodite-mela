@@ -98,7 +98,7 @@ const REGIONS:Region[]=[
  */
 const LISTENERS:Record<string,{file:string;marker:string}>={
   'external-link':{file:'main.ts',marker:"invoke('open_external',{url:link.href})"},
-  'update-check':{file:'editor/updates.ts',marker:"invoke<UpdateInfo>('update_check')"},
+  'update-check':{file:'editor/updates.ts',marker:"invoke<UpdateInfo>('update_check',{skipped})"},
   'opened':{file:'main.ts',marker:"tauriListen('aphrodite-opened'"},
   // A board file dropped on the board (0.3-P3-fix3 #7): the person's import, on the import row.
   'board-drop':{file:'main.ts',marker:"for(const board of boards)void opening(async()=>openBoardFileNow(await boardFileBytes(board)))"},

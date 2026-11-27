@@ -11,7 +11,7 @@
  */
 import {invoke} from '@tauri-apps/api/core';
 import {shouldCheck, shouldOffer, updateNoticeHtml, progressLabel, koParticle, keepsCard,
-        SKIP_KEY, CHECKED_KEY, OFF_KEY, type UpdateInfo, type NoticeState} from '../update-notice';
+        SKIP_KEY, STABLE_SHOWN_KEY, CHECKED_KEY, OFF_KEY, type UpdateInfo, type NoticeState} from '../update-notice';
 
 /** Everything the update card needs from the app around it. */
 export type UpdateHost = {
@@ -64,16 +64,18 @@ export function createUpdates(host: UpdateHost) {
    *  an offline Mac must not be nagged about a version it could not look up. */
   async function checkForUpdate(){
     if(!host.desktop)return;
-    let skipped:string|null=null;
+    let skipped:string|null=null, stableShown:string|null=null;
     try{
       if(!shouldCheck(Date.now(),localStorage.getItem(CHECKED_KEY),localStorage.getItem(OFF_KEY)))return;
       skipped=localStorage.getItem(SKIP_KEY);
+      stableShown=localStorage.getItem(STABLE_SHOWN_KEY);
     }catch{/* storage unavailable: ask once rather than never */}
     try{
-      const info=await invoke<UpdateInfo>('update_check');
+      const info=await invoke<UpdateInfo>('update_check',{skipped});
       try{localStorage.setItem(CHECKED_KEY,String(Date.now()));}catch{/* nothing to remember it with */}
-      if(!shouldOffer(info,skipped))return;
+      if(!shouldOffer(info,skipped)||(info.stableDownload && info.latest===stableShown))return;
       updateInfo=info;updateState='offer';updateDetail='';updateFile='';paintUpdate();
+      if(info.stableDownload && info.latest)try{localStorage.setItem(STABLE_SHOWN_KEY,info.latest);}catch{/* storage unavailable */}
     }catch{/* offline, rate limited, or GitHub unreachable */}
   }
   /* Connected mode: the person keeps the screen and an agent may edit alongside them. The allow lasts
@@ -116,7 +118,7 @@ export function createUpdates(host: UpdateHost) {
           case 'update-open': if(updateFile)try{await invoke('update_open',{path:updateFile});}catch(error){host.toast(String(error));}break;
           case 'update-reveal': if(updateFile)try{await invoke('update_reveal',{path:updateFile});}catch(error){host.toast(String(error));}break;
           case 'update-notes': if(updateInfo?.notes)try{await invoke('update_notes',{url:updateInfo.notes});}catch(error){host.toast(String(error));}break;
-          case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)host.toast(host.korean()?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
+          case 'update-dismiss': {const skipped=updateInfo?.latest;try{if(skipped && !updateInfo?.stableDownload)localStorage.setItem(SKIP_KEY,skipped);}catch{/* not remembered */}closeUpdate();if(skipped)host.toast(host.korean()?`${skipped}${koParticle(skipped,'은는')} 건너뜁니다. 다음 버전이 나오면 다시 알려드립니다.`:`Skipping ${skipped}. You will hear about the next one.`);break;}
           case 'update-never': try{localStorage.setItem(OFF_KEY,'1');}catch{/* not remembered */}closeUpdate();host.toast(host.ui('Aphrodite will stop checking for updates.','업데이트 확인을 끕니다.'));break;
       default: return false;
     }

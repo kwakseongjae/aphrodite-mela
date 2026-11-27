@@ -136,3 +136,33 @@ test('graduating from a preview offers the separate stable download in either la
     assert.doesNotMatch(html,/data-action="update-install"/);
   }
 });
+
+test('a fresh launch remembers showing the stable download and still offers a newer preview', async t=>{
+  const {createUpdates} = await import('../src/editor/updates');
+  const {CHECKED_KEY} = await import('../src/update-notice');
+  const storage = new Map<string,string>();
+  let reply = {...offer,stableDownload:true};
+  let cards = 0;
+  const globals = {
+    document:{createElement:()=>({querySelector:()=>null}), body:{append:()=>{}}},
+    localStorage:{getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>storage.set(key,value)},
+    window:{__TAURI_INTERNALS__:{invoke:async()=>reply}},
+  };
+  for (const [key,value] of Object.entries(globals)) {
+    const original = Object.getOwnPropertyDescriptor(globalThis,key);
+    Object.defineProperty(globalThis,key,{configurable:true,value});
+    t.after(()=>{if(original)Object.defineProperty(globalThis,key,original);else Reflect.deleteProperty(globalThis,key);});
+  }
+  const launch = async () => {
+    storage.delete(CHECKED_KEY);
+    await createUpdates({desktop:true, korean:()=>false,ui:en=>en, toast:()=>{},notice:()=>{},
+      hydrateIcons:()=>{cards++;},leaving:async go=>go()}).check();
+  };
+  await launch();
+  assert.equal(cards,1);
+  await launch();
+  assert.equal(cards,1,'the handoff was shown on the first launch');
+  reply = {...offer,latest:'0.4.0-preview.1',stableDownload:false};
+  await launch();
+  assert.equal(cards,2);
+});
