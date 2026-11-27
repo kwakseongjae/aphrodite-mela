@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "node scripts/build-library-runtime.mjs && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "tsx --import ./tests/support/raw.mjs --test tests/*.test.ts",
+    "test": "tsx --import ./tests/support/raw.mjs --test --test-timeout=60000 tests/*.test.ts",
     "tauri": "tauri",
     "desktop": "tauri dev",
     "desktop:build": "tauri build --bundles app",
