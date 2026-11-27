@@ -9,7 +9,7 @@ export class WindowSaves {
   private live = 0;
   private acknowledged: number | undefined = 0;
   private queue?: DurableQueue;
-  private pending = new Set<object>();
+  private pending = 0;
   private queuedGeneration?: number;
   private refused = '';
   private stopped = '';
@@ -30,12 +30,12 @@ export class WindowSaves {
   get retries() { return !!this.refused && !this.stopped; }
   get badge(): 'saved' | 'saving' | 'unsaved' {
     if (this.saved) return 'saved';
-    return !this.error && this.pending.size && this.queuedGeneration === this.live ? 'saving' : 'unsaved';
+    return !this.error && this.pending > 0 && this.queuedGeneration === this.live ? 'saving' : 'unsaved';
   }
 
   attach(revision: number, write: Write) {
     this.queue = new DurableQueue(revision, write);
-    this.pending.clear();
+    this.pending = 0;
     this.queuedGeneration = undefined;
     this.stopped = this.refused = '';
   }
@@ -72,20 +72,19 @@ export class WindowSaves {
         this.acknowledged = generation;
         this.refused = '';
       } else {
-        const ticket = {};
-        this.pending.add(ticket);
+        this.pending++;
         this.queuedGeneration = generation;
-        this.refused = '';
         void queue.enqueue(text).then(revision => {
           if (queue !== this.queue) return;
-          this.pending.delete(ticket);
+          this.pending--;
           this.acknowledged = generation;
+          if (generation === this.live) this.refused = '';
           if (this.missingFolder) this.replacement = true;
           this.landed(revision, boards);
           this.changed();
         }, error => {
           if (queue !== this.queue) return;
-          this.pending.delete(ticket);
+          this.pending--;
           this.stopped = String(error);
           this.changed();
         });

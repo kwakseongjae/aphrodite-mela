@@ -350,7 +350,7 @@ let library:Library={version:1,entries:[]};
 let screen:'home'|'editor'='home',hubFilter:LibraryFilter='recent',hubQuery='';let hubView:HubView='grid';try{hubView=store.getItem('aphrodite-hub-view')==='list'?'list':'grid';}catch{}
 const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 let project: Project = initialProject();
-try { library=readLibrary(store);if(readTidied(library)&&!nativeDesktop)try{writeLibraryText(store,JSON.stringify(library));}catch{/* written with the next save */}if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { saves.unread = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
+try { library=readLibrary(store);if(library.entries[0])project=parseProject(JSON.stringify(library.entries[0].project)); } catch { saves.unread = '저장 데이터를 읽지 못해 쓰기를 중지했습니다. 원본 데이터를 내려받아 복구해주세요.'; }
 let selected = currentPage(project).blocks.find(b => b.kind === 'hero')?.id ?? '';
 /** The block the inspector's fields were last drawn for. */
 let inspectedId:string|undefined;
@@ -504,7 +504,11 @@ function saveLibrary(next:Library|(()=>Library),edit=true){
   let prepared:Library;
   saves.save(()=>{
     if(failImportWrite==='now'){failImportWrite=false;throw new Error('the library could not be written (a check refused it)');}
-    prepared=typeof next==='function'?next():next;
+    const boards=typeof next==='function'?next():next;
+    if(screen==='editor'){
+      const entry=boards.entries.find(e=>e.project.id===project.id);
+      prepared=upsertProject(boards,project,undefined,entry?.workspaceId??workspaces.activeId);
+    }else prepared=boards;
     const text=libraryText(prepared);
     rememberSaved(prepared,text.length);
     return {text,boards:prepared.entries.length};
@@ -515,15 +519,14 @@ function saveLibrary(next:Library|(()=>Library),edit=true){
 /** The window's boards as they are now: the open board as it is on screen, though the disk or the check before it refused it. */
 function liveLibrary():Library{if(screen!=='editor')return library;const at=library.entries.findIndex(e=>e.project.id===project.id),now=new Date().toISOString();
   return {...library,entries:at>=0?library.entries.map((e,i)=>i===at?{...e,project}:e):[{project,createdAt:now,updatedAt:now,pinned:false,archived:false,workspaceId:workspaces.activeId},...library.entries]};}
-function editorLibrary(){return upsertProject(library,project,undefined,workspaces.activeId);}
 function persist(edit=true) { if(screen!=='editor')return;
   if(toasts.some(t=>t.undo)){toasts=settleUndo(toasts,undoToken());paintToasts();}
-  try{saveLibrary(editorLibrary,edit);}
+  try{saveLibrary(library,edit);}
   catch{if(!saves.unread&&saves.native&&troubleOpened())return;
     toast(ui('Could not save on this device. Keep the board with Save a backup file; the screen stays as it is.','로컬 저장 실패. "백업 파일로 저장"으로 보드를 파일로 남겨 주세요. 현재 화면은 유지됩니다.'));}
 }
-function queueLibrary(next:Library|(()=>Library)):boolean{
-  try{saveLibrary(next,false);return true;}
+function queueLibrary(next:Library,edit=true):boolean{
+  try{saveLibrary(next,edit);return true;}
   catch(error){notice(ui(`The boards could not be written to disk: ${error instanceof Error?error.message:String(error)} Save a backup file, then fix or remove that board.`,`보드를 디스크에 쓰지 못했습니다: ${error instanceof Error?error.message:String(error)} 백업 파일로 저장한 뒤 그 보드를 고치거나 지워 주세요.`));return false;}
 }
 async function flushDisk(){await saves.flush();}
@@ -598,16 +601,17 @@ function closeWindow(destroy:()=>Promise<void>,answered:()=>boolean=()=>false){r
  * close, close without saving, or stay; in the browser build, the same answers by two confirm()s. A tool driving the
  * screen cannot answer it for them: it is the system's, not the page's.
  */
-async function askClose(error:unknown):Promise<CloseAnswer>{
+async function askClose(error:unknown,dialog=()=>import('@tauri-apps/plugin-dialog')):Promise<CloseAnswer>{
+  const fileChoice=saves.noCopy?'save-library':'save-file';
   // A save that has not finished is said as still under way, not as failed: it may yet land (0.3-R fix 5 #2).
   const pending=error instanceof StillSaving,said=pending?ui(`The board is still being saved: ${String(error.message)}. It may still finish.`,`보드를 아직 저장하는 중입니다: ${SAVE_LIMIT/1000}초 안에 끝나지 않았습니다. 곧 끝날 수도 있습니다.`):ui(`This board could not be saved before closing: ${String(error)}.`,`종료 전에 이 보드를 저장하지 못했습니다: ${String(error)}.`);
   if(nativeDesktop){
-    const save=saves.noCopy?everyBoardLabel():ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
-    const {message}=await import('@tauri-apps/plugin-dialog');
+    const save=fileChoice==='save-library'?everyBoardLabel():ui('Save to a file…','파일로 저장…'),discard=ui('Close without saving','저장 없이 닫기'),stay=ui('Cancel','취소');
+    const {message}=await dialog();
     const got=await message(said,{title:pending?ui('Still saving','아직 저장하는 중'):ui('Not saved','저장하지 못했습니다'),kind:'warning',buttons:{yes:save,no:discard,cancel:stay}});
-    return got===save||got==='Yes'?'save-file':got===discard||got==='No'?'discard':'cancel';
+    return got===save||got==='Yes'?fileChoice:got===discard||got==='No'?'discard':'cancel';
   }
-  if(confirm(`${said}\n\n${saves.noCopy?everyBoardLabel():ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return 'save-file';
+  if(confirm(`${said}\n\n${fileChoice==='save-library'?everyBoardLabel():ui('Save the board to a file, then close? (Cancel to choose between closing without saving and staying.)','보드를 파일로 저장한 뒤 닫을까요? (취소를 누르면 저장 없이 닫을지, 그대로 둘지 고릅니다.)')}`))return fileChoice;
   return confirm(ui('Close without saving?','저장하지 않고 닫을까요?'))?'discard':'cancel';
 }
 /**
@@ -617,12 +621,15 @@ async function askClose(error:unknown):Promise<CloseAnswer>{
  */
 function everyBoardLabel(){return ui('Save every board as a backup file','모든 보드를 백업 파일로 저장');}
 function backupLibrary(){return saveFile('aphrodite-workspace.json',JSON.stringify(liveLibrary(),null,2),'application/json');}
-async function keepOnClose(){
+async function keepOnClose(choice:'save-file'|'save-library'){
   saveTyping();
-  if(screen!=='editor'||saves.noCopy)return backupLibrary();
-  return saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');
+  const generation=saves.generation;
+  const kept=screen!=='editor'||choice==='save-library'||saves.noCopy
+    ?await backupLibrary()
+    :await saveFile(fileName(project,'aphrodite.json'),JSON.stringify(project,null,2),'application/json');
+  return kept&&generation===saves.generation;
 }
-const closer=windowCloser(closeWindow,askClose,()=>keepOnClose(),3*SAVE_LIMIT+5_000);
+const closer=windowCloser(closeWindow,askClose,choice=>keepOnClose(choice),3*SAVE_LIMIT+5_000);
 async function guardSwitch(){if(leaving){saveTyping();await flushDisk();return;}await leave(()=>undefined);}
 /**
  * A board someone sent (src/board-file.ts reads it as theirs, never as ours), opened as a new board here. Its
@@ -1880,7 +1887,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'close-modal': if(askOpen()){if(trusted)answerAsk(false);break;} closeModal(); break;
     case 'project': showModal(ui('Board','보드'), ui('Keep the board as a file and pick it up again any time.','보드를 파일로 보관하고, 언제든 다시 이어서 작업하세요.'), `<form id="rename-form"><label class="form-label">${ui('Board name','보드 이름')}<input name="name" required maxlength="100" value="${esc(project.name)}"></label><button class="primary-button" type="submit">${ui('Rename board','보드 이름 변경')}</button></form><div class="project-menu-actions">${button('save-project', 'download', 'Save a backup file', 'secondary-button')}${button('import-project', 'folder-open', 'Open board', 'secondary-button')}${button('new-project', 'plus', 'New board', 'secondary-button')}${button('vault-open','folder','Board library','secondary-button')}</div><p class="fine-print">각 보드는 보관함에 자동 저장됩니다. 보드 간 Undo는 분리됩니다. 기기 밖 백업은 "백업 파일로 저장"을 사용하세요.</p>`); break;
     case 'disk-backup': if(backup&&await saveFile(backup.name,backup.text,'application/json'))toast(ui('Backup saved','백업을 저장했습니다')); break;
-    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(modalRoot.querySelector('[data-reload-confirm]')?reloadAsked:undefined); break;
+    case 'disk-reload': if(refusal(d,'outside.disk-reload'))break;await reloadFromDisk(el.dataset.discardGeneration===undefined?undefined:Number(el.dataset.discardGeneration)); break;
     case 'notice-open': if(!modalRoot.children.length&&!fatalUp())openTrouble(); break;
     case 'fatal-redraw': {if(!trusted||refusal(d,'human.render-failed'))break;const sheet=document.querySelector<HTMLElement>('.fatal-scrim');if(sheet)fatalPress('fatal-redraw',sheet);break;}
     case 'fatal-close': if(!trusted||refusal(d,'human.render-failed'))break;{const sheet=document.querySelector('.fatal-scrim');if(sheet)dismissSheet(sheet);} break;
@@ -1902,7 +1909,7 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
       // The missing folder is forgotten only once what the window holds has landed: a write not queued, or one that fails, keeps it.
       saveTyping();
       const at=saves.generation;
-      if(!saves.native||!queueLibrary(screen==='editor'?editorLibrary:library))break;
+      if(!saves.native||!queueLibrary(library,false))break;
       if(!await flushDisk().then(()=>true,()=>false))break;
       if(!saves.acceptReplacement(at))break;
       render();
@@ -2738,9 +2745,7 @@ function paintSaveState(){
   document.querySelectorAll<HTMLElement>('[data-save-badge]').forEach(el=>{el.replaceWith(document.createRange().createContextualFragment(saveBadge(saves.badge)));});
   hydrateIconsIn(app);
 }
-/** The count of edits the reload question was asked at. */
-let reloadAsked=-1;
-function askReload(){reloadAsked=saves.generation;const c=reloadConfirm(uiLanguage==='ko');showModal(c.title,c.subtitle,c.body,'confirm');}
+function askReload(){const c=reloadConfirm(uiLanguage==='ko',saves.generation);showModal(c.title,c.subtitle,c.body,'confirm');}
 /** Discard in-memory edits and re-open the on-disk library with a fresh write queue. `asked` is the count of edits the person said yes at. */
 async function reloadFromDisk(asked?:number){
   if(!nativeDesktop)return;
@@ -2770,12 +2775,13 @@ async function reloadFromDiskNow(at=saves.generation){
   // A readable path says nothing of which folder it is: what is said is only what was read.
   if(old&&!saves.replaced){toast(ui('There is a folder in that place again, and its boards were read.','그 자리에 폴더가 다시 있어서, 그 안의 보드를 읽었어요.'));}
   else if(saves.missing)toast(ui('Read again the folder this window made in the same place. The old folder has still not been found.','이 창이 같은 자리에 만든 새 폴더를 다시 읽었어요. 예전 폴더는 아직 찾지 못했어요.'));
-  if(stored.data!==null&&readTidied(library))queueLibrary(library);
   const entry=library.entries.find(e=>e.project.id===project.id);
   if(entry&&screen==='editor')openProject(entry.project);else{screen='home';edits=newHistory();}
+  if(stored.data!==null&&readTidied(library))queueLibrary(library);
   render();if(!saves.missing||!saves.replaced)toast(ui('Reloaded the saved copy. Unsaved edits were discarded.','저장본을 다시 불러왔습니다. 저장되지 않은 편집은 버렸습니다.'));
 }
 async function boot(){
+  if(!nativeDesktop&&readTidied(library))try{saveLibrary(library);}catch{/* retried with the next save */}
   if(nativeDesktop){
     app.innerHTML=`<p style="padding:48px">${ui('Opening your local workspace…','로컬 작업 공간을 여는 중…')}</p>`;
     try{

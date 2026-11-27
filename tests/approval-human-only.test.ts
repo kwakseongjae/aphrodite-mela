@@ -256,7 +256,7 @@ test('on Home an agent reads no revision and no references kept for the board le
 });
 
 test('a library whose read tidied an approval is written back once, and a store that refuses that write does not stop the app', () => {
-  assert.match(main, /if\(readTidied\(library\)&&!nativeDesktop\)try\{writeLibraryText\(store,JSON\.stringify\(library\)\);\}catch\{/);
+  assert.match(main, /if\(!nativeDesktop&&readTidied\(library\)\)try\{saveLibrary\(library\);\}catch\{/);
   // 0.3-R fix 1 #10: through queueLibrary, held to what the desktop can save.
   assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)&&!saves\.missing\)queueLibrary\(library\);/, 'the desktop at start');
   assert.match(main, /if\(stored\.data!==null&&readTidied\(library\)\)queueLibrary\(library\);/, 'and when it reads the disk again');

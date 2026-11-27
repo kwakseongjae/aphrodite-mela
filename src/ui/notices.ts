@@ -152,13 +152,13 @@ export function troubleDialog(t: Trouble, where: 'home' | 'editor' | 'page', ko:
 }
 
 /** Asked before a reload throws away what this window could not save. It starts on keeping it. */
-export function reloadConfirm(ko: boolean): {title: string; subtitle: string; body: string} {
+export function reloadConfirm(ko: boolean, generation: number): {title: string; subtitle: string; body: string} {
   const T = (en: string, k: string) => (ko ? k : en);
   return {
     title: T('Throw away the changes that were not saved, and reload?', '저장하지 못한 변경을 버리고 다시 불러올까요?'),
     subtitle: T('Reloading opens what is saved on disk, and the changes this window could not save are gone. Saving a backup file first keeps them.', '다시 불러오면 디스크에 저장된 것이 열리고, 이 창이 저장하지 못한 변경은 사라져요. 먼저 백업 파일로 받아 두면 남길 수 있어요.'),
     body: '<div class="ui-modal-foot ui-modal-foot-plain" data-reload-confirm><button type="button" class="ui-btn ui-btn-secondary ui-btn-md" data-action="close-modal" data-first-focus>' + T('Keep them', '그대로 두기') + '</button>'
-      + '<button type="button" class="ui-btn ui-btn-danger ui-btn-md" data-action="disk-reload">' + T('Throw away and reload', '버리고 다시 불러오기') + '</button></div>',
+      + '<button type="button" class="ui-btn ui-btn-danger ui-btn-md" data-action="disk-reload" data-discard-generation="' + generation + '">' + T('Throw away and reload', '버리고 다시 불러오기') + '</button></div>',
   };
 }
 

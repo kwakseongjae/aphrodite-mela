@@ -35,6 +35,6 @@ test('the storage warnings say board, and a name holding a shared phrase stays a
   assert.equal(boardWords('Workspace exceeds 40MB; export large projects'),'Workspace exceeds 40MB; export large boards');
   const main=read('src/main.ts');
   // 0.3-G2b: the strip and Home's warning are one dialog now (src/ui/notices.ts), whose details say board the same way.
-  assert.match(main,/detail:boardWords\(saveTrouble\)/,'the not-saved dialog');
-  assert.match(main,/detail:boardWords\(startupError\)/,"Home's unread-store dialog");
+  assert.match(main,/detail:boardWords\(saves\.error\)/,'the not-saved dialog');
+  assert.match(main,/detail:boardWords\(saves\.unread\)/,"Home's unread-store dialog");
 });
