@@ -9,7 +9,6 @@ const scene=(command:string)=>rig.page.evaluate('scene.'+command+'()');
 const focused=()=>rig.page.evaluate(()=> (document.activeElement as HTMLElement)?.dataset.action);
 beforeEach(async()=>{
   await rig.page.goto('http://localhost/');
-  await rig.page.evaluate(()=>localStorage.clear());
   await scene('board');
 });
 test('Space held before the request, including its native button click on release, never allows',async()=>{
@@ -92,7 +91,7 @@ test('the sheet replaces failure feedback and Copy contains only the diagnostics
   await page.waitForFunction(()=>document.querySelector('[data-fatal-detail]')?.textContent?.includes('disk refused'));
   assert.match((await status.textContent())!,/The file could not be saved\.|파일로 저장하지 못했어요\./);
   await page.evaluate(`navigator.clipboard.writeText=async text=>window.copied=text`);await copy.click();
-  const copied=await page.evaluate('window.copied');
+  const copied=await page.evaluate<string>('window.copied');
   assert.match(copied,/test diagnostic/);assert.match(copied,/disk refused/);
   assert.doesNotMatch(copied,/Could not copy|복사하지 못했습니다|could not be saved|저장하지 못했어요/);
 });
@@ -104,4 +103,10 @@ test('the standalone page and editor show the allowed scope after an agent write
   assert.equal(await editor.textContent(),allowed);
   await scene('wrote');
   assert.deepEqual(await page.locator('[data-connect-who]').allTextContents(),[allowed,allowed]);
+});
+test('a repeated key on Allow stays inert until a new press',async()=>{
+  const {page}=rig;await scene('request');await page.waitForTimeout(10);assert.equal(await focused(),'ask-allow');
+  await page.keyboard.down('Enter');await page.keyboard.down('Enter');await page.keyboard.up('Enter');
+  assert.equal(await page.locator('.ask-modal').count(),1);
+  await page.keyboard.press('Enter');assert.equal(await page.locator('.ask-modal').count(),0);
 });

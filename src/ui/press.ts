@@ -5,7 +5,7 @@ const controls='button,input:not([type="hidden"]),textarea,select,a[href],summar
 const popovers='details[open]:is(.connect-mark,.menu-select,.help-fab,.folio-ws,.folio-more,.folio-lang,.folio-theme,.folio-help,.top-lang),.dock-slot:has(.dock-menu)';
 type Kind='sheet'|'dialog'|'ask'|'palette'|'popover'|'toast'|'page'|'editor';
 type Surface={kind:Kind;root:HTMLElement};
-type Origin={root:HTMLElement;focus:Element|null;control:HTMLElement|null};
+type Origin={root:HTMLElement;focus:Element|null;control:HTMLElement|null;cancelled?:boolean};
 const keyboardClicks=new WeakMap<Event,KeyboardEvent>();
 
 /** Available only during dispatch of this single click, after its trusted release passed every ownership check. */
@@ -27,8 +27,8 @@ export function topSurface():Surface{
   const modal=document.querySelector<HTMLElement>('#modal-root > :last-child .modal');
   const page=document.querySelector<HTMLElement>('#page-view-root .page-view');
   const root=modal??page??document.body;
-  const menus=[...root.querySelectorAll<HTMLElement>(popovers)].filter(visible);
-  const menu=menus.reverse().find(el=>el.contains(document.activeElement))??menus[0];
+  const menus=[...root.querySelectorAll<HTMLElement>(popovers)].filter(visible).reverse();
+  const menu=menus.find(el=>el.contains(document.activeElement))??menus[0];
   if(menu)return {kind:'popover',root:menu};
   if(modal)return {kind:modal.matches('.ask-modal')?'ask':modal.querySelector('#command-list')?'palette':'dialog',root};
   return {kind:page?'page':'editor',root};
@@ -60,8 +60,10 @@ function cycle(root:HTMLElement,back:boolean){
 }
 
 function keyName(e:KeyboardEvent){
-  if(e.code==='Enter'||e.code==='NumpadEnter')return 'Enter';
+  if(e.code==='Enter'||e.code==='NumpadEnter'||e.keyCode===13)return 'Enter';
   if(e.code==='Space')return ' ';
+  if(e.code==='ArrowDown'||e.key==='Down'||e.keyCode===40)return 'ArrowDown';
+  if(e.code==='ArrowUp'||e.key==='Up'||e.keyCode===38)return 'ArrowUp';
   return e.code==='Escape'?'Escape':e.key==='Process'?e.code:e.key;
 }
 function stop(e:Event){e.preventDefault();e.stopImmediatePropagation();}
@@ -96,7 +98,11 @@ export function installPress(actions:Actions){
     if(!e.isTrusted)return;
     const id=e.code||e.key;
     if(!e.repeat&&!held.has(id))fresh.add(e);
-    if(!held.has(id))held.set(id,null);
+    const key=keyName(e);
+    if(key==='Enter'||key===' '){
+      if(!held.has(id))held.set(id,{root:topSurface().root,focus:document.activeElement,control:null,cancelled:e.repeat});
+      else{const origin=held.get(id);if(origin)origin.cancelled=true;}
+    }else held.set(id,null);
   },true);
   window.addEventListener('keyup',e=>{
     if(!e.isTrusted)return;
@@ -114,7 +120,7 @@ export function installPress(actions:Actions){
     else if(surface.kind==='sheet'&&!restoreFocus())focusOnSurface(surface.root.querySelector<HTMLElement>('[data-action="fatal-redraw"]'));
   },true);
   document.addEventListener('focusout',e=>{
-    for(const [key,origin] of held)if(origin?.focus===e.target)held.set(key,null);
+    for(const origin of held.values())if(origin?.focus===e.target)origin.cancelled=true;
   },true);
 
   function route(e:KeyboardEvent){
@@ -122,14 +128,15 @@ export function installPress(actions:Actions){
     const inside=surface.root.contains(document.activeElement);
     if(key==='Enter'||key===' '){
       const control=buttonFor(surface,key);
-      const origin=releases.get(e);
-      if(!control&&!origin&&inside&&surface.kind!=='sheet'&&surface.kind!=='ask'&&
+      const origin=down?held.get(e.code||e.key):releases.get(e);
+      const stale=!down&&(!origin||origin.cancelled||origin.root!==surface.root||origin.focus!==document.activeElement);
+      if(!control&&!origin?.control&&!stale&&inside&&surface.kind!=='sheet'&&surface.kind!=='ask'&&
         !(surface.kind==='palette'&&key==='Enter'))return; // native typing, board panning
       stop(e);
       if(!e.isTrusted||!control||!visible(control)||e.target!==document.activeElement)return;
       if(down){
         if(fresh.has(e))held.set(e.code||e.key,{root:surface.root,focus:document.activeElement,control});
-      }else if(origin?.root===surface.root&&origin.focus===document.activeElement&&origin.control===control){
+      }else if(!stale&&origin?.control===control){
         const click=new MouseEvent('click',{bubbles:true,cancelable:true,view:window});
         keyboardClicks.set(click,e);
         try{send(control,click,dispatchOf(e));}finally{keyboardClicks.delete(click);}
@@ -140,7 +147,8 @@ export function installPress(actions:Actions){
       // The editor also uses Escape to cancel an active pointer gesture.
       if(surface.kind==='editor')return;
       stop(e);
-      if(down&&fresh.has(e)&&(surface.kind!=='ask'||inside))actions.escape(surface,e);
+      const agentMayDismiss=surface.kind!=='ask'&&surface.kind!=='sheet'&&dispatchOf(e)?.author.kind==='agent';
+      if(down&&(fresh.has(e)||agentMayDismiss)&&(surface.kind!=='ask'||inside))actions.escape(surface,e);
       return;
     }
     if(key==='Tab'){

@@ -171,7 +171,7 @@ test('the gate reads a click off the live screen the way the click handler does'
 });
 
 test('the click listener tells action() whether a person clicked, and who pressed',()=>{
-  assert.match(main,/void action\(control,\s*dispatchOf\(e\),\s*e\.isTrusted\)/);
+  assert.match(main,/void action\(control,\s*dispatchOf\(e\),\s*pressOrigin\(e\)\.isTrusted\)/);
 });
 
 test('action() refuses a human-only action no person started',()=>{

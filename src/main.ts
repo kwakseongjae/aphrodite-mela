@@ -1564,6 +1564,11 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
   // A section tool the person presses after the board lost its last section page (an open palette, the Archive) does nothing now; an agent's goes to the open page as before.
   if(act&&screen==='editor'&&d.author.kind!=='agent'&&sectionOnly(act)&&!hasSectionPage(project))return;
   // A handler that waits (a picker, a fetch) writes only to the board it began on (0.3-R fix 1 #5): asked again just before it commits.
+  switch(act){
+    case 'ask-allow': case 'ask-decline':
+      if(modalRoot.contains(el)&&topSurface().root.contains(el))answerAsk(act==='ask-allow');
+      return;
+  }
   const backup=act==='disk-backup'?{name:fileName(project,'aphrodite.json'),text:JSON.stringify(project,null,2)}:undefined;
   if(backup)refreshBackupFormat(backup.text);
   const here=sameBoard();
@@ -1925,8 +1930,6 @@ async function action(el: HTMLElement, given: Dispatch | undefined, trusted = fa
     case 'delete-page': if (project.pages.length > 1) { const done=commit(() => { project.pages = project.pages.filter(p => p.id !== project.activePageId); project.activePageId = firstShown(project).id; selected = ''; }, d, 'edit.page-delete'); closeModal(); undoable(ui('The page was removed.','페이지를 지웠어요.'),done); } break;
     case 'agent': agentModal();break;
     case 'agent-connect': agentConnectModal();break;
-    case 'ask-allow': answerAsk(true);break;
-    case 'ask-decline': answerAsk(false);break;
     case 'agent-connect-toggle': {setAllowed(connectMode?[]:[ANYONE]);if(!connectMode){lease=null;connectWrites=0;}const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(connectMode?ui('Agents may now edit alongside you.','이제 에이전트가 함께 편집할 수 있습니다.'):ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;}
     case 'agent-forget': {const name=el.dataset.name??'';setAllowed(forgetAgent(allowedAgents,name));if(!connectMode||lease?.label===name){lease=null;}if(!connectMode)connectWrites=0;const explaining=!!modalRoot.querySelector('.connect-switch');refreshBanners();if(explaining)agentConnectModal();toast(`${callerText(name)} · ${ui('disconnected. It will be asked again next time.','연결을 끊었습니다. 다음 요청 때 다시 묻습니다.')}`);break;}
     case 'agent-disconnect': setAllowed([]);lease=null;connectWrites=0;askState=null;refreshBanners();toast(ui('Agents can read, but no longer edit.','에이전트는 읽기만 할 수 있습니다.'));break;
